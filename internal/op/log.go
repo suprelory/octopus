@@ -163,7 +163,7 @@ func relayLogApproxBytes(relayLog model.RelayLog) int64 {
 	size += len(relayLog.RequestModelName) + len(relayLog.RequestAPIKeyName) + len(relayLog.ClientIP) + len(relayLog.EndpointType) + len(relayLog.ChannelName) + len(relayLog.ActualModelName) + len(relayLog.ReasoningEffort)
 	size += len(relayLog.RequestContent) + len(relayLog.ResponseContent) + len(relayLog.Error)
 	for _, attempt := range relayLog.Attempts {
-		size += 96 + len(attempt.ChannelName) + len(attempt.ModelName) + len(attempt.Msg)
+		size += 96 + len(attempt.ChannelName) + len(attempt.ModelName) + len(attempt.AdapterType) + len(attempt.Msg)
 	}
 	return int64(size)
 }

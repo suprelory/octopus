@@ -9,9 +9,8 @@ import { useTranslations } from 'next-intl';
 import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
 import { useSearchStore } from '@/components/modules/toolbar';
 import { useToolbarViewOptionsStore } from '@/components/modules/toolbar/view-options-store';
-import { useLogUIStore } from './ui-store';
+import { useLogFieldVisibilityStore, useLogUIStore, type LogFieldName } from './ui-store';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { useLogFieldVisibilityStore, type LogFieldName } from './ui-store';
 
 type LogFilters = {
     keyword: string;
@@ -152,28 +151,28 @@ export function Log() {
     }, [hasMore, logs.length, t]);
 
     return (
-        <div className="flex h-full min-h-0 flex-col gap-3">
+        <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
             <div className="flex justify-end">
-                    <Popover>
-                        <PopoverTrigger asChild>
-                            <button type="button" className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground">
-                                <Columns3 className="size-3.5" />{tView('title')}
-                            </button>
-                        </PopoverTrigger>
-                        <PopoverContent align="end" className="w-56 p-3">
-                            <div className="mb-2 text-xs font-medium text-muted-foreground">{tView('title')}</div>
-                            <div className="flex flex-col gap-1">
-                                {(['endpointType', 'channelName', 'actualModel', 'apiKeyName', 'clientIP', 'cost', 'tps', 'cacheHitRate', 'reasoningEffort', 'reasoningTokens'] as LogFieldName[]).map((field) => (
-                                    <label key={field} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-muted">
-                                        <input type="checkbox" checked={visibility[field]} onChange={() => useLogFieldVisibilityStore.getState().toggleField(field)} className="size-3" />
-                                        {tView(field)}
-                                    </label>
-                                ))}
-                            </div>
-                            <button type="button" onClick={() => useLogFieldVisibilityStore.getState().resetFields()} className="mt-2 w-full rounded border px-2 py-1 text-xs text-muted-foreground hover:bg-muted">{tView('reset')}</button>
-                        </PopoverContent>
-                    </Popover>
-                </div>
+                <Popover>
+                    <PopoverTrigger asChild>
+                        <button type="button" className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+                            <Columns3 className="size-3.5" />{tView('title')}
+                        </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="end" className="w-56 p-3">
+                        <div className="mb-2 text-xs font-medium text-muted-foreground">{tView('title')}</div>
+                        <div className="flex flex-col gap-1">
+                            {(['endpointType', 'channelName', 'actualModel', 'apiKeyName', 'clientIP', 'cost', 'tps', 'cacheHitRate', 'reasoningEffort', 'reasoningTokens'] as LogFieldName[]).map((field) => (
+                                <label key={field} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs transition-colors hover:bg-muted">
+                                    <input type="checkbox" checked={visibility[field]} onChange={() => useLogFieldVisibilityStore.getState().toggleField(field)} className="size-3 rounded" />
+                                    {tView(field)}
+                                </label>
+                            ))}
+                        </div>
+                        <button type="button" onClick={() => useLogFieldVisibilityStore.getState().resetFields()} className="mt-2 w-full rounded-md border border-border/50 px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">{tView('reset')}</button>
+                    </PopoverContent>
+                </Popover>
+            </div>
             {warning ? (
                 <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
                     {warning}
@@ -184,7 +183,7 @@ export function Log() {
                     items={logs}
                     layout="list"
                     columns={{ default: 1 }}
-                    estimateItemHeight={80}
+                    estimateItemHeight={180}
                     overscan={8}
                     getItemKey={(log) => `log-${log.id}`}
                     renderItem={(log) => <LogCard log={log} siteTargets={siteActionTargets.get(log.id) ?? null} channelNameById={channelNameById} />}

@@ -52,6 +52,7 @@ func HandleWSResponse(c *gin.Context) {
 
 	apiKeyID := c.GetInt("api_key_id")
 	supportedModels := c.GetString("supported_models")
+	clientIP := c.ClientIP()
 
 	log.Debugf("ws client connected (apikey=%d)", apiKeyID)
 
@@ -98,7 +99,7 @@ func HandleWSResponse(c *gin.Context) {
 			continue
 		}
 
-		conversationState = processWSResponseCreate(ctx, conn, data, apiKeyID, supportedModels, downstreamSessionID, conversationState)
+		conversationState = processWSResponseCreate(ctx, conn, data, apiKeyID, supportedModels, clientIP, downstreamSessionID, conversationState)
 	}
 }
 
@@ -108,6 +109,7 @@ func processWSResponseCreate(
 	data []byte,
 	apiKeyID int,
 	supportedModels string,
+	clientIP string,
 	downstreamSessionID string,
 	conversationState *wsConversationState,
 ) *wsConversationState {
@@ -222,7 +224,7 @@ func processWSResponseCreate(
 	}
 
 	requestModel = executionRequest.Model
-	req, group, err := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, cloneInternalRequest(executionRequest), originalRequest, preferredSticky, bodyBytes)
+	req, group, err := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, clientIP, cloneInternalRequest(executionRequest), originalRequest, preferredSticky, bodyBytes)
 	if err != nil {
 		status := 404
 		code := "model_not_found"
@@ -256,7 +258,7 @@ func processWSResponseCreate(
 			apiKeyID, requestModel, failedPreviousResponseID, result.ResetConversation)
 		balancer.DeleteSticky(apiKeyID, requestModel)
 		replayedRequest := conversationState.BuildReplayRequest(originalRequest)
-		replayReq, replayGroup, replayErr := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, replayedRequest, originalRequest, preferredSticky, bodyBytes)
+		replayReq, replayGroup, replayErr := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, clientIP, replayedRequest, originalRequest, preferredSticky, bodyBytes)
 		if replayErr == nil {
 			replayReq.metrics.SetWSMode(dbmodel.RelayLogWSModeReplay)
 			replayReq.metrics.SetWSRecovery(dbmodel.RelayLogWSRecoveryReplay)
@@ -412,6 +414,7 @@ func newWSRelayRequest(
 	inAdapter transformerModel.Inbound,
 	apiKeyID int,
 	requestModel string,
+	clientIP string,
 	executionRequest *transformerModel.InternalLLMRequest,
 	metricsRequest *transformerModel.InternalLLMRequest,
 	preferredSticky *balancer.SessionEntry,
@@ -432,7 +435,7 @@ func newWSRelayRequest(
 		ctx:             ctx,
 		inAdapter:       inAdapter,
 		internalRequest: executionRequest,
-		metrics:         NewRelayMetrics(apiKeyID, requestModel, "responses", "", rawBody, metricsRequest),
+		metrics:         NewRelayMetrics(apiKeyID, requestModel, "responses", clientIP, rawBody, metricsRequest),
 		apiKeyID:        apiKeyID,
 		requestModel:    requestModel,
 		groupID:         group.ID,

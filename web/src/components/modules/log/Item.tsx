@@ -51,6 +51,7 @@ function formatEndpointLabel(t: ReturnType<typeof useTranslations<'log.card'>>, 
         volcengine: 'adapterLabels.volcengine',
         embedding: 'adapterLabels.embedding',
         embeddings: 'adapterLabels.embedding',
+        images: 'adapterLabels.images',
         mimo: 'adapterLabels.mimo',
         cloudflare: 'adapterLabels.cloudflare',
         passthrough: 'adapterLabels.passthrough',
@@ -60,6 +61,17 @@ function formatEndpointLabel(t: ReturnType<typeof useTranslations<'log.card'>>, 
     if (!labelKey) return value;
     const translated = t(labelKey as never);
     return translated.includes('adapterLabels.') ? value : translated;
+}
+
+function formatAttemptAdapterLabel(t: ReturnType<typeof useTranslations<'log.card'>>, value: string | undefined) {
+    if (!value?.trim()) return '';
+    return formatEndpointLabel(t, value);
+}
+
+function formatRequestTypeLabel(t: ReturnType<typeof useTranslations<'log.card'>>, value: string) {
+    if (!value) return '';
+    const translated = t(`requestTypeLabels.${value}` as never);
+    return translated.includes('requestTypeLabels.') ? value : translated;
 }
 
 export type LogSiteActionTarget = ApiLogSiteActionTarget;
@@ -100,6 +112,7 @@ function formatTPS(tokens: number, timeMs: number): string {
 function formatCacheHitRate(cacheRead: number, total: number): string {
     if (cacheRead <= 0 || total <= 0) return '-';
     const rate = (cacheRead / total) * 100;
+    if (rate >= 100) return '100%';
     return rate >= 10 ? `${rate.toFixed(1)}%` : `${rate.toFixed(2)}%`;
 }
 
@@ -353,7 +366,7 @@ function RetryBadgeWithTooltip({ channelName, brandColor, attempts, channelNameB
                                         {attempt.channel_name?.trim() || channelNameById?.get(attempt.channel_id) || `Channel #${attempt.channel_id}`}
                                     </span>
                                     <span className="text-[10px] text-muted-foreground">
-                                        {attempt.model_name}{attempt.adapter_type ? ` • ${attempt.adapter_type}` : ''} • {formatDuration(attempt.totalDuration)}
+                                        {attempt.model_name}{attempt.adapter_type ? ` • ${formatAttemptAdapterLabel(t, attempt.adapter_type)}` : ''} • {formatDuration(attempt.totalDuration)}
                                     </span>
                                 </div>
                                 {attempt.repeat > 1 ? (
@@ -567,6 +580,10 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
     const hasError = !!log.error;
     const hasAttempts = (log.attempts?.length ?? 0) > 0;
     const hasMultipleAttempts = (log.attempts?.length ?? 0) > 1;
+    const forwardedAttempts = useMemo(
+        () => (log.attempts ?? []).filter((attempt) => attempt.status === 'success' || attempt.status === 'failed').length,
+        [log.attempts],
+    );
     const [isDiagnosticExpanded, setIsDiagnosticExpanded] = useState(false);
     const [confirmDisableOpen, setConfirmDisableOpen] = useState(false);
     const [activeDisableTarget, setActiveDisableTarget] = useState<LogSiteActionTarget | null>(null);
@@ -582,8 +599,11 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
     const displayActualModelName = displayFields.actualModelName;
     const displayRequestModelName = displayFields.requestModelName;
     const displayChannelName = displayFields.channelName || '-';
-    const endpointValue = displayFields.adapterType || displayFields.endpointType || displayFields.requestType;
-    const endpointLabel = formatEndpointLabel(t, endpointValue);
+    const endpointLabel = displayFields.adapterType
+        ? formatEndpointLabel(t, displayFields.adapterType)
+        : displayFields.requestType
+            ? formatRequestTypeLabel(t, displayFields.requestType)
+            : formatEndpointLabel(t, displayFields.endpointType);
     const cacheReadTokens = displayFields.cacheReadTokens;
     const totalTokens = log.input_tokens + log.output_tokens;
     const { Avatar: ModelAvatar, color: brandColor } = useMemo(
@@ -682,7 +702,7 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
 
     return (
         <>
-        <MorphingDialog>
+            <MorphingDialog>
                 <MorphingDialogTrigger
                     onClick={() => {
                         if (!detailLog && !detailLoading) {
@@ -695,8 +715,9 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
                         hasError ? 'border-destructive/40' : 'border-border',
                     )}
                 >
-                    <div className={cn('p-3 sm:p-4 grid grid-cols-[auto_1fr] gap-3 sm:gap-4', hasError ? 'items-start' : 'items-center')}>
-                        <ModelAvatar size={40} />
+                    <div className={cn('grid grid-cols-[auto_1fr] gap-2.5 p-2.5 sm:gap-4 sm:p-4', hasError ? 'items-start' : 'items-center')}>
+                        <div className="sm:hidden"><ModelAvatar size={36} /></div>
+                        <div className="hidden sm:block"><ModelAvatar size={40} /></div>
                         <div className="min-w-0 flex flex-col gap-2">
                             <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm md:flex-nowrap">
                                 <span className="min-w-0 max-w-full font-semibold text-card-foreground truncate md:max-w-[32%]" title={displayRequestModelName}>
@@ -716,18 +737,20 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
                                 {visibility.channelName ? (
                                     <>
                                         <ArrowRight className="size-3.5 shrink-0 text-muted-foreground/50" />
-                                    {hasMultipleAttempts ? (
-                                        <RetryBadgeWithTooltip channelName={displayChannelName} brandColor={brandColor} attempts={log.attempts!} channelNameById={channelNameById} />
-                                    ) : (
-                                        <Badge variant="secondary" className="max-w-full shrink-0 px-1.5 py-0 text-xs" style={{ backgroundColor: `${brandColor}15`, color: brandColor }}>
-                                            <span className="max-w-[18rem] truncate">{displayChannelName}</span>
-                                        </Badge>
-                                    )}
+                                        {hasMultipleAttempts ? (
+                                            <RetryBadgeWithTooltip channelName={displayChannelName} brandColor={brandColor} attempts={log.attempts!} channelNameById={channelNameById} />
+                                        ) : (
+                                            <Badge variant="secondary" className="max-w-full shrink-0 px-1.5 py-0 text-xs" style={{ backgroundColor: `${brandColor}15`, color: brandColor }}>
+                                                <span className="max-w-[18rem] truncate">{displayChannelName}</span>
+                                            </Badge>
+                                        )}
                                     </>
                                 ) : null}
-                                {visibility.actualModel ? <span className="min-w-0 text-muted-foreground truncate md:flex-1" title={displayActualModelName}>
+                                {visibility.actualModel ? (
+                                    <span className="min-w-0 truncate text-muted-foreground md:flex-1" title={displayActualModelName}>
                                         {displayActualModelName}
-                                </span> : null}
+                                    </span>
+                                ) : null}
                                 {log.attempts?.some((attempt) => attempt.sticky) ? <Pin className="size-3.5 shrink-0 text-amber-500" /> : null}
                                 <WSModeBadge log={log} />
                             </div>
@@ -752,7 +775,8 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
                                 <div className="flex items-center gap-1.5"><Cpu className="size-3.5 shrink-0 text-blue-500" /><span>{t('totalTime')} {formatDurationCompact(log.use_time)}</span></div>
                                 {visibility.tps ? <div className="flex items-center gap-1.5"><Gauge className="size-3.5 shrink-0 text-lime-500" /><span>{t('tps')} {formatTPS(log.output_tokens, log.use_time)}</span></div> : null}
                                 {visibility.cacheHitRate && cacheReadTokens > 0 ? <div className="flex items-center gap-1.5"><Percent className="size-3.5 shrink-0 text-teal-500" /><span>{t('cacheHitRate')} {formatCacheHitRate(cacheReadTokens, totalTokens)}</span></div> : null}
-                                <div className="flex items-center gap-1.5"><ArrowDownToLine className="size-3.5 shrink-0 text-green-500" /><span>{t('input')} {Math.max(0, log.input_tokens - cacheReadTokens).toLocaleString()}</span></div>
+                                <div className="flex items-center gap-1.5"><ArrowDownToLine className="size-3.5 shrink-0 text-green-500" /><span>{t(cacheReadTokens > 0 ? 'realInput' : 'input')} {Math.max(0, log.input_tokens - cacheReadTokens).toLocaleString()}</span></div>
+                                {displayFields.semanticCacheHit ? <div className="flex items-center gap-1.5"><ArrowDownToLine className="size-3.5 shrink-0 text-cyan-500" /><span>{t('semanticCacheHit')}</span></div> : null}
                                 {cacheReadTokens > 0 ? <div className="flex items-center gap-1.5"><ArrowDownToLine className="size-3.5 shrink-0 text-teal-500" /><span>{t('cacheHit')} {formatCompactTokenCount(cacheReadTokens)}</span></div> : null}
                                 <div className="flex items-center gap-1.5">
                                     <ArrowUpFromLine className="size-3.5 shrink-0 text-purple-500" />
@@ -789,14 +813,14 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
                                 <ArrowRight className="size-3.5 shrink-0 text-muted-foreground/50" />
                                 {visibility.endpointType && endpointLabel ? <Badge variant="secondary" className="shrink-0 px-1.5 py-0 text-xs" style={{ backgroundColor: `${brandColor}15`, color: brandColor }}>{endpointLabel}</Badge> : null}
                                 {visibility.channelName ? <ArrowRight className="size-3.5 shrink-0 text-muted-foreground/50" /> : null}
-                                {hasMultipleAttempts ? (
+                                {visibility.channelName && hasMultipleAttempts ? (
                                     <RetryBadgeWithTooltip
                                         channelName={displayChannelName}
                                         brandColor={brandColor}
                                         attempts={log.attempts!}
                                         channelNameById={channelNameById}
                                     />
-                                ) : (
+                                ) : visibility.channelName ? (
                                     <Badge
                                         variant="secondary"
                                         className="shrink-0 text-xs px-1.5 py-0"
@@ -804,7 +828,7 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
                                     >
                                         {displayChannelName}
                                     </Badge>
-                                )}
+                                ) : null}
                                 {visibility.actualModel ? <span className="text-muted-foreground truncate">{displayActualModelName}</span> : null}
                                 {log.attempts?.some((attempt) => attempt.sticky) ? (
                                     <Pin className="size-3.5 shrink-0 text-amber-500" />
@@ -847,6 +871,11 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
                                                         )}
                                                     >
                                                         {log.total_attempts || log.attempts!.length} {t('attempts')}
+                                                    </Badge>
+                                                ) : null}
+                                                {hasAttempts && forwardedAttempts < (log.total_attempts || log.attempts!.length) ? (
+                                                    <Badge variant="outline" className="border-0 bg-muted/50 text-xs text-muted-foreground">
+                                                        {t('forwardedAttempts', { count: forwardedAttempts })}
                                                     </Badge>
                                                 ) : null}
                                                 {isDiagnosticExpanded ? (
@@ -947,11 +976,16 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
                                                                                     <div className="min-w-0 flex-1">
                                                                                         <div className="flex items-center gap-2">
                                                                                             <span className="font-semibold text-foreground">
-                                                                                                {attempt.channel_name}
+                                                                                                {attempt.channel_name?.trim() || channelNameById?.get(attempt.channel_id) || t('channelFallback', { id: attempt.channel_id })}
                                                                                             </span>
                                                                                             <span className="text-muted-foreground truncate">
                                                                                                 ({attempt.model_name})
                                                                                             </span>
+                                                                                            {attempt.adapter_type ? (
+                                                                                                <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                                                                                    {formatAttemptAdapterLabel(t, attempt.adapter_type)}
+                                                                                                </span>
+                                                                                            ) : null}
                                                                                             {attempt.sticky ? (
                                                                                                 <Pin className="size-3.5 shrink-0 text-amber-500" />
                                                                                             ) : null}
@@ -1026,12 +1060,12 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
                             </div>
                         </MorphingDialogDescription>
 
-                            <div className="flex flex-wrap items-center gap-3 md:gap-4 pt-4 mt-auto text-xs text-muted-foreground shrink-0">
+                        <div className="mt-auto flex shrink-0 flex-wrap items-center gap-3 pt-4 text-xs text-muted-foreground md:gap-4">
                             <div className="flex items-center gap-1.5">
                                 <Clock className="size-3.5" style={{ color: brandColor }} />
                                 <span className="tabular-nums">{formatTime(log.time)}</span>
                             </div>
-                            {requestAPIKeyName ? (
+                            {visibility.apiKeyName && requestAPIKeyName ? (
                                 <div className="flex min-w-0 items-center gap-1.5">
                                     <KeyRound className="size-3.5 shrink-0 text-orange-500" />
                                     <span className="truncate" title={requestAPIKeyName}>
@@ -1039,26 +1073,28 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
                                     </span>
                                 </div>
                             ) : null}
-                            {clientIP ? <div className="flex items-center gap-1.5"><Globe className="size-3.5 text-sky-500" /><span>{clientIP}</span></div> : null}
+                            {visibility.clientIP && clientIP ? <div className="flex items-center gap-1.5"><Globe className="size-3.5 text-sky-500" /><span>{clientIP}</span></div> : null}
                             <div className="flex items-center gap-1.5">
                                 <Zap className="size-3.5 text-amber-500" />
-                                <span>{t('duration')}: {formatDurationCompact(log.ftut)} / {formatDurationCompact(log.use_time)}</span>
+                                <span>{t('firstTokenTime')}: {formatDurationCompact(log.ftut)}</span>
                             </div>
+                            <div className="flex items-center gap-1.5"><Cpu className="size-3.5 text-blue-500" /><span>{t('totalTime')}: {formatDurationCompact(log.use_time)}</span></div>
                             {visibility.cost ? <div className="flex items-center gap-1.5">
                                 <DollarSign className="size-3.5 text-emerald-500" />
                                 <span className="font-medium text-emerald-600 dark:text-emerald-400">{t('cost')}: {Number(log.cost).toFixed(6)}</span>
                             </div> : null}
                             {visibility.tps ? <div className="flex items-center gap-1.5"><Gauge className="size-3.5 text-lime-500" /><span>{t('tps')}: {formatTPS(log.output_tokens, log.use_time)}</span></div> : null}
                             {visibility.cacheHitRate && cacheReadTokens > 0 ? <div className="flex items-center gap-1.5"><Percent className="size-3.5 text-teal-500" /><span>{t('cacheHitRate')}: {formatCacheHitRate(cacheReadTokens, totalTokens)}</span></div> : null}
+                            <div className="flex items-center gap-1.5"><Sigma className="size-3.5 text-rose-500" /><span className="font-medium text-rose-600 dark:text-rose-400">{t('totalTokens')}: {totalTokens.toLocaleString()}</span></div>
+                            {cacheReadTokens > 0 ? <div className="flex items-center gap-1.5"><ArrowDownToLine className="size-3.5 text-teal-500" /><span>{t('cacheHit')}: {formatCompactTokenCount(cacheReadTokens)}</span></div> : null}
+                            {displayFields.semanticCacheHit ? <div className="flex items-center gap-1.5"><ArrowDownToLine className="size-3.5 text-cyan-500" /><span>{t('semanticCacheHit')}</span></div> : null}
                             {visibility.reasoningEffort && log.reasoning_effort ? <div className="flex items-center gap-1.5"><Brain className="size-3.5 text-violet-500" /><span>{t('reasoningEffort')}: {log.reasoning_effort}</span></div> : null}
                             {visibility.reasoningTokens && (log.reasoning_tokens ?? 0) > 0 ? <div className="flex items-center gap-1.5"><Brain className="size-3.5 text-indigo-500" /><span>{t('reasoningTokens')}: {formatCompactTokenCount(log.reasoning_tokens ?? 0)}t</span></div> : null}
                             {visibility.reasoningTokens && (log.reasoning_tokens ?? 0) <= 0 && (log.reasoning_chars ?? 0) > 0 ? <div className="flex items-center gap-1.5"><Type className="size-3.5 text-indigo-500" /><span>{t('reasoningChars')}: {formatCompactTokenCount(log.reasoning_chars ?? 0)}{t('reasoningCharsUnit')}</span></div> : null}
-                            {(log.reasoning_tokens ?? 0) > 0 ? <div className="flex items-center gap-1.5"><Brain className="size-3.5 text-indigo-500" /><span>{t('reasoningTokens')}: {formatCompactTokenCount(log.reasoning_tokens ?? 0)}t</span></div> : null}
-                            {(log.reasoning_tokens ?? 0) <= 0 && (log.reasoning_chars ?? 0) > 0 ? <div className="flex items-center gap-1.5"><Type className="size-3.5 text-indigo-500" /><span>{t('reasoningChars')}: {formatCompactTokenCount(log.reasoning_chars ?? 0)}{t('reasoningCharsUnit')}</span></div> : null}
                         </div>
                     </MorphingDialogContent>
                 </MorphingDialogContainer>
-        </MorphingDialog>
+            </MorphingDialog>
             {activeDisableTarget?.can_disable_model ? (
                 <AlertDialog open={confirmDisableOpen} onOpenChange={handleConfirmDisableOpenChange}>
                     <AlertDialogContent>

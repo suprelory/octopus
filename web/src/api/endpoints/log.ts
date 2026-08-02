@@ -78,8 +78,8 @@ export interface RelayLog {
     ftut: number;                // 首字时间(毫秒)
     use_time: number;            // 总用时(毫秒)
     cost: number;                // 消耗费用
-    request_content: string;     // 请求内容
-    response_content: string;    // 响应内容
+    request_content?: string;    // 列表接口省略，详情接口返回
+    response_content?: string;   // 列表接口省略，详情接口返回
     error: string;               // 错误信息
     attempts?: ChannelAttempt[]; // 所有尝试记录
     total_attempts?: number;     // 总尝试次数
@@ -207,8 +207,8 @@ export function useLogPage(params: LogListParams) {
  * 
  * clearLogs.mutate();
  */
-export async function getLogDetail(id: number): Promise<RelayLog> {
-    return apiClient.get<RelayLog>(`/api/v1/log/${id}`);
+export async function getLogDetail(id: number): Promise<RelayLogDetail> {
+    return apiClient.get<RelayLogDetail>(`/api/v1/log/${id}`);
 }
 
 export function useLogSiteActionTargets(ids: number[], enabled = true) {

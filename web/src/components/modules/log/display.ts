@@ -50,6 +50,7 @@ function normalizeEndpointType(value: string) {
     if (normalized === 'response') return 'responses';
     if (normalized === 'anthropic') return 'messages';
     if (normalized === 'embedding' || normalized === 'openai_embedding') return 'embeddings';
+    if (normalized === 'image') return 'images';
     return normalized;
 }
 
@@ -82,6 +83,9 @@ function inferRequestTypeKey(endpointType: string, modelNames: string[], request
     const streaming = isStreamRequest(requestContent);
 
     if (endpoint === 'embeddings') return 'embedding';
+    if (endpoint === 'images') return 'images';
+    if (endpoint === 'rerank') return 'rerank';
+    if (endpoint === 'moderations') return 'moderations';
     if (endpoint === 'responses') return 'responses';
     if (endpoint === 'messages') return 'anthropicMessages';
     if (endpoint === 'gemini') return 'gemini';
