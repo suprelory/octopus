@@ -576,6 +576,17 @@
             "expandModels": "展開模型列表",
             "collapseModels": "收起模型列表"
         },
+        "emptyState": {
+            "title": "尚未建立模型分組",
+            "description": "建立分組後，可依策略編排不同供應源中的同名或同系列模型，並只在需要管理成員時展開。"
+        },
+        "state": {
+            "loading": "正在載入分組...",
+            "errorTitle": "分組載入失敗",
+            "errorDescription": "暫時無法取得分組資料，請稍後重試。",
+            "retry": "重試",
+            "noResults": "找不到符合的分組或模型。"
+        },
         "detail": {
             "actions": {
                 "edit": "編輯",

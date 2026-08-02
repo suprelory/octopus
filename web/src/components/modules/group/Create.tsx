@@ -1,6 +1,7 @@
 'use client';
 
 import type { GroupItem } from '@/api/endpoints/group';
+import { Sparkles } from 'lucide-react';
 import {
     MorphingDialogClose,
     MorphingDialogTitle,
@@ -18,12 +19,19 @@ export function CreateDialogContent() {
     const t = useTranslations('group');
 
     return (
-        <div className="w-screen max-w-full md:max-w-4xl h-[calc(100vh-2rem)] min-h-0 flex flex-col">
+        <div className="relative flex h-full min-h-0 w-full max-w-full flex-col">
             <MorphingDialogTitle className="shrink-0">
-                <header className="mb-5 flex items-center justify-between">
-                    <h2 className="text-2xl font-bold text-card-foreground">
-                        {t('create.title')}
-                    </h2>
+                <header className="relative mb-5 flex items-start justify-between gap-4">
+                    <div className="space-y-3">
+                        <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-card px-3 py-1 text-[0.68rem] font-semibold text-primary">
+                            <Sparkles className="size-3.5" />
+                            {t('create.submit')}
+                        </div>
+                        <div className="space-y-1">
+                            <h2 className="text-2xl font-bold text-card-foreground">{t('create.title')}</h2>
+                            <p className="text-sm text-muted-foreground">{t('emptyState.description')}</p>
+                        </div>
+                    </div>
                     <MorphingDialogClose
                         className="relative right-0 top-0"
                         variants={{
@@ -34,7 +42,7 @@ export function CreateDialogContent() {
                     />
                 </header>
             </MorphingDialogTitle>
-            <MorphingDialogDescription className="flex-1 min-h-0 overflow-hidden">
+            <MorphingDialogDescription className="relative flex-1 min-h-0 overflow-hidden">
                 <GroupEditor
                     submitText={t('create.submit')}
                     submittingText={t('create.submitting')}

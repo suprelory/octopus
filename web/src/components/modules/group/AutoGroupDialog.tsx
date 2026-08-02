@@ -380,13 +380,19 @@ export function GroupAutoGroupDialogContent() {
     };
 
     return (
-        <div className="flex h-[calc(100vh-2rem)] min-h-0 w-screen max-w-full flex-col overflow-hidden md:max-w-2xl">
+        <div className="relative flex h-full min-h-0 w-full max-w-full flex-col overflow-hidden">
             <MorphingDialogTitle className="shrink-0">
-                <header className="mb-3 flex items-center justify-between gap-4">
-                    <h2 className="flex items-center gap-2 text-2xl font-bold text-card-foreground">
-                        <WandSparkles className="size-5 text-primary" />
-                        {t('title')}
-                    </h2>
+                <header className="relative mb-4 flex items-start justify-between gap-4">
+                    <div className="space-y-3">
+                        <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-card px-3 py-1 text-[0.68rem] font-semibold text-primary">
+                            <WandSparkles className="size-3.5" />
+                            {t('title')}
+                        </div>
+                        <div className="space-y-1">
+                            <h2 className="text-2xl font-bold text-card-foreground">{t('title')}</h2>
+                            <p className="text-sm text-muted-foreground">{t('description')}</p>
+                        </div>
+                    </div>
                     <MorphingDialogClose className="relative right-0 top-0" />
                 </header>
             </MorphingDialogTitle>
@@ -398,7 +404,7 @@ export function GroupAutoGroupDialogContent() {
                     </div>
                 ) : (
                     <>
-                        <div className="mb-3 shrink-0 rounded-xl border border-border/50 bg-muted/30 px-3 py-2">
+                        <div className="mb-3 shrink-0 rounded-lg border border-border/30 bg-card px-4 py-3">
                             <div className="flex flex-wrap items-center justify-between gap-3">
                                 <div className="flex min-w-0 items-center gap-2">
                                     <Globe2 className="size-4 shrink-0 text-muted-foreground" />
@@ -419,7 +425,7 @@ export function GroupAutoGroupDialogContent() {
                                     onValueChange={(value) => setProjectedGlobalMode(Number(value) as AutoGroupType)}
                                     disabled={isLoading || isPending}
                                 >
-                                    <SelectTrigger className="h-8 w-36 rounded-xl bg-background text-xs">
+                                    <SelectTrigger className="h-9 w-36 rounded-lg bg-card text-xs">
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent className="rounded-xl">
@@ -433,8 +439,8 @@ export function GroupAutoGroupDialogContent() {
                             </div>
                         </div>
 
-                        <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/50 bg-muted/30">
-                            <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/30 bg-muted/50 px-3 py-2">
+                        <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border/30 bg-card">
+                            <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border/20 px-4 py-3">
                                 <span className="min-w-0 truncate text-sm font-medium text-foreground">
                                     {t('sections.channels')}
                                 </span>
@@ -450,7 +456,7 @@ export function GroupAutoGroupDialogContent() {
                                             value={keyword}
                                             onChange={(event) => setKeyword(event.target.value)}
                                             placeholder={t('searchPlaceholder')}
-                                            className="h-6 w-full rounded-lg border border-border/60 bg-background/70 pl-7 pr-2 text-xs shadow-none outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                            className="h-8 w-full rounded-lg border border-border/35 bg-card pl-7 pr-2 text-xs shadow-none outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
                                         />
                                     </div>
                                 </div>
@@ -592,7 +598,7 @@ export function GroupAutoGroupDialogContent() {
                             <Button
                                 type="button"
                                 variant="secondary"
-                                className="h-11 flex-1 rounded-xl"
+                                className="h-11 flex-1 rounded-lg"
                                 onClick={() => setIsOpen(false)}
                                 disabled={isPending}
                             >
@@ -600,7 +606,7 @@ export function GroupAutoGroupDialogContent() {
                             </Button>
                             <Button
                                 type="button"
-                                className="h-11 flex-1 rounded-xl"
+                                className="h-11 flex-1 rounded-lg"
                                 onClick={handleSave}
                                 disabled={isPending || isLoading || !hasChanges}
                             >

@@ -576,6 +576,17 @@
             "expandModels": "Expand model list",
             "collapseModels": "Collapse model list"
         },
+        "emptyState": {
+            "title": "No model groups yet",
+            "description": "Create a group to organize matching models from different channels by routing strategy, then expand it only when you need to manage members."
+        },
+        "state": {
+            "loading": "Loading groups...",
+            "errorTitle": "Failed to load groups",
+            "errorDescription": "Group data is temporarily unavailable. Please try again.",
+            "retry": "Retry",
+            "noResults": "No matching groups or models found."
+        },
         "detail": {
             "actions": {
                 "edit": "Edit",

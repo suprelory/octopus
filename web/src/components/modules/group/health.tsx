@@ -154,7 +154,7 @@ export function GroupHealthAttemptDetails({ attempt }: { attempt: GroupHealthAtt
     );
 }
 
-export function GroupHealthBadge({ groupId }: { groupId?: number }) {
+export function GroupHealthBadge({ groupId, compact = false, minimal = false }: { groupId?: number; compact?: boolean; minimal?: boolean }) {
     const t = useTranslations('group.health');
     const locale = useLocale();
     const { enabled } = useGroupHealthEnabled();
@@ -180,6 +180,134 @@ export function GroupHealthBadge({ groupId }: { groupId?: number }) {
     const isFullRunPending = isRunPendingForGroup
         && runGroupHealth.variables?.probeMode === 'full';
     const lastRunRelative = formatRelativeTime(latest?.finished_at ?? latest?.started_at ?? null, locale, t('never'));
+    const statusLabelText = t(`statusValue.${statusLabel(latest?.status)}`);
+
+    const detailContent = (
+        <DialogContent className="flex h-[min(85vh,42rem)] flex-col overflow-hidden rounded-3xl sm:max-w-2xl">
+            <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                    <span className={cn('size-2.5 rounded-full', statusDotTone(latest?.status))} />
+                    {t('detailTitle')}
+                </DialogTitle>
+                <DialogDescription>
+                    {t('lastRun', { time: formatDateTime(latest?.finished_at ?? latest?.started_at ?? null) })}
+                </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
+                <Card className="gap-0 rounded-2xl border-border/60 bg-card/80 py-0 shadow-xs">
+                    <CardContent className="p-3">
+                        <div className="text-xs text-muted-foreground">{t('status')}</div>
+                        <div className={cn('mt-1 font-medium', statusTextTone(latest?.status))}>{statusLabelText}</div>
+                        <Badge variant="outline" className={cn('mt-2 h-5 px-1.5 text-[10px] uppercase tracking-wide', probeModeTone(latest?.probe_mode ?? 'standard'))}>
+                            {t(`probeMode.${latest?.probe_mode ?? 'standard'}`)}
+                        </Badge>
+                    </CardContent>
+                </Card>
+                <Card className="gap-0 rounded-2xl border-border/60 bg-card/80 py-0 shadow-xs">
+                    <CardContent className="p-3">
+                        <div className="text-xs text-muted-foreground">{t('healthy')}</div>
+                        <div className="mt-1 font-medium">{successCount}/{attempts.length || 0}</div>
+                    </CardContent>
+                </Card>
+                <Card className="gap-0 rounded-2xl border-border/60 bg-card/80 py-0 shadow-xs">
+                    <CardContent className="p-3">
+                        <div className="text-xs text-muted-foreground">{t('duration')}</div>
+                        <div className="mt-1 font-medium">{latest?.duration_ms ?? 0}ms</div>
+                    </CardContent>
+                </Card>
+                <Card className="gap-0 rounded-2xl border-border/60 bg-card/80 py-0 shadow-xs">
+                    <CardContent className="p-3">
+                        <div className="text-xs text-muted-foreground">{t('attempts')}</div>
+                        <div className="mt-1 font-medium">{attempts.length}</div>
+                    </CardContent>
+                </Card>
+            </div>
+
+            <div className="flex gap-2">
+                <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={isRunPendingForGroup || isRunning}
+                    onClick={() => runGroupHealth.mutate({ groupId })}
+                >
+                    {isRunning || isStandardRunPending ? <LoaderCircle className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
+                    {t('run')}
+                </Button>
+                <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={isRunPendingForGroup || isRunning}
+                    onClick={() => runGroupHealth.mutate({ groupId, probeMode: 'full' })}
+                >
+                    {isFullRunPending ? <LoaderCircle className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
+                    {t('runFull')}
+                </Button>
+            </div>
+
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+                {attempts.length ? attempts.map((attempt) => (
+                    <GroupHealthAttemptDetails key={attempt.id} attempt={attempt} />
+                )) : (
+                    <div className="rounded-2xl border border-dashed border-border/70 bg-muted/20 px-3 py-6 text-center text-xs text-muted-foreground">
+                        {t('empty')}
+                    </div>
+                )}
+            </div>
+        </DialogContent>
+    );
+
+    if (minimal) {
+        return (
+            <Dialog open={open} onOpenChange={setOpen}>
+                <DialogTrigger asChild>
+                    <button
+                        type="button"
+                        aria-label={t('title')}
+                        className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    >
+                        <span className={cn('size-2 shrink-0 rounded-full', statusDotTone(latest?.status))} />
+                        {attempts.length > 0 ? <span className="tabular-nums">{successCount}/{attempts.length}</span> : null}
+                    </button>
+                </DialogTrigger>
+                {detailContent}
+            </Dialog>
+        );
+    }
+
+    if (compact) {
+        return (
+            <Dialog open={open} onOpenChange={setOpen}>
+                <div className="flex min-w-0 items-center gap-2 rounded-lg border border-border/25 bg-muted/10 px-2.5 py-2">
+                    <DialogTrigger asChild>
+                        <button
+                            type="button"
+                            className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                            <span className={cn('size-2 shrink-0 rounded-full', statusDotTone(latest?.status))} />
+                            <span className={cn('shrink-0 font-medium', statusTextTone(latest?.status))}>{statusLabelText}</span>
+                            <span className="min-w-0 truncate">{lastRunRelative}</span>
+                            {attempts.length > 0 ? <span className="ml-auto shrink-0">{successCount}/{attempts.length}</span> : null}
+                        </button>
+                    </DialogTrigger>
+                    <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 rounded-md px-2 text-xs"
+                        disabled={isRunPendingForGroup || isRunning}
+                        onClick={() => runGroupHealth.mutate({ groupId })}
+                    >
+                        {isRunning || isStandardRunPending ? <LoaderCircle className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
+                        {t('run')}
+                    </Button>
+                </div>
+                {detailContent}
+            </Dialog>
+        );
+    }
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
@@ -232,57 +360,7 @@ export function GroupHealthBadge({ groupId }: { groupId?: number }) {
                 </CardContent>
             </Card>
 
-            <DialogContent className="flex h-[min(85vh,42rem)] flex-col overflow-hidden rounded-3xl sm:max-w-2xl">
-                <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2">
-                        <span className={cn('size-2.5 rounded-full', statusDotTone(latest?.status))} />
-                        {t('detailTitle')}
-                    </DialogTitle>
-                    <DialogDescription>
-                        {t('lastRun', { time: formatDateTime(latest?.finished_at ?? latest?.started_at ?? null) })}
-                    </DialogDescription>
-                </DialogHeader>
-
-                <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
-                    <Card className="gap-0 rounded-2xl border-border/60 bg-card/80 py-0 shadow-xs">
-                        <CardContent className="p-3">
-                            <div className="text-xs text-muted-foreground">{t('status')}</div>
-                            <div className={cn('mt-1 font-medium', statusTextTone(latest?.status))}>{t(`statusValue.${statusLabel(latest?.status)}`)}</div>
-                            <Badge variant="outline" className={cn('mt-2 h-5 px-1.5 text-[10px] uppercase tracking-wide', probeModeTone(latest?.probe_mode ?? 'standard'))}>
-                                {t(`probeMode.${latest?.probe_mode ?? 'standard'}`)}
-                            </Badge>
-                        </CardContent>
-                    </Card>
-                    <Card className="gap-0 rounded-2xl border-border/60 bg-card/80 py-0 shadow-xs">
-                        <CardContent className="p-3">
-                            <div className="text-xs text-muted-foreground">{t('healthy')}</div>
-                            <div className="mt-1 font-medium">{successCount}/{attempts.length || 0}</div>
-                        </CardContent>
-                    </Card>
-                    <Card className="gap-0 rounded-2xl border-border/60 bg-card/80 py-0 shadow-xs">
-                        <CardContent className="p-3">
-                            <div className="text-xs text-muted-foreground">{t('duration')}</div>
-                            <div className="mt-1 font-medium">{latest?.duration_ms ?? 0}ms</div>
-                        </CardContent>
-                    </Card>
-                    <Card className="gap-0 rounded-2xl border-border/60 bg-card/80 py-0 shadow-xs">
-                        <CardContent className="p-3">
-                            <div className="text-xs text-muted-foreground">{t('attempts')}</div>
-                            <div className="mt-1 font-medium">{attempts.length}</div>
-                        </CardContent>
-                    </Card>
-                </div>
-
-                <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-                    {attempts.length ? attempts.map((attempt) => (
-                        <GroupHealthAttemptDetails key={attempt.id} attempt={attempt} />
-                    )) : (
-                        <div className="rounded-2xl border border-dashed border-border/70 bg-muted/20 px-3 py-6 text-center text-xs text-muted-foreground">
-                            {t('empty')}
-                        </div>
-                    )}
-                </div>
-            </DialogContent>
+            {detailContent}
         </Dialog>
     );
 }

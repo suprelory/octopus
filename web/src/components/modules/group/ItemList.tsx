@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState } from 'react';
-import { Layers, GripVertical, X, Trash2 } from 'lucide-react';
+import { GripVertical, Trash2, Waves, X } from 'lucide-react';
 import {
     DragDropContext,
     Draggable,
@@ -33,7 +33,6 @@ type MemberItemDnd = {
     innerRef: DraggableProvided['innerRef'];
     draggableProps: DraggableProvided['draggableProps'];
     dragHandleProps: DraggableProvided['dragHandleProps'];
-    isDragging: boolean;
 };
 
 function MemberItem({
@@ -46,6 +45,7 @@ function MemberItem({
     showConfirmDelete = true,
     layoutScope,
     dnd,
+    isDragging,
 }: {
     member: SelectedMember;
     onRemove: (id: string) => void;
@@ -56,6 +56,7 @@ function MemberItem({
     showConfirmDelete?: boolean;
     layoutScope?: string;
     dnd: MemberItemDnd;
+    isDragging: boolean;
 }) {
     const { Avatar: ModelAvatar } = getModelIcon(member.name);
     const [confirmDelete, setConfirmDelete] = useState(false);
@@ -73,22 +74,23 @@ function MemberItem({
             ref={dnd.innerRef}
             // eslint-disable-next-line react-hooks/refs
             {...dnd.draggableProps}
-            className={cn('rounded-lg grid transition-[grid-template-rows] duration-200', isRemoving ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]')}
+            className={cn('grid rounded-lg transition-[grid-template-rows] duration-200', isRemoving ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]')}
             // eslint-disable-next-line react-hooks/refs
             style={{
                 /* eslint-disable-next-line react-hooks/refs */
                 ...(dnd.draggableProps?.style ?? {}),
-                /* eslint-disable-next-line react-hooks/refs */
-                ...(dnd.isDragging ? { zIndex: 50, boxShadow: '0 8px 32px rgba(0,0,0,0.15)' } : null),
+                ...(isDragging ? { zIndex: 50, boxShadow: '0 8px 32px rgba(0,0,0,0.15)' } : null),
             }}
         >
             <div className={cn(
-                'flex items-center gap-2 rounded-lg bg-background border border-border/50 px-2.5 py-2 select-none transition-opacity duration-200 relative overflow-hidden',
+                'group/item relative flex items-center gap-1.5 overflow-hidden rounded-lg border border-border/30 bg-card px-2 py-2 select-none transition-[opacity,transform,border-color,box-shadow,background-color] duration-200 md:gap-2 md:px-3 md:py-2.5',
                 isRemoving && 'opacity-0',
-                isDisabled && 'opacity-60 grayscale'
+                isDisabled && 'opacity-60 grayscale',
+                !isRemoving && !isDragging && 'hover:-translate-y-0.5 hover:border-primary/20 hover:bg-muted/15',
+                isDragging && 'border-primary/30 bg-card'
             )}>
                 <span className={cn(
-                    'size-5 rounded-md text-xs font-bold grid place-items-center shrink-0',
+                    'grid size-6 shrink-0 place-items-center rounded-md text-[10px] font-bold md:size-7 md:text-xs',
                     isDisabled ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-primary'
                 )}>
                     {index + 1}
@@ -96,32 +98,32 @@ function MemberItem({
 
                 <div
                     className={cn(
-                        'p-0.5 rounded touch-none transition-colors',
+                        'rounded-md p-1.5 touch-none transition-colors md:p-1',
                         isDisabled
                             ? 'cursor-grab active:cursor-grabbing hover:bg-muted/60'
-                            : 'cursor-grab active:cursor-grabbing hover:bg-muted'
+                            : 'cursor-grab active:cursor-grabbing hover:bg-primary/8'
                     )}
                     // eslint-disable-next-line react-hooks/refs
                     {...dnd.dragHandleProps}
                 >
-                    <GripVertical className="size-3.5 text-muted-foreground" />
+                    <GripVertical className="size-4 text-muted-foreground md:size-3.5" />
                 </div>
 
-                <span className={cn(isDisabled && 'opacity-70')}>
+                <span className={cn('shrink-0', isDisabled && 'opacity-70')}>
                     <ModelAvatar size={18} />
                 </span>
 
-                <div className="flex flex-col min-w-0 flex-1">
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <Tooltip side="top" sideOffset={10} align="start">
                         <TooltipTrigger className={cn(
-                            'text-sm font-medium truncate leading-tight',
+                            'min-w-0 truncate text-left text-xs font-medium leading-tight md:text-sm',
                             isDisabled && 'text-muted-foreground'
                         )}>
                             {member.name}
                         </TooltipTrigger>
                         <TooltipContent key={member.name}>{member.name}</TooltipContent>
                     </Tooltip>
-                    <span className="text-[10px] text-muted-foreground truncate leading-tight">{sourceLabel}</span>
+                    <span className="truncate text-[10px] font-medium leading-tight text-muted-foreground md:text-xs">{sourceLabel}</span>
                 </div>
 
                 {showWeight && (
@@ -131,7 +133,7 @@ function MemberItem({
                         value={member.weight ?? 1}
                         onChange={(e) => onWeightChange?.(member.id, Math.max(1, parseInt(e.target.value) || 1))}
                         className={cn(
-                            'w-12 h-6 text-xs text-center rounded border border-border bg-muted/50 focus:outline-none focus:ring-1 focus:ring-primary',
+                            'h-7 w-12 rounded-md border border-border/35 bg-card text-center text-xs shadow-sm focus:outline-none focus:ring-1 focus:ring-primary md:w-14',
                             isDisabled && 'text-muted-foreground'
                         )}
                     />
@@ -142,13 +144,13 @@ function MemberItem({
                         layoutId={`delete-btn-member-${layoutScope ?? 'default'}-${member.id}`}
                         type="button"
                         onClick={() => showConfirmDelete ? setConfirmDelete(true) : onRemove(member.id)}
-                        className="p-1 rounded hover:bg-destructive/10 hover:text-destructive transition-colors"
+                        className="relative rounded-md p-2 transition-colors hover:bg-destructive/10 hover:text-destructive md:p-1.5"
                         initial={false}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ duration: 0.15 }}
                         style={{ pointerEvents: 'auto' }}
                     >
-                        <X className="size-3" />
+                        <X className="size-3.5 md:size-3" />
                     </motion.button>
                 )}
 
@@ -285,18 +287,23 @@ export function MemberList({
         <div className="relative h-full min-h-0">
             <div
                 className={cn(
-                    'absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground',
+                    'absolute inset-0 flex flex-col items-center justify-center gap-3 text-muted-foreground',
                     'transition-opacity duration-200 ease-out',
                     isEmpty ? 'opacity-100' : 'opacity-0 pointer-events-none'
                 )}
             >
-                <Layers className="size-10 opacity-40" />
-                <span className="text-sm">{t('card.empty')}</span>
+                <div className="grid size-14 place-items-center rounded-lg border border-border/25 bg-card">
+                    <Waves className="size-6 opacity-60" />
+                </div>
+                <div className="space-y-1 text-center">
+                    <div className="text-sm font-medium text-foreground">{t('card.empty')}</div>
+                    <div className="text-xs text-muted-foreground">{t('form.addItem')}</div>
+                </div>
             </div>
 
             <div
                 className={cn(
-                    'h-full overflow-y-auto transition-opacity duration-200',
+                    'h-full min-h-0 overflow-y-auto transition-opacity duration-200',
                     isEmpty ? 'opacity-0' : 'opacity-100'
                 )}
                 ref={scrollContainerRef}
@@ -310,7 +317,7 @@ export function MemberList({
                             <div
                                 ref={droppableProvided.innerRef}
                                 {...droppableProvided.droppableProps}
-                                className="p-2 flex flex-col space-y-1.5"
+                                className="flex flex-col space-y-2 p-2.5"
                             >
                                 {members.map((member, index) => (
                                     <Draggable
@@ -333,8 +340,8 @@ export function MemberList({
                                                     innerRef: draggableProvided.innerRef,
                                                     draggableProps: draggableProvided.draggableProps,
                                                     dragHandleProps: draggableProvided.dragHandleProps,
-                                                    isDragging: snapshot.isDragging,
                                                 }}
+                                                isDragging={snapshot.isDragging}
                                             />
                                         )}
                                     </Draggable>

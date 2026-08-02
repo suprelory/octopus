@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useMemo, useState, type FormEvent } from 'react';
-import { Check, ChevronDownIcon, Plus, Search, Sparkles, Trash2 } from 'lucide-react';
+import { Check, ChevronDownIcon, FlaskConical, Plus, Search, SlidersHorizontal, Sparkles, Trash2, Waves } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as AccordionPrimitive from '@radix-ui/react-accordion';
 import { useModelChannelList, type LLMChannel } from '@/api/endpoints/model';
@@ -84,18 +84,18 @@ function ModelPickerSection({
         .join(' / ');
 
     return (
-        <div className="rounded-xl border border-border/50 bg-muted/30 flex flex-col min-h-0">
-            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-3 py-2 border-b border-border/30 bg-muted/50">
+        <div className="flex min-h-[28rem] flex-col rounded-lg border border-border/30 bg-card lg:min-h-0">
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 border-b border-border/20 px-4 py-3">
                 <span className="min-w-0 justify-self-start text-sm font-medium text-foreground">
                     {t('form.addItem')}
                 </span>
 
-                <div className="relative justify-self-center w-30">
+                <div className="relative w-32 justify-self-center sm:w-40">
                     <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                     <Input
                         value={searchKeyword}
                         onChange={(event) => setSearchKeyword(event.target.value)}
-                        className="h-6 rounded-lg border-border/60 bg-background/70 pl-7 pr-2 text-xs shadow-none focus-visible:border-border/60 focus-visible:ring-0"
+                        className="h-8 rounded-lg border-border/35 bg-card pl-7 pr-2 text-xs shadow-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20"
                         aria-label="search"
                     />
                 </div>
@@ -117,7 +117,7 @@ function ModelPickerSection({
                 </button>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-y-auto p-2">
+            <div className="flex-1 min-h-0 overflow-y-auto p-3 max-md:max-h-[28rem]">
                 <Accordion type="multiple" className="w-full space-y-2">
                     {filteredChannels.map((channel) => {
                         const total = channel.models.length;
@@ -129,8 +129,8 @@ function ModelPickerSection({
 
                         return (
                             <AccordionItem key={channel.id} value={`channel-${channel.id}`}>
-                                <AccordionPrimitive.Header className="rounded-lg bg-muted sticky top-0 z-10 flex px-2 overflow-hidden">
-                                    <AccordionPrimitive.Trigger className="flex flex-1 min-w-0 items-center gap-4 py-4 text-left text-sm transition-all outline-none focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 [&[data-state=open]>svg]:rotate-180">
+                                <AccordionPrimitive.Header className="sticky top-0 z-10 flex overflow-hidden rounded-lg border border-border/25 bg-card px-3">
+                                    <AccordionPrimitive.Trigger className="flex min-w-0 flex-1 items-center gap-4 py-3.5 text-left text-sm transition-all outline-none focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 [&[data-state=open]>svg]:rotate-180">
                                         <span className="truncate">{channel.name}</span>
                                         <span className="text-xs text-muted-foreground shrink-0">
                                             {available}/{total}
@@ -138,7 +138,7 @@ function ModelPickerSection({
                                         <ChevronDownIcon className="text-muted-foreground pointer-events-none size-4 shrink-0 transition-transform duration-200" />
                                     </AccordionPrimitive.Trigger>
                                 </AccordionPrimitive.Header>
-                                <AccordionContent className="px-2 pt-2">
+                                <AccordionContent className="px-1 pt-2">
                                     <div className="flex flex-col gap-1.5">
                                         {channel.models.map((m) => {
                                             const isSelected = selectedKeys.has(memberKey(m));
@@ -155,8 +155,8 @@ function ModelPickerSection({
                                                     onClick={() => !isSelected && onAdd(m)}
                                                     disabled={isSelected}
                                                     className={cn(
-                                                        'w-full flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-background px-2.5 py-2 text-left transition-colors',
-                                                        isSelected ? 'opacity-60 cursor-not-allowed' : 'hover:bg-muted'
+                                                        'flex w-full items-center justify-between gap-2 rounded-lg border border-border/30 bg-card px-2.5 py-2 text-left transition-colors',
+                                                        isSelected ? 'cursor-not-allowed opacity-60' : 'hover:border-primary/15 hover:bg-muted/20'
                                                     )}
                                                 >
                                                     <span className="flex items-center gap-2 min-w-0">
@@ -208,8 +208,8 @@ function SortSection({
     const t = useTranslations('group');
 
     return (
-        <div className="rounded-xl border border-border/50 bg-muted/30 flex flex-col min-h-0">
-            <div className="flex items-center justify-between px-3 py-2 border-b border-border/30 bg-muted/50">
+        <div className="flex min-h-[28rem] flex-col rounded-lg border border-border/30 bg-card lg:min-h-0">
+            <div className="flex items-center justify-between border-b border-border/20 px-4 py-3">
                 <span className="text-sm font-medium text-foreground">
                     {t('form.items')}
                     {members.length > 0 && (
@@ -258,6 +258,7 @@ export function GroupEditor({
     onSubmit,
     onCancel,
     nameLabel,
+    className,
 }: {
     initial?: Partial<GroupEditorValues>;
     submitText: string;
@@ -266,6 +267,7 @@ export function GroupEditor({
     onSubmit: (values: GroupEditorValues) => void;
     onCancel?: () => void;
     nameLabel?: string;
+    className?: string;
 }) {
     const t = useTranslations('group');
     const { data: modelChannels = [] } = useModelChannelList();
@@ -368,17 +370,33 @@ export function GroupEditor({
 
 
     return (
-        <form onSubmit={handleSubmit} className="flex flex-col h-full min-h-0 ">
-            <div className="flex-1 min-h-0 overflow-hidden px-1">
-                <FieldGroup className="gap-4 flex flex-col min-h-0 h-full">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <form onSubmit={handleSubmit} className={cn('flex h-full min-h-0 flex-col overflow-hidden', className)}>
+            <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+                <FieldGroup className="flex min-h-full flex-col gap-4 lg:h-full">
+                    <div className="grid min-h-full gap-4 2xl:grid-cols-[minmax(21rem,0.9fr)_minmax(0,1.55fr)] 2xl:items-stretch">
+                        <section className="flex flex-col gap-4 rounded-xl border border-border/30 bg-card p-3 md:p-5">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div className="space-y-2">
+                                    <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-card px-3 py-1 text-[0.68rem] font-semibold text-primary">
+                                        <Waves className="size-3.5" />
+                                        {nameLabel ?? t('form.name')}
+                                    </div>
+                                    <p className="text-sm text-muted-foreground">{t('emptyState.description')}</p>
+                                </div>
+                                <div className="inline-flex items-center gap-2 rounded-full border border-border/25 bg-card px-3 py-1 text-xs text-muted-foreground">
+                                    <SlidersHorizontal className="size-3.5" />
+                                    {t(`mode.${MODE_LABELS[mode]}`)}
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-4">
                         <Field>
                             <FieldLabel htmlFor="group-name">{nameLabel ?? t('form.name')}</FieldLabel>
                             <Input
                                 id="group-name"
                                 value={groupName}
                                 onChange={(e) => setGroupName(e.target.value)}
-                                className="rounded-xl"
+                                className="h-10 rounded-lg text-sm md:h-11"
                             />
                         </Field>
                         <Field>
@@ -387,7 +405,7 @@ export function GroupEditor({
                                 id="group-match-regex"
                                 value={matchRegex}
                                 onChange={(e) => setMatchRegex(e.target.value)}
-                                className="rounded-xl"
+                                className="h-10 rounded-lg text-sm md:h-11"
                                 placeholder={t('form.matchRegexPlaceholder')}
                             />
                             {regexError && (
@@ -427,7 +445,7 @@ export function GroupEditor({
                                     const n = Number.parseInt(raw, 10);
                                     setFirstTokenTimeOut(Number.isFinite(n) && n > 0 ? n : 0);
                                 }}
-                                className="rounded-xl"
+                                className="h-10 rounded-lg text-sm md:h-11"
                             />
                         </Field>
 
@@ -461,37 +479,45 @@ export function GroupEditor({
                                     const n = Number.parseInt(raw, 10);
                                     setSessionKeepTime(Number.isFinite(n) && n > 0 ? n : 0);
                                 }}
-                                className="rounded-xl"
+                                className="h-10 rounded-lg text-sm md:h-11"
                             />
                         </Field>
-                    </div>
+                            </div>
 
-                    {/* Mode + Retry Toggle */}
-                    <div className="flex items-center gap-2">
-                        <div className="flex gap-1 flex-1">
+                            <div className="space-y-2">
+                                <div className="inline-flex items-center gap-2 rounded-full border border-border/25 bg-card px-3 py-1 text-[0.68rem] font-semibold text-muted-foreground">
+                                    <Sparkles className="size-3.5" />
+                                    {t(`mode.${MODE_LABELS[mode]}`)}
+                                </div>
+                                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 md:gap-2">
                             {([1, 2, 3, 4] as const).map((m) => (
                                 <button
                                     key={m}
                                     type="button"
                                     onClick={() => setMode(m)}
                                     className={cn(
-                                        'flex-1 py-1 text-xs rounded-lg transition-colors',
-                                        mode === m ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'
+                                        'rounded-lg border px-2 py-1.5 text-[10px] font-medium transition-[transform,border-color,background-color] duration-300 md:px-3 md:py-2 md:text-xs',
+                                        mode === m
+                                            ? 'border-primary/20 bg-primary text-primary-foreground'
+                                            : 'border-border/30 bg-card text-foreground hover:-translate-y-0.5 hover:border-primary/20 hover:bg-muted/20'
                                     )}
                                 >
                                     {t(`mode.${MODE_LABELS[m]}`)}
                                 </button>
                             ))}
-                        </div>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border/25 bg-muted/10 px-3 py-2.5">
                         <TooltipProvider>
                             <Tooltip>
                                 <TooltipTrigger asChild>
-                                    <label className="flex items-center gap-1.5 shrink-0 cursor-pointer">
+                                    <label className="flex shrink-0 cursor-pointer items-center gap-2">
                                         <Switch
                                             checked={retryEnabled}
                                             onCheckedChange={setRetryEnabled}
                                         />
-                                        <span className="text-xs text-muted-foreground">{t('form.retryEnabled')}</span>
+                                        <span className="text-sm text-muted-foreground">{t('form.retryEnabled')}</span>
                                     </label>
                                 </TooltipTrigger>
                                 <TooltipContent>
@@ -503,7 +529,7 @@ export function GroupEditor({
                             <TooltipProvider>
                                 <Tooltip>
                                     <TooltipTrigger asChild>
-                                        <label className="flex items-center gap-1.5 shrink-0">
+                                        <label className="flex shrink-0 items-center gap-2">
                                             <Input
                                                 type="number"
                                                 inputMode="numeric"
@@ -516,7 +542,7 @@ export function GroupEditor({
                                                     const n = Number.parseInt(raw, 10);
                                                     setMaxRetries(Number.isFinite(n) && n > 0 ? n : 1);
                                                 }}
-                                                className="w-16 h-7 rounded-lg text-xs text-center"
+                                                className="h-8 w-16 rounded-lg text-center text-xs"
                                             />
                                             <span className="text-xs text-muted-foreground">{t('form.maxRetries')}</span>
                                         </label>
@@ -527,10 +553,24 @@ export function GroupEditor({
                                 </Tooltip>
                             </TooltipProvider>
                         )}
-                    </div>
+                            </div>
+                        </section>
 
-                    <div className="flex-1 min-h-0">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full min-h-0">
+                        <section className="flex min-h-[34rem] min-w-0 flex-col gap-4 rounded-xl border border-border/30 bg-card p-3 md:p-5 xl:min-h-0">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div className="space-y-2">
+                                    <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-card px-3 py-1 text-[0.68rem] font-semibold text-primary">
+                                        <FlaskConical className="size-3.5" />
+                                        {t('form.items')}
+                                    </div>
+                                    <p className="text-sm text-muted-foreground">{t('card.empty')}</p>
+                                </div>
+                                <div className="inline-flex items-center gap-2 rounded-full border border-border/25 bg-card px-3 py-1 text-xs text-muted-foreground">
+                                    {selectedMembers.length}
+                                </div>
+                            </div>
+
+                            <div className="grid min-w-0 grid-cols-1 gap-3 xl:flex-1 xl:min-h-0 2xl:grid-cols-[minmax(18rem,0.92fr)_minmax(20rem,1.18fr)] 2xl:gap-4">
                             <ModelPickerSection
                                 modelChannels={modelChannels}
                                 selectedMembers={selectedMembers}
@@ -547,22 +587,23 @@ export function GroupEditor({
                                 showWeight={mode === 4}
                                 onClear={handleClearMembers}
                             />
-                        </div>
+                            </div>
+                        </section>
                     </div>
                 </FieldGroup>
             </div>
 
-            <div className="mt-auto shrink-0 px-1 pt-4">
+            <div className="mt-auto shrink-0 px-1 pt-4 pb-[calc(env(safe-area-inset-bottom)+0.5rem)]">
                 <div className="flex gap-2">
                     {onCancel && (
-                        <Button type="button" variant="secondary" className="flex-1 rounded-xl h-11" onClick={onCancel}>
+                        <Button type="button" variant="secondary" className="h-11 flex-1 rounded-lg" onClick={onCancel}>
                             {t('detail.actions.cancel')}
                         </Button>
                     )}
                     <Button
                         type="submit"
                         disabled={!isValid || isSubmitting}
-                        className="flex-1 rounded-xl h-11"
+                        className="h-11 flex-1 rounded-lg"
                     >
                         {isSubmitting ? submittingText : submitText}
                     </Button>

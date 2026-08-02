@@ -1,23 +1,21 @@
 'use client';
 
-import { useState, useMemo, useCallback, useEffect, useId, useRef } from 'react';
-import { Boxes, ChevronDown, Layers, Pencil, Pin, PinOff, Trash2, X } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { type Group, useDeleteGroup, useUpdateGroup, useToggleGroupPin } from '@/api/endpoints/group';
-import { useModelChannelList } from '@/api/endpoints/model';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, Pencil, Pin, PinOff, Trash2, Waves, X } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useTranslations } from 'next-intl';
-import { cn } from '@/lib/utils';
-import { toast } from '@/components/common/Toast';
+import {
+    GroupMode,
+    type Group,
+    type GroupUpdateRequest,
+    useDeleteGroup,
+    useToggleGroupPin,
+    useUpdateGroup,
+} from '@/api/endpoints/group';
+import { useModelChannelList } from '@/api/endpoints/model';
 import { CopyIconButton } from '@/components/common/CopyButton';
+import { toast } from '@/components/common/Toast';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/animate-ui/components/animate/tooltip';
-import type { SelectedMember } from './ItemList';
-import { MemberList } from './ItemList';
-import { GroupEditor, type GroupEditorValues } from './Editor';
-import { GroupHealthBadge } from './health';
-import { modelChannelKey, MODE_LABELS } from './utils';
-import { GroupMode, type GroupUpdateRequest } from '@/api/endpoints/group';
-import { PresetPopover } from './PresetPopover';
-import { getGroupIcon } from '@/lib/model-icons';
 import {
     MorphingDialog,
     MorphingDialogClose,
@@ -28,6 +26,13 @@ import {
     MorphingDialogTrigger,
     useMorphingDialog,
 } from '@/components/ui/morphing-dialog';
+import { cn } from '@/lib/utils';
+import { getGroupIcon } from '@/lib/model-icons';
+import { GroupEditor, type GroupEditorValues } from './Editor';
+import { GroupHealthBadge } from './health';
+import { MemberList, type SelectedMember } from './ItemList';
+import { PresetPopover } from './PresetPopover';
+import { MODE_LABELS, modelChannelKey } from './utils';
 
 interface EditDialogContentProps {
     group: Group;
@@ -39,17 +44,25 @@ interface EditDialogContentProps {
 function EditDialogContent({ group, displayMembers, isSubmitting, onSubmit }: EditDialogContentProps) {
     const { setIsOpen } = useMorphingDialog();
     const t = useTranslations('group');
+
     return (
-        <>
+        <div className="relative flex h-full min-h-0 w-full max-w-full flex-col">
             <MorphingDialogTitle className="shrink-0">
-                <header className="mb-3 flex items-center justify-between">
-                    <h2 className="text-2xl font-bold text-card-foreground">
-                        {t('detail.actions.edit')}
-                    </h2>
+                <header className="relative mb-4 flex items-start justify-between gap-4">
+                    <div className="space-y-3">
+                        <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-card px-3 py-1 text-[0.68rem] font-semibold text-primary">
+                            <Waves className="size-3.5" />
+                            {t('detail.actions.edit')}
+                        </div>
+                        <div className="space-y-1">
+                            <h2 className="text-2xl font-bold text-card-foreground">{t('detail.actions.edit')}</h2>
+                            <p className="text-sm text-muted-foreground">{group.name}</p>
+                        </div>
+                    </div>
                     <MorphingDialogClose className="relative right-0 top-0" />
                 </header>
             </MorphingDialogTitle>
-            <MorphingDialogDescription className="flex-1 min-h-0 overflow-hidden">
+            <MorphingDialogDescription className="relative flex-1 min-h-0 overflow-hidden">
                 <GroupEditor
                     key={`edit-group-${group.id}`}
                     initial={{
@@ -66,10 +79,10 @@ function EditDialogContent({ group, displayMembers, isSubmitting, onSubmit }: Ed
                     submittingText={t('create.submitting')}
                     isSubmitting={isSubmitting}
                     onCancel={() => setIsOpen(false)}
-                    onSubmit={(v) => onSubmit(v, () => setIsOpen(false))}
+                    onSubmit={(values) => onSubmit(values, () => setIsOpen(false))}
                 />
             </MorphingDialogDescription>
-        </>
+        </div>
     );
 }
 
@@ -80,93 +93,100 @@ export function GroupCard({ group }: { group: Group }) {
     const togglePin = useToggleGroupPin();
     const { data: modelChannels = [] } = useModelChannelList();
 
-    const memberListId = useId();
     const [expanded, setExpanded] = useState(false);
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
     const [members, setMembers] = useState<SelectedMember[]>([]);
     const [weightOverrides, setWeightOverrides] = useState<Record<string, number>>({});
-    const weightTimerRef = useRef<NodeJS.Timeout | null>(null);
+    const weightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const membersRef = useRef<SelectedMember[]>([]);
 
     const modelChannelByKey = useMemo(() => {
-        const map = new Map<string, typeof modelChannels[number]>();
-        modelChannels.forEach((mc) => {
-            map.set(modelChannelKey(mc.channel_id, mc.name), mc);
+        const map = new Map<string, (typeof modelChannels)[number]>();
+        modelChannels.forEach((modelChannel) => {
+            map.set(modelChannelKey(modelChannel.channel_id, modelChannel.name), modelChannel);
         });
         return map;
     }, [modelChannels]);
 
-    const displayMembers = useMemo((): SelectedMember[] =>
-        [...(group.items || [])]
-            .sort((a, b) => a.priority - b.priority)
-            .map((item) => {
-                const key = modelChannelKey(item.channel_id, item.model_name);
-                const modelChannel = modelChannelByKey.get(key);
-                return {
-                    ...modelChannel,
-                    id: key,
-                    name: item.model_name,
-                    enabled: modelChannel?.enabled ?? true,
-                    channel_id: item.channel_id,
-                    channel_name: modelChannel?.channel_name ?? `Channel ${item.channel_id}`,
-                    item_id: item.id,
-                    weight: item.weight,
-                };
-            }),
-        [group.items, modelChannelByKey]
+    const displayMembers = useMemo(
+        (): SelectedMember[] =>
+            [...(group.items ?? [])]
+                .sort((left, right) => left.priority - right.priority)
+                .map((item) => {
+                    const key = modelChannelKey(item.channel_id, item.model_name);
+                    const modelChannel = modelChannelByKey.get(key);
+                    return {
+                        ...modelChannel,
+                        id: key,
+                        name: item.model_name,
+                        enabled: modelChannel?.enabled ?? true,
+                        channel_id: item.channel_id,
+                        channel_name: modelChannel?.channel_name ?? `Channel ${item.channel_id}`,
+                        item_id: item.id,
+                        weight: item.weight,
+                    };
+                }),
+        [group.items, modelChannelByKey],
     );
 
     const effectiveDisplayMembers = useMemo(
-        () => displayMembers.map((member) => {
-            const nextWeight = weightOverrides[member.id];
-            return nextWeight === undefined ? member : { ...member, weight: nextWeight };
-        }),
-        [displayMembers, weightOverrides]
+        () =>
+            displayMembers.map((member) => {
+                const weight = weightOverrides[member.id];
+                return weight === undefined ? member : { ...member, weight };
+            }),
+        [displayMembers, weightOverrides],
+    );
+
+    const renderedMembers = useMemo(
+        () => (isDragging ? members : effectiveDisplayMembers),
+        [effectiveDisplayMembers, isDragging, members],
     );
 
     const groupIcon = useMemo(
         () => getGroupIcon(group.name, displayMembers.map((member) => member.name)),
-        [displayMembers, group.name]
+        [displayMembers, group.name],
     );
     const GroupAvatar = groupIcon?.Avatar;
-
-    const renderedMembers = useMemo(
-        () => isDragging || updateGroup.isPending ? members : effectiveDisplayMembers,
-        [effectiveDisplayMembers, isDragging, updateGroup.isPending, members]
-    );
+    const firstModelName = displayMembers[0]?.name ?? '';
+    const needsScroll = renderedMembers.length >= 4;
 
     useEffect(() => {
         membersRef.current = renderedMembers;
     }, [renderedMembers]);
 
-    useEffect(() => {
-        return () => { if (weightTimerRef.current) clearTimeout(weightTimerRef.current); };
-    }, []);
+    useEffect(
+        () => () => {
+            if (weightTimerRef.current) clearTimeout(weightTimerRef.current);
+        },
+        [],
+    );
 
     const onSuccess = useCallback(() => toast.success(t('toast.updated')), [t]);
-    const onError = useCallback((error: Error) => toast.error(t('toast.updateFailed'), { description: error.message }), [t]);
+    const onError = useCallback(
+        (error: Error) => toast.error(t('toast.updateFailed'), { description: error.message }),
+        [t],
+    );
 
-    // Avoid UI flicker: drag-reorder also uses the same mutation, so only "mode switch" should lock mode buttons.
     const isUpdatingMode = (() => {
         if (!updateGroup.isPending) return false;
-        const v = updateGroup.variables;
-        if (typeof v !== 'object' || v === null) return false;
-        return 'mode' in v && typeof (v as { mode?: unknown }).mode === 'number';
+        const variables = updateGroup.variables;
+        return typeof variables === 'object' && variables !== null && 'mode' in variables;
     })();
 
     const priorityByItemId = useMemo(() => {
         const map = new Map<number, number>();
-        (group.items || []).forEach((item) => {
+        (group.items ?? []).forEach((item) => {
             if (item.id !== undefined) map.set(item.id, item.priority);
         });
         return map;
     }, [group.items]);
 
     const clearWeightOverride = useCallback((id: string) => {
-        setWeightOverrides((prev) => {
-            if (!(id in prev)) return prev;
-            const next = { ...prev };
+        setWeightOverrides((current) => {
+            if (!(id in current)) return current;
+            const next = { ...current };
             delete next[id];
             return next;
         });
@@ -177,354 +197,378 @@ export function GroupCard({ group }: { group: Group }) {
         setIsDragging(true);
     }, [effectiveDisplayMembers]);
 
-    const handleDragFinish = useCallback(() => {
-        setIsDragging(false);
-    }, []);
+    const handleDropReorder = useCallback(
+        (nextMembers: SelectedMember[]) => {
+            const itemsToUpdate = nextMembers
+                .map((member, index) => ({ member, priority: index + 1 }))
+                .filter(({ member, priority }) => {
+                    if (!member.item_id) return false;
+                    return priorityByItemId.get(member.item_id) !== priority;
+                })
+                .map(({ member, priority }) => ({
+                    id: member.item_id!,
+                    priority,
+                    weight: member.weight ?? 1,
+                }));
 
-    const handleDropReorder = useCallback((nextMembers: SelectedMember[]) => {
-        const itemsToUpdate = nextMembers
-            .map((m, i) => ({ member: m, newPriority: i + 1 }))
-            .filter(({ member, newPriority }) => {
-                if (!member.item_id) return false;
-                const origPriority = priorityByItemId.get(member.item_id);
-                return origPriority !== undefined && origPriority !== newPriority;
-            })
-            .map(({ member, newPriority }) => ({ id: member.item_id!, priority: newPriority, weight: member.weight ?? 1 }));
-        if (itemsToUpdate.length > 0) updateGroup.mutate({ id: group.id!, items_to_update: itemsToUpdate }, { onSuccess, onError });
-    }, [group.id, priorityByItemId, updateGroup, onSuccess, onError]);
-
-    const handleRemoveMember = useCallback((id: string) => {
-        const member = membersRef.current.find((m) => m.id === id);
-        clearWeightOverride(id);
-        if (member?.item_id !== undefined) updateGroup.mutate({ id: group.id!, items_to_delete: [member.item_id] }, { onSuccess, onError });
-    }, [clearWeightOverride, group.id, updateGroup, onSuccess, onError]);
-
-    const handleWeightChange = useCallback((id: string, weight: number) => {
-        setWeightOverrides((prev) => ({ ...prev, [id]: weight }));
-        if (isDragging) {
-            setMembers((prev) => prev.map((m) => m.id === id ? { ...m, weight } : m));
-        }
-        if (weightTimerRef.current) clearTimeout(weightTimerRef.current);
-        weightTimerRef.current = setTimeout(() => {
-            const member = membersRef.current.find((m) => m.id === id);
-            if (!member?.item_id) return;
-            const priority = priorityByItemId.get(member.item_id);
-            if (!priority) return;
-            updateGroup.mutate(
-                { id: group.id!, items_to_update: [{ id: member.item_id, priority, weight }] },
-                {
-                    onSuccess: () => {
-                        clearWeightOverride(id);
-                        onSuccess();
-                    },
-                    onError,
-                }
-            );
-        }, 500);
-    }, [clearWeightOverride, group.id, isDragging, priorityByItemId, updateGroup, onSuccess, onError]);
-
-    const handleSubmitEdit = useCallback((values: GroupEditorValues, onDone?: () => void) => {
-        if (!group.id) return;
-
-        const originalItems = [...(group.items || [])].sort((a, b) => a.priority - b.priority);
-        const originalById = new Map<number, { priority: number; weight: number }>();
-        const originalIds = new Set<number>();
-        originalItems.forEach((it) => {
-            if (typeof it.id === 'number') {
-                originalIds.add(it.id);
-                originalById.set(it.id, { priority: it.priority, weight: it.weight });
+            if (itemsToUpdate.length > 0 && group.id) {
+                updateGroup.mutate(
+                    { id: group.id, items_to_update: itemsToUpdate },
+                    { onSuccess, onError },
+                );
             }
-        });
+        },
+        [group.id, onError, onSuccess, priorityByItemId, updateGroup],
+    );
 
-        const newIds = new Set<number>();
-        values.members.forEach((m) => { if (typeof m.item_id === 'number') newIds.add(m.item_id); });
+    const handleRemoveMember = useCallback(
+        (id: string) => {
+            const member = membersRef.current.find((item) => item.id === id);
+            clearWeightOverride(id);
+            if (member?.item_id !== undefined && group.id) {
+                updateGroup.mutate(
+                    { id: group.id, items_to_delete: [member.item_id] },
+                    { onSuccess, onError },
+                );
+            }
+        },
+        [clearWeightOverride, group.id, onError, onSuccess, updateGroup],
+    );
 
-        const items_to_delete = Array.from(originalIds).filter((id) => !newIds.has(id));
+    const handleWeightChange = useCallback(
+        (id: string, weight: number) => {
+            setWeightOverrides((current) => ({ ...current, [id]: weight }));
+            if (isDragging) {
+                setMembers((current) => current.map((member) => (member.id === id ? { ...member, weight } : member)));
+            }
+            if (weightTimerRef.current) clearTimeout(weightTimerRef.current);
+            weightTimerRef.current = setTimeout(() => {
+                const member = membersRef.current.find((item) => item.id === id);
+                if (!member?.item_id || !group.id) return;
+                const priority = priorityByItemId.get(member.item_id);
+                if (!priority) return;
+                updateGroup.mutate(
+                    { id: group.id, items_to_update: [{ id: member.item_id, priority, weight }] },
+                    {
+                        onSuccess: () => {
+                            clearWeightOverride(id);
+                            onSuccess();
+                        },
+                        onError,
+                    },
+                );
+            }, 500);
+        },
+        [clearWeightOverride, group.id, isDragging, onError, onSuccess, priorityByItemId, updateGroup],
+    );
 
-        const items_to_add = values.members
-            .map((m, idx) => ({ m, priority: idx + 1 }))
-            .filter(({ m }) => typeof m.item_id !== 'number')
-            .map(({ m, priority }) => ({
-                channel_id: m.channel_id,
-                model_name: m.name,
-                priority,
-                weight: m.weight ?? 1,
-            }));
+    const handleSubmitEdit = useCallback(
+        (values: GroupEditorValues, onDone?: () => void) => {
+            if (!group.id) return;
 
-        const items_to_update = values.members
-            .map((m, idx) => ({ m, priority: idx + 1 }))
-            .filter(({ m }) => typeof m.item_id === 'number')
-            .map(({ m, priority }) => {
-                const id = m.item_id!;
-                const orig = originalById.get(id);
-                const weight = m.weight ?? 1;
-                if (!orig) return null;
-                if (orig.priority === priority && orig.weight === weight) return null;
-                return { id, priority, weight };
-            })
-            .filter((x): x is { id: number; priority: number; weight: number } => x !== null);
+            const originalItems = [...(group.items ?? [])].sort((left, right) => left.priority - right.priority);
+            const originalById = new Map<number, { priority: number; weight: number }>();
+            const originalIds = new Set<number>();
+            originalItems.forEach((item) => {
+                if (typeof item.id === 'number') {
+                    originalIds.add(item.id);
+                    originalById.set(item.id, { priority: item.priority, weight: item.weight });
+                }
+            });
 
-        const payload: GroupUpdateRequest = { id: group.id };
-        const nextName = values.name.trim();
-        const nextRegex = (values.match_regex ?? '').trim();
-        const nextFirstTokenTimeOut = values.first_token_time_out ?? 0;
-        const nextSessionKeepTime = values.session_keep_time ?? 0;
+            const nextIds = new Set<number>();
+            values.members.forEach((member) => {
+                if (typeof member.item_id === 'number') nextIds.add(member.item_id);
+            });
 
-        if (nextName && nextName !== group.name) payload.name = nextName;
-        if (values.mode !== group.mode) payload.mode = values.mode;
-        if (nextRegex !== (group.match_regex ?? '')) payload.match_regex = nextRegex;
-        if (nextFirstTokenTimeOut !== (group.first_token_time_out ?? 0)) payload.first_token_time_out = nextFirstTokenTimeOut;
-        if (nextSessionKeepTime !== (group.session_keep_time ?? 0)) payload.session_keep_time = nextSessionKeepTime;
-        if (values.retry_enabled !== (group.retry_enabled ?? false)) payload.retry_enabled = values.retry_enabled;
-        if (values.max_retries !== (group.max_retries ?? 3)) payload.max_retries = values.max_retries;
-        if (items_to_add.length) payload.items_to_add = items_to_add;
-        if (items_to_update.length) payload.items_to_update = items_to_update;
-        if (items_to_delete.length) payload.items_to_delete = items_to_delete;
+            const itemsToDelete = Array.from(originalIds).filter((id) => !nextIds.has(id));
+            const itemsToAdd = values.members
+                .map((member, index) => ({ member, priority: index + 1 }))
+                .filter(({ member }) => typeof member.item_id !== 'number')
+                .map(({ member, priority }) => ({
+                    channel_id: member.channel_id,
+                    model_name: member.name,
+                    priority,
+                    weight: member.weight ?? 1,
+                }));
+            const itemsToUpdate = values.members
+                .map((member, index) => ({ member, priority: index + 1 }))
+                .filter(({ member }) => typeof member.item_id === 'number')
+                .map(({ member, priority }) => {
+                    const id = member.item_id!;
+                    const original = originalById.get(id);
+                    const weight = member.weight ?? 1;
+                    if (!original || (original.priority === priority && original.weight === weight)) return null;
+                    return { id, priority, weight };
+                })
+                .filter((item): item is { id: number; priority: number; weight: number } => item !== null);
 
-        if (Object.keys(payload).length === 1) {
-            onDone?.();
-            return;
-        }
+            const payload: GroupUpdateRequest = { id: group.id };
+            const nextName = values.name.trim();
+            const nextRegex = values.match_regex.trim();
+            const nextFirstTokenTimeOut = values.first_token_time_out ?? 0;
+            const nextSessionKeepTime = values.session_keep_time ?? 0;
 
-        updateGroup.mutate(payload, {
-            onSuccess: () => {
-                onSuccess();
+            if (nextName && nextName !== group.name) payload.name = nextName;
+            if (values.mode !== group.mode) payload.mode = values.mode;
+            if (nextRegex !== (group.match_regex ?? '')) payload.match_regex = nextRegex;
+            if (nextFirstTokenTimeOut !== (group.first_token_time_out ?? 0)) payload.first_token_time_out = nextFirstTokenTimeOut;
+            if (nextSessionKeepTime !== (group.session_keep_time ?? 0)) payload.session_keep_time = nextSessionKeepTime;
+            if (values.retry_enabled !== (group.retry_enabled ?? false)) payload.retry_enabled = values.retry_enabled;
+            if (values.max_retries !== (group.max_retries ?? 3)) payload.max_retries = values.max_retries;
+            if (itemsToAdd.length > 0) payload.items_to_add = itemsToAdd;
+            if (itemsToUpdate.length > 0) payload.items_to_update = itemsToUpdate;
+            if (itemsToDelete.length > 0) payload.items_to_delete = itemsToDelete;
+
+            if (Object.keys(payload).length === 1) {
                 onDone?.();
+                return;
+            }
+
+            updateGroup.mutate(payload, {
+                onSuccess: () => {
+                    onSuccess();
+                    onDone?.();
+                },
+                onError,
+            });
+        },
+        [group, onError, onSuccess, updateGroup],
+    );
+
+    const handleTogglePin = useCallback(() => {
+        if (!group.id || togglePin.isPending) return;
+        togglePin.mutate(
+            { groupID: group.id, pinned: !group.pinned },
+            {
+                onSuccess: () => toast.success(group.pinned ? t('toast.unpinned') : t('toast.pinned')),
+                onError: (error) => toast.error(t('toast.pinFailed'), { description: error.message }),
             },
-            onError,
-        });
-    }, [group.first_token_time_out, group.session_keep_time, group.retry_enabled, group.max_retries, group.id, group.items, group.match_regex, group.mode, group.name, onSuccess, onError, updateGroup]);
+        );
+    }, [group.id, group.pinned, t, togglePin]);
 
     return (
-        <article className="relative group/card flex flex-col rounded-3xl border border-border bg-card text-card-foreground p-4 custom-shadow">
-            <header className="relative -mx-1 -my-1 mb-2 flex items-center justify-between overflow-visible rounded-xl px-1 py-1">
-                <div className="mr-2 flex min-w-0 flex-1 items-center gap-2.5">
-                    {GroupAvatar ? (
-                        <GroupAvatar size={36} shape="square" />
-                    ) : (
-                        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
-                            <Boxes className="size-5" />
-                        </span>
-                    )}
-
-                    <div className="relative min-w-0 flex-1 group/title">
-                        <Tooltip side="top" sideOffset={10} align="center">
-                            <TooltipTrigger asChild>
-                                <h3 className="truncate text-lg font-bold">{group.name}</h3>
-                            </TooltipTrigger>
-                            <TooltipContent key={group.name}>{group.name}</TooltipContent>
-                        </Tooltip>
+        <article className="group/card relative overflow-hidden rounded-xl border border-border bg-card text-card-foreground transition-shadow hover:shadow-sm">
+            <div
+                role="button"
+                tabIndex={0}
+                aria-expanded={expanded}
+                onClick={() => {
+                    if (!isDragging) setExpanded((current) => !current);
+                }}
+                onKeyDown={(event) => {
+                    if ((event.key === 'Enter' || event.key === ' ') && !isDragging) {
+                        event.preventDefault();
+                        setExpanded((current) => !current);
+                    }
+                }}
+                className="flex w-full cursor-pointer items-center gap-3 px-4 py-3 text-left md:py-4"
+            >
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/40 bg-muted/30">
+                        {GroupAvatar ? <GroupAvatar size={18} shape="circle" /> : <Waves className="size-4 text-muted-foreground" />}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 items-center gap-1.5">
+                            <h3 className="truncate text-sm font-semibold text-card-foreground md:text-base">{group.name}</h3>
+                            {group.pinned ? <Pin className="size-3 shrink-0 fill-current text-primary" /> : null}
+                        </div>
+                        <p className="truncate text-xs text-muted-foreground">
+                            {t(`mode.${MODE_LABELS[group.mode]}`)}
+                            {firstModelName ? ` · ${firstModelName}` : ''}
+                            {' · '}
+                            {t('card.modelCount', { count: displayMembers.length })}
+                        </p>
                     </div>
                 </div>
-
-                <div className="flex items-center gap-1 shrink-0">
-                    <Tooltip side="top" sideOffset={10} align="center">
-                        <TooltipTrigger>
-                            <CopyIconButton
-                                text={group.name}
-                                className="p-1.5 rounded-lg transition-colors hover:bg-muted text-muted-foreground hover:text-foreground"
-                                copyIconClassName="size-4"
-                                checkIconClassName="size-4 text-primary"
-                            />
-                        </TooltipTrigger>
-                        <TooltipContent>{t('detail.actions.copyName')}</TooltipContent>
-                    </Tooltip>
-
-                    <PresetPopover group={group} />
-
-                    <MorphingDialog>
-                        <MorphingDialogTrigger className="p-1.5 rounded-lg transition-colors hover:bg-muted text-muted-foreground hover:text-foreground">
-                            <Tooltip side="top" sideOffset={10} align="center">
-                                <TooltipTrigger asChild>
-                                    <Pencil className="size-4" />
-                                </TooltipTrigger>
-                                <TooltipContent>{t('detail.actions.edit')}</TooltipContent>
-                            </Tooltip>
-                        </MorphingDialogTrigger>
-
-                        <MorphingDialogContainer>
-                            <MorphingDialogContent className="relative w-screen max-w-full md:max-w-4xl bg-card text-card-foreground px-6 py-4 rounded-3xl h-[calc(100vh-2rem)] flex flex-col overflow-hidden">
-                                <EditDialogContent
-                                    group={group}
-                                    displayMembers={displayMembers}
-                                    isSubmitting={updateGroup.isPending}
-                                    onSubmit={handleSubmitEdit}
-                                />
-                            </MorphingDialogContent>
-                        </MorphingDialogContainer>
-                    </MorphingDialog>
+                <div className="flex shrink-0 items-center gap-1">
+                    <span
+                        className="inline-flex"
+                        onClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => event.stopPropagation()}
+                    >
+                        <GroupHealthBadge groupId={group.id} minimal />
+                    </span>
+                    <motion.span
+                        aria-hidden="true"
+                        animate={{ rotate: expanded ? 180 : 0 }}
+                        transition={{ duration: 0.2, ease: 'easeInOut' }}
+                        className="shrink-0"
+                    >
+                        <ChevronDown className="size-4 text-muted-foreground" />
+                    </motion.span>
                 </div>
-            </header>
-
-            <GroupHealthBadge groupId={group.id} />
-
-            <button
-                type="button"
-                aria-expanded={expanded}
-                aria-controls={memberListId}
-                onClick={() => {
-                    if (isDragging) return;
-                    setExpanded((prev) => !prev);
-                }}
-                className="flex w-full items-center justify-between rounded-xl border border-border/50 bg-muted/30 px-2.5 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-                <span className="flex min-w-0 items-center gap-2">
-                    <span className="inline-flex shrink-0 items-center rounded-lg bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
-                        {t(`mode.${MODE_LABELS[group.mode]}`)}
-                    </span>
-                    <span aria-hidden="true" className="h-3.5 w-px shrink-0 bg-border" />
-                    <span className="inline-flex min-w-0 items-center gap-1.5 truncate text-xs font-medium text-muted-foreground">
-                        <Layers className="size-3.5 shrink-0" />
-                        {t('card.modelCount', { count: displayMembers.length })}
-                    </span>
-                </span>
-                <span className="sr-only">
-                    {expanded ? t('card.collapseModels') : t('card.expandModels')}
-                </span>
-                <ChevronDown
-                    aria-hidden="true"
-                    className={cn('size-4 shrink-0 text-muted-foreground transition-transform duration-200', expanded && 'rotate-180')}
-                />
-            </button>
+                <span className="sr-only">{expanded ? t('card.collapseModels') : t('card.expandModels')}</span>
+            </div>
 
             <AnimatePresence initial={false}>
-                {expanded && (
+                {expanded ? (
                     <motion.div
-                        id={memberListId}
-                        key="member-list"
+                        key="expanded-content"
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: 'auto', opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
-                        transition={{
-                            height: { duration: 0.25, ease: 'easeInOut' },
-                            opacity: { duration: 0.2 },
-                        }}
+                        transition={{ height: { duration: 0.25, ease: 'easeInOut' }, opacity: { duration: 0.2 } }}
                         className="overflow-hidden"
                     >
-                        <div className="space-y-2 pt-2">
-                            <div className="grid grid-cols-4 gap-1 rounded-xl border border-border/50 bg-muted/30 p-1">
-                                {([GroupMode.RoundRobin, GroupMode.Random, GroupMode.Failover, GroupMode.Weighted] as const).map((m) => (
+                        <div className="space-y-3 border-t border-border/40 px-4 pb-4 pt-3">
+                            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                                {([GroupMode.RoundRobin, GroupMode.Random, GroupMode.Failover, GroupMode.Weighted] as const).map((mode) => (
                                     <button
-                                        key={m}
+                                        key={mode}
                                         type="button"
+                                        aria-pressed={group.mode === mode}
                                         aria-disabled={isUpdatingMode || !group.id}
-                                        aria-pressed={group.mode === m}
                                         onClick={() => {
-                                            if (isUpdatingMode || !group.id) return;
-                                            if (m === group.mode) return;
-                                            updateGroup.mutate({ id: group.id!, mode: m }, { onSuccess, onError });
+                                            if (isUpdatingMode || !group.id || mode === group.mode) return;
+                                            updateGroup.mutate({ id: group.id, mode }, { onSuccess, onError });
                                         }}
                                         className={cn(
-                                            'min-w-0 truncate rounded-lg px-1.5 py-1.5 text-xs transition-colors',
-                                            group.mode === m
-                                                ? 'bg-primary text-primary-foreground'
-                                                : 'text-muted-foreground hover:bg-background hover:text-foreground',
-                                            !group.id && 'cursor-not-allowed opacity-50'
+                                            'rounded-md border px-2 py-1.5 text-[10px] font-medium transition-[transform,border-color,background-color] duration-300 md:px-3 md:py-2 md:text-xs',
+                                            group.mode === mode
+                                                ? 'border-primary/20 bg-primary text-primary-foreground'
+                                                : 'border-border/25 bg-card text-foreground hover:-translate-y-0.5 hover:border-primary/20 hover:bg-muted/25',
+                                            !group.id && 'cursor-not-allowed opacity-50',
                                         )}
                                     >
-                                        {t(`mode.${MODE_LABELS[m]}`)}
+                                        {t(`mode.${MODE_LABELS[mode]}`)}
                                     </button>
                                 ))}
                             </div>
 
-                            <section className="relative h-101 overflow-hidden rounded-xl border border-border/50 bg-muted/30">
-                                <MemberList
-                                    members={renderedMembers}
-                                    onReorder={setMembers}
-                                    onRemove={handleRemoveMember}
-                                    onWeightChange={handleWeightChange}
-                                    onDragStart={handleDragStart}
-                                    onDrop={handleDropReorder}
-                                    onDragFinish={handleDragFinish}
-                                    autoScrollOnAdd={false}
-                                    showWeight={group.mode === GroupMode.Weighted}
-                                    layoutScope={`card-${group.id ?? 'unknown'}`}
-                                />
-                            </section>
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-
-            {/* Floating secondary actions: hidden by default, appear on card hover/focus */}
-            {!confirmDelete && (
-                <div
-                    className={cn(
-                        'absolute left-3 bottom-3 z-10 flex items-center gap-0.5 rounded-xl bg-card/95 backdrop-blur-sm border border-border/40 shadow-sm p-0.5 transition-opacity duration-200',
-                        'opacity-0 pointer-events-none group-hover/card:opacity-100 group-hover/card:pointer-events-auto group-focus-within/card:opacity-100 group-focus-within/card:pointer-events-auto',
-                    )}
-                >
-                    <Tooltip side="top" sideOffset={6} align="center">
-                        <TooltipTrigger asChild>
-                            <button
-                                type="button"
-                                disabled={togglePin.isPending || !group.id}
-                                onClick={() => {
-                                    if (!group.id || togglePin.isPending) return;
-                                    togglePin.mutate(
-                                        { groupID: group.id, pinned: !group.pinned },
-                                        {
-                                            onSuccess: () => toast.success(group.pinned ? t('toast.unpinned') : t('toast.pinned')),
-                                            onError: (e) => toast.error(t('toast.pinFailed'), { description: e.message }),
-                                        },
-                                    );
-                                }}
+                            <section
                                 className={cn(
-                                    'p-1.5 rounded-lg transition-colors hover:bg-muted disabled:opacity-50 disabled:pointer-events-none',
-                                    group.pinned ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
+                                    'relative overflow-hidden rounded-lg border border-border/25 bg-card',
+                                    renderedMembers.length === 0 && 'min-h-28',
                                 )}
                             >
-                                {group.pinned ? <Pin className="size-4 fill-current" /> : <PinOff className="size-4" />}
-                            </button>
-                        </TooltipTrigger>
-                        <TooltipContent>{group.pinned ? t('pin.unpin') : t('pin.pin')}</TooltipContent>
-                    </Tooltip>
+                                <div className={cn(needsScroll && 'max-h-[248px] overflow-y-auto')}>
+                                    <MemberList
+                                        members={renderedMembers}
+                                        onReorder={setMembers}
+                                        onRemove={handleRemoveMember}
+                                        onWeightChange={handleWeightChange}
+                                        onDragStart={handleDragStart}
+                                        onDrop={handleDropReorder}
+                                        onDragFinish={() => setIsDragging(false)}
+                                        autoScrollOnAdd={false}
+                                        showWeight={group.mode === GroupMode.Weighted}
+                                        layoutScope={`list-item-${group.id ?? 'unknown'}`}
+                                    />
+                                </div>
+                            </section>
 
-                    <Tooltip side="top" sideOffset={6} align="center">
-                        <TooltipTrigger asChild>
-                            <motion.button
-                                layoutId={`delete-btn-group-${group.id}`}
-                                type="button"
-                                onClick={() => setConfirmDelete(true)}
-                                className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-                            >
-                                <Trash2 className="size-4" />
-                            </motion.button>
-                        </TooltipTrigger>
-                        <TooltipContent>{t('detail.actions.delete')}</TooltipContent>
-                    </Tooltip>
-                </div>
-            )}
+                            <div className="flex items-center gap-1 border-t border-border/25 pt-2">
+                                <MorphingDialog>
+                                    <MorphingDialogTrigger
+                                        aria-label={t('detail.actions.edit')}
+                                        className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                                    >
+                                        <Tooltip side="top" sideOffset={10} align="center">
+                                            <TooltipTrigger asChild>
+                                                <Pencil className="size-4" />
+                                            </TooltipTrigger>
+                                            <TooltipContent>{t('detail.actions.edit')}</TooltipContent>
+                                        </Tooltip>
+                                    </MorphingDialogTrigger>
+                                    <MorphingDialogContainer>
+                                        <MorphingDialogContent className="relative flex h-[calc(100dvh-2rem)] w-[min(100vw-2rem,92rem)] max-w-full flex-col overflow-hidden rounded-xl border border-border/35 bg-card px-4 py-4 text-card-foreground shadow-md md:h-[calc(100dvh-3rem)] md:px-6">
+                                            <EditDialogContent
+                                                group={group}
+                                                displayMembers={renderedMembers}
+                                                isSubmitting={updateGroup.isPending}
+                                                onSubmit={handleSubmitEdit}
+                                            />
+                                        </MorphingDialogContent>
+                                    </MorphingDialogContainer>
+                                </MorphingDialog>
 
-            <AnimatePresence>
-                {confirmDelete && (
-                    <motion.div
-                        layoutId={`delete-btn-group-${group.id}`}
-                        className="absolute left-3 bottom-3 z-10 flex items-center gap-2 bg-destructive p-2 rounded-xl shadow-md"
-                        transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                    >
-                        <button
-                            type="button"
-                            onClick={() => setConfirmDelete(false)}
-                            className="flex h-7 w-7 items-center justify-center rounded-lg bg-destructive-foreground/20 text-destructive-foreground transition-all hover:bg-destructive-foreground/30 active:scale-95"
-                        >
-                            <X className="size-4" />
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => group.id && deleteGroup.mutate(group.id, {
-                                onSuccess: () => toast.success(t('toast.deleted')),
-                                onError: (e) => toast.error(t('toast.deleteFailed'), { description: e.message }),
-                            })}
-                            disabled={deleteGroup.isPending}
-                            className="h-7 px-3 flex items-center justify-center gap-2 rounded-lg bg-destructive-foreground text-destructive text-sm font-semibold transition-all hover:bg-destructive-foreground/90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            <Trash2 className="size-3.5" />
-                            {t('detail.actions.confirmDelete')}
-                        </button>
+                                <Tooltip side="top" sideOffset={10} align="center">
+                                    <TooltipTrigger>
+                                        <CopyIconButton
+                                            text={group.name}
+                                            className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                                            copyIconClassName="size-4"
+                                            checkIconClassName="size-4 text-primary"
+                                        />
+                                    </TooltipTrigger>
+                                    <TooltipContent>{t('detail.actions.copyName')}</TooltipContent>
+                                </Tooltip>
+
+                                <PresetPopover group={group} />
+
+                                <Tooltip side="top" sideOffset={10} align="center">
+                                    <TooltipTrigger asChild>
+                                        <button
+                                            type="button"
+                                            disabled={!group.id || togglePin.isPending}
+                                            onClick={handleTogglePin}
+                                            className={cn(
+                                                'rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50',
+                                                group.pinned && 'text-primary',
+                                            )}
+                                        >
+                                            {group.pinned ? <Pin className="size-4 fill-current" /> : <PinOff className="size-4" />}
+                                        </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>{group.pinned ? t('pin.unpin') : t('pin.pin')}</TooltipContent>
+                                </Tooltip>
+
+                                <div className="relative ml-auto">
+                                    {!confirmDelete ? (
+                                        <Tooltip side="top" sideOffset={10} align="center">
+                                            <TooltipTrigger asChild>
+                                                <motion.button
+                                                    layoutId={`delete-btn-group-${group.id}`}
+                                                    type="button"
+                                                    onClick={() => setConfirmDelete(true)}
+                                                    className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                                                >
+                                                    <Trash2 className="size-4" />
+                                                </motion.button>
+                                            </TooltipTrigger>
+                                            <TooltipContent>{t('detail.actions.delete')}</TooltipContent>
+                                        </Tooltip>
+                                    ) : null}
+
+                                    <AnimatePresence>
+                                        {confirmDelete ? (
+                                            <motion.div
+                                                layoutId={`delete-btn-group-${group.id}`}
+                                                className="absolute inset-y-0 right-0 flex items-center gap-2 rounded-lg bg-destructive px-2"
+                                                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                                            >
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setConfirmDelete(false)}
+                                                    className="flex size-7 items-center justify-center rounded-lg bg-destructive-foreground/20 text-destructive-foreground transition-colors hover:bg-destructive-foreground/30"
+                                                >
+                                                    <X className="size-4" />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    disabled={deleteGroup.isPending}
+                                                    onClick={() => {
+                                                        if (!group.id) return;
+                                                        deleteGroup.mutate(group.id, {
+                                                            onSuccess: () => toast.success(t('toast.deleted')),
+                                                            onError: (error) => toast.error(t('toast.deleteFailed'), { description: error.message }),
+                                                        });
+                                                    }}
+                                                    className="flex h-7 items-center gap-2 rounded-lg bg-destructive-foreground px-3 text-sm font-semibold text-destructive transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                                                >
+                                                    <Trash2 className="size-3.5" />
+                                                    {t('detail.actions.confirmDelete')}
+                                                </button>
+                                            </motion.div>
+                                        ) : null}
+                                    </AnimatePresence>
+                                </div>
+                            </div>
+                        </div>
                     </motion.div>
-                )}
+                ) : null}
             </AnimatePresence>
-        </article >
+        </article>
     );
 }

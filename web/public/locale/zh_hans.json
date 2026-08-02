@@ -576,6 +576,17 @@
             "expandModels": "展开模型列表",
             "collapseModels": "收起模型列表"
         },
+        "emptyState": {
+            "title": "还没有模型分组",
+            "description": "创建分组后，可按策略编排不同渠道中的同名或同系列模型，并在需要时展开管理成员。"
+        },
+        "state": {
+            "loading": "正在加载分组...",
+            "errorTitle": "分组加载失败",
+            "errorDescription": "暂时无法获取分组数据，请稍后重试。",
+            "retry": "重试",
+            "noResults": "没有找到匹配的分组或模型。"
+        },
         "detail": {
             "actions": {
                 "edit": "编辑",

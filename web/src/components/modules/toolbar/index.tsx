@@ -537,7 +537,12 @@ export function Toolbar() {
                             </button>
                         </MorphingDialogTrigger>
                         <MorphingDialogContainer>
-                            <MorphingDialogContent className="w-fit max-w-full bg-card text-card-foreground px-6 py-4 rounded-3xl custom-shadow max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden">
+                            <MorphingDialogContent className={cn(
+                                'max-w-full bg-card text-card-foreground flex flex-col overflow-hidden',
+                                toolbarItem === 'group'
+                                    ? 'h-[calc(100dvh-2rem)] w-[min(100vw-2rem,92rem)] rounded-xl border border-border/35 px-4 py-4 shadow-md md:h-[calc(100dvh-3rem)] md:px-6'
+                                    : 'w-fit rounded-3xl px-6 py-4 custom-shadow max-h-[calc(100vh-2rem)]'
+                            )}>
                                 <CreateDialogContent activeItem={toolbarItem} />
                             </MorphingDialogContent>
                         </MorphingDialogContainer>
@@ -553,7 +558,7 @@ export function Toolbar() {
                             </button>
                         </MorphingDialogTrigger>
                         <MorphingDialogContainer>
-                            <MorphingDialogContent className="w-fit max-w-full bg-card text-card-foreground px-6 py-4 rounded-3xl custom-shadow max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden">
+                            <MorphingDialogContent className="flex h-[calc(100dvh-2rem)] w-[min(100vw-2rem,52rem)] max-w-full flex-col overflow-hidden rounded-xl border border-border/35 bg-card px-4 py-4 text-card-foreground shadow-md md:h-[calc(100dvh-3rem)] md:px-6">
                                 <GroupAutoGroupDialogContent />
                             </MorphingDialogContent>
                         </MorphingDialogContainer>

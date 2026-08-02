@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTranslations } from 'next-intl';
+import { Layers3 } from 'lucide-react';
 import {
     MorphingDialogClose,
     MorphingDialogDescription,
@@ -92,12 +93,19 @@ export function PresetEditorContent({ preset }: PresetEditorContentProps) {
     }, [preset.id, preset.group_id, updatePreset, t, setIsOpen]);
 
     return (
-        <>
+        <div className="relative flex h-full min-h-0 w-full max-w-full flex-col">
             <MorphingDialogTitle className="shrink-0">
-                <header className="mb-3 flex items-center justify-between">
-                    <h2 className="text-2xl font-bold text-card-foreground truncate pr-4">
-                        {t('preset.editorTitle')}
-                    </h2>
+                <header className="relative mb-4 flex items-start justify-between gap-4">
+                    <div className="space-y-3">
+                        <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-card px-3 py-1 text-[0.68rem] font-semibold text-primary">
+                            <Layers3 className="size-3.5" />
+                            {t('preset.title')}
+                        </div>
+                        <div className="space-y-1">
+                            <h2 className="truncate pr-4 text-2xl font-bold text-card-foreground">{t('preset.editorTitle')}</h2>
+                            <p className="text-sm text-muted-foreground">{preset.name}</p>
+                        </div>
+                    </div>
                     <MorphingDialogClose
                         className="relative right-0 top-0 p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                         variants={{
@@ -110,7 +118,7 @@ export function PresetEditorContent({ preset }: PresetEditorContentProps) {
             </MorphingDialogTitle>
             <MorphingDialogDescription
                 disableLayoutAnimation
-                className="flex-1 min-h-0 overflow-hidden"
+                className="relative flex-1 min-h-0 overflow-hidden"
             >
                 <GroupEditor
                     key={`preset-${preset.id}`}
@@ -132,7 +140,7 @@ export function PresetEditorContent({ preset }: PresetEditorContentProps) {
                     nameLabel={t('preset.name')}
                 />
             </MorphingDialogDescription>
-        </>
+        </div>
     );
 }
 

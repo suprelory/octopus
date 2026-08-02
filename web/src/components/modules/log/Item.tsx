@@ -109,10 +109,9 @@ function formatTPS(tokens: number, timeMs: number): string {
     return `${tps.toFixed(2)} tk/s`;
 }
 
-function formatCacheHitRate(cacheRead: number, total: number): string {
-    if (cacheRead <= 0 || total <= 0) return '-';
-    const rate = (cacheRead / total) * 100;
-    if (rate >= 100) return '100%';
+function formatCacheHitRate(cacheRead: number, totalInput: number): string {
+    if (cacheRead <= 0 || totalInput <= 0) return '-';
+    const rate = (cacheRead / totalInput) * 100;
     return rate >= 10 ? `${rate.toFixed(1)}%` : `${rate.toFixed(2)}%`;
 }
 
@@ -193,30 +192,63 @@ function formatCompactTokenCount(value: number): string {
     return `${trunc(value / 1000000, 2)}M`;
 }
 
-function hasCacheTokens(log: RelayLog) {
-    return (log.cache_read_tokens != null && log.cache_read_tokens > 0)
-        || (log.cache_write_tokens != null && log.cache_write_tokens > 0);
-}
-
 // 投影渠道命名 "站点/账号/分组-端点后缀"，Anthropic 端点后缀为 -Anthropic。
 // 仅 Anthropic 端点的 input_tokens 不含 cache_read（Anthropic 原生语义），不应做减法；
 // OpenAI/Gemini 等的 input_tokens 已含 cache_read。见 SiteModelRouteType 后缀映射。
-function isAnthropicChannel(channelName: string): boolean {
-    if (!channelName) return false;
-    return /-Anthropic$/.test(channelName);
+function usesAnthropicCacheSemantics(adapterType: string, channelName: string): boolean {
+    if (adapterType.trim().toLowerCase() === 'anthropic') return true;
+    return /-Anthropic$/i.test(channelName);
 }
 
-function getHeadlineInputTokens(log: RelayLog) {
-    if (!hasCacheTokens(log)) return log.input_tokens;
-    const cacheRead = log.cache_read_tokens ?? 0;
-    const cacheWrite = log.cache_write_tokens ?? 0;
-    // OpenAI 等语义：input 已含 cache_read（必然 input ≥ cache_read），减去命中得新输入；
-    // Anthropic：input 不含 cache_read，绝不减（含恢复对话等 input ≥ cache_read 的情况）；
-    // 数值兜底：input < cache_read 时即便误判为含缓存语义也不减，避免畸形上游归零。
-    const dedupedInput = !isAnthropicChannel(log.channel_name) && log.input_tokens >= cacheRead
-        ? log.input_tokens - cacheRead
-        : log.input_tokens;
-    return Math.max(0, dedupedInput + cacheWrite);
+interface TokenUsageDisplay {
+    nonCachedInputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    totalInputTokens: number;
+    totalTokens: number;
+}
+
+function resolveTokenUsageDisplay({
+    inputTokens,
+    outputTokens,
+    billInputTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    adapterType,
+    channelName,
+}: {
+    inputTokens: number;
+    outputTokens: number;
+    billInputTokens: number | null;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    adapterType: string;
+    channelName: string;
+}): TokenUsageDisplay {
+    const safeInput = Math.max(0, inputTokens);
+    const safeOutput = Math.max(0, outputTokens);
+    const safeCacheRead = Math.max(0, cacheReadTokens);
+    const safeCacheWrite = Math.max(0, cacheWriteTokens);
+
+    // 新日志直接使用后端统一后的非缓存输入口径。旧日志没有 bill_input_tokens 时，
+    // Anthropic 的 input 本身不含缓存；OpenAI/Gemini 的 input 通常包含 cache read。
+    const legacyInputExcludesCache = usesAnthropicCacheSemantics(adapterType, channelName)
+        || safeCacheWrite > 0
+        || safeInput < safeCacheRead;
+    const nonCachedInput = billInputTokens != null
+        ? Math.max(0, billInputTokens)
+        : legacyInputExcludesCache
+            ? safeInput
+            : Math.max(0, safeInput - safeCacheRead);
+    const totalInput = nonCachedInput + safeCacheRead + safeCacheWrite;
+
+    return {
+        nonCachedInputTokens: nonCachedInput,
+        cacheReadTokens: safeCacheRead,
+        cacheWriteTokens: safeCacheWrite,
+        totalInputTokens: totalInput,
+        totalTokens: totalInput + safeOutput,
+    };
 }
 
 function getWSBadgeMeta(mode: RelayLogWSMode | null | undefined, usedWS: boolean | undefined, t: ReturnType<typeof useTranslations<'log.card'>>) {
@@ -604,8 +636,27 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
         : displayFields.requestType
             ? formatRequestTypeLabel(t, displayFields.requestType)
             : formatEndpointLabel(t, displayFields.endpointType);
-    const cacheReadTokens = displayFields.cacheReadTokens;
-    const totalTokens = log.input_tokens + log.output_tokens;
+    const tokenUsage = useMemo(() => resolveTokenUsageDisplay({
+        inputTokens: displayFields.inputTokens,
+        outputTokens: displayFields.outputTokens,
+        billInputTokens: displayFields.billInputTokens,
+        cacheReadTokens: displayFields.cacheReadTokens,
+        cacheWriteTokens: displayFields.cacheWriteTokens,
+        adapterType: displayFields.adapterType,
+        channelName: displayChannelName,
+    }), [
+        displayChannelName,
+        displayFields.billInputTokens,
+        displayFields.cacheReadTokens,
+        displayFields.cacheWriteTokens,
+        displayFields.adapterType,
+        displayFields.inputTokens,
+        displayFields.outputTokens,
+    ]);
+    const cacheReadTokens = tokenUsage.cacheReadTokens;
+    const cacheWriteTokens = tokenUsage.cacheWriteTokens;
+    const totalInputTokens = tokenUsage.totalInputTokens;
+    const totalTokens = tokenUsage.totalTokens;
     const { Avatar: ModelAvatar, color: brandColor } = useMemo(
         () => getModelIcon(displayActualModelName),
         [displayActualModelName],
@@ -620,7 +671,6 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
     const diagnosticTitle = hasAttempts ? t('retryDetails') : t('errorInfo');
     const diagnosticIcon = hasAttempts ? RotateCw : AlertCircle;
     const DiagnosticIcon = diagnosticIcon;
-    const displayLog = detailLog ?? log;
     const requestContent = detailLog?.request_content;
     const responseContent = detailLog?.response_content;
     const requestCopyText = useMemo(() => formatJsonForCopy(requestContent), [requestContent]);
@@ -774,15 +824,16 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
                                 </div>
                                 <div className="flex items-center gap-1.5"><Cpu className="size-3.5 shrink-0 text-blue-500" /><span>{t('totalTime')} {formatDurationCompact(log.use_time)}</span></div>
                                 {visibility.tps ? <div className="flex items-center gap-1.5"><Gauge className="size-3.5 shrink-0 text-lime-500" /><span>{t('tps')} {formatTPS(log.output_tokens, log.use_time)}</span></div> : null}
-                                {visibility.cacheHitRate && cacheReadTokens > 0 ? <div className="flex items-center gap-1.5"><Percent className="size-3.5 shrink-0 text-teal-500" /><span>{t('cacheHitRate')} {formatCacheHitRate(cacheReadTokens, totalTokens)}</span></div> : null}
-                                <div className="flex items-center gap-1.5"><ArrowDownToLine className="size-3.5 shrink-0 text-green-500" /><span>{t(cacheReadTokens > 0 ? 'realInput' : 'input')} {Math.max(0, log.input_tokens - cacheReadTokens).toLocaleString()}</span></div>
+                                {visibility.cacheHitRate && cacheReadTokens > 0 ? <div className="flex items-center gap-1.5"><Percent className="size-3.5 shrink-0 text-teal-500" /><span>{t('cacheHitRate')} {formatCacheHitRate(cacheReadTokens, totalInputTokens)}</span></div> : null}
+                                <div className="flex items-center gap-1.5"><ArrowDownToLine className="size-3.5 shrink-0 text-green-500" /><span>{t(cacheReadTokens > 0 || cacheWriteTokens > 0 ? 'realInput' : 'input')} {tokenUsage.nonCachedInputTokens.toLocaleString()}</span></div>
                                 {displayFields.semanticCacheHit ? <div className="flex items-center gap-1.5"><ArrowDownToLine className="size-3.5 shrink-0 text-cyan-500" /><span>{t('semanticCacheHit')}</span></div> : null}
                                 {cacheReadTokens > 0 ? <div className="flex items-center gap-1.5"><ArrowDownToLine className="size-3.5 shrink-0 text-teal-500" /><span>{t('cacheHit')} {formatCompactTokenCount(cacheReadTokens)}</span></div> : null}
+                                {cacheWriteTokens > 0 ? <div className="flex items-center gap-1.5"><ArrowDownToLine className="size-3.5 shrink-0 text-sky-500" /><span>{t('cacheWrite')} {formatCompactTokenCount(cacheWriteTokens)}</span></div> : null}
                                 <div className="flex items-center gap-1.5">
                                     <ArrowUpFromLine className="size-3.5 shrink-0 text-purple-500" />
                                     <span>{t('output')} {log.output_tokens.toLocaleString()}</span>
                                 </div>
-                                <div className="flex items-center gap-1.5"><Sigma className="size-3.5 shrink-0 text-rose-500" /><span className="font-medium text-rose-600 dark:text-rose-400">{t('totalTokens')} {(log.input_tokens + log.output_tokens).toLocaleString()}</span></div>
+                                <div className="flex items-center gap-1.5"><Sigma className="size-3.5 shrink-0 text-rose-500" /><span className="font-medium text-rose-600 dark:text-rose-400">{t('totalTokens')} {totalTokens.toLocaleString()}</span></div>
                                 {visibility.cost ? <div className="flex items-center gap-1.5">
                                     <DollarSign className="size-3.5 shrink-0 text-emerald-500" />
                                     <span className="font-medium text-emerald-600 dark:text-emerald-400">
@@ -1034,7 +1085,7 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
                                                 <Send className="size-4 text-green-500" />
                                                 <span className="text-sm font-medium text-card-foreground">{t('requestContent')}</span>
                                                 <div className="ml-auto flex items-center gap-1">
-                                                    <Badge variant="secondary" className="text-xs">{getHeadlineInputTokens(displayLog).toLocaleString()} {t('tokens')}</Badge>
+                                                    <Badge variant="secondary" className="text-xs">{totalInputTokens.toLocaleString()} {t('tokens')}</Badge>
                                                     {requestContent ? <><button type="button" onClick={() => setRequestJsonCollapsed((value) => !value)} className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" title={requestJsonCollapsed ? t('expandAll') : t('collapseAll')}>{requestJsonCollapsed ? <ChevronsUpDown className="size-3.5" /> : <ChevronsDownUp className="size-3.5" />}</button><CopyIconButton text={requestCopyText} className="text-muted-foreground hover:text-foreground" /></> : null}
                                                 </div>
                                             </div>
@@ -1047,7 +1098,7 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
                                                 <MessageSquare className="size-4 text-purple-500" />
                                                 <span className="text-sm font-medium text-card-foreground">{t('responseContent')}</span>
                                                 <div className="ml-auto flex items-center gap-1">
-                                                    <Badge variant="secondary" className="text-xs">{displayLog.output_tokens.toLocaleString()} {t('tokens')}</Badge>
+                                                    <Badge variant="secondary" className="text-xs">{displayFields.outputTokens.toLocaleString()} {t('tokens')}</Badge>
                                                     {responseContent ? <><button type="button" onClick={() => setResponseJsonCollapsed((value) => !value)} className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" title={responseJsonCollapsed ? t('expandAll') : t('collapseAll')}>{responseJsonCollapsed ? <ChevronsUpDown className="size-3.5" /> : <ChevronsDownUp className="size-3.5" />}</button><CopyIconButton text={responseCopyText} className="text-muted-foreground hover:text-foreground" /></> : null}
                                                 </div>
                                             </div>
@@ -1084,9 +1135,10 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
                                 <span className="font-medium text-emerald-600 dark:text-emerald-400">{t('cost')}: {Number(log.cost).toFixed(6)}</span>
                             </div> : null}
                             {visibility.tps ? <div className="flex items-center gap-1.5"><Gauge className="size-3.5 text-lime-500" /><span>{t('tps')}: {formatTPS(log.output_tokens, log.use_time)}</span></div> : null}
-                            {visibility.cacheHitRate && cacheReadTokens > 0 ? <div className="flex items-center gap-1.5"><Percent className="size-3.5 text-teal-500" /><span>{t('cacheHitRate')}: {formatCacheHitRate(cacheReadTokens, totalTokens)}</span></div> : null}
+                            {visibility.cacheHitRate && cacheReadTokens > 0 ? <div className="flex items-center gap-1.5"><Percent className="size-3.5 text-teal-500" /><span>{t('cacheHitRate')}: {formatCacheHitRate(cacheReadTokens, totalInputTokens)}</span></div> : null}
                             <div className="flex items-center gap-1.5"><Sigma className="size-3.5 text-rose-500" /><span className="font-medium text-rose-600 dark:text-rose-400">{t('totalTokens')}: {totalTokens.toLocaleString()}</span></div>
                             {cacheReadTokens > 0 ? <div className="flex items-center gap-1.5"><ArrowDownToLine className="size-3.5 text-teal-500" /><span>{t('cacheHit')}: {formatCompactTokenCount(cacheReadTokens)}</span></div> : null}
+                            {cacheWriteTokens > 0 ? <div className="flex items-center gap-1.5"><ArrowDownToLine className="size-3.5 text-sky-500" /><span>{t('cacheWrite')}: {formatCompactTokenCount(cacheWriteTokens)}</span></div> : null}
                             {displayFields.semanticCacheHit ? <div className="flex items-center gap-1.5"><ArrowDownToLine className="size-3.5 text-cyan-500" /><span>{t('semanticCacheHit')}</span></div> : null}
                             {visibility.reasoningEffort && log.reasoning_effort ? <div className="flex items-center gap-1.5"><Brain className="size-3.5 text-violet-500" /><span>{t('reasoningEffort')}: {log.reasoning_effort}</span></div> : null}
                             {visibility.reasoningTokens && (log.reasoning_tokens ?? 0) > 0 ? <div className="flex items-center gap-1.5"><Brain className="size-3.5 text-indigo-500" /><span>{t('reasoningTokens')}: {formatCompactTokenCount(log.reasoning_tokens ?? 0)}t</span></div> : null}

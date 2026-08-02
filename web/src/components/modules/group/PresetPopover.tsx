@@ -154,7 +154,7 @@ export function PresetPopover({ group }: PresetPopoverProps) {
                 <PopoverTrigger asChild>
                     <button
                         type="button"
-                        className="p-1.5 rounded-lg transition-colors hover:bg-muted text-muted-foreground hover:text-foreground"
+                        className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                     >
                         <Tooltip side="top" sideOffset={10} align="center">
                             <TooltipTrigger asChild>
@@ -318,7 +318,7 @@ export function PresetPopover({ group }: PresetPopoverProps) {
                                                     onOpened={() => setPendingEditId(null)}
                                                 />
                                                 <MorphingDialogContainer>
-                                                    <MorphingDialogContent className="relative w-screen max-w-full md:max-w-4xl bg-card text-card-foreground px-6 py-4 rounded-3xl h-[calc(100vh-2rem)] flex flex-col overflow-hidden">
+                                                    <MorphingDialogContent className="relative flex h-[calc(100dvh-2rem)] w-[min(100vw-2rem,92rem)] max-w-full flex-col overflow-hidden rounded-xl border border-border/35 bg-card px-4 py-4 text-card-foreground shadow-md md:h-[calc(100dvh-3rem)] md:px-6">
                                                         <PresetEditorContent preset={preset} />
                                                     </MorphingDialogContent>
                                                 </MorphingDialogContainer>
