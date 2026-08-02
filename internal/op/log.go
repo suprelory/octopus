@@ -160,7 +160,7 @@ func enqueueRelayLogPending(relayLog model.RelayLog) bool {
 
 func relayLogApproxBytes(relayLog model.RelayLog) int64 {
 	size := 256
-	size += len(relayLog.RequestModelName) + len(relayLog.RequestAPIKeyName) + len(relayLog.ChannelName) + len(relayLog.ActualModelName)
+	size += len(relayLog.RequestModelName) + len(relayLog.RequestAPIKeyName) + len(relayLog.ClientIP) + len(relayLog.EndpointType) + len(relayLog.ChannelName) + len(relayLog.ActualModelName) + len(relayLog.ReasoningEffort)
 	size += len(relayLog.RequestContent) + len(relayLog.ResponseContent) + len(relayLog.Error)
 	for _, attempt := range relayLog.Attempts {
 		size += 96 + len(attempt.ChannelName) + len(attempt.ModelName) + len(attempt.Msg)
@@ -689,7 +689,10 @@ func selectRelayLogListFields(query *gorm.DB, includeContent bool) *gorm.DB {
 		"id",
 		"time",
 		"request_model_name",
+		"request_api_key_id",
 		"request_api_key_name",
+		"client_ip",
+		"endpoint_type",
 		"channel_id",
 		"channel_name",
 		"actual_model_name",
@@ -699,6 +702,9 @@ func selectRelayLogListFields(query *gorm.DB, includeContent bool) *gorm.DB {
 		"cache_read_tokens",
 		"cache_write_tokens",
 		"output_tokens",
+		"reasoning_effort",
+		"reasoning_tokens",
+		"reasoning_chars",
 		"ftut",
 		"use_time",
 		"cost",

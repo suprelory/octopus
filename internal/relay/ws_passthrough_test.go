@@ -76,7 +76,7 @@ func TestForwardViaWSPassthroughNormalizesPayloadAndRecordsMetrics(t *testing.T)
 		ctx:             context.Background(),
 		inAdapter:       inbound.Get(inbound.InboundTypeOpenAIResponse),
 		internalRequest: internalReq,
-		metrics:         NewRelayMetrics(1, "client-model", rawBody, internalReq),
+		metrics:         NewRelayMetrics(1, "client-model", "chat", "", rawBody, internalReq),
 		apiKeyID:        1,
 		requestModel:    "client-model",
 		groupID:         1,

@@ -63,7 +63,7 @@ func TestHandleStreamResponsePassthroughAnthropicPreservesRawSSE(t *testing.T) {
 		c:               c,
 		inAdapter:       inbound.Get(inbound.InboundTypeAnthropic),
 		internalRequest: internalReq,
-		metrics:         NewRelayMetrics(1, internalReq.Model, nil, internalReq),
+		metrics:         NewRelayMetrics(1, internalReq.Model, "chat", "", nil, internalReq),
 		apiKeyID:        1,
 		requestModel:    internalReq.Model,
 	}
@@ -115,7 +115,7 @@ func TestHandleStreamResponsePassthroughOpenAIResponsesPreservesRawSSE(t *testin
 		c:               c,
 		inAdapter:       inbound.Get(inbound.InboundTypeOpenAIResponse),
 		internalRequest: internalReq,
-		metrics:         NewRelayMetrics(1, internalReq.Model, nil, internalReq),
+		metrics:         NewRelayMetrics(1, internalReq.Model, "chat", "", nil, internalReq),
 		apiKeyID:        1,
 		requestModel:    internalReq.Model,
 	}
@@ -199,7 +199,7 @@ func newOpenAIResponsesPassthroughAttempt(writer StreamWriter) (*relayAttempt, *
 		c:               c,
 		inAdapter:       inbound.Get(inbound.InboundTypeOpenAIResponse),
 		internalRequest: internalReq,
-		metrics:         NewRelayMetrics(1, internalReq.Model, nil, internalReq),
+		metrics:         NewRelayMetrics(1, internalReq.Model, "chat", "", nil, internalReq),
 		apiKeyID:        1,
 		requestModel:    internalReq.Model,
 		streamWriter:    writer,
@@ -330,7 +330,7 @@ func TestHandleStreamResponsePassthroughAnthropicClientCancelAfterTerminal(t *te
 		c:               c,
 		inAdapter:       inbound.Get(inbound.InboundTypeAnthropic),
 		internalRequest: internalReq,
-		metrics:         NewRelayMetrics(1, internalReq.Model, nil, internalReq),
+		metrics:         NewRelayMetrics(1, internalReq.Model, "chat", "", nil, internalReq),
 		apiKeyID:        1,
 		requestModel:    internalReq.Model,
 		streamWriter:    writer,
@@ -912,7 +912,7 @@ func TestHandlerAppliesChannelParamOverride(t *testing.T) {
 }
 
 func TestRelayMetricsUsesResponseModelForCostLookup(t *testing.T) {
-	metrics := NewRelayMetrics(0, "alias-model", nil, &transformerModel.InternalLLMRequest{Model: "alias-model"})
+	metrics := NewRelayMetrics(0, "alias-model", "chat", "", nil, &transformerModel.InternalLLMRequest{Model: "alias-model"})
 	metrics.StartTime = time.Now()
 
 	metrics.SetInternalResponse(&transformerModel.InternalLLMResponse{
@@ -935,7 +935,7 @@ func TestRelayMetricsUsesResponseModelForCostLookup(t *testing.T) {
 }
 
 func TestRelayMetricsCapturesOpenAICompatibleInputBreakdown(t *testing.T) {
-	metrics := NewRelayMetrics(0, "alias-model", nil, &transformerModel.InternalLLMRequest{Model: "alias-model"})
+	metrics := NewRelayMetrics(0, "alias-model", "chat", "", nil, &transformerModel.InternalLLMRequest{Model: "alias-model"})
 	payload := []byte(`{"model":"gpt-4o-mini","input":"hello world"}`)
 	metrics.SetTransportRequestPayload(payload, "gpt-4o-mini")
 	metrics.SetInternalResponse(&transformerModel.InternalLLMResponse{
@@ -964,7 +964,7 @@ func TestRelayMetricsCapturesOpenAICompatibleInputBreakdown(t *testing.T) {
 }
 
 func TestRelayMetricsCapturesAnthropicInputBreakdown(t *testing.T) {
-	metrics := NewRelayMetrics(0, "alias-model", nil, &transformerModel.InternalLLMRequest{Model: "alias-model"})
+	metrics := NewRelayMetrics(0, "alias-model", "chat", "", nil, &transformerModel.InternalLLMRequest{Model: "alias-model"})
 	metrics.SetInternalResponse(&transformerModel.InternalLLMResponse{
 		Model: "claude-sonnet-4-5",
 		Usage: &transformerModel.Usage{
@@ -1144,7 +1144,7 @@ func TestForwardViaWSRedialsFreshRequestAfterStalePooledConnection(t *testing.T)
 		c:               c,
 		inAdapter:       inbound.Get(inbound.InboundTypeOpenAIResponse),
 		internalRequest: internalReq,
-		metrics:         NewRelayMetrics(1, "gpt-4o", nil, internalReq),
+		metrics:         NewRelayMetrics(1, "gpt-4o", "chat", "", nil, internalReq),
 		apiKeyID:        1,
 		requestModel:    "gpt-4o",
 	}
@@ -1220,7 +1220,7 @@ func TestForwardViaWSReconnectsContinuationAfterReadFailureBeforeFirstEvent(t *t
 		c:               c,
 		inAdapter:       inbound.Get(inbound.InboundTypeOpenAIResponse),
 		internalRequest: internalReq,
-		metrics:         NewRelayMetrics(1, "gpt-4o", nil, internalReq),
+		metrics:         NewRelayMetrics(1, "gpt-4o", "chat", "", nil, internalReq),
 		apiKeyID:        1,
 		requestModel:    "gpt-4o",
 	}
@@ -1285,7 +1285,7 @@ func TestForwardDoesNotUseWSForFreshHTTPIngress(t *testing.T) {
 		c:               c,
 		inAdapter:       inbound.Get(inbound.InboundTypeOpenAIResponse),
 		internalRequest: internalReq,
-		metrics:         NewRelayMetrics(1, "gpt-4o", nil, internalReq),
+		metrics:         NewRelayMetrics(1, "gpt-4o", "chat", "", nil, internalReq),
 		apiKeyID:        1,
 		requestModel:    "gpt-4o",
 	}
@@ -1337,7 +1337,7 @@ func TestForwardViaHTTPClearsDefaultGoUserAgent(t *testing.T) {
 	c, _ := gin.CreateTestContext(writer)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 	internalReq := &transformerModel.InternalLLMRequest{Model: "gpt-4o", Stream: boolPtr(false), RawAPIFormat: transformerModel.APIFormatOpenAIResponse}
-	req := &relayRequest{c: c, inAdapter: inbound.Get(inbound.InboundTypeOpenAIResponse), internalRequest: internalReq, metrics: NewRelayMetrics(1, "gpt-4o", nil, internalReq), apiKeyID: 1, requestModel: "gpt-4o"}
+	req := &relayRequest{c: c, inAdapter: inbound.Get(inbound.InboundTypeOpenAIResponse), internalRequest: internalReq, metrics: NewRelayMetrics(1, "gpt-4o", "chat", "", nil, internalReq), apiKeyID: 1, requestModel: "gpt-4o"}
 	ra := &relayAttempt{relayRequest: req, outAdapter: outbound.Get(channel.Type), channel: channel, usedKey: channel.Keys[0]}
 
 	statusCode, err := ra.forwardViaHTTP(context.Background())
@@ -1399,7 +1399,7 @@ func TestForwardViaWSPreservesClientUserAgentHeaders(t *testing.T) {
 		c:               c,
 		inAdapter:       inbound.Get(inbound.InboundTypeOpenAIResponse),
 		internalRequest: internalReq,
-		metrics:         NewRelayMetrics(1, "gpt-4o", nil, internalReq),
+		metrics:         NewRelayMetrics(1, "gpt-4o", "chat", "", nil, internalReq),
 		apiKeyID:        1,
 		requestModel:    "gpt-4o",
 	}

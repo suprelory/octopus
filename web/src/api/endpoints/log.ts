@@ -23,6 +23,7 @@ export interface ChannelAttempt {
     channel_key_id?: number;
     channel_name: string;
     model_name: string;
+    adapter_type?: string;
     attempt_num: number;    // 第几次尝试
     status: AttemptStatus;
     duration: number;       // 耗时(毫秒)
@@ -56,7 +57,10 @@ export interface RelayLog {
     id: number;
     time: number;                // 时间戳
     request_model_name: string;  // 请求模型名称
+    request_api_key_id?: number;
     request_api_key_name?: string; // 请求使用的 API Key 名称
+    client_ip?: string;
+    endpoint_type?: string;
     channel: number;             // 实际使用的渠道ID
     channel_name: string;        // 渠道名称
     actual_model_name: string;   // 实际使用模型名称
@@ -66,6 +70,11 @@ export interface RelayLog {
     cache_read_tokens?: number | null; // 从缓存读取的 Token
     cache_write_tokens?: number | null; // 写入缓存的 Token
     output_tokens: number;       // 输出Token
+    semantic_cache_hit?: boolean;
+    reasoning_effort?: string;
+    reasoning_tokens?: number;
+    reasoning_chars?: number;
+    is_test?: boolean;
     ftut: number;                // 首字时间(毫秒)
     use_time: number;            // 总用时(毫秒)
     cost: number;                // 消耗费用
@@ -78,6 +87,12 @@ export interface RelayLog {
     ws_mode?: RelayLogWSMode | null; // 上游 WebSocket 会话模式
     ws_exec_mode?: RelayLogWSExecMode | null; // 上游 WebSocket 事件处理方式
     ws_recovery?: RelayLogWSRecovery | null; // 本次请求触发的恢复动作
+}
+
+/** 完整日志详情；列表接口通常省略两个大字段。 */
+export interface RelayLogDetail extends RelayLog {
+    request_content: string;
+    response_content: string;
 }
 
 export type LogStatusFilter = 'all' | 'success' | 'error';

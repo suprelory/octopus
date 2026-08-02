@@ -19,6 +19,25 @@ const (
 	OutboundTypeOpenAIEmbedding
 )
 
+func (t OutboundType) String() string {
+	switch t {
+	case OutboundTypeOpenAIChat:
+		return "chat"
+	case OutboundTypeOpenAIResponse:
+		return "response"
+	case OutboundTypeAnthropic:
+		return "anthropic"
+	case OutboundTypeGemini:
+		return "gemini"
+	case OutboundTypeVolcengine:
+		return "volcengine"
+	case OutboundTypeOpenAIEmbedding:
+		return "embedding"
+	default:
+		return "unknown"
+	}
+}
+
 // EmbeddingChannelTypes 定义支持 embedding 请求的 channel 类型集合
 var EmbeddingChannelTypes = map[OutboundType]bool{
 	OutboundTypeOpenAIEmbedding: true,

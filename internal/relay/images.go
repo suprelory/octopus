@@ -120,7 +120,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 	}
 
 	// 初始化 Metrics（Images 独立，避免 b64_json 内存膨胀）
-	metrics := newImagesRelayMetrics(apiKeyID, requestModel)
+	metrics := newImagesRelayMetrics(apiKeyID, requestModel, c.ClientIP())
 	metrics.RequestContent = buildImagesRequestContentForLog(isMultipart, bc, jsonPayload)
 
 	// === 早期心跳 ===
@@ -177,6 +177,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 			iter.Index()+1, iter.Len(), iter.IsSticky(), stream)
 
 		span := iter.StartAttempt(channel.ID, usedKey.ID, channel.Name)
+		span.SetAdapterType(channel.Type.String())
 
 		// 尝试一次转发
 		statusCode, written, usage, upstreamCT, fwdErr := imagesAttempt(ctx, endpoint, c, bc, isMultipart, boundary, jsonPayload, stream, channel, usedKey.ChannelKey, group.FirstTokenTimeOut, metrics, item.ModelName, hb)
@@ -248,6 +249,7 @@ type imagesUsage struct {
 type imagesRelayMetrics struct {
 	APIKeyID     int
 	RequestModel string
+	ClientIP     string
 	ActualModel  string
 	StartTime    time.Time
 	FirstToken   time.Time
@@ -258,10 +260,11 @@ type imagesRelayMetrics struct {
 	ResponseContent string
 }
 
-func newImagesRelayMetrics(apiKeyID int, requestModel string) *imagesRelayMetrics {
+func newImagesRelayMetrics(apiKeyID int, requestModel, clientIP string) *imagesRelayMetrics {
 	return &imagesRelayMetrics{
 		APIKeyID:     apiKeyID,
 		RequestModel: requestModel,
+		ClientIP:     clientIP,
 		StartTime:    time.Now(),
 	}
 }
@@ -352,6 +355,9 @@ func (m *imagesRelayMetrics) saveLog(ctx context.Context, success bool, err erro
 	relayLog := model.RelayLog{
 		Time:             m.StartTime.Unix(),
 		RequestModelName: m.RequestModel,
+		RequestAPIKeyID:  m.APIKeyID,
+		EndpointType:     "images",
+		ClientIP:         m.ClientIP,
 		ChannelName:      channelName,
 		ChannelId:        channelID,
 		ActualModelName:  actualModel,

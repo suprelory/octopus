@@ -16,6 +16,7 @@ type ChannelAttempt struct {
 	ChannelKeyID int           `json:"channel_key_id,omitempty"`
 	ChannelName  string        `json:"channel_name"`
 	ModelName    string        `json:"model_name"`
+	AdapterType  string        `json:"adapter_type,omitempty"` // response, chat, anthropic, gemini, embedding, etc.
 	AttemptNum   int           `json:"attempt_num"`
 	Status       AttemptStatus `json:"status"`
 	Duration     int           `json:"duration"`
@@ -53,7 +54,10 @@ type RelayLog struct {
 	ID                   int64               `json:"id" gorm:"primaryKey;autoIncrement:false"` // Snowflake ID
 	Time                 int64               `json:"time"`                                     // 时间戳（秒）
 	RequestModelName     string              `json:"request_model_name"`                       // 请求模型名称
+	RequestAPIKeyID      int                 `json:"request_api_key_id" gorm:"index"`          // 请求使用的 API Key ID
 	RequestAPIKeyName    string              `json:"request_api_key_name"`                     // 请求使用的 API Key 名称
+	ClientIP             string              `json:"client_ip"`                                // 客户端 IP
+	EndpointType         string              `json:"endpoint_type"`                            // 入站端点分类
 	ChannelId            int                 `json:"channel" gorm:"index"`                     // 实际使用的渠道ID
 	ChannelName          string              `json:"channel_name"`                             // 渠道名称
 	ActualModelName      string              `json:"actual_model_name"`                        // 实际使用模型名称
@@ -63,6 +67,9 @@ type RelayLog struct {
 	CacheReadTokens      *int                `json:"cache_read_tokens,omitempty"`              // 从缓存读取的 Token
 	CacheWriteTokens     *int                `json:"cache_write_tokens,omitempty"`             // 写入缓存的 Token
 	OutputTokens         int                 `json:"output_tokens"`                            // 输出 Token
+	ReasoningEffort      string              `json:"reasoning_effort"`                         // 最终出站思考强度
+	ReasoningTokens      int                 `json:"reasoning_tokens"`                         // 上游返回的思考 Token
+	ReasoningChars       int                 `json:"reasoning_chars"`                          // 无官方 Token 时的思考字符数
 	Ftut                 int                 `json:"ftut"`                                     // 首字时间(毫秒)
 	UseTime              int                 `json:"use_time"`                                 // 总用时(毫秒)
 	Cost                 float64             `json:"cost"`                                     // 消耗费用

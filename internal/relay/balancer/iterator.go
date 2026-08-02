@@ -192,6 +192,11 @@ func (s *AttemptSpan) End(status model.AttemptStatus, statusCode int, msg string
 	s.iter.attempts = append(s.iter.attempts, s.attempt)
 }
 
+// SetAdapterType records the outbound protocol selected for this attempt.
+func (s *AttemptSpan) SetAdapterType(adapterType string) {
+	s.attempt.AdapterType = adapterType
+}
+
 // Duration 返回从开始到现在的耗时
 func (s *AttemptSpan) Duration() time.Duration {
 	return time.Since(s.startTime)

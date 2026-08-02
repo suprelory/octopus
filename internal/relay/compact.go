@@ -87,7 +87,7 @@ func HandleResponsesCompact(c *gin.Context) {
 	}
 
 	metricsReq := &transformerModel.InternalLLMRequest{Model: requestModel, RawRequest: body}
-	metrics := NewRelayMetrics(apiKeyID, requestModel, body, metricsReq)
+	metrics := NewRelayMetrics(apiKeyID, requestModel, "responses", c.ClientIP(), body, metricsReq)
 
 	var lastErr error
 	var lastStatusCode int
@@ -227,6 +227,7 @@ func supportsResponsesCompact(channelType outbound.OutboundType) bool {
 
 func forwardResponsesCompact(c *gin.Context, metrics *RelayMetrics, iter *balancer.Iterator, channel *dbmodel.Channel, usedKey dbmodel.ChannelKey, requestBody []byte) (int, time.Duration, error) {
 	span := iter.StartAttempt(channel.ID, usedKey.ID, channel.Name)
+	span.SetAdapterType(channel.Type.String())
 	request, err := buildResponsesCompactRequest(c.Request.Context(), channel, usedKey.ChannelKey, requestBody)
 	if err != nil {
 		span.End(dbmodel.AttemptFailed, 0, err.Error())

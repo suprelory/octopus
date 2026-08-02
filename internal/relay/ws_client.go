@@ -432,7 +432,7 @@ func newWSRelayRequest(
 		ctx:             ctx,
 		inAdapter:       inAdapter,
 		internalRequest: executionRequest,
-		metrics:         NewRelayMetrics(apiKeyID, requestModel, rawBody, metricsRequest),
+		metrics:         NewRelayMetrics(apiKeyID, requestModel, "responses", "", rawBody, metricsRequest),
 		apiKeyID:        apiKeyID,
 		requestModel:    requestModel,
 		groupID:         group.ID,

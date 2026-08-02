@@ -38,7 +38,7 @@ func newEmptyStreamTestAttempt(t *testing.T, inType inbound.InboundType, rawForm
 		c:               c,
 		inAdapter:       inbound.Get(inType),
 		internalRequest: internalReq,
-		metrics:         NewRelayMetrics(1, internalReq.Model, nil, internalReq),
+		metrics:         NewRelayMetrics(1, internalReq.Model, "chat", "", nil, internalReq),
 		apiKeyID:        1,
 		requestModel:    internalReq.Model,
 	}

@@ -3,7 +3,9 @@ package relay
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/bestruirui/octopus/internal/conf"
 	"github.com/bestruirui/octopus/internal/model"
@@ -18,6 +20,8 @@ import (
 type RelayMetrics struct {
 	APIKeyID     int
 	RequestModel string
+	EndpointType string
+	ClientIP     string
 	StartTime    time.Time
 
 	// 首 Token 时间
@@ -42,10 +46,12 @@ type RelayMetrics struct {
 	CacheWriteTokens     *int
 }
 
-func NewRelayMetrics(apiKeyID int, requestModel string, rawBody []byte, req *transformerModel.InternalLLMRequest) *RelayMetrics {
+func NewRelayMetrics(apiKeyID int, requestModel, endpointType, clientIP string, rawBody []byte, req *transformerModel.InternalLLMRequest) *RelayMetrics {
 	return &RelayMetrics{
 		APIKeyID:        apiKeyID,
 		RequestModel:    requestModel,
+		EndpointType:    endpointType,
+		ClientIP:        clientIP,
 		StartTime:       time.Now(),
 		RawRequest:      rawBody,
 		InternalRequest: req,
@@ -226,6 +232,9 @@ func (m *RelayMetrics) saveLog(ctx context.Context, success bool, err error, dur
 	relayLog := model.RelayLog{
 		Time:             m.StartTime.Unix(),
 		RequestModelName: m.RequestModel,
+		RequestAPIKeyID:  m.APIKeyID,
+		ClientIP:         m.ClientIP,
+		EndpointType:     m.EndpointType,
 		ChannelName:      channelName,
 		ChannelId:        channelID,
 		ActualModelName:  actualModel,
@@ -233,6 +242,9 @@ func (m *RelayMetrics) saveLog(ctx context.Context, success bool, err error, dur
 		Attempts:         attempts,
 		TotalAttempts:    len(attempts),
 		UsedWS:           m.UsedWS,
+	}
+	if m.InternalRequest != nil {
+		relayLog.ReasoningEffort = strings.TrimSpace(m.InternalRequest.ReasoningEffort)
 	}
 
 	if apiKey, getErr := op.APIKeyGet(m.APIKeyID, ctx); getErr == nil {
@@ -253,6 +265,12 @@ func (m *RelayMetrics) saveLog(ctx context.Context, success bool, err error, dur
 	relayLog.BillInputTokens = m.BillInputTokens
 	relayLog.CacheReadTokens = m.CacheReadTokens
 	relayLog.CacheWriteTokens = m.CacheWriteTokens
+	if m.InternalResponse != nil && m.InternalResponse.Usage != nil && m.InternalResponse.Usage.CompletionTokensDetails != nil {
+		relayLog.ReasoningTokens = int(m.InternalResponse.Usage.CompletionTokensDetails.ReasoningTokens)
+	}
+	if relayLog.ReasoningTokens <= 0 {
+		relayLog.ReasoningChars = reasoningCharsFromResponse(m.InternalResponse)
+	}
 	relayLog.WSMode = m.WSMode
 	relayLog.WSExecMode = m.WSExecMode
 	relayLog.WSRecovery = m.WSRecovery
@@ -283,6 +301,23 @@ func (m *RelayMetrics) saveLog(ctx context.Context, success bool, err error, dur
 	if logErr := op.RelayLogAdd(ctx, relayLog); logErr != nil {
 		log.Warnf("failed to save relay log: %v", logErr)
 	}
+}
+
+func reasoningCharsFromResponse(resp *transformerModel.InternalLLMResponse) int {
+	if resp == nil {
+		return 0
+	}
+	total := 0
+	for i := range resp.Choices {
+		choice := &resp.Choices[i]
+		if choice.Message != nil {
+			total += utf8.RuneCountInString(choice.Message.GetReasoningContent())
+		}
+		if choice.Delta != nil {
+			total += utf8.RuneCountInString(choice.Delta.GetReasoningContent())
+		}
+	}
+	return total
 }
 
 func updateFinalChannelUsageStats(channelID int, metrics model.StatsMetrics) {

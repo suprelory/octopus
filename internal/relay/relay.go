@@ -135,7 +135,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 	defer hb.Stop()
 
 	// 初始化 Metrics
-	metrics := NewRelayMetrics(apiKeyID, requestModel, rawBody, internalRequest)
+	metrics := NewRelayMetrics(apiKeyID, requestModel, relayEndpointType(inboundType), c.ClientIP(), rawBody, internalRequest)
 	// 如果触发了 HTTP replay，记录 ws_mode=replay 和 ws_recovery=replay
 	if responsesReplayState != nil {
 		metrics.SetWSMode(dbmodel.RelayLogWSModeReplay)
@@ -397,6 +397,7 @@ func circuitFailureKind(retryEnabled bool, statusCode int) balancer.FailureKind 
 // attempt 统一管理一次通道尝试的完整生命周期
 func (ra *relayAttempt) attempt() attemptResult {
 	span := ra.iter.StartAttempt(ra.channel.ID, ra.usedKey.ID, ra.channel.Name)
+	span.SetAdapterType(ra.channel.Type.String())
 
 	// 转发请求
 	statusCode, fwdErr := ra.forward()
