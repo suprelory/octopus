@@ -43,6 +43,11 @@ import {
 
 type AvatarComponent = typeof OpenAI.Avatar;
 
+export type ModelIcon = {
+    Avatar: AvatarComponent;
+    color: string;
+};
+
 type ModelIconConfig = {
     prefixes: string[];
     Avatar: AvatarComponent;
@@ -120,21 +125,53 @@ const MODEL_ICON_PATTERNS: ModelIconConfig[] = [
 // Default configuration
 const DEFAULT_CONFIG = { Avatar: OpenAI.Avatar, color: '#10A37F' };
 
+function findModelIcon(modelName: string): ModelIcon | undefined {
+    // Extract the part after the first '/' if it exists
+    // e.g., "qwen/gpt-5.2" -> "gpt-5.2"
+    const nameToMatch = modelName.includes('/') ? modelName.split('/')[1] : modelName;
+    const lowerName = nameToMatch.toLowerCase();
+    return MODEL_ICON_PATTERNS.find(({ prefixes }) =>
+        prefixes.some((prefix) => lowerName.startsWith(prefix))
+    );
+}
+
+function findGroupNameIcon(groupName: string): ModelIcon | undefined {
+    const lowerName = groupName.trim().toLowerCase();
+    if (!lowerName) return undefined;
+
+    return MODEL_ICON_PATTERNS.find(({ prefixes }) => prefixes.some((prefix) => {
+        const keyword = prefix.replace(/[-_]$/, '');
+        if (!keyword) return false;
+
+        // Long provider/model names also match compact group names such as "ClaudeCode".
+        if (keyword.length >= 5 && lowerName.includes(keyword)) return true;
+
+        const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, 'i').test(lowerName);
+    }));
+}
+
 /**
  * Get the Avatar component and color for a given model name
  * @param modelName - The name of the model
  * @returns Object containing Avatar component and brand color
  */
-export function getModelIcon(modelName: string): { Avatar: AvatarComponent; color: string } {
-    // Extract the part after the first '/' if it exists
-    // e.g., "qwen/gpt-5.2" -> "gpt-5.2"
-    const nameToMatch = modelName.includes('/') ? modelName.split('/')[1] : modelName;
-    const lowerName = nameToMatch.toLowerCase();
-    for (const { prefixes, Avatar, color } of MODEL_ICON_PATTERNS) {
-        if (prefixes.some(prefix => lowerName.startsWith(prefix))) {
-            return { Avatar, color };
-        }
-    }
-    return DEFAULT_CONFIG;
+export function getModelIcon(modelName: string): ModelIcon {
+    return findModelIcon(modelName) ?? DEFAULT_CONFIG;
 }
 
+/**
+ * Match a group icon by group name first, then fall back to its member models.
+ * Unlike getModelIcon, an unknown group returns undefined so callers can show a neutral icon.
+ */
+export function getGroupIcon(groupName: string, modelNames: string[] = []): ModelIcon | undefined {
+    const groupNameIcon = findGroupNameIcon(groupName);
+    if (groupNameIcon) return groupNameIcon;
+
+    for (const modelName of modelNames) {
+        const modelIcon = findModelIcon(modelName);
+        if (modelIcon) return modelIcon;
+    }
+
+    return undefined;
+}

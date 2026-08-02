@@ -39,7 +39,7 @@ export function Group() {
         <VirtualizedGrid
             items={visibleGroups}
             columns={{ default: 1, md: 2, lg: 3 }}
-            estimateItemHeight={180}
+            estimateItemHeight={140}
             getItemKey={(group, index) => group.id ?? `group-${index}`}
             renderItem={(group) => <GroupCard group={group} />}
         />

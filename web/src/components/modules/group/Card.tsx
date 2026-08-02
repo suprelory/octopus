@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo, useCallback, useEffect, useId, useRef } from 'react';
-import { Trash2, X, Pencil, Pin, PinOff, ChevronDown } from 'lucide-react';
+import { Boxes, ChevronDown, Layers, Pencil, Pin, PinOff, Trash2, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { type Group, useDeleteGroup, useUpdateGroup, useToggleGroupPin } from '@/api/endpoints/group';
 import { useModelChannelList } from '@/api/endpoints/model';
@@ -17,6 +17,7 @@ import { GroupHealthBadge } from './health';
 import { modelChannelKey, MODE_LABELS } from './utils';
 import { GroupMode, type GroupUpdateRequest } from '@/api/endpoints/group';
 import { PresetPopover } from './PresetPopover';
+import { getGroupIcon } from '@/lib/model-icons';
 import {
     MorphingDialog,
     MorphingDialogClose,
@@ -123,6 +124,12 @@ export function GroupCard({ group }: { group: Group }) {
         }),
         [displayMembers, weightOverrides]
     );
+
+    const groupIcon = useMemo(
+        () => getGroupIcon(group.name, displayMembers.map((member) => member.name)),
+        [displayMembers, group.name]
+    );
+    const GroupAvatar = groupIcon?.Avatar;
 
     const renderedMembers = useMemo(
         () => isDragging || updateGroup.isPending ? members : effectiveDisplayMembers,
@@ -290,14 +297,24 @@ export function GroupCard({ group }: { group: Group }) {
 
     return (
         <article className="relative group/card flex flex-col rounded-3xl border border-border bg-card text-card-foreground p-4 custom-shadow">
-            <header className="flex items-start justify-between mb-3 relative overflow-visible rounded-xl -mx-1 px-1 -my-1 py-1">
-                <div className="relative flex-1 mr-2 min-w-0 group/title">
-                    <Tooltip side="top" sideOffset={10} align="center">
-                        <TooltipTrigger asChild>
-                            <h3 className="text-lg font-bold truncate">{group.name}</h3>
-                        </TooltipTrigger>
-                        <TooltipContent key={group.name}>{group.name}</TooltipContent>
-                    </Tooltip>
+            <header className="relative -mx-1 -my-1 mb-2 flex items-center justify-between overflow-visible rounded-xl px-1 py-1">
+                <div className="mr-2 flex min-w-0 flex-1 items-center gap-2.5">
+                    {GroupAvatar ? (
+                        <GroupAvatar size={36} shape="square" />
+                    ) : (
+                        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
+                            <Boxes className="size-5" />
+                        </span>
+                    )}
+
+                    <div className="relative min-w-0 flex-1 group/title">
+                        <Tooltip side="top" sideOffset={10} align="center">
+                            <TooltipTrigger asChild>
+                                <h3 className="truncate text-lg font-bold">{group.name}</h3>
+                            </TooltipTrigger>
+                            <TooltipContent key={group.name}>{group.name}</TooltipContent>
+                        </Tooltip>
+                    </div>
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0">
@@ -339,30 +356,6 @@ export function GroupCard({ group }: { group: Group }) {
                 </div>
             </header>
 
-            {/* Mode: quick switch (no need to enter Edit) */}
-            <div className="flex gap-1 mb-3">
-                {([GroupMode.RoundRobin, GroupMode.Random, GroupMode.Failover, GroupMode.Weighted] as const).map((m) => (
-                    <button
-                        key={m}
-                        type="button"
-                        aria-disabled={isUpdatingMode || !group.id}
-                        onClick={() => {
-                            if (isUpdatingMode || !group.id) return;
-                            if (m === group.mode) return;
-                            updateGroup.mutate({ id: group.id!, mode: m }, { onSuccess, onError });
-                        }}
-                        className={cn(
-                            'flex-1 py-1 text-xs rounded-lg transition-colors',
-                            group.mode === m ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80',
-                            // Keep visuals stable (no opacity/disabled flicker) while still preventing double-submit via onClick guard.
-                            (!group.id) && 'cursor-not-allowed opacity-50'
-                        )}
-                    >
-                        {t(`mode.${MODE_LABELS[m]}`)}
-                    </button>
-                ))}
-            </div>
-
             <GroupHealthBadge groupId={group.id} />
 
             <button
@@ -373,10 +366,17 @@ export function GroupCard({ group }: { group: Group }) {
                     if (isDragging) return;
                     setExpanded((prev) => !prev);
                 }}
-                className="flex w-full items-center justify-between rounded-xl border border-border/50 bg-muted/30 px-3 py-2.5 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                className="flex w-full items-center justify-between rounded-xl border border-border/50 bg-muted/30 px-2.5 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
-                <span className="text-sm font-medium text-foreground">
-                    {t('card.modelCount', { count: displayMembers.length })}
+                <span className="flex min-w-0 items-center gap-2">
+                    <span className="inline-flex shrink-0 items-center rounded-lg bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
+                        {t(`mode.${MODE_LABELS[group.mode]}`)}
+                    </span>
+                    <span aria-hidden="true" className="h-3.5 w-px shrink-0 bg-border" />
+                    <span className="inline-flex min-w-0 items-center gap-1.5 truncate text-xs font-medium text-muted-foreground">
+                        <Layers className="size-3.5 shrink-0" />
+                        {t('card.modelCount', { count: displayMembers.length })}
+                    </span>
                 </span>
                 <span className="sr-only">
                     {expanded ? t('card.collapseModels') : t('card.expandModels')}
@@ -401,7 +401,32 @@ export function GroupCard({ group }: { group: Group }) {
                         }}
                         className="overflow-hidden"
                     >
-                        <div className="pt-2">
+                        <div className="space-y-2 pt-2">
+                            <div className="grid grid-cols-4 gap-1 rounded-xl border border-border/50 bg-muted/30 p-1">
+                                {([GroupMode.RoundRobin, GroupMode.Random, GroupMode.Failover, GroupMode.Weighted] as const).map((m) => (
+                                    <button
+                                        key={m}
+                                        type="button"
+                                        aria-disabled={isUpdatingMode || !group.id}
+                                        aria-pressed={group.mode === m}
+                                        onClick={() => {
+                                            if (isUpdatingMode || !group.id) return;
+                                            if (m === group.mode) return;
+                                            updateGroup.mutate({ id: group.id!, mode: m }, { onSuccess, onError });
+                                        }}
+                                        className={cn(
+                                            'min-w-0 truncate rounded-lg px-1.5 py-1.5 text-xs transition-colors',
+                                            group.mode === m
+                                                ? 'bg-primary text-primary-foreground'
+                                                : 'text-muted-foreground hover:bg-background hover:text-foreground',
+                                            !group.id && 'cursor-not-allowed opacity-50'
+                                        )}
+                                    >
+                                        {t(`mode.${MODE_LABELS[m]}`)}
+                                    </button>
+                                ))}
+                            </div>
+
                             <section className="relative h-101 overflow-hidden rounded-xl border border-border/50 bg-muted/30">
                                 <MemberList
                                     members={renderedMembers}
