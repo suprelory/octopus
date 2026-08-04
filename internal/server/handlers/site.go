@@ -53,7 +53,9 @@ func init() {
 		AddRoute(router.NewRoute("/batch/edit", http.MethodPost).Handle(batchEditSite)).
 		AddRoute(router.NewRoute("/account/create", http.MethodPost).Handle(createSiteAccount)).
 		AddRoute(router.NewRoute("/account/update", http.MethodPost).Handle(updateSiteAccount)).
-		AddRoute(router.NewRoute("/account/enable", http.MethodPost).Handle(enableSiteAccount))
+		AddRoute(router.NewRoute("/account/enable", http.MethodPost).Handle(enableSiteAccount)).
+		AddRoute(router.NewRoute("/account/manual-sync/preview/:id", http.MethodPost).Handle(previewManualSiteAccountSync)).
+		AddRoute(router.NewRoute("/account/manual-sync/:id", http.MethodPost).Handle(applyManualSiteAccountSync))
 
 	router.NewGroupRouter("/api/v1/site").
 		Use(middleware.Auth()).
@@ -359,6 +361,52 @@ func syncSiteAccount(c *gin.Context) {
 			return
 		}
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, err)
+		return
+	}
+	resp.Success(c, result)
+}
+
+func previewManualSiteAccountSync(c *gin.Context) {
+	idNum, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		resp.InvalidParam(c)
+		return
+	}
+	var req sitesync.ManualSyncRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.InvalidJSON(c)
+		return
+	}
+	result, err := sitesvc.PreviewManualSync(c.Request.Context(), idNum, req)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if sitesync.IsManualSyncValidationError(err) {
+			status = http.StatusBadRequest
+		}
+		resp.ErrorWithAppError(c, status, err)
+		return
+	}
+	resp.Success(c, result)
+}
+
+func applyManualSiteAccountSync(c *gin.Context) {
+	idNum, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		resp.InvalidParam(c)
+		return
+	}
+	var req sitesync.ManualSyncRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.InvalidJSON(c)
+		return
+	}
+	result, err := sitesvc.ApplyManualSync(c.Request.Context(), idNum, req)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if sitesync.IsManualSyncValidationError(err) {
+			status = http.StatusBadRequest
+		}
+		resp.ErrorWithAppError(c, status, err)
 		return
 	}
 	resp.Success(c, result)

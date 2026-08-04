@@ -12,6 +12,14 @@ func SyncAccount(ctx context.Context, accountID int) (*model.SiteSyncResult, err
 	return sitesync.SyncAccount(ctx, accountID)
 }
 
+func PreviewManualSync(ctx context.Context, accountID int, req sitesync.ManualSyncRequest) (*sitesync.ManualSyncPreview, error) {
+	return sitesync.PreviewManualSync(ctx, accountID, req)
+}
+
+func ApplyManualSync(ctx context.Context, accountID int, req sitesync.ManualSyncRequest) (*sitesync.ManualSyncApplyResult, error) {
+	return sitesync.ApplyManualSync(ctx, accountID, req)
+}
+
 func CheckinAccount(ctx context.Context, accountID int) (*model.SiteCheckinResult, error) {
 	return sitesync.CheckinAccount(ctx, accountID)
 }

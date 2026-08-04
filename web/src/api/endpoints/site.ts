@@ -180,6 +180,93 @@ export type SiteSyncResult = {
   message: string;
 };
 
+export type SiteManualSyncMode = "merge" | "replace";
+export type SiteManualSyncFormat = "responses" | "snapshot";
+
+export type SiteManualSyncRequest = {
+  mode: SiteManualSyncMode;
+  format: SiteManualSyncFormat;
+  token_response?: unknown;
+  group_responses?: unknown[];
+  model_responses?: Array<{
+    group_key: string;
+    response: unknown;
+  }>;
+  account_response?: unknown;
+  snapshot?: {
+    access_token?: string;
+    tokens?: Array<{
+      name?: string;
+      token: string;
+      group_key?: string;
+      group_name?: string;
+      enabled?: boolean;
+      is_default?: boolean;
+    }>;
+    groups?: Array<{
+      group_key: string;
+      name?: string;
+    }>;
+    models?: Record<
+      string,
+      Array<
+        | string
+        | {
+            model_name: string;
+            route_type?: string;
+          }
+      >
+    >;
+    balance?: number;
+    balance_used?: number;
+    today_income?: number;
+  };
+  preview_fingerprint?: string;
+};
+
+export type SiteManualSyncPreviewGroup = {
+  group_key: string;
+  group_name: string;
+  token_count: number;
+  usable_token_count: number;
+  masked_token_count: number;
+  model_count: number;
+  model_action: "merge" | "replace" | "preserve";
+  route_types: string[];
+  will_project: boolean;
+};
+
+export type SiteManualSyncPreview = {
+  account_id: number;
+  site_id: number;
+  mode: SiteManualSyncMode;
+  format: SiteManualSyncFormat;
+  imported_token_count: number;
+  imported_group_count: number;
+  imported_model_count: number;
+  token_count: number;
+  usable_token_count: number;
+  masked_token_count: number;
+  group_count: number;
+  model_count: number;
+  channel_count_estimate: number;
+  balance_provided: boolean;
+  balance: number;
+  balance_used_provided: boolean;
+  balance_used: number;
+  today_income_provided: boolean;
+  today_income: number;
+  groups: SiteManualSyncPreviewGroup[];
+  warnings: string[];
+  can_apply: boolean;
+  preview_fingerprint: string;
+};
+
+export type SiteManualSyncApplyResult = {
+  preview: SiteManualSyncPreview;
+  sync_result: SiteSyncResult;
+};
+
 export type SiteCheckinResult = {
   account_id: number;
   site_id: number;
@@ -451,6 +538,36 @@ export function useSyncSiteAccount() {
       apiClient.post<SiteSyncResult>(`/api/v1/site/account/sync/${id}`, {}),
     onSettled: () => invalidateSiteQueries(queryClient),
     onError: (error) => logger.error("站点账号同步失败:", error),
+  });
+}
+
+export function usePreviewManualSiteSync() {
+  return useMutation({
+    mutationFn: async (data: {
+      id: number;
+      request: SiteManualSyncRequest;
+    }) =>
+      apiClient.post<SiteManualSyncPreview>(
+        `/api/v1/site/account/manual-sync/preview/${data.id}`,
+        data.request,
+      ),
+    onError: (error) => logger.error("手动同步数据预览失败:", error),
+  });
+}
+
+export function useApplyManualSiteSync() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: {
+      id: number;
+      request: SiteManualSyncRequest;
+    }) =>
+      apiClient.post<SiteManualSyncApplyResult>(
+        `/api/v1/site/account/manual-sync/${data.id}`,
+        data.request,
+      ),
+    onSuccess: () => invalidateSiteQueries(queryClient),
+    onError: (error) => logger.error("手动同步数据应用失败:", error),
   });
 }
 

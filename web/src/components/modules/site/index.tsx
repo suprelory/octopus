@@ -70,6 +70,7 @@ import { CheckinPanel } from "./CheckinPanel";
 import { SiteEditDialog } from "./SiteEditDialog";
 import { BatchEditDialog } from "./BatchEditDialog";
 import { AccountEditDialog } from "./AccountEditDialog";
+import { ManualSyncDialog } from "./ManualSyncDialog";
 import {
   accountHasCheckinEnabled,
   accountMatchesCheckinFilters,
@@ -608,6 +609,10 @@ export function Site() {
   const [editingAccount, setEditingAccount] = useState<SiteAccount | null>(
     null,
   );
+  const [manualSyncDialogOpen, setManualSyncDialogOpen] = useState(false);
+  const [manualSyncSite, setManualSyncSite] = useState<SiteRecord | null>(null);
+  const [manualSyncAccount, setManualSyncAccount] =
+    useState<SiteAccount | null>(null);
 
   // Batch selection
   const [selectedSiteIds, setSelectedSiteIds] = useState<number[]>([]);
@@ -968,6 +973,20 @@ export function Site() {
     if (!open) {
       setAccountSite(null);
       setEditingAccount(null);
+    }
+  }
+
+  function openManualSyncDialog(site: SiteRecord, account: SiteAccount) {
+    setManualSyncSite(site);
+    setManualSyncAccount(account);
+    setManualSyncDialogOpen(true);
+  }
+
+  function closeManualSyncDialog(open: boolean) {
+    setManualSyncDialogOpen(open);
+    if (!open) {
+      setManualSyncSite(null);
+      setManualSyncAccount(null);
     }
   }
 
@@ -1825,6 +1844,16 @@ export function Site() {
                                           </button>
                                           <button
                                             type="button"
+                                            className={MENU_BUTTON_CLASS}
+                                            onClick={() =>
+                                              openManualSyncDialog(site, account)
+                                            }
+                                          >
+                                            <FileJson className="size-4" />
+                                            <span>手动导入同步数据</span>
+                                          </button>
+                                          <button
+                                            type="button"
                                             className={cn(
                                               MENU_BUTTON_CLASS,
                                               "text-destructive",
@@ -2140,6 +2169,18 @@ export function Site() {
         onOpenChange={closeAccountDialog}
         site={accountSite}
         account={editingAccount}
+      />
+
+      <ManualSyncDialog
+        key={
+          manualSyncAccount
+            ? `manual-sync-${manualSyncAccount.id}`
+            : "manual-sync"
+        }
+        open={manualSyncDialogOpen}
+        onOpenChange={closeManualSyncDialog}
+        site={manualSyncSite}
+        account={manualSyncAccount}
       />
 
       <Dialog
