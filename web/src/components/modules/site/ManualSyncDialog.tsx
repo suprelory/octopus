@@ -11,6 +11,7 @@ import {
   XIcon,
 } from "lucide-react";
 import {
+  SitePlatform,
   type Site,
   type SiteAccount,
   type SiteManualSyncFormat,
@@ -47,6 +48,13 @@ type ModelResponseRow = {
   response: string;
 };
 
+type ManualSyncEndpointHints = {
+  token: string;
+  group: string;
+  model: string;
+  account: string;
+};
+
 const TEXTAREA_CLASS =
   "w-full resize-y rounded-xl border border-input bg-transparent px-3 py-2 font-mono text-xs leading-5 shadow-xs outline-none transition-[color,box-shadow] placeholder:text-muted-foreground/60 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -59,6 +67,54 @@ const ROUTE_LABELS: Record<string, string> = {
   openai_embedding: "Embedding",
   unknown: "Unknown",
 };
+
+function getManualSyncEndpointHints(
+  platform?: Site["platform"],
+): ManualSyncEndpointHints {
+  const managementHints: ManualSyncEndpointHints = {
+    token: "GET /api/token/?p=0&size=100",
+    group:
+      "GET /api/user/self/groups；备用：GET /api/user_group_map",
+    model: "GET /models；备用：GET /v1/models（使用对应分组 API Key）",
+    account: "GET /api/user/self",
+  };
+
+  switch (platform) {
+    case SitePlatform.NewAPI:
+    case SitePlatform.AnyRouter:
+      return {
+        ...managementHints,
+        model:
+          "GET /models；备用：GET /v1/models、GET /api/user/models（使用对应分组 API Key）",
+      };
+    case SitePlatform.OneHub:
+    case SitePlatform.DoneHub:
+      return {
+        ...managementHints,
+        model:
+          "GET /models；备用：GET /v1/models、GET /api/available_model（使用对应分组 API Key）",
+      };
+    case SitePlatform.Sub2API:
+      return {
+        token:
+          "GET /api/v1/keys?page=1&page_size=100；备用：GET /api/v1/api-keys?page=1&page_size=100、GET /api/v1/keys、GET /api/v1/api-keys",
+        group:
+          "GET /api/v1/groups/available；备用：GET /api/v1/groups、GET /api/v1/group",
+        model:
+          "GET /v1/models；备用：GET /api/v1/models、GET /v1beta/models、GET /models（使用对应分组 API Key）",
+        account: "GET /api/v1/auth/me",
+      };
+    case SitePlatform.API:
+      return {
+        token: "无对应的 Token 列表接口，可留空",
+        group: "无对应的分组接口，可留空并使用 default 分组",
+        model: "GET {已配置 BaseURL}/models（分组标识填写 default）",
+        account: "无兼容的账户余额接口，可留空",
+      };
+    default:
+      return managementHints;
+  }
+}
 
 function emptyModelRow(id: number): ModelResponseRow {
   return { id, groupKey: "default", response: "" };
@@ -122,6 +178,7 @@ export function ManualSyncDialog({
   const [preview, setPreview] = useState<SiteManualSyncPreview | null>(null);
 
   const isBusy = previewMutation.isPending || applyMutation.isPending;
+  const endpointHints = getManualSyncEndpointHints(site?.platform);
 
   function reset() {
     setMode("merge");
@@ -321,9 +378,19 @@ export function ManualSyncDialog({
 
             {format === "responses" ? (
               <div className="space-y-4">
+                <p className="rounded-xl bg-muted/50 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                  以下路径相对于站点地址
+                  {site?.base_url ? (
+                    <code className="mx-1 break-all text-foreground">
+                      {site.base_url}
+                    </code>
+                  ) : null}
+                  ，请粘贴接口返回的完整 JSON 响应体。
+                </p>
                 <div className="grid gap-4 lg:grid-cols-2">
                   <ResponseField
                     label="Token 响应"
+                    hint={endpointHints.token}
                     value={tokenResponse}
                     minHeight="min-h-32"
                     disabled={isBusy}
@@ -334,6 +401,7 @@ export function ManualSyncDialog({
                   />
                   <ResponseField
                     label="分组响应"
+                    hint={endpointHints.group}
                     value={groupResponse}
                     minHeight="min-h-32"
                     disabled={isBusy}
@@ -346,7 +414,10 @@ export function ManualSyncDialog({
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-3">
-                    <label className="text-sm font-medium">分组模型响应</label>
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium">分组模型响应</label>
+                      <EndpointHint text={endpointHints.model} />
+                    </div>
                     <Button
                       type="button"
                       variant="ghost"
@@ -430,6 +501,7 @@ export function ManualSyncDialog({
 
                 <ResponseField
                   label="账户响应"
+                  hint={endpointHints.account}
                   value={accountResponse}
                   minHeight="min-h-28"
                   disabled={isBusy}
@@ -442,6 +514,7 @@ export function ManualSyncDialog({
             ) : (
               <ResponseField
                 label="统一快照 JSON"
+                hint="自定义统一数据结构，不对应单个上游接口"
                 value={snapshotText}
                 minHeight="min-h-72"
                 disabled={isBusy}
@@ -502,6 +575,7 @@ export function ManualSyncDialog({
 
 function ResponseField({
   label,
+  hint,
   value,
   onChange,
   disabled,
@@ -509,6 +583,7 @@ function ResponseField({
   placeholder = "粘贴 JSON 响应",
 }: {
   label: string;
+  hint?: string;
   value: string;
   onChange: (value: string) => void;
   disabled: boolean;
@@ -518,6 +593,7 @@ function ResponseField({
   return (
     <div className="space-y-1.5">
       <label className="text-sm font-medium">{label}</label>
+      {hint ? <EndpointHint text={hint} /> : null}
       <textarea
         value={value}
         disabled={disabled}
@@ -527,6 +603,14 @@ function ResponseField({
         onChange={(event) => onChange(event.target.value)}
       />
     </div>
+  );
+}
+
+function EndpointHint({ text }: { text: string }) {
+  return (
+    <p className="font-mono text-[11px] leading-4 text-muted-foreground">
+      接口：{text}
+    </p>
   );
 }
 
