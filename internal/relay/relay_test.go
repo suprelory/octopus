@@ -27,6 +27,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func TestReadUpstreamErrorBodyIsBounded(t *testing.T) {
+	payload := strings.Repeat("x", maxUpstreamErrorBodySize+4096)
+	body, err := readUpstreamErrorBody(strings.NewReader(payload))
+	if err != nil {
+		t.Fatalf("readUpstreamErrorBody: %v", err)
+	}
+	if len(body) != maxUpstreamErrorBodySize {
+		t.Fatalf("error body length = %d, want %d", len(body), maxUpstreamErrorBodySize)
+	}
+}
+
 func TestHandleStreamResponsePassthroughAnthropicPreservesRawSSE(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

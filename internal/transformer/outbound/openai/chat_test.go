@@ -121,6 +121,70 @@ func TestBuildChatCompletionsRequestDerivesAnthropicPromptCacheKey(t *testing.T)
 	}
 }
 
+func TestBuildChatCompletionsRequestNormalizesToolCallOnlyAssistant(t *testing.T) {
+	req := &model.InternalLLMRequest{
+		Model: "gpt-test",
+		Messages: []model.Message{
+			{
+				Role: "assistant",
+				ToolCalls: []model.ToolCall{{
+					ID:   "call_1",
+					Type: "function",
+					Function: model.FunctionCall{
+						Name:      "lookup",
+						Arguments: `{}`,
+					},
+				}},
+			},
+			{
+				Role: "user",
+				Content: model.MessageContent{MultipleContent: []model.MessageContentPart{
+					{Type: "input_text", Text: stringPtr("input")},
+					{Type: "output_text", Text: stringPtr("output")},
+				}},
+			},
+		},
+	}
+
+	body, err := json.Marshal(buildChatCompletionsRequest(req))
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	var payload struct {
+		Messages []map[string]any `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("unmarshal request: %v", err)
+	}
+	if content, ok := payload.Messages[0]["content"]; !ok || content != "" {
+		t.Fatalf("tool-call-only assistant content = %#v (present=%v), want explicit empty string", content, ok)
+	}
+	parts, ok := payload.Messages[1]["content"].([]any)
+	if !ok || len(parts) != 2 {
+		t.Fatalf("normalized content parts = %#v", payload.Messages[1]["content"])
+	}
+	for idx, part := range parts {
+		if got := part.(map[string]any)["type"]; got != "text" {
+			t.Fatalf("content part %d type = %#v, want text", idx, got)
+		}
+	}
+}
+
+func TestTransformStreamTreatsEmptyFinishReasonAsUnset(t *testing.T) {
+	outbound := &ChatOutbound{}
+	resp, err := outbound.TransformStream(context.Background(), []byte(`{
+		"id":"chatcmpl_1",
+		"object":"chat.completion.chunk",
+		"choices":[{"index":0,"delta":{"content":"hello"},"finish_reason":""}]
+	}`))
+	if err != nil {
+		t.Fatalf("TransformStream: %v", err)
+	}
+	if len(resp.Choices) != 1 || resp.Choices[0].FinishReason != nil {
+		t.Fatalf("finish reason = %#v, want nil", resp.Choices)
+	}
+}
+
 // O-H1: 2025 Chat fields (verbosity, prediction, web_search_options) must land
 // on the outbound payload when the client supplied them. Before this fix the
 // whitelist simply dropped them, so gpt-5 verbosity and predicted outputs were

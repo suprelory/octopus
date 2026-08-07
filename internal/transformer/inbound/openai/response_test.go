@@ -3,6 +3,8 @@ package openai
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/samber/lo"
 )
 
 func TestConvertToInternalRequestPreservesRawInputItems(t *testing.T) {
@@ -136,6 +138,47 @@ func TestConvertToInternalRequestNormalizesTopLevelInputFile(t *testing.T) {
 	}
 	if internalReq.Messages[0].Content.MultipleContent[0].File == nil || internalReq.Messages[0].Content.MultipleContent[0].File.FileID != "file_456" {
 		t.Fatalf("expected normalized file reference to preserve file_id, got %#v", internalReq.Messages[0].Content.MultipleContent[0].File)
+	}
+}
+
+func TestConvertInputToMessagesMergesConsecutiveFunctionCalls(t *testing.T) {
+	messages, err := convertInputToMessages(&ResponsesInput{Items: []ResponsesItem{
+		{Type: "function_call", CallID: "call_1", Name: "lookup", Namespace: "tools", Arguments: `{"q":"one"}`},
+		{Type: "function_call", CallID: "call_2", Name: "weather", Arguments: `{"city":"two"}`},
+		{Type: "function_call_output", CallID: "call_1", Output: &ResponsesInput{Text: lo.ToPtr("one")}},
+		{Type: "function_call_output", CallID: "call_2", Output: &ResponsesInput{Text: lo.ToPtr("two")}},
+	}})
+	if err != nil {
+		t.Fatalf("convertInputToMessages: %v", err)
+	}
+	if len(messages) != 3 {
+		t.Fatalf("message count = %d, want assistant plus two tool results: %+v", len(messages), messages)
+	}
+	if messages[0].Role != "assistant" || len(messages[0].ToolCalls) != 2 {
+		t.Fatalf("consecutive calls were not merged: %+v", messages[0])
+	}
+	if messages[0].ToolCalls[0].Function.Namespace != "tools" {
+		t.Fatalf("namespace lost during conversion: %+v", messages[0].ToolCalls[0])
+	}
+	if messages[1].Role != "tool" || messages[2].Role != "tool" {
+		t.Fatalf("tool results lost ordering: %+v", messages)
+	}
+}
+
+func TestConvertItemToMessageUsesReasoningTextContent(t *testing.T) {
+	msg, err := convertItemToMessage(&ResponsesItem{
+		Type:    "reasoning",
+		Summary: []ResponsesReasoningSummary{{Type: "summary_text", Text: "summary"}},
+		Content: &ResponsesInput{Items: []ResponsesItem{{
+			Type: "reasoning_text",
+			Text: lo.ToPtr("full reasoning"),
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("convertItemToMessage: %v", err)
+	}
+	if msg == nil || msg.ReasoningContent == nil || *msg.ReasoningContent != "full reasoning" {
+		t.Fatalf("reasoning content = %+v, want reasoning_text", msg)
 	}
 }
 

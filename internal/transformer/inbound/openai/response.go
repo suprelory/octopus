@@ -517,6 +517,7 @@ func (i *ResponseInbound) handleToolCalls(toolCalls []model.ToolCall) [][]byte {
 				Type:  tc.Type,
 				Function: model.FunctionCall{
 					Name:      tc.Function.Name,
+					Namespace: tc.Function.Namespace,
 					Arguments: "",
 				},
 			}
@@ -527,11 +528,12 @@ func (i *ResponseInbound) handleToolCalls(toolCalls []model.ToolCall) [][]byte {
 			}
 
 			item := &ResponsesItem{
-				ID:     itemID,
-				Type:   "function_call",
-				Status: lo.ToPtr("in_progress"),
-				CallID: tc.ID,
-				Name:   tc.Function.Name,
+				ID:        itemID,
+				Type:      "function_call",
+				Status:    lo.ToPtr("in_progress"),
+				CallID:    tc.ID,
+				Name:      tc.Function.Name,
+				Namespace: tc.Function.Namespace,
 			}
 
 			events = append(events, i.enqueueEvent(&ResponsesStreamEvent{
@@ -547,6 +549,15 @@ func (i *ResponseInbound) handleToolCalls(toolCalls []model.ToolCall) [][]byte {
 		}
 
 		// Accumulate arguments
+		if tc.ID != "" {
+			i.toolCalls[toolCallIndex].ID = tc.ID
+		}
+		if tc.Function.Name != "" {
+			i.toolCalls[toolCallIndex].Function.Name = tc.Function.Name
+		}
+		if tc.Function.Namespace != "" {
+			i.toolCalls[toolCallIndex].Function.Namespace = tc.Function.Namespace
+		}
 		i.toolCalls[toolCallIndex].Function.Arguments += tc.Function.Arguments
 
 		// Emit function_call_arguments.delta
@@ -803,6 +814,9 @@ func (i *ResponseInbound) closeCurrentOutputItem() [][]byte {
 				Type:        "response.function_call_arguments.done",
 				ItemID:      &itemID,
 				OutputIndex: &toolCallOutputIdx,
+				CallID:      tc.ID,
+				Name:        tc.Function.Name,
+				Namespace:   tc.Function.Namespace,
 				Arguments:   tc.Function.Arguments,
 			}))
 
@@ -813,6 +827,7 @@ func (i *ResponseInbound) closeCurrentOutputItem() [][]byte {
 				Status:    lo.ToPtr("completed"),
 				CallID:    tc.ID,
 				Name:      tc.Function.Name,
+				Namespace: tc.Function.Namespace,
 				Arguments: tc.Function.Arguments,
 			}
 
@@ -949,6 +964,7 @@ type ResponsesItem struct {
 	// Function call fields
 	CallID    string `json:"call_id,omitempty"`
 	Name      string `json:"name,omitempty"`
+	Namespace string `json:"namespace,omitempty"`
 	Arguments string `json:"arguments,omitempty"`
 
 	// Function call output
@@ -1133,6 +1149,7 @@ type ResponsesStreamEvent struct {
 	Delta          string                `json:"delta,omitempty"`
 	Text           string                `json:"text,omitempty"`
 	Name           string                `json:"name,omitempty"`
+	Namespace      string                `json:"namespace,omitempty"`
 	CallID         string                `json:"call_id,omitempty"`
 	Arguments      string                `json:"arguments,omitempty"`
 	SummaryIndex   *int                  `json:"summary_index,omitempty"`
@@ -1372,16 +1389,36 @@ func convertInputToMessages(input *ResponsesInput) ([]model.Message, error) {
 		}, nil
 	}
 
-	// Array of items
+	// Array of items. Consecutive function calls belong to one assistant
+	// turn; emitting one assistant message per item creates an invalid Chat
+	// sequence once the corresponding tool results follow.
 	messages := make([]model.Message, 0, len(input.Items))
-	for _, item := range input.Items {
-		msg, err := convertItemToMessage(&item)
+	for idx := 0; idx < len(input.Items); {
+		item := &input.Items[idx]
+		if item.Type == "function_call" {
+			msg := model.Message{Role: "assistant"}
+			for idx < len(input.Items) && input.Items[idx].Type == "function_call" {
+				callMsg, err := convertItemToMessage(&input.Items[idx])
+				if err != nil {
+					return nil, err
+				}
+				if callMsg != nil {
+					msg.ToolCalls = append(msg.ToolCalls, callMsg.ToolCalls...)
+				}
+				idx++
+			}
+			messages = append(messages, msg)
+			continue
+		}
+
+		msg, err := convertItemToMessage(item)
 		if err != nil {
 			return nil, err
 		}
 		if msg != nil {
 			messages = append(messages, *msg)
 		}
+		idx++
 	}
 
 	return messages, nil
@@ -1433,6 +1470,7 @@ func convertItemToMessage(item *ResponsesItem) (*model.Message, error) {
 					Type: "function",
 					Function: model.FunctionCall{
 						Name:      item.Name,
+						Namespace: item.Namespace,
 						Arguments: item.Arguments,
 					},
 				},
@@ -1451,13 +1489,8 @@ func convertItemToMessage(item *ResponsesItem) (*model.Message, error) {
 			Role: "assistant",
 		}
 
-		var reasoningText strings.Builder
-		for _, summary := range item.Summary {
-			reasoningText.WriteString(summary.Text)
-		}
-
-		if reasoningText.Len() > 0 {
-			msg.ReasoningContent = lo.ToPtr(reasoningText.String())
+		if reasoningText := reasoningTextFromInputItem(item); reasoningText != "" {
+			msg.ReasoningContent = lo.ToPtr(reasoningText)
 		}
 
 		if item.EncryptedContent != nil && *item.EncryptedContent != "" {
@@ -1469,6 +1502,29 @@ func convertItemToMessage(item *ResponsesItem) (*model.Message, error) {
 	default:
 		return nil, nil
 	}
+}
+
+func reasoningTextFromInputItem(item *ResponsesItem) string {
+	if item == nil {
+		return ""
+	}
+	if item.Content != nil {
+		var content strings.Builder
+		for _, part := range item.Content.Items {
+			if part.Type == "reasoning_text" && part.Text != nil {
+				content.WriteString(*part.Text)
+			}
+		}
+		if content.Len() > 0 {
+			return content.String()
+		}
+	}
+
+	var summary strings.Builder
+	for _, part := range item.Summary {
+		summary.WriteString(part.Text)
+	}
+	return summary.String()
 }
 
 func convertInputToMessageContent(input ResponsesInput) model.MessageContent {
@@ -1649,6 +1705,7 @@ func convertToResponsesAPIResponse(resp *model.InternalLLMResponse) *ResponsesRe
 					Type:      "function_call",
 					CallID:    toolCall.ID,
 					Name:      toolCall.Function.Name,
+					Namespace: toolCall.Function.Namespace,
 					Arguments: toolCall.Function.Arguments,
 					Status:    lo.ToPtr("completed"),
 				})

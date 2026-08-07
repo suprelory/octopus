@@ -27,6 +27,7 @@ type MessagesInbound struct {
 	contentIndex              int64
 	stopReason                *string
 	stopSequence              *string
+	pendingUsage              *model.Usage
 	toolCallIndices           map[int]bool // Track which tool call indices we've seen
 	inputToken                int64
 
@@ -710,6 +711,15 @@ func (i *MessagesInbound) TransformResponse(ctx context.Context, response *model
 			} else {
 				resp.StopReason = choice.FinishReason
 			}
+		} else {
+			stopReason := "end_turn"
+			for _, block := range resp.Content {
+				if block.Type == "tool_use" {
+					stopReason = "tool_use"
+					break
+				}
+			}
+			resp.StopReason = &stopReason
 		}
 
 		if choice.StopSequence != nil {
@@ -751,8 +761,8 @@ func (i *MessagesInbound) TransformStream(ctx context.Context, stream *model.Int
 
 	// Handle [DONE] marker
 	if stream.Object == "[DONE]" {
-		if i.hasFinished && !i.messageStopped {
-			events, err := i.finalizeStreamMessage(nil)
+		if i.hasStarted && !i.messageStopped {
+			events, err := i.finalizeStreamAtEnd(i.pendingUsage)
 			if err != nil {
 				return nil, err
 			}
@@ -766,6 +776,9 @@ func (i *MessagesInbound) TransformStream(ctx context.Context, stream *model.Int
 
 	// Store the chunk for aggregation
 	i.streamAggregator.Add(stream)
+	if stream.Usage != nil {
+		i.pendingUsage = stream.Usage
+	}
 
 	var events [][]byte
 
@@ -1222,8 +1235,10 @@ func (i *MessagesInbound) TransformStreamEvents(ctx context.Context, events []mo
 	var firstUsage *model.Usage
 	for _, event := range events {
 		if event.Usage != nil {
-			firstUsage = event.Usage
-			break
+			if firstUsage == nil {
+				firstUsage = event.Usage
+			}
+			i.pendingUsage = event.Usage
 		}
 	}
 
@@ -1491,8 +1506,13 @@ func (i *MessagesInbound) TransformStreamEvents(ctx context.Context, events []mo
 				out = append(out, finalEvents...)
 			}
 		case model.StreamEventKindDone:
-			if i.hasFinished && !i.messageStopped {
-				finalEvents, err := i.finalizeStreamMessage(nil)
+			if i.hasStarted && !i.messageStopped {
+				if err := closeOpenBlock(); err != nil {
+					return nil, err
+				}
+				i.ensureDefaultStopReason()
+				i.hasFinished = true
+				finalEvents, err := i.finalizeStreamMessage(i.pendingUsage)
 				if err != nil {
 					return nil, err
 				}
@@ -1530,6 +1550,42 @@ func (i *MessagesInbound) resetOpenContentState() {
 	i.hasTextContentStarted = false
 	i.hasThinkingContentStarted = false
 	i.hasToolContentStarted = false
+}
+
+func (i *MessagesInbound) ensureDefaultStopReason() {
+	if i.stopReason != nil {
+		return
+	}
+	stopReason := "end_turn"
+	if len(i.toolCallIndices) > 0 {
+		stopReason = "tool_use"
+	}
+	i.stopReason = &stopReason
+}
+
+func (i *MessagesInbound) finalizeStreamAtEnd(usage *model.Usage) ([][]byte, error) {
+	if i.messageStopped || !i.hasStarted {
+		return nil, nil
+	}
+
+	var events [][]byte
+	if i.hasOpenContentBlock() {
+		stopEvent := StreamEvent{Type: "content_block_stop", Index: &i.contentIndex}
+		data, err := json.Marshal(stopEvent)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal content_block_stop event: %w", err)
+		}
+		events = append(events, formatSSEEvent("content_block_stop", data))
+		i.resetOpenContentState()
+	}
+
+	i.ensureDefaultStopReason()
+	i.hasFinished = true
+	terminalEvents, err := i.finalizeStreamMessage(usage)
+	if err != nil {
+		return nil, err
+	}
+	return append(events, terminalEvents...), nil
 }
 
 func (i *MessagesInbound) finalizeStreamMessage(usage *model.Usage) ([][]byte, error) {

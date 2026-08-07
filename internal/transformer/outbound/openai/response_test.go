@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"strings"
 	"testing"
+
+	"github.com/samber/lo"
 
 	"github.com/bestruirui/octopus/internal/transformer/model"
 )
@@ -853,5 +856,155 @@ func TestTransformStreamPreservesReasoningDeltaBeforeOutputItemAdded(t *testing.
 	part := summary[0].(map[string]any)
 	if part["type"] != "summary_text" || part["text"] != "step" {
 		t.Fatalf("expected merged reasoning summary, got %#v", part)
+	}
+}
+
+func TestTransformStreamFunctionCallArgumentsDoneSuppliesIdentityAndArguments(t *testing.T) {
+	o := &ResponseOutbound{}
+	ctx := context.Background()
+
+	added := `{"type":"response.output_item.added","output_index":2,"item":{"id":"fc_1","type":"function_call"}}`
+	events, err := o.TransformStreamEvent(ctx, []byte(added))
+	if err != nil {
+		t.Fatalf("output item added: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("unnamed function call should be buffered, got %+v", events)
+	}
+
+	done := `{"type":"response.function_call_arguments.done","output_index":2,"call_id":"call_1","name":"lookup","namespace":"tools","arguments":"{\"q\":\"x\"}"}`
+	events, err = o.TransformStreamEvent(ctx, []byte(done))
+	if err != nil {
+		t.Fatalf("arguments done: %v", err)
+	}
+	if len(events) != 2 || events[0].Kind != model.StreamEventKindToolCallStart || events[1].Kind != model.StreamEventKindToolCallDelta {
+		t.Fatalf("expected start plus complete argument delta, got %+v", events)
+	}
+	if events[0].ToolCall == nil || events[0].ToolCall.ID != "call_1" || events[0].ToolCall.Function.Name != "lookup" || events[0].ToolCall.Function.Namespace != "tools" {
+		t.Fatalf("completed tool identity was not preserved: %+v", events[0].ToolCall)
+	}
+	if events[1].Delta == nil || events[1].Delta.Arguments != `{"q":"x"}` {
+		t.Fatalf("complete arguments delta = %+v", events[1].Delta)
+	}
+}
+
+func TestTransformStreamFunctionCallArgumentsDoneReconcilesDeltas(t *testing.T) {
+	tests := []struct {
+		name       string
+		delta      string
+		done       string
+		wantDelta  string
+		wantEvents int
+		wantErr    bool
+	}{
+		{
+			name:       "missing suffix",
+			delta:      `{"type":"response.function_call_arguments.delta","output_index":0,"call_id":"call_1","name":"lookup","delta":"{\"q\":"}`,
+			done:       `{"type":"response.function_call_arguments.done","output_index":0,"call_id":"call_1","name":"lookup","arguments":"{\"q\":\"x\"}"}`,
+			wantDelta:  `"x"}`,
+			wantEvents: 1,
+		},
+		{
+			name:       "semantic JSON equality",
+			delta:      `{"type":"response.function_call_arguments.delta","output_index":0,"call_id":"call_1","name":"lookup","delta":"{\"q\":1}"}`,
+			done:       `{"type":"response.function_call_arguments.done","output_index":0,"call_id":"call_1","name":"lookup","arguments":"{ \"q\" : 1 }"}`,
+			wantEvents: 0,
+		},
+		{
+			name:    "mismatch",
+			delta:   `{"type":"response.function_call_arguments.delta","output_index":0,"call_id":"call_1","name":"lookup","delta":"{\"q\":1}"}`,
+			done:    `{"type":"response.function_call_arguments.done","output_index":0,"call_id":"call_1","name":"lookup","arguments":"{\"q\":2}"}`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := &ResponseOutbound{}
+			if _, err := o.TransformStreamEvent(context.Background(), []byte(tt.delta)); err != nil {
+				t.Fatalf("arguments delta: %v", err)
+			}
+			events, err := o.TransformStreamEvent(context.Background(), []byte(tt.done))
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected mismatch error, got events %+v", events)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("arguments done: %v", err)
+			}
+			if len(events) != tt.wantEvents {
+				t.Fatalf("events = %+v, want %d", events, tt.wantEvents)
+			}
+			if tt.wantEvents > 0 && (events[0].Delta == nil || events[0].Delta.Arguments != tt.wantDelta) {
+				t.Fatalf("missing suffix delta = %+v, want %q", events[0].Delta, tt.wantDelta)
+			}
+		})
+	}
+}
+
+func TestTransformStreamHandlesReasoningTextEvents(t *testing.T) {
+	o := &ResponseOutbound{}
+	ctx := context.Background()
+	for _, raw := range []string{
+		`{"type":"response.output_item.added","output_index":0,"item":{"id":"rs_1","type":"reasoning","summary":[],"content":[]}}`,
+		`{"type":"response.reasoning_text.delta","item_id":"rs_1","output_index":0,"content_index":0,"delta":"first"}`,
+		`{"type":"response.reasoning_text.delta","item_id":"rs_1","output_index":0,"content_index":0,"delta":" second"}`,
+	} {
+		events, err := o.TransformStreamEvent(ctx, []byte(raw))
+		if err != nil {
+			t.Fatalf("reasoning event: %v", err)
+		}
+		if strings.Contains(raw, ".delta") && (len(events) != 1 || events[0].Kind != model.StreamEventKindThinkingDelta) {
+			t.Fatalf("expected one thinking delta, got %+v", events)
+		}
+	}
+	events, err := o.TransformStreamEvent(ctx, []byte(`{"type":"response.reasoning_text.done","item_id":"rs_1","output_index":0,"content_index":0,"text":"first second"}`))
+	if err != nil {
+		t.Fatalf("reasoning done: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("reasoning done must not duplicate content, got %+v", events)
+	}
+
+	resp, err := o.TransformStream(ctx, []byte(`{"type":"response.completed","response":{"status":"completed"}}`))
+	if err != nil {
+		t.Fatalf("completed: %v", err)
+	}
+	var rawItems []ResponsesItem
+	if err := json.Unmarshal(resp.RawResponsesOutputItems, &rawItems); err != nil {
+		t.Fatalf("decode tracked output: %v", err)
+	}
+	if len(rawItems) != 1 || rawItems[0].Content == nil || len(rawItems[0].Content.Items) != 1 || rawItems[0].Content.Items[0].Text == nil || *rawItems[0].Content.Items[0].Text != "first second" {
+		t.Fatalf("reasoning text was not accumulated: %+v", rawItems)
+	}
+
+	nonStream := convertToLLMResponseFromResponses(&ResponsesResponse{Output: rawItems})
+	if len(nonStream.Choices) != 1 || nonStream.Choices[0].Message == nil || nonStream.Choices[0].Message.ReasoningContent == nil || *nonStream.Choices[0].Message.ReasoningContent != "first second" {
+		t.Fatalf("reasoning text was not projected to internal response: %+v", nonStream.Choices)
+	}
+}
+
+func TestConvertToolMessageToResponsesPreservesImages(t *testing.T) {
+	detail := "high"
+	callID := "call_1"
+	item := convertToolMessageToResponses(model.Message{
+		Role:       "tool",
+		ToolCallID: &callID,
+		Content: model.MessageContent{MultipleContent: []model.MessageContentPart{
+			{Type: "text", Text: lo.ToPtr("result")},
+			{Type: "image_url", ImageURL: &model.ImageURL{URL: "data:image/png;base64,AAAA", Detail: &detail}},
+			{Type: "image_url", ImageURL: &model.ImageURL{URL: "https://example.com/result.png"}},
+		}},
+	}, nil)
+	if item.Output == nil || len(item.Output.Items) != 3 {
+		t.Fatalf("tool output items = %+v", item.Output)
+	}
+	if got := item.Output.Items[1]; got.Type != "input_image" || got.ImageURL == nil || *got.ImageURL != "data:image/png;base64,AAAA" || got.Detail == nil || *got.Detail != "high" {
+		t.Fatalf("data image result = %+v", got)
+	}
+	if got := item.Output.Items[2]; got.Type != "input_image" || got.ImageURL == nil || *got.ImageURL != "https://example.com/result.png" || got.Detail == nil || *got.Detail != "auto" {
+		t.Fatalf("URL image result = %+v", got)
 	}
 }

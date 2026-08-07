@@ -28,6 +28,15 @@ import (
 	"github.com/tmaxmax/go-sse"
 )
 
+// maxUpstreamErrorBodySize bounds provider-controlled error responses. Some
+// providers echo the entire request in validation errors, which can otherwise
+// turn a single failed request into an unbounded allocation and oversized log.
+const maxUpstreamErrorBodySize = 1 << 20 // 1 MiB
+
+func readUpstreamErrorBody(reader io.Reader) ([]byte, error) {
+	return io.ReadAll(io.LimitReader(reader, maxUpstreamErrorBodySize))
+}
+
 type streamHeartbeatWriter interface {
 	Write([]byte) (int, error)
 	Flush()
@@ -808,7 +817,7 @@ func (ra *relayAttempt) forwardViaHTTPPassthrough(ctx context.Context, pt model.
 	// Check status
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		ra.retryAfter = parseRetryAfter(response.Header.Get("Retry-After"))
-		body, _ := io.ReadAll(response.Body)
+		body, _ := readUpstreamErrorBody(response.Body)
 		statusCode := normalizeUpstreamStatusCode(response.StatusCode, string(body))
 		log.Warnf("upstream error from channel %s: status=%d, body=%s", ra.channel.Name, response.StatusCode, string(body))
 		return statusCode, fmt.Errorf("upstream error: %d: %s", response.StatusCode, string(body))
@@ -889,7 +898,7 @@ func (ra *relayAttempt) forwardViaHTTPStandard(ctx context.Context) (int, error)
 	// 检查响应状态
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		ra.retryAfter = parseRetryAfter(response.Header.Get("Retry-After"))
-		body, err := io.ReadAll(response.Body)
+		body, err := readUpstreamErrorBody(response.Body)
 		if err != nil {
 			return response.StatusCode, fmt.Errorf("failed to read response body: %w", err)
 		}

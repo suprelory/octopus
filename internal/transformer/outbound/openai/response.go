@@ -7,10 +7,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -31,7 +33,9 @@ type ResponseOutbound struct {
 	// tool_calls index: output_index counts all output items (reasoning,
 	// message, function_call), so function calls may start above 0, while
 	// the Chat Completions protocol expects dense 0-based tool_calls indices.
-	toolCallIndexes map[int]int
+	toolCallIndexes            map[int]int
+	toolCallStarted            map[int]bool
+	toolCallForwardedArguments map[int]string
 }
 
 func (o *ResponseOutbound) toolCallIndexFor(outputIndex int) int {
@@ -44,6 +48,104 @@ func (o *ResponseOutbound) toolCallIndexFor(outputIndex int) int {
 	idx := len(o.toolCallIndexes)
 	o.toolCallIndexes[outputIndex] = idx
 	return idx
+}
+
+func (o *ResponseOutbound) toolCallFromItem(outputIndex int, item ResponsesItem) model.ToolCall {
+	return model.ToolCall{
+		Index: o.toolCallIndexFor(outputIndex),
+		ID:    item.CallID,
+		Type:  "function",
+		Function: model.FunctionCall{
+			Name:      item.Name,
+			Namespace: item.Namespace,
+		},
+	}
+}
+
+func (o *ResponseOutbound) ensureToolCallStarted(base model.StreamEvent, outputIndex int) []model.StreamEvent {
+	if o.toolCallStarted == nil {
+		o.toolCallStarted = make(map[int]bool)
+	}
+	if o.toolCallStarted[outputIndex] {
+		return nil
+	}
+	item, ok := o.outputItems[outputIndex]
+	if !ok || item.Type != "function_call" || item.Name == "" {
+		return nil
+	}
+
+	o.toolCallStarted[outputIndex] = true
+	toolCall := o.toolCallFromItem(outputIndex, item)
+	return []model.StreamEvent{{Kind: model.StreamEventKindToolCallStart, ID: base.ID, Model: base.Model, Index: base.Index, ToolCall: &toolCall}}
+}
+
+func (o *ResponseOutbound) handleFunctionCallArgumentsDone(base model.StreamEvent, event ResponsesStreamEvent) ([]model.StreamEvent, error) {
+	item := o.ensureOutputItem(event.OutputIndex, "function_call")
+	if item.Type != "function_call" {
+		return nil, nil
+	}
+
+	identityChanged := false
+	if event.CallID != "" && event.CallID != item.CallID {
+		item.CallID = event.CallID
+		identityChanged = true
+	}
+	if event.Name != "" && event.Name != item.Name {
+		item.Name = event.Name
+		identityChanged = true
+	}
+	if event.Namespace != "" && event.Namespace != item.Namespace {
+		item.Namespace = event.Namespace
+		identityChanged = true
+	}
+
+	finalArgs := event.Arguments
+	if finalArgs == "" {
+		finalArgs = item.Arguments
+	}
+	forwardedArgs := o.toolCallForwardedArguments[event.OutputIndex]
+	missingArgs := ""
+	if finalArgs != "" {
+		switch {
+		case forwardedArgs == "":
+			missingArgs = finalArgs
+		case strings.HasPrefix(finalArgs, forwardedArgs):
+			missingArgs = strings.TrimPrefix(finalArgs, forwardedArgs)
+		case equalJSONValues(forwardedArgs, finalArgs):
+			// Some providers reformat the final JSON without changing its value.
+			// The downstream has already received the complete arguments.
+			missingArgs = ""
+		default:
+			callID := item.CallID
+			if callID == "" {
+				callID = fmt.Sprintf("output_index=%d", event.OutputIndex)
+			}
+			return nil, fmt.Errorf("function call arguments mismatch for call_id %q", callID)
+		}
+		item.Arguments = finalArgs
+	}
+	o.outputItems[event.OutputIndex] = item
+
+	wasStarted := o.toolCallStarted[event.OutputIndex]
+	events := o.ensureToolCallStarted(base, event.OutputIndex)
+	if !o.toolCallStarted[event.OutputIndex] {
+		// A function name is required before a tool call can be represented in
+		// Chat-style streams. Keep the completed item for raw Responses replay.
+		return events, nil
+	}
+
+	if missingArgs != "" || (identityChanged && wasStarted) {
+		toolCall := o.toolCallFromItem(event.OutputIndex, item)
+		var delta *model.StreamDelta
+		if missingArgs != "" {
+			delta = &model.StreamDelta{Arguments: missingArgs}
+		}
+		events = append(events, model.StreamEvent{Kind: model.StreamEventKindToolCallDelta, ID: base.ID, Model: base.Model, Index: base.Index, ToolCall: &toolCall, Delta: delta})
+	}
+	if finalArgs != "" {
+		o.toolCallForwardedArguments[event.OutputIndex] = finalArgs
+	}
+	return events, nil
 }
 
 func (o *ResponseOutbound) TransformRequest(ctx context.Context, request *model.InternalLLMRequest, baseUrl, key string) (*http.Request, error) {
@@ -192,6 +294,8 @@ func (o *ResponseOutbound) TransformStreamEvent(ctx context.Context, eventData [
 		o.initialized = true
 		o.outputItems = make(map[int]ResponsesItem)
 		o.toolCallIndexes = make(map[int]int)
+		o.toolCallStarted = make(map[int]bool)
+		o.toolCallForwardedArguments = make(map[int]string)
 	}
 
 	var streamEvent ResponsesStreamEvent
@@ -223,31 +327,27 @@ func (o *ResponseOutbound) TransformStreamEvent(ctx context.Context, eventData [
 
 	case "response.function_call_arguments.delta":
 		o.mergeFunctionCallDelta(streamEvent)
-		if streamEvent.Delta != "" {
-			toolCall := model.ToolCall{
-				Index: o.toolCallIndexFor(streamEvent.OutputIndex),
-				ID:    streamEvent.CallID,
-				Type:  "function",
-				Function: model.FunctionCall{
-					Name: streamEvent.Name,
-				},
+		item := o.outputItems[streamEvent.OutputIndex]
+		if item.Name != "" {
+			events = append(events, o.ensureToolCallStarted(base, streamEvent.OutputIndex)...)
+			if streamEvent.Delta != "" {
+				toolCall := o.toolCallFromItem(streamEvent.OutputIndex, item)
+				events = append(events, model.StreamEvent{Kind: model.StreamEventKindToolCallDelta, ID: base.ID, Model: base.Model, Index: base.Index, ToolCall: &toolCall, Delta: &model.StreamDelta{Arguments: streamEvent.Delta}})
+				o.toolCallForwardedArguments[streamEvent.OutputIndex] += streamEvent.Delta
 			}
-			events = append(events, model.StreamEvent{Kind: model.StreamEventKindToolCallStart, ID: base.ID, Model: base.Model, Index: base.Index, ToolCall: &toolCall})
-			events = append(events, model.StreamEvent{Kind: model.StreamEventKindToolCallDelta, ID: base.ID, Model: base.Model, Index: base.Index, ToolCall: &toolCall, Delta: &model.StreamDelta{Arguments: streamEvent.Delta}})
 		}
+
+	case "response.function_call_arguments.done":
+		doneEvents, err := o.handleFunctionCallArgumentsDone(base, streamEvent)
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, doneEvents...)
 
 	case "response.output_item.added":
 		o.mergeOutputItemAdded(streamEvent)
-		if streamEvent.Item != nil && streamEvent.Item.Type == "function_call" {
-			toolCall := model.ToolCall{
-				Index: o.toolCallIndexFor(streamEvent.OutputIndex),
-				ID:    streamEvent.Item.CallID,
-				Type:  "function",
-				Function: model.FunctionCall{
-					Name: streamEvent.Item.Name,
-				},
-			}
-			events = append(events, model.StreamEvent{Kind: model.StreamEventKindToolCallStart, ID: base.ID, Model: base.Model, Index: base.Index, ToolCall: &toolCall})
+		if item, ok := o.outputItems[streamEvent.OutputIndex]; ok && item.Type == "function_call" && item.Name != "" {
+			events = append(events, o.ensureToolCallStarted(base, streamEvent.OutputIndex)...)
 		}
 
 	case "response.reasoning_summary_text.delta":
@@ -255,6 +355,16 @@ func (o *ResponseOutbound) TransformStreamEvent(ctx context.Context, eventData [
 		if streamEvent.Delta != "" {
 			events = append(events, model.StreamEvent{Kind: model.StreamEventKindThinkingDelta, ID: base.ID, Model: base.Model, Index: base.Index, Delta: &model.StreamDelta{Thinking: streamEvent.Delta}})
 		}
+
+	case "response.reasoning_text.delta":
+		o.mergeReasoningTextDelta(streamEvent)
+		if streamEvent.Delta != "" {
+			events = append(events, model.StreamEvent{Kind: model.StreamEventKindThinkingDelta, ID: base.ID, Model: base.Model, Index: base.Index, Delta: &model.StreamDelta{Thinking: streamEvent.Delta}})
+		}
+
+	case "response.reasoning_text.done":
+		o.mergeReasoningTextDone(streamEvent)
+		return nil, nil
 
 	case "response.refusal.delta":
 		if streamEvent.Delta != "" {
@@ -416,6 +526,7 @@ type ResponsesItem struct {
 	// Function call fields
 	CallID    string `json:"call_id,omitempty"`
 	Name      string `json:"name,omitempty"`
+	Namespace string `json:"namespace,omitempty"`
 	Arguments string `json:"arguments,omitempty"`
 
 	// Function call output
@@ -550,6 +661,7 @@ type ResponsesStreamEvent struct {
 	Delta          string             `json:"delta,omitempty"`
 	Text           string             `json:"text,omitempty"`
 	Name           string             `json:"name,omitempty"`
+	Namespace      string             `json:"namespace,omitempty"`
 	CallID         string             `json:"call_id,omitempty"`
 	Arguments      string             `json:"arguments,omitempty"`
 	SummaryIndex   *int               `json:"summary_index,omitempty"`
@@ -1164,6 +1276,7 @@ func convertAssistantMessageToResponses(msg model.Message) []ResponsesItem {
 			Type:      "function_call",
 			CallID:    tc.ID,
 			Name:      tc.Function.Name,
+			Namespace: tc.Function.Namespace,
 			Arguments: tc.Function.Arguments,
 		})
 	}
@@ -1205,10 +1318,27 @@ func convertToolMessageToResponses(msg model.Message, callIDToItemID map[string]
 		output.Text = msg.Content.Content
 	} else if len(msg.Content.MultipleContent) > 0 {
 		for _, p := range msg.Content.MultipleContent {
-			if p.Type == "text" && p.Text != nil {
+			switch p.Type {
+			case "text":
+				if p.Text == nil {
+					continue
+				}
 				output.Items = append(output.Items, ResponsesItem{
 					Type: "input_text",
 					Text: p.Text,
+				})
+			case "image_url":
+				if p.ImageURL == nil {
+					continue
+				}
+				detail := "auto"
+				if p.ImageURL.Detail != nil {
+					detail = *p.ImageURL.Detail
+				}
+				output.Items = append(output.Items, ResponsesItem{
+					Type:     "input_image",
+					ImageURL: &p.ImageURL.URL,
+					Detail:   &detail,
 				})
 			}
 		}
@@ -1343,12 +1473,13 @@ func convertToLLMResponseFromResponses(resp *ResponsesResponse) *model.InternalL
 				Type: "function",
 				Function: model.FunctionCall{
 					Name:      outputItem.Name,
+					Namespace: outputItem.Namespace,
 					Arguments: outputItem.Arguments,
 				},
 			})
 		case "reasoning":
-			for _, summary := range outputItem.Summary {
-				reasoningContent.WriteString(summary.Text)
+			if text := reasoningTextFromResponsesItem(outputItem); text != "" {
+				reasoningContent.WriteString(text)
 			}
 		case "image_generation_call":
 			if outputItem.Result != nil && *outputItem.Result != "" {
@@ -1515,6 +1646,7 @@ func (o *ResponseOutbound) mergeOutputItemAdded(event ResponsesStreamEvent) {
 		}
 		cloned.CallID = firstNonEmpty(cloned.CallID, existing.CallID)
 		cloned.Name = firstNonEmpty(cloned.Name, existing.Name)
+		cloned.Namespace = firstNonEmpty(cloned.Namespace, existing.Namespace)
 		if cloned.Arguments == "" {
 			cloned.Arguments = existing.Arguments
 		} else if existing.Arguments != "" && !strings.Contains(cloned.Arguments, existing.Arguments) {
@@ -1562,6 +1694,7 @@ func (o *ResponseOutbound) mergeFunctionCallDelta(event ResponsesStreamEvent) {
 	}
 	item.CallID = firstNonEmpty(item.CallID, event.CallID)
 	item.Name = firstNonEmpty(item.Name, event.Name)
+	item.Namespace = firstNonEmpty(item.Namespace, event.Namespace)
 	item.Arguments += event.Delta
 	o.outputItems[event.OutputIndex] = item
 }
@@ -1586,6 +1719,126 @@ func (o *ResponseOutbound) mergeReasoningDelta(event ResponsesStreamEvent) {
 	}
 	item.Summary[summaryIndex].Text += event.Delta
 	o.outputItems[event.OutputIndex] = item
+}
+
+const maxResponsesReasoningContentParts = 1024
+
+func validResponsesReasoningContentIndex(index int) bool {
+	return index >= 0 && index < maxResponsesReasoningContentParts
+}
+
+func (o *ResponseOutbound) mergeReasoningTextDelta(event ResponsesStreamEvent) {
+	if o == nil {
+		return
+	}
+	contentIndex := 0
+	if event.ContentIndex != nil {
+		contentIndex = *event.ContentIndex
+	}
+	if !validResponsesReasoningContentIndex(contentIndex) {
+		return
+	}
+
+	item := o.ensureOutputItem(event.OutputIndex, "reasoning")
+	if item.Type != "reasoning" {
+		return
+	}
+	if item.Content == nil {
+		item.Content = &ResponsesInput{}
+	}
+	for len(item.Content.Items) <= contentIndex {
+		item.Content.Items = append(item.Content.Items, ResponsesItem{})
+	}
+	part := &item.Content.Items[contentIndex]
+	if part.Type == "" {
+		part.Type = "reasoning_text"
+	}
+	if part.Text == nil {
+		part.Text = lo.ToPtr("")
+	}
+	*part.Text += event.Delta
+	o.outputItems[event.OutputIndex] = item
+}
+
+func (o *ResponseOutbound) mergeReasoningTextDone(event ResponsesStreamEvent) {
+	if o == nil {
+		return
+	}
+	contentIndex := 0
+	if event.ContentIndex != nil {
+		contentIndex = *event.ContentIndex
+	}
+	if !validResponsesReasoningContentIndex(contentIndex) {
+		return
+	}
+
+	item := o.ensureOutputItem(event.OutputIndex, "reasoning")
+	if item.Type != "reasoning" {
+		return
+	}
+	if item.Content == nil {
+		item.Content = &ResponsesInput{}
+	}
+	for len(item.Content.Items) <= contentIndex {
+		item.Content.Items = append(item.Content.Items, ResponsesItem{})
+	}
+	part := &item.Content.Items[contentIndex]
+	if part.Type == "" {
+		part.Type = "reasoning_text"
+	}
+	if event.Text != "" {
+		part.Text = lo.ToPtr(event.Text)
+	} else if part.Text == nil {
+		part.Text = lo.ToPtr("")
+	}
+	o.outputItems[event.OutputIndex] = item
+}
+
+func reasoningTextFromResponsesItem(item ResponsesItem) string {
+	if item.Content != nil {
+		var content strings.Builder
+		for _, part := range item.Content.Items {
+			if part.Type == "reasoning_text" && part.Text != nil {
+				content.WriteString(*part.Text)
+			}
+		}
+		if content.Len() > 0 {
+			return content.String()
+		}
+	}
+
+	var summary strings.Builder
+	for _, part := range item.Summary {
+		summary.WriteString(part.Text)
+	}
+	return summary.String()
+}
+
+func equalJSONValues(left, right string) bool {
+	leftValue, err := decodeJSONValue(left)
+	if err != nil {
+		return false
+	}
+	rightValue, err := decodeJSONValue(right)
+	if err != nil {
+		return false
+	}
+	return reflect.DeepEqual(leftValue, rightValue)
+}
+
+func decodeJSONValue(value string) (any, error) {
+	decoder := json.NewDecoder(strings.NewReader(value))
+	decoder.UseNumber()
+
+	var decoded any
+	if err := decoder.Decode(&decoded); err != nil {
+		return nil, err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("unexpected trailing JSON value: %w", err)
+	}
+	return decoded, nil
 }
 
 func (o *ResponseOutbound) marshalTrackedOutputItems() (json.RawMessage, bool) {

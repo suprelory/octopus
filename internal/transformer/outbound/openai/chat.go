@@ -165,7 +165,7 @@ func buildChatCompletionsRequest(request *model.InternalLLMRequest) *ChatComplet
 	}
 
 	result := &ChatCompletionsRequest{
-		Messages:            request.Messages,
+		Messages:            normalizeChatMessages(request.Messages),
 		Model:               request.Model,
 		FrequencyPenalty:    request.FrequencyPenalty,
 		Logprobs:            request.Logprobs,
@@ -221,6 +221,39 @@ func buildChatCompletionsRequest(request *model.InternalLLMRequest) *ChatComplet
 		}
 	}
 
+	return result
+}
+
+// normalizeChatMessages keeps the shared model provider-neutral while making
+// the Chat Completions wire payload acceptable to strict OpenAI-compatible
+// upstreams. In particular, tool-call-only assistant turns need an explicit
+// empty string instead of an omitted/null content field, and Responses-only
+// text part names need to be mapped back to Chat's plain "text" type.
+func normalizeChatMessages(messages []model.Message) []model.Message {
+	if len(messages) == 0 {
+		return messages
+	}
+
+	result := make([]model.Message, len(messages))
+	copy(result, messages)
+	for idx := range result {
+		msg := &result[idx]
+		if len(msg.Content.MultipleContent) > 0 {
+			parts := make([]model.MessageContentPart, len(msg.Content.MultipleContent))
+			copy(parts, msg.Content.MultipleContent)
+			for partIdx := range parts {
+				switch parts[partIdx].Type {
+				case "input_text", "output_text":
+					parts[partIdx].Type = "text"
+				}
+			}
+			msg.Content.MultipleContent = parts
+		}
+		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 && msg.Content.Content == nil && len(msg.Content.MultipleContent) == 0 {
+			empty := ""
+			msg.Content.Content = &empty
+		}
+	}
 	return result
 }
 
@@ -291,6 +324,14 @@ func (o *ChatOutbound) TransformStream(ctx context.Context, eventData []byte) (*
 	var resp model.InternalLLMResponse
 	if err := json.Unmarshal(eventData, &resp); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal stream chunk: %w", err)
+	}
+	// Some OpenAI-compatible providers emit finish_reason:"" in every
+	// streaming chunk. An empty string means "not finished" and must not be
+	// treated as a terminal signal by downstream protocol transformers.
+	for idx := range resp.Choices {
+		if resp.Choices[idx].FinishReason != nil && *resp.Choices[idx].FinishReason == "" {
+			resp.Choices[idx].FinishReason = nil
+		}
 	}
 	return &resp, nil
 }

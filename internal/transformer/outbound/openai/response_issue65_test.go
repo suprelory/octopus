@@ -37,8 +37,8 @@ func TestTransformStreamEventFunctionCallAtNonZeroOutputIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("function_call_arguments.delta: %v", err)
 	}
-	if len(events) != 2 {
-		t.Fatalf("expected tool_call_start + tool_call_delta, got %+v", events)
+	if len(events) != 1 || events[0].Kind != model.StreamEventKindToolCallDelta {
+		t.Fatalf("expected a single tool_call_delta after the call started, got %+v", events)
 	}
 	for _, ev := range events {
 		if ev.Index != 0 {

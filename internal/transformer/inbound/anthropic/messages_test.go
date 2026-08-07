@@ -361,6 +361,123 @@ func TestTransformStreamDoesNotStopMissingContentBlock(t *testing.T) {
 	}
 }
 
+func TestTransformResponseSynthesizesMissingStopReason(t *testing.T) {
+	tests := []struct {
+		name       string
+		message    *model.Message
+		wantReason string
+	}{
+		{
+			name: "text",
+			message: &model.Message{
+				Role:    "assistant",
+				Content: model.MessageContent{Content: stringPtr("hello")},
+			},
+			wantReason: "end_turn",
+		},
+		{
+			name: "tool call",
+			message: &model.Message{
+				Role: "assistant",
+				ToolCalls: []model.ToolCall{{
+					ID:       "call_1",
+					Type:     "function",
+					Function: model.FunctionCall{Name: "lookup", Arguments: `{}`},
+				}},
+			},
+			wantReason: "tool_use",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			inbound := &MessagesInbound{}
+			out, err := inbound.TransformResponse(context.Background(), &model.InternalLLMResponse{
+				ID: "msg_1",
+				Choices: []model.Choice{{
+					Index:   0,
+					Message: tt.message,
+				}},
+			})
+			if err != nil {
+				t.Fatalf("TransformResponse: %v", err)
+			}
+			var response Message
+			if err := json.Unmarshal(out, &response); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if response.StopReason == nil || *response.StopReason != tt.wantReason {
+				t.Fatalf("stop reason = %#v, want %q; response=%s", response.StopReason, tt.wantReason, out)
+			}
+		})
+	}
+}
+
+func TestTransformStreamSynthesizesMissingStopReasonAtDone(t *testing.T) {
+	tests := []struct {
+		name       string
+		chunk      *model.InternalLLMResponse
+		wantReason string
+		wantBlock  string
+	}{
+		{
+			name: "text",
+			chunk: &model.InternalLLMResponse{
+				ID: "msg_1",
+				Choices: []model.Choice{{Index: 0, Delta: &model.Message{
+					Role:    "assistant",
+					Content: model.MessageContent{Content: stringPtr("hello")},
+				}}},
+			},
+			wantReason: "end_turn",
+			wantBlock:  "text_delta",
+		},
+		{
+			name: "tool call",
+			chunk: &model.InternalLLMResponse{
+				ID: "msg_1",
+				Choices: []model.Choice{{Index: 0, Delta: &model.Message{
+					Role: "assistant",
+					ToolCalls: []model.ToolCall{{
+						Index:    0,
+						ID:       "call_1",
+						Type:     "function",
+						Function: model.FunctionCall{Name: "lookup", Arguments: `{}`},
+					}},
+				}}},
+			},
+			wantReason: "tool_use",
+			wantBlock:  "tool_use",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			inbound := &MessagesInbound{}
+			first, err := inbound.TransformStream(context.Background(), tt.chunk)
+			if err != nil {
+				t.Fatalf("stream chunk: %v", err)
+			}
+			if !strings.Contains(string(first), tt.wantBlock) {
+				t.Fatalf("expected %q block, got %s", tt.wantBlock, first)
+			}
+
+			usageChunk := &model.InternalLLMResponse{Usage: &model.Usage{PromptTokens: 7, CompletionTokens: 3}}
+			if _, err := inbound.TransformStream(context.Background(), usageChunk); err != nil {
+				t.Fatalf("usage chunk: %v", err)
+			}
+			done, err := inbound.TransformStream(context.Background(), &model.InternalLLMResponse{Object: "[DONE]"})
+			if err != nil {
+				t.Fatalf("done: %v", err)
+			}
+			text := string(done)
+			if !strings.Contains(text, `"stop_reason":"`+tt.wantReason+`"`) || !strings.Contains(text, "event:message_stop") || !strings.Contains(text, `"input_tokens":7`) {
+				t.Fatalf("missing synthesized termination or usage: %s", text)
+			}
+		})
+	}
+}
+
 func TestTransformStreamEventsDirectAnthropicSSE(t *testing.T) {
 	inbound := &MessagesInbound{}
 	events := []model.StreamEvent{
