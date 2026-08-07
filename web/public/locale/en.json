@@ -970,6 +970,9 @@
             "wsModePassthrough": "Passthrough",
             "wsModeTransform": "Transform",
             "wsModeOff": "Off",
+            "passthroughMode": "Same-format passthrough",
+            "passthroughModeAuto": "Automatic",
+            "passthroughModeOff": "Force transform",
             "matchRegex": "Match Regex",
             "matchRegexPlaceholder": "Optional: regex pattern to match request model names",
             "remark": "Remark"

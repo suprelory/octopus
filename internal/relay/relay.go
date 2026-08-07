@@ -77,7 +77,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 	if supportedModels != "" {
 		supportedModelsArray := strings.Split(supportedModels, ",")
 		if !slices.Contains(supportedModelsArray, internalRequest.Model) {
-			resp.ErrorWithCode(c, http.StatusBadRequest, CodeRelayModelNotSupported, "model not supported")
+			writeInboundProtocolError(c, nil, inAdapter, relayProtocolError(http.StatusBadRequest, CodeRelayModelNotSupported, "model not supported"))
 			return
 		}
 	}
@@ -88,7 +88,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 	// 获取通道分组
 	group, err := op.GroupGetEnabledMap(requestModel, c.Request.Context())
 	if err != nil {
-		resp.ErrorWithCode(c, http.StatusNotFound, CodeRelayModelNotFound, "model not found")
+		writeInboundProtocolError(c, nil, inAdapter, relayProtocolError(http.StatusNotFound, CodeRelayModelNotFound, "model not found"))
 		return
 	}
 
@@ -130,7 +130,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 	}
 	iter := balancer.NewIteratorWithPreference(group, apiKeyID, requestModel, preferredSticky)
 	if iter.Len() == 0 {
-		resp.ErrorWithCode(c, http.StatusServiceUnavailable, CodeRelayNoAvailableChannel, "no available channel")
+		writeInboundProtocolError(c, nil, inAdapter, relayProtocolError(http.StatusServiceUnavailable, CodeRelayNoAvailableChannel, "no available channel"))
 		return
 	}
 
@@ -157,6 +157,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 	req := &relayRequest{
 		c:               c,
 		inAdapter:       inAdapter,
+		inboundType:     inboundType,
 		internalRequest: internalRequest,
 		metrics:         metrics,
 		apiKeyID:        apiKeyID,
@@ -204,7 +205,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 			continue
 		}
 		if responsesPassthroughRequired {
-			if channel.Type == outbound.OutboundTypeOpenAIResponse {
+			if outbound.SupportsNativeFormat(channel.Type, model.APIFormatOpenAIResponse) {
 				responsesPassthroughCapableFound = true
 			} else {
 				iter.Skip(channel.ID, 0, channel.Name, "openai responses passthrough required")
@@ -219,13 +220,10 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 			continue
 		}
 
-		// 类型兼容性检查
-		if internalRequest.IsEmbeddingRequest() && !outbound.IsEmbeddingChannelType(channel.Type) {
-			iter.Skip(channel.ID, 0, channel.Name, "channel type not compatible with embedding request")
-			continue
-		}
-		if internalRequest.IsChatRequest() && !outbound.IsChatChannelType(channel.Type) {
-			iter.Skip(channel.ID, 0, channel.Name, "channel type not compatible with chat request")
+		// Semantic capability checks are independent of the inbound wire format.
+		requestType := internalRequest.ResolveRequestType()
+		if !outbound.SupportsRequestType(channel.Type, requestType) {
+			iter.Skip(channel.ID, 0, channel.Name, fmt.Sprintf("channel type not compatible with %s request", requestType))
 			continue
 		}
 
@@ -279,6 +277,15 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 				outAdapter = outbound.Get(channel.Type)
 			}
 
+			// Each attempt gets a fresh stateful inbound transformer. A failed
+			// precommit transform must not pollute aggregation for the next channel.
+			attemptInbound, adapterErr := newAttemptInboundAdapter(inboundType, c.Request.Context(), rawBody)
+			if adapterErr != nil {
+				result = attemptResult{Err: adapterErr, StatusCode: http.StatusBadRequest, ProtocolError: relayProtocolError(http.StatusBadRequest, "invalid_request", adapterErr.Error())}
+				break
+			}
+			req.inAdapter = attemptInbound
+
 			// 构造尝试级上下文
 			ra := &relayAttempt{
 				relayRequest:         req,
@@ -316,7 +323,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 				internalResponse := metrics.InternalResponse
 				if internalResponse == nil {
 					var err error
-					internalResponse, err = inAdapter.GetInternalResponse(c.Request.Context())
+					internalResponse, err = req.inAdapter.GetInternalResponse(c.Request.Context())
 					if err != nil {
 						log.Debugf("failed to get internal response for replay state save: %v", err)
 					}
@@ -358,9 +365,9 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 		if result.ResetConversation {
 			metrics.SaveWithChannelStats(c.Request.Context(), false, result.Err, iter.Attempts(), false)
 			if publicErr, ok := classifyWSPublicError(result.Err, result.StatusCode); ok {
-				hb.FlushOrError(c, publicErr.Status, publicErr.Message)
+				writeInboundProtocolError(c, hb, req.inAdapter, relayProtocolError(publicErr.Status, CodeRelayUpstreamFailed, publicErr.Message))
 			} else {
-				hb.FlushOrError(c, result.StatusCode, result.Err.Error())
+				writeInboundProtocolError(c, hb, req.inAdapter, protocolErrorFromError(result.StatusCode, result.Err))
 			}
 			return
 		}
@@ -374,9 +381,9 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 
 	// 所有候选通道均失败
 	if responsesPassthroughRequired && !responsesPassthroughCapableFound {
-		err := fmt.Errorf("openai responses native tools require an openai responses channel")
+		err := relayProtocolError(http.StatusBadRequest, CodeRelayModelNotSupported, "当前请求包含 OpenAI Responses 原生工具，仅支持 OpenAI Responses 通道直通")
 		metrics.SaveWithChannelStats(c.Request.Context(), false, err, iter.Attempts(), false)
-		hb.FlushOrError(c, http.StatusBadRequest, "当前请求包含 OpenAI Responses 原生工具，仅支持 OpenAI Responses 通道直通")
+		writeInboundProtocolError(c, hb, req.inAdapter, err)
 		return
 	}
 	metrics.SaveWithChannelStats(c.Request.Context(), false, lastErr, iter.Attempts(), false)
@@ -386,14 +393,27 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 		if lastResult.RetryAfter > 0 {
 			c.Header("Retry-After", fmt.Sprintf("%d", int(lastResult.RetryAfter.Seconds())))
 		}
-		hb.FlushOrError(c, lastResult.StatusCode, "channel failed")
+		writeInboundProtocolError(c, hb, req.inAdapter, lastResult.ProtocolError)
 		return
 	}
 	if lastResult.StatusCode > 0 {
-		hb.FlushOrError(c, lastResult.StatusCode, "channel failed")
+		writeInboundProtocolError(c, hb, req.inAdapter, lastResult.ProtocolError)
 		return
 	}
-	hb.FlushOrError(c, http.StatusBadGateway, "channel failed")
+	writeInboundProtocolError(c, hb, req.inAdapter, protocolErrorFromError(http.StatusBadGateway, lastErr))
+}
+
+func newAttemptInboundAdapter(inboundType inbound.InboundType, ctx context.Context, rawBody []byte) (model.Inbound, error) {
+	adapter := inbound.Get(inboundType)
+	if adapter == nil {
+		return nil, fmt.Errorf("unsupported inbound type: %d", inboundType)
+	}
+	if len(rawBody) > 0 {
+		if _, err := adapter.TransformRequest(ctx, rawBody); err != nil {
+			return nil, fmt.Errorf("failed to initialize inbound adapter: %w", err)
+		}
+	}
+	return adapter, nil
 }
 
 func circuitFailureKind(retryEnabled bool, statusCode int) balancer.FailureKind {
@@ -470,6 +490,9 @@ func (ra *relayAttempt) attempt() attemptResult {
 	written := ra.streamPayloadWritten.Load()
 	if written {
 		ra.collectResponse()
+		if responseError := protocolErrorFromAttempt(ra.upstreamError, statusCode, fwdErr); responseError != nil {
+			writeStreamProtocolError(ra.requestContext(), ra.getStreamWriter(), ra.inAdapter, responseError)
+		}
 	}
 	firstTokenTimeout := isFirstTokenTimeout(nil, fwdErr)
 	return attemptResult{
@@ -480,7 +503,22 @@ func (ra *relayAttempt) attempt() attemptResult {
 		Err:               fmt.Errorf("channel %s failed: %v", ra.channel.Name, fwdErr),
 		StatusCode:        statusCode,
 		RetryAfter:        ra.retryAfter,
+		ProtocolError:     protocolErrorFromAttempt(ra.upstreamError, statusCode, fwdErr),
 	}
+}
+
+func protocolErrorFromAttempt(upstreamError *model.ResponseError, statusCode int, err error) *model.ResponseError {
+	if upstreamError != nil {
+		return model.NormalizeResponseError(upstreamError, statusCode, "api_error")
+	}
+	var responseError *model.ResponseError
+	if errors.As(err, &responseError) {
+		return model.NormalizeResponseError(responseError, statusCode, "api_error")
+	}
+	if statusCode <= 0 {
+		return nil
+	}
+	return protocolErrorFromError(statusCode, err)
 }
 
 // parseRequest 解析并验证入站请求
@@ -488,14 +526,14 @@ func (ra *relayAttempt) attempt() attemptResult {
 func parseRequest(inboundType inbound.InboundType, c *gin.Context) ([]byte, *model.InternalLLMRequest, model.Inbound, error) {
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.ErrorWithCode(c, http.StatusInternalServerError, CodeRelayUpstreamFailed, err.Error())
 		return nil, nil, nil, err
 	}
 
 	inAdapter := inbound.Get(inboundType)
 	internalRequest, err := inAdapter.TransformRequest(c.Request.Context(), body)
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		writeInboundProtocolError(c, nil, inAdapter, relayProtocolError(http.StatusBadRequest, "invalid_request", err.Error()))
 		return nil, nil, nil, err
 	}
 
@@ -503,7 +541,7 @@ func parseRequest(inboundType inbound.InboundType, c *gin.Context) ([]byte, *mod
 	internalRequest.Query = c.Request.URL.Query()
 
 	if err := internalRequest.Validate(); err != nil {
-		resp.Error(c, http.StatusBadRequest, err.Error())
+		writeInboundProtocolError(c, nil, inAdapter, relayProtocolError(http.StatusBadRequest, "invalid_request", err.Error()))
 		return nil, nil, nil, err
 	}
 
@@ -724,15 +762,22 @@ func (ra *relayAttempt) handleWSStreamResponseV2(ctx context.Context, reader *ws
 
 	// Create StreamProcessor
 	processor := stream.NewStreamProcessor(stream.StreamConfig{
-		Source:            stream.NewWSSource(reader),
-		Transform:         transform,
-		Writer:            ra.getStreamWriter(),
-		Context:           ctx,
-		FirstTokenTimeout: firstTokenTimeout,
-		HeartbeatInterval: streamHeartbeatInterval(),
+		Source:             stream.NewWSSource(reader),
+		Transform:          transform,
+		Writer:             ra.getStreamWriter(),
+		Context:            ctx,
+		FirstTokenTimeout:  firstTokenTimeout,
+		HeartbeatInterval:  streamHeartbeatInterval(),
+		PrecommitPredicate: stream.IsMeaningfulPayload,
+		PrecommitMaxEvents: 8,
+		PrecommitMaxBytes:  64 * 1024,
 		OnFirstToken: func() {
 			ra.metrics.SetFirstTokenTime(time.Now())
 			ra.stopFirstTokenTimer()
+		},
+		OnFinish: func(context.Context, []byte) error {
+			ra.collectResponse()
+			return nil
 		},
 	})
 
@@ -762,9 +807,7 @@ func (ra *relayAttempt) handleWSStreamResponseV2(ctx context.Context, reader *ws
 // forwardViaHTTP forwards the request using traditional HTTP.
 func (ra *relayAttempt) forwardViaHTTP(ctx context.Context) (int, error) {
 	// Check for passthrough capability using interface
-	if pt, ok := ra.outAdapter.(model.PassthroughCapable); ok &&
-		len(ra.rawBody) > 0 &&
-		pt.CanPassthrough(ra.internalRequest.RawAPIFormat) {
+	if pt, ok := ra.outAdapter.(model.PassthroughCapable); ok && ra.shouldUseHTTPPassthrough(pt) {
 		// Additional checks for OpenAI Responses edge cases
 		if ra.internalRequest.RawAPIFormat == model.APIFormatOpenAIResponse {
 			if ra.c == nil || ra.internalRequest.IsOpenAIExactReplayRequest() || requiresUpstreamWSContinuation(ra.internalRequest) {
@@ -778,6 +821,16 @@ func (ra *relayAttempt) forwardViaHTTP(ctx context.Context) (int, error) {
 	}
 
 	return ra.forwardViaHTTPStandard(ctx)
+}
+
+func (ra *relayAttempt) shouldUseHTTPPassthrough(pt model.PassthroughCapable) bool {
+	if ra == nil || pt == nil || ra.channel == nil || ra.internalRequest == nil || len(ra.rawBody) == 0 {
+		return false
+	}
+	if !pt.CanPassthrough(ra.internalRequest.RawAPIFormat) {
+		return false
+	}
+	return ra.channel.AllowsPassthrough() || ra.internalRequest.HasOpenAIResponsesPassthrough()
 }
 
 // forwardViaHTTPPassthrough handles unified passthrough for any PassthroughCapable transformer.
@@ -819,8 +872,9 @@ func (ra *relayAttempt) forwardViaHTTPPassthrough(ctx context.Context, pt model.
 		ra.retryAfter = parseRetryAfter(response.Header.Get("Retry-After"))
 		body, _ := readUpstreamErrorBody(response.Body)
 		statusCode := normalizeUpstreamStatusCode(response.StatusCode, string(body))
+		ra.upstreamError = ra.outAdapter.TransformError(ctx, statusCode, response.Header, body)
 		log.Warnf("upstream error from channel %s: status=%d, body=%s", ra.channel.Name, response.StatusCode, string(body))
-		return statusCode, fmt.Errorf("upstream error: %d: %s", response.StatusCode, string(body))
+		return statusCode, ra.upstreamError
 	}
 
 	// Get passthrough config
@@ -903,8 +957,9 @@ func (ra *relayAttempt) forwardViaHTTPStandard(ctx context.Context) (int, error)
 			return response.StatusCode, fmt.Errorf("failed to read response body: %w", err)
 		}
 		statusCode := normalizeUpstreamStatusCode(response.StatusCode, string(body))
+		ra.upstreamError = ra.outAdapter.TransformError(ctx, statusCode, response.Header, body)
 		log.Warnf("upstream error from channel %s: status=%d, body=%s", ra.channel.Name, response.StatusCode, string(body))
-		return statusCode, fmt.Errorf("upstream error: %d: %s", response.StatusCode, string(body))
+		return statusCode, ra.upstreamError
 	}
 
 	// 处理响应
@@ -1084,15 +1139,22 @@ func (ra *relayAttempt) handleStreamResponseV2(ctx context.Context, response *ht
 
 	// Create StreamProcessor
 	processor := stream.NewStreamProcessor(stream.StreamConfig{
-		Source:            stream.NewSSESource(response.Body, maxSSEEventSize),
-		Transform:         transform,
-		Writer:            ra.getStreamWriter(),
-		Context:           ctx,
-		FirstTokenTimeout: firstTokenTimeout,
-		HeartbeatInterval: streamHeartbeatInterval(),
+		Source:             stream.NewSSESource(response.Body, maxSSEEventSize),
+		Transform:          transform,
+		Writer:             ra.getStreamWriter(),
+		Context:            ctx,
+		FirstTokenTimeout:  firstTokenTimeout,
+		HeartbeatInterval:  streamHeartbeatInterval(),
+		PrecommitPredicate: stream.IsMeaningfulPayload,
+		PrecommitMaxEvents: 8,
+		PrecommitMaxBytes:  64 * 1024,
 		OnFirstToken: func() {
 			ra.metrics.SetFirstTokenTime(time.Now())
 			ra.stopFirstTokenTimer()
+		},
+		OnFinish: func(context.Context, []byte) error {
+			ra.collectResponse()
+			return nil
 		},
 	})
 

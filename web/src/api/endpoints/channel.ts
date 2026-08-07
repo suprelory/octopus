@@ -27,6 +27,7 @@ export enum AutoGroupType {
 }
 
 export type ChannelWSMode = 'inherit' | 'off' | 'passthrough' | 'transform';
+export type ChannelPassthroughMode = 'auto' | 'off';
 
 export type BaseUrl = {
     url: string;
@@ -74,6 +75,7 @@ export type Channel = {
     auto_group: AutoGroupType;
     custom_header: CustomHeader[];
     ws_mode: ChannelWSMode;
+    passthrough_mode: ChannelPassthroughMode;
     param_override?: string | null;
     match_regex?: string | null;
     managed: boolean;
@@ -105,6 +107,7 @@ export type CreateChannelRequest = {
     auto_group?: AutoGroupType;
     custom_header?: CustomHeader[];
     ws_mode?: ChannelWSMode;
+    passthrough_mode?: ChannelPassthroughMode;
     param_override?: string | null;
     match_regex?: string | null;
 };
@@ -126,6 +129,7 @@ export type UpdateChannelRequest = {
     auto_group?: AutoGroupType;
     custom_header?: CustomHeader[];
     ws_mode?: ChannelWSMode;
+    passthrough_mode?: ChannelPassthroughMode;
     param_override?: string | null;
     match_regex?: string | null;
     // keys diff
@@ -169,6 +173,7 @@ export function useChannelList() {
                 base_urls: item.base_urls ?? [],
                 custom_header: item.custom_header ?? [],
                 ws_mode: item.ws_mode ?? 'inherit',
+                passthrough_mode: item.passthrough_mode ?? 'auto',
                 keys: item.keys ?? [],
                 proxy_mode: item.proxy_mode ?? 'direct',
                 proxy_config_id: item.proxy_config_id ?? null,

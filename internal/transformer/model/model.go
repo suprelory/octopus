@@ -50,6 +50,10 @@ type InternalLLMRequest struct {
 	// New provider-specific features should not be added here unless they are
 	// truly cross-provider concepts.
 
+	// RequestType identifies the semantic operation independently of the
+	// provider API format. It is internal-only and inferred for legacy callers.
+	RequestType RequestType `json:"-"`
+
 	// Messages is a list of messages to send to the llm model.
 	// For chat completion requests, this field is required.
 	// For embedding requests, this field should be empty and Input should be used instead.
@@ -387,6 +391,9 @@ type InternalLLMRequest struct {
 }
 
 func (r *InternalLLMRequest) Validate() error {
+	if err := r.normalizeRequestType(); err != nil {
+		return err
+	}
 	if r.Model == "" {
 		return errors.New("model is required")
 	}
@@ -580,12 +587,12 @@ func (r *InternalLLMRequest) fillMissingToolCallIDsFromToolMessages() {
 
 // IsEmbeddingRequest returns true if this is an embedding request.
 func (r *InternalLLMRequest) IsEmbeddingRequest() bool {
-	return r.EmbeddingInput != nil
+	return r.ResolveRequestType() == RequestTypeEmbedding
 }
 
 // IsChatRequest returns true if this is a chat completion request.
 func (r *InternalLLMRequest) IsChatRequest() bool {
-	return len(r.Messages) > 0 || (r.RawAPIFormat == APIFormatOpenAIResponse && len(r.RawInputItems) > 0)
+	return r.ResolveRequestType() == RequestTypeChat
 }
 
 func (r *InternalLLMRequest) MarkOpenAIResponsesPassthroughRequired(reason string) {

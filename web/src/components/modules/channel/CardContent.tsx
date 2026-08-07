@@ -43,6 +43,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
         base_urls: channel.base_urls?.length ? channel.base_urls : [{ url: '', delay: 0 }],
         custom_header: channel.custom_header ?? [],
         ws_mode: channel.ws_mode ?? 'inherit',
+        passthrough_mode: channel.passthrough_mode ?? 'auto',
         proxy_mode: channel.proxy_mode ?? 'direct',
         proxy_config_id: channel.proxy_config_id ?? null,
         param_override: channel.param_override ?? '',
@@ -100,6 +101,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
         if (formData.auto_sync !== channel.auto_sync) req.auto_sync = formData.auto_sync;
         if (formData.auto_group !== channel.auto_group) req.auto_group = formData.auto_group;
         if ((formData.ws_mode ?? 'inherit') !== (channel.ws_mode ?? 'inherit')) req.ws_mode = formData.ws_mode;
+        if ((formData.passthrough_mode ?? 'auto') !== (channel.passthrough_mode ?? 'auto')) req.passthrough_mode = formData.passthrough_mode;
 
         if (!headersEqual(formData.custom_header, channel.custom_header)) {
             req.custom_header = (formData.custom_header ?? [])

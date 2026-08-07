@@ -1,4 +1,4 @@
-import { ChannelType, type AutoGroupType, type Channel, type ChannelWSMode, useFetchModel } from '@/api/endpoints/channel';
+import { ChannelType, type AutoGroupType, type Channel, type ChannelPassthroughMode, type ChannelWSMode, useFetchModel } from '@/api/endpoints/channel';
 import { ProxySelector } from '@/components/modules/proxy-pool/ProxySelector';
 import {
     Select,
@@ -32,6 +32,7 @@ export interface ChannelFormData {
     base_urls: Channel['base_urls'];
     custom_header: Channel['custom_header'];
     ws_mode: ChannelWSMode;
+    passthrough_mode: ChannelPassthroughMode;
     proxy_mode: Channel['proxy_mode'];
     proxy_config_id: number | null;
     param_override: string;
@@ -498,6 +499,26 @@ export function ChannelForm({
                                     </Select>
                                 </div>
                             ) : null}
+
+							{formData.type === ChannelType.OpenAIResponse || formData.type === ChannelType.Anthropic ? (
+								<div className="space-y-2">
+									<label htmlFor={`${idPrefix}-passthrough-mode`} className="text-sm font-medium text-card-foreground">
+										{t('passthroughMode')}
+									</label>
+									<Select
+										value={formData.passthrough_mode ?? 'auto'}
+										onValueChange={(value) => onFormDataChange({ ...formData, passthrough_mode: value as ChannelPassthroughMode })}
+									>
+										<SelectTrigger id={`${idPrefix}-passthrough-mode`} className="rounded-xl w-full border border-border px-4 py-2 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent className="rounded-xl">
+											<SelectItem className="rounded-xl" value="auto">{t('passthroughModeAuto')}</SelectItem>
+											<SelectItem className="rounded-xl" value="off">{t('passthroughModeOff')}</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+							) : null}
 
                         </div>
 

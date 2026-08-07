@@ -82,7 +82,12 @@ func (i *ResponseInbound) TransformRequest(ctx context.Context, body []byte) (*m
 
 	i.truncation = req.Truncation
 
-	return convertToInternalRequest(&req)
+	internalRequest, err := convertToInternalRequest(&req)
+	if err != nil {
+		return nil, err
+	}
+	internalRequest.RequestType = model.RequestTypeChat
+	return internalRequest, nil
 }
 
 func (i *ResponseInbound) TransformResponse(ctx context.Context, response *model.InternalLLMResponse) ([]byte, error) {

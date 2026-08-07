@@ -13,6 +13,7 @@ import (
 	"github.com/bestruirui/octopus/internal/conf"
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/relay/balancer"
+	"github.com/bestruirui/octopus/internal/transformer/inbound"
 	"github.com/bestruirui/octopus/internal/transformer/model"
 	"github.com/gin-gonic/gin"
 )
@@ -87,6 +88,7 @@ type relayRequest struct {
 	c               *gin.Context
 	ctx             context.Context // used when c is nil (WebSocket mode)
 	inAdapter       model.Inbound
+	inboundType     inbound.InboundType
 	internalRequest *model.InternalLLMRequest
 	metrics         *RelayMetrics
 	apiKeyID        int
@@ -127,6 +129,7 @@ type relayAttempt struct {
 	firstTokenTimeOutSec int
 	firstTokenBudget     *firstTokenBudget
 	retryAfter           time.Duration // forward() 提取后暂存
+	upstreamError        *model.ResponseError
 }
 
 // attemptResult 封装单次尝试的结果
@@ -139,4 +142,5 @@ type attemptResult struct {
 	Err               error         // 失败时的错误
 	StatusCode        int           // 上游 HTTP 状态码（0 = 连接错误）
 	RetryAfter        time.Duration // 解析的 Retry-After 值
+	ProtocolError     *model.ResponseError
 }

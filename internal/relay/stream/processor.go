@@ -20,6 +20,11 @@ import (
 // Relay should fail over to another channel.
 var ErrEmptyUpstreamStream = errors.New("upstream stream ended without forwarding any payload")
 
+// ErrNoMeaningfulUpstreamPayload is returned when a stream only contains
+// metadata/keepalive events before EOF. It wraps ErrEmptyUpstreamStream so
+// existing failover checks continue to work.
+var ErrNoMeaningfulUpstreamPayload = fmt.Errorf("%w: no meaningful payload", ErrEmptyUpstreamStream)
+
 // StreamSource abstracts different event sources (SSE, WebSocket, raw bytes).
 type StreamSource interface {
 	// ReadEvent blocks until the next event is available or returns an error.
@@ -60,6 +65,13 @@ type StreamConfig struct {
 	OnFirstToken func()                                            // Called when first payload written
 	OnFinish     func(ctx context.Context, rawStream []byte) error // Called on stream end
 
+	// Precommit buffers transformed events until a semantic payload is seen.
+	// This keeps failover possible when an upstream emits headers/metadata and
+	// then fails before producing content. Limits bound memory and latency.
+	PrecommitPredicate func(raw, transformed []byte) bool
+	PrecommitMaxEvents int
+	PrecommitMaxBytes  int
+
 	// Passthrough-specific
 	BufferRawStream bool                // Enable raw stream buffering for metrics
 	TerminalEvents  map[string]struct{} // Protocol terminal events for early completion
@@ -71,12 +83,23 @@ type StreamProcessor struct {
 
 	// State
 	rawBuffer      bytes.Buffer
+	pendingBuffer  bytes.Buffer
+	pendingEvents  int
 	payloadWritten bool
 	firstToken     bool
+	committed      bool
 }
 
 // NewStreamProcessor creates a processor from config.
 func NewStreamProcessor(config StreamConfig) *StreamProcessor {
+	if config.PrecommitPredicate != nil {
+		if config.PrecommitMaxEvents <= 0 {
+			config.PrecommitMaxEvents = 8
+		}
+		if config.PrecommitMaxBytes <= 0 {
+			config.PrecommitMaxBytes = 64 * 1024
+		}
+	}
 	return &StreamProcessor{
 		config:     config,
 		firstToken: true,
@@ -218,10 +241,30 @@ func (p *StreamProcessor) processEvent(data []byte) error {
 		output = data // Passthrough
 	}
 
+	if p.config.PrecommitPredicate != nil && !p.committed {
+		p.pendingBuffer.Write(output)
+		p.pendingEvents++
+		shouldCommit := p.config.PrecommitPredicate(data, output) ||
+			p.pendingEvents >= p.config.PrecommitMaxEvents ||
+			p.pendingBuffer.Len() >= p.config.PrecommitMaxBytes
+		if !shouldCommit {
+			return nil
+		}
+		p.committed = true
+		if err := p.writeOutput(p.pendingBuffer.Bytes()); err != nil {
+			return err
+		}
+		p.pendingBuffer.Reset()
+		return nil
+	}
+
+	return p.writeOutput(output)
+}
+
+func (p *StreamProcessor) writeOutput(output []byte) error {
 	if _, err := p.config.Writer.Write(output); err != nil {
 		return fmt.Errorf("write error: %w", err)
 	}
-
 	p.payloadWritten = true
 	p.config.Writer.Flush()
 	return nil
@@ -268,6 +311,9 @@ func (p *StreamProcessor) handleFirstTokenTimeout() error {
 
 // finalize completes the stream and calls OnFinish callback.
 func (p *StreamProcessor) finalize() error {
+	if p.config.PrecommitPredicate != nil && !p.committed && p.pendingBuffer.Len() > 0 {
+		return ErrNoMeaningfulUpstreamPayload
+	}
 	if !p.payloadWritten {
 		return ErrEmptyUpstreamStream
 	}

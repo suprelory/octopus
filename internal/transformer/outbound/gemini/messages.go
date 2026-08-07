@@ -804,6 +804,9 @@ func convertLLMToGeminiRequest(request *model.InternalLLMRequest) *model.GeminiG
 	if request.MaxTokens != nil {
 		config.MaxOutputTokens = int(*request.MaxTokens)
 		hasConfig = true
+	} else if request.MaxCompletionTokens != nil {
+		config.MaxOutputTokens = int(*request.MaxCompletionTokens)
+		hasConfig = true
 	}
 	if request.Temperature != nil {
 		config.Temperature = request.Temperature

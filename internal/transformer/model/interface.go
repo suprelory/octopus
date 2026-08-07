@@ -16,6 +16,10 @@ type Inbound interface {
 	// 将出站内部通用流式响应转为入站对应的流式响应格式
 	TransformStream(ctx context.Context, stream *InternalLLMResponse) ([]byte, error)
 
+	// TransformError converts a normalized error into the inbound protocol's
+	// HTTP and streaming wire representations.
+	TransformError(ctx context.Context, response *ResponseError) (*ProtocolErrorResponse, error)
+
 	// 获取完整的内部响应，用于日志记录、数据统计等
 	// 流式场景：将储存的流式响应聚合为完整的响应
 	// 非流式场景：返回储存的完整响应
@@ -31,6 +35,10 @@ type Outbound interface {
 
 	// 将出站流式转为内部通用流式响应格式
 	TransformStream(ctx context.Context, eventData []byte) (*InternalLLMResponse, error)
+
+	// TransformError converts an upstream protocol error into the normalized
+	// error model used by relay failover and the inbound transformer.
+	TransformError(ctx context.Context, statusCode int, headers http.Header, body []byte) *ResponseError
 }
 
 type OutboundStreamEventTransformer interface {

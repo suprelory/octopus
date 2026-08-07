@@ -62,6 +62,7 @@ func (i *MessagesInbound) TransformRequest(ctx context.Context, body []byte) (*m
 		anthropicReq.MaxTokens = 1
 	}
 	chatReq := &model.InternalLLMRequest{
+		RequestType:         model.RequestTypeChat,
 		Model:               anthropicReq.Model,
 		MaxTokens:           &anthropicReq.MaxTokens,
 		Temperature:         anthropicReq.Temperature,

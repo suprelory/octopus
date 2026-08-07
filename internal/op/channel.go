@@ -52,6 +52,7 @@ func ChannelCreate(channel *model.Channel, ctx context.Context) error {
 	if channel.ProxyMode == "" {
 		channel.ProxyMode = model.ProxyUsageModeDirect
 	}
+	channel.PassthroughMode = channel.PassthroughMode.Normalize()
 	if err := channel.ProxyMode.Validate(false); err != nil {
 		return err
 	}
@@ -265,6 +266,10 @@ func ChannelUpdate(req *model.ChannelUpdateRequest, ctx context.Context) (*model
 	if req.WSMode != nil {
 		selectFields = append(selectFields, "ws_mode")
 		updates.WSMode = req.WSMode.Normalize()
+	}
+	if req.PassthroughMode != nil {
+		selectFields = append(selectFields, "passthrough_mode")
+		updates.PassthroughMode = req.PassthroughMode.Normalize()
 	}
 	if req.ParamOverride != nil {
 		selectFields = append(selectFields, "param_override")

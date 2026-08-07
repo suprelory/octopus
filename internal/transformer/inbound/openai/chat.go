@@ -22,6 +22,7 @@ func (i *ChatInbound) TransformRequest(ctx context.Context, body []byte) (*model
 	// alternation enforcement, schema conversion) can tell a Chat request
 	// apart from a Responses request.
 	request.RawAPIFormat = model.APIFormatOpenAIChatCompletion
+	request.RequestType = model.RequestTypeChat
 	return &request, nil
 }
 

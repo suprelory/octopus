@@ -185,6 +185,56 @@ func TestStreamProcessor_EmptyStream(t *testing.T) {
 	}
 }
 
+func TestStreamProcessor_PrecommitWaitsForMeaningfulPayload(t *testing.T) {
+	events := [][]byte{
+		[]byte(`{"type":"response.created"}`),
+		[]byte(`{"type":"response.output_text.delta","delta":"hello"}`),
+	}
+	writer := newMockStreamWriter()
+	firstTokenCalls := 0
+	processor := NewStreamProcessor(StreamConfig{
+		Source:  newMockStreamSource(events),
+		Writer:  writer,
+		Context: context.Background(),
+		Transform: func(_ context.Context, data []byte) ([]byte, error) {
+			return append(append([]byte("data: "), data...), []byte("\n\n")...), nil
+		},
+		PrecommitPredicate: IsMeaningfulPayload,
+		OnFirstToken:       func() { firstTokenCalls++ },
+	})
+
+	if err := processor.Run(); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !strings.Contains(writer.buffer.String(), "response.created") || !strings.Contains(writer.buffer.String(), "hello") {
+		t.Fatalf("expected buffered metadata and payload to commit together, got %q", writer.buffer.String())
+	}
+	if firstTokenCalls != 1 {
+		t.Fatalf("expected one first token callback, got %d", firstTokenCalls)
+	}
+}
+
+func TestStreamProcessor_PrecommitRejectsMetadataOnlyStream(t *testing.T) {
+	writer := newMockStreamWriter()
+	processor := NewStreamProcessor(StreamConfig{
+		Source:  newMockStreamSource([][]byte{[]byte(`{"type":"response.created"}`), []byte(`{"type":"response.completed"}`)}),
+		Writer:  writer,
+		Context: context.Background(),
+		Transform: func(_ context.Context, data []byte) ([]byte, error) {
+			return append(append([]byte("data: "), data...), []byte("\n\n")...), nil
+		},
+		PrecommitPredicate: IsMeaningfulPayload,
+	})
+
+	err := processor.Run()
+	if !errors.Is(err, ErrEmptyUpstreamStream) {
+		t.Fatalf("expected retryable empty stream error, got %v", err)
+	}
+	if writer.Written() {
+		t.Fatalf("metadata-only stream must not commit bytes, got %q", writer.buffer.String())
+	}
+}
+
 func TestStreamProcessor_ContextCancellation(t *testing.T) {
 	// Source that emits one chunk then blocks until cancelled
 	source := &cancelTestSource{first: []byte(`chunk1`)}
