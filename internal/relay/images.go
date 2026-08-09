@@ -161,14 +161,28 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 			continue
 		}
 
-		usedKey := channel.GetChannelKey()
-		if usedKey.ChannelKey == "" {
-			iter.Skip(channel.ID, 0, channel.Name, "no available key")
-			continue
+		selectOpts := model.ChannelKeySelectOptions{
+			ExcludeKeyIDs:  make(map[int]struct{}),
+			PreferredKeyID: iter.StickyKeyID(),
 		}
-
-		// 熔断检查（熔断 key 使用 actualModel=item.ModelName）
-		if iter.SkipCircuitBreak(channel.ID, usedKey.ID, channel.Name) {
+		var usedKey model.ChannelKey
+		for {
+			usedKey = channel.GetChannelKey(selectOpts)
+			if usedKey.ChannelKey == "" {
+				break
+			}
+			if !iter.SkipCircuitBreak(channel.ID, usedKey.ID, channel.Name) {
+				break
+			}
+			selectOpts.ExcludeKeyIDs[usedKey.ID] = struct{}{}
+			usedKey = model.ChannelKey{}
+		}
+		if usedKey.ChannelKey == "" {
+			if len(selectOpts.ExcludeKeyIDs) == 0 {
+				iter.Skip(channel.ID, 0, channel.Name, "no available key")
+			} else {
+				iter.InvalidateCurrentPreference()
+			}
 			continue
 		}
 
@@ -207,8 +221,8 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 
 			// 熔断器：记录成功
 			balancer.RecordSuccess(channel.ID, usedKey.ID, item.ModelName)
-			// 会话保持：更新粘性记录
-			balancer.SetSticky(apiKeyID, requestModel, channel.ID, usedKey.ID)
+			// Refresh affinity only after the complete image response succeeds.
+			balancer.SetRoutingAffinity(apiKeyID, requestModel, channel.ID, usedKey.ID)
 
 			metrics.SaveWithChannelStats(ctx, true, nil, iter.Attempts(), false)
 			return
@@ -232,6 +246,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 			return
 		}
 
+		iter.InvalidateCurrentPreference()
 		lastErr = fmt.Errorf("channel %s failed: %v", channel.Name, fwdErr)
 	}
 

@@ -145,6 +145,8 @@ func HandleResponsesCompact(c *gin.Context) {
 		if usedKey.ChannelKey == "" {
 			if len(selectOpts.ExcludeKeyIDs) == 0 {
 				iter.Skip(channel.ID, 0, channel.Name, "no available key")
+			} else {
+				iter.InvalidateCurrentPreference()
 			}
 			continue
 		}
@@ -182,7 +184,7 @@ func HandleResponsesCompact(c *gin.Context) {
 		if success {
 			op.StatsChannelUpdate(channel.ID, dbmodel.StatsMetrics{RequestSuccess: 1})
 			balancer.RecordSuccess(channel.ID, usedKey.ID, requestModel)
-			balancer.SetSticky(apiKeyID, requestModel, channel.ID, usedKey.ID)
+			balancer.SetRoutingAffinity(apiKeyID, requestModel, channel.ID, usedKey.ID)
 			outlierwindow.Report(channel.ID, true, statusCode, time.Now())
 			metrics.SaveWithChannelStats(c.Request.Context(), true, nil, iter.Attempts(), false)
 			return
@@ -192,6 +194,7 @@ func HandleResponsesCompact(c *gin.Context) {
 		failureKind := circuitFailureKind(group.RetryEnabled, statusCode)
 		balancer.RecordFailure(channel.ID, usedKey.ID, requestModel, failureKind)
 		outlierwindow.Report(channel.ID, false, statusCode, time.Now())
+		iter.InvalidateCurrentPreference()
 		lastErr = attemptErr
 		lastStatusCode = statusCode
 		lastRetryAfter = retryAfter

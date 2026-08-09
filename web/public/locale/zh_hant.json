@@ -210,6 +210,19 @@
             "label": "分組健康檢查",
             "description": "啟用後顯示首頁分組健康摘要、分組卡片健康狀態，並允許手動執行健康檢查。"
         },
+        "channelAffinity": {
+            "title": "渠道親和",
+            "description": "按 API Key 和請求模型記錄最近一次完整成功的渠道與渠道金鑰，並在後續請求中優先複用；Responses 會話續接仍具有更高優先級。",
+            "enabled": {
+                "label": "啟用渠道親和",
+                "description": "關閉後不讀取或刷新親和記錄，普通負載均衡與分組會話保持邏輯不受影響。"
+            },
+            "ttl": {
+                "label": "親和記錄有效期（秒）",
+                "description": "超過該時間未被成功請求刷新後，記錄自動失效並恢復普通路由順序。",
+                "placeholder": "請輸入有效期秒數"
+            }
+        },
         "circuitBreaker": {
             "title": "熔斷器配置",
             "threshold": {

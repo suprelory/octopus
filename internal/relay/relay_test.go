@@ -669,9 +669,12 @@ func TestHandlerFallsBackToNextChannelAfterFirstFailure(t *testing.T) {
 	}, ctx); err != nil {
 		t.Fatalf("GroupItemAdd second item failed: %v", err)
 	}
+	const apiKeyID = 71
+	balancer.SetRoutingAffinity(apiKeyID, group.Name, firstChannel.ID, firstChannel.Keys[0].ID)
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
+	c.Set("api_key_id", apiKeyID)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"relay-failover-group","messages":[{"role":"user","content":"hello"}]}`))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -688,6 +691,24 @@ func TestHandlerFallsBackToNextChannelAfterFirstFailure(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), `"content":"ok"`) {
 		t.Fatalf("expected fallback response body to be returned, got %s", recorder.Body.String())
+	}
+	affinity := balancer.GetChannelAffinity(apiKeyID, group.Name)
+	if affinity == nil || affinity.ChannelID != secondChannel.ID || affinity.ChannelKeyID != secondChannel.Keys[0].ID {
+		t.Fatalf("expected successful fallback to replace affinity with second channel/key, got %#v", affinity)
+	}
+
+	secondRecorder := httptest.NewRecorder()
+	secondContext, _ := gin.CreateTestContext(secondRecorder)
+	secondContext.Set("api_key_id", apiKeyID)
+	secondContext.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"relay-failover-group","messages":[{"role":"user","content":"again"}]}`))
+	secondContext.Request.Header.Set("Content-Type", "application/json")
+	Handler(inbound.InboundTypeOpenAIChat, secondContext)
+
+	if secondRecorder.Code != http.StatusOK {
+		t.Fatalf("expected repeated request to use successful affinity, got status %d body %s", secondRecorder.Code, secondRecorder.Body.String())
+	}
+	if firstHits.Load() != 1 || secondHits.Load() != 2 {
+		t.Fatalf("expected affinity to bypass failed channel on repeat request, first hits=%d second hits=%d", firstHits.Load(), secondHits.Load())
 	}
 }
 
@@ -1749,6 +1770,9 @@ func TestHandleResponsesCompactProxiesSuccessfulResponse(t *testing.T) {
 	}
 	if sticky := balancer.GetSticky(42, "relay-compact-group", time.Minute); sticky == nil || sticky.ChannelID != channel.ID {
 		t.Fatalf("expected compact success to refresh sticky channel, got %#v", sticky)
+	}
+	if affinity := balancer.GetChannelAffinity(42, "relay-compact-group"); affinity == nil || affinity.ChannelID != channel.ID || affinity.ChannelKeyID != channel.Keys[0].ID {
+		t.Fatalf("expected compact success to refresh channel affinity, got %#v", affinity)
 	}
 	logItems, err := op.RelayLogList(ctx, nil, nil, nil, 1, 10)
 	if err != nil {

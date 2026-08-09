@@ -21,6 +21,8 @@ const (
 	SettingKeyCircuitBreakerThreshold          SettingKey = "circuit_breaker_threshold"            // 熔断触发阈值（连续失败次数）
 	SettingKeyCircuitBreakerCooldown           SettingKey = "circuit_breaker_cooldown"             // 熔断基础冷却时间（秒）
 	SettingKeyCircuitBreakerMaxCooldown        SettingKey = "circuit_breaker_max_cooldown"         // 熔断最大冷却时间（秒），指数退避上限
+	SettingKeyChannelAffinityEnabled           SettingKey = "channel_affinity_enabled"             // 是否优先复用同一 API Key/模型上次成功的渠道
+	SettingKeyChannelAffinityTTLSeconds        SettingKey = "channel_affinity_ttl_seconds"         // 渠道亲和记录 TTL（秒）
 	SettingKeyResponsesWSEnabled               SettingKey = "responses_ws_enabled"                 // 是否启用 OpenAI Responses WS 上游能力（仅客户端 WS 入站）
 	SettingKeyResponsesWSDefaultMode           SettingKey = "responses_ws_default_mode"            // OpenAI Responses WS 默认模式：off/transform/passthrough
 	SettingKeySSEHeartbeatInterval             SettingKey = "sse_heartbeat_interval"               // SSE 流式心跳间隔（秒），0 表示禁用
@@ -40,13 +42,13 @@ const (
 	SettingKeyOutlierReapMinutes               SettingKey = "outlier_reap_minutes"                 // POR 窗口内存回收 TTL(分钟)
 	SettingKeyOutlierCFRecoverMinutes          SettingKey = "outlier_cf_recover_minutes"           // POR CF 退役渠道恢复探活冷却(分钟)
 	SettingKeyApiBaseUrl                       SettingKey = "api_base_url"                         // 对外服务基础地址，用于一键导出客户端配置，为空时不显示导出入口
-	SettingKeyWebDAVURL                        SettingKey = "webdav_url"                            // WebDAV 服务器地址
-	SettingKeyWebDAVUsername                   SettingKey = "webdav_username"                       // WebDAV 用户名
-	SettingKeyWebDAVPassword                   SettingKey = "webdav_password"                       // WebDAV 密码
-	SettingKeyWebDAVBackupPath                 SettingKey = "webdav_backup_path"                    // WebDAV 远程备份目录
-	SettingKeyWebDAVBackupInterval             SettingKey = "webdav_backup_interval"                // WebDAV 自动备份间隔(小时)，0=禁用
-	SettingKeyWebDAVRetentionCount             SettingKey = "webdav_retention_count"                // WebDAV 保留备份份数
-	SettingKeyWebDAVIncludeStats               SettingKey = "webdav_include_stats"                  // WebDAV 备份是否包含统计数据
+	SettingKeyWebDAVURL                        SettingKey = "webdav_url"                           // WebDAV 服务器地址
+	SettingKeyWebDAVUsername                   SettingKey = "webdav_username"                      // WebDAV 用户名
+	SettingKeyWebDAVPassword                   SettingKey = "webdav_password"                      // WebDAV 密码
+	SettingKeyWebDAVBackupPath                 SettingKey = "webdav_backup_path"                   // WebDAV 远程备份目录
+	SettingKeyWebDAVBackupInterval             SettingKey = "webdav_backup_interval"               // WebDAV 自动备份间隔(小时)，0=禁用
+	SettingKeyWebDAVRetentionCount             SettingKey = "webdav_retention_count"               // WebDAV 保留备份份数
+	SettingKeyWebDAVIncludeStats               SettingKey = "webdav_include_stats"                 // WebDAV 备份是否包含统计数据
 )
 
 type Setting struct {
@@ -68,6 +70,8 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyCircuitBreakerThreshold, Value: "5"},          // 默认连续失败5次触发熔断
 		{Key: SettingKeyCircuitBreakerCooldown, Value: "60"},          // 默认基础冷却60秒
 		{Key: SettingKeyCircuitBreakerMaxCooldown, Value: "600"},      // 默认最大冷却600秒（10分钟）
+		{Key: SettingKeyChannelAffinityEnabled, Value: "true"},        // 默认启用同 API Key/模型的成功渠道亲和
+		{Key: SettingKeyChannelAffinityTTLSeconds, Value: "3600"},     // 默认保留 1 小时
 		{Key: SettingKeyResponsesWSEnabled, Value: "false"},           // 默认关闭 OpenAI Responses WS 新路径
 		{Key: SettingKeyResponsesWSDefaultMode, Value: "passthrough"}, // 启用后默认使用协议保真的 passthrough
 		{Key: SettingKeySSEHeartbeatInterval, Value: "0"},             // 默认禁用 SSE 流式心跳
@@ -76,24 +80,24 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyProjectedChannelAutoGroupEnabled, Value: "0"}, // 默认不强制站点投影渠道自动分组
 		{Key: SettingKeyJWTSecret, Value: ""},                         // 为空时自动生成
 		{Key: SettingKeyStatsSiteModelBackfilled, Value: "false"},
-		{Key: SettingKeyOutlierRetireEnabled, Value: "false"}, // 默认关闭被动离群退役，保守上线
-		{Key: SettingKeyOutlierRetireInterval, Value: "2"},    // 默认每 2 分钟评估一次
-		{Key: SettingKeyOutlierWindowCapacity, Value: "20"},   // 评估取最近 20 条
-		{Key: SettingKeyOutlierWindowMinutes, Value: "10"},    // 时间窗 10 分钟
-		{Key: SettingKeyOutlierMinSamples, Value: "8"},        // 样本不足 8 条直接 PASS
-		{Key: SettingKeyOutlierFailRatePct, Value: "85"},      // 失败率 ≥85% 才候选
-		{Key: SettingKeyOutlierConsecFails, Value: "10"},      // 连续失败 ≥10 次
-		{Key: SettingKeyOutlierRecoverStreak, Value: "2"},     // 连续探活成功 2 次恢复
-		{Key: SettingKeyOutlierReapMinutes, Value: "30"},      // 窗口 30 分钟无流量回收
-		{Key: SettingKeyOutlierCFRecoverMinutes, Value: "30"}, // CF 退役渠道 30 分钟后才探活恢复
-		{Key: SettingKeyApiBaseUrl, Value: ""},                  // 默认为空，不显示客户端导出入口
-		{Key: SettingKeyWebDAVURL, Value: ""},                   // 默认为空，未配置
-		{Key: SettingKeyWebDAVUsername, Value: ""},              // 默认为空
-		{Key: SettingKeyWebDAVPassword, Value: ""},              // 默认为空
+		{Key: SettingKeyOutlierRetireEnabled, Value: "false"},        // 默认关闭被动离群退役，保守上线
+		{Key: SettingKeyOutlierRetireInterval, Value: "2"},           // 默认每 2 分钟评估一次
+		{Key: SettingKeyOutlierWindowCapacity, Value: "20"},          // 评估取最近 20 条
+		{Key: SettingKeyOutlierWindowMinutes, Value: "10"},           // 时间窗 10 分钟
+		{Key: SettingKeyOutlierMinSamples, Value: "8"},               // 样本不足 8 条直接 PASS
+		{Key: SettingKeyOutlierFailRatePct, Value: "85"},             // 失败率 ≥85% 才候选
+		{Key: SettingKeyOutlierConsecFails, Value: "10"},             // 连续失败 ≥10 次
+		{Key: SettingKeyOutlierRecoverStreak, Value: "2"},            // 连续探活成功 2 次恢复
+		{Key: SettingKeyOutlierReapMinutes, Value: "30"},             // 窗口 30 分钟无流量回收
+		{Key: SettingKeyOutlierCFRecoverMinutes, Value: "30"},        // CF 退役渠道 30 分钟后才探活恢复
+		{Key: SettingKeyApiBaseUrl, Value: ""},                       // 默认为空，不显示客户端导出入口
+		{Key: SettingKeyWebDAVURL, Value: ""},                        // 默认为空，未配置
+		{Key: SettingKeyWebDAVUsername, Value: ""},                   // 默认为空
+		{Key: SettingKeyWebDAVPassword, Value: ""},                   // 默认为空
 		{Key: SettingKeyWebDAVBackupPath, Value: "/octopus-backups"}, // 默认远程目录
-		{Key: SettingKeyWebDAVBackupInterval, Value: "0"},       // 默认禁用自动备份
-		{Key: SettingKeyWebDAVRetentionCount, Value: "10"},      // 默认保留10份
-		{Key: SettingKeyWebDAVIncludeStats, Value: "true"},      // 默认包含统计数据
+		{Key: SettingKeyWebDAVBackupInterval, Value: "0"},            // 默认禁用自动备份
+		{Key: SettingKeyWebDAVRetentionCount, Value: "10"},           // 默认保留10份
+		{Key: SettingKeyWebDAVIncludeStats, Value: "true"},           // 默认包含统计数据
 	}
 }
 
@@ -116,7 +120,7 @@ func (s *Setting) Validate() error {
 	case SettingKeyOutlierRetireInterval, SettingKeyOutlierWindowMinutes, SettingKeyOutlierMinSamples,
 		SettingKeyOutlierConsecFails, SettingKeyOutlierRecoverStreak,
 		SettingKeyOutlierReapMinutes, SettingKeyOutlierCFRecoverMinutes,
-		SettingKeyWebDAVRetentionCount:
+		SettingKeyWebDAVRetentionCount, SettingKeyChannelAffinityTTLSeconds:
 		// 时间窗/样本/连击/间隔等：0 或负值无意义，下限为 1。
 		return validateIntMin(s.Value, 1)
 	case SettingKeySSEHeartbeatInterval, SettingKeySSEPreStreamHeartbeatDelay, SettingKeyWebDAVBackupInterval:
@@ -128,7 +132,7 @@ func (s *Setting) Validate() error {
 			return fmt.Errorf("setting value must be non-negative")
 		}
 		return nil
-	case SettingKeyRelayLogKeepEnabled, SettingKeyResponsesWSEnabled, SettingKeyGroupHealthEnabled, SettingKeyStatsSiteModelBackfilled, SettingKeyOutlierRetireEnabled, SettingKeyWebDAVIncludeStats:
+	case SettingKeyRelayLogKeepEnabled, SettingKeyResponsesWSEnabled, SettingKeyGroupHealthEnabled, SettingKeyStatsSiteModelBackfilled, SettingKeyOutlierRetireEnabled, SettingKeyWebDAVIncludeStats, SettingKeyChannelAffinityEnabled:
 		if s.Value != "true" && s.Value != "false" {
 			return fmt.Errorf("setting value must be true or false")
 		}

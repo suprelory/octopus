@@ -210,6 +210,19 @@
             "label": "分组健康检查",
             "description": "启用后显示首页分组健康摘要、分组卡片健康状态，并允许手动运行健康检查。"
         },
+        "channelAffinity": {
+            "title": "渠道亲和",
+            "description": "按 API Key 和请求模型记录最近一次完整成功的渠道与渠道密钥，并在后续请求中优先复用；Responses 会话续接仍具有更高优先级。",
+            "enabled": {
+                "label": "启用渠道亲和",
+                "description": "关闭后不读取或刷新亲和记录，普通负载均衡与分组会话保持逻辑不受影响。"
+            },
+            "ttl": {
+                "label": "亲和记录有效期（秒）",
+                "description": "超过该时间未被成功请求刷新后，记录自动失效并恢复普通路由顺序。",
+                "placeholder": "请输入有效期秒数"
+            }
+        },
         "circuitBreaker": {
             "title": "熔断器配置",
             "threshold": {

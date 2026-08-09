@@ -210,6 +210,19 @@
             "label": "Group Health Checks",
             "description": "When enabled, show the home health summary, group-card health status, and allow manual health checks."
         },
+        "channelAffinity": {
+            "title": "Channel Affinity",
+            "description": "Remembers the channel and channel key from the latest fully successful request for each API key and requested model, then prefers them on later requests. Responses continuation routing still takes precedence.",
+            "enabled": {
+                "label": "Enable Channel Affinity",
+                "description": "When disabled, affinity records are neither read nor refreshed. Normal load balancing and group session keep behavior are unchanged."
+            },
+            "ttl": {
+                "label": "Affinity TTL (seconds)",
+                "description": "A record expires and normal routing resumes when no successful request refreshes it within this period.",
+                "placeholder": "Enter TTL in seconds"
+            }
+        },
         "circuitBreaker": {
             "title": "Circuit Breaker",
             "threshold": {

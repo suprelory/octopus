@@ -1,7 +1,7 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import { Hash, HeartPulse, ShieldCheck, Timer, TimerOff, type LucideIcon } from 'lucide-react';
+import { Hash, HeartPulse, Route, ShieldCheck, Timer, TimerOff, type LucideIcon } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { SettingKey } from '@/api/endpoints/setting';
@@ -51,6 +51,7 @@ export function SettingReliability() {
     const t = useTranslations('setting');
     const outlier = useSettingToggle(SettingKey.OutlierRetireEnabled);
     const groupHealth = useSettingToggle(SettingKey.GroupHealthEnabled);
+    const channelAffinity = useSettingToggle(SettingKey.ChannelAffinityEnabled);
 
     return (
         <SettingCard icon={ShieldCheck} title={t('reliability.title')}>
@@ -58,6 +59,22 @@ export function SettingReliability() {
             <SettingRow icon={HeartPulse} label={t('groupHealth.label')} tooltip={t('groupHealth.description')}>
                 <Switch checked={groupHealth.enabled} onCheckedChange={groupHealth.toggle} />
             </SettingRow>
+
+            {/* 渠道亲和 */}
+            <SettingSection title={t('channelAffinity.title')} tooltip={t('channelAffinity.description')} />
+            <SettingRow icon={Route} label={t('channelAffinity.enabled.label')} tooltip={t('channelAffinity.enabled.description')}>
+                <Switch checked={channelAffinity.enabled} onCheckedChange={channelAffinity.toggle} />
+            </SettingRow>
+            {channelAffinity.enabled && (
+                <NumberFieldRow
+                    settingKey={SettingKey.ChannelAffinityTTLSeconds}
+                    label={t('channelAffinity.ttl.label')}
+                    placeholder={t('channelAffinity.ttl.placeholder')}
+                    tooltip={t('channelAffinity.ttl.description')}
+                    icon={Timer}
+                    min={1}
+                />
+            )}
 
             {/* 熔断器 */}
             <SettingSection title={t('circuitBreaker.title')} tooltip={t('circuitBreaker.hint')} />

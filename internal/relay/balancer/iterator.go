@@ -10,15 +10,32 @@ import (
 // Iterator 统一的负载均衡迭代器
 // 内部编排：策略排序 + 粘性优先 + 决策追踪
 type Iterator struct {
-	candidates  []model.GroupItem
-	index       int
-	stickyIdx   int // 粘性通道在 candidates 中的位置，-1 表示无
-	stickyKeyID int
-	modelName   string // 请求模型名（用于熔断检查）
+	candidates   []model.GroupItem
+	index        int
+	preferences  map[int]routingPreference
+	apiKeyID     int
+	requestModel string
+	modelName    string // 请求模型名（用于熔断检查）
 
 	// 内嵌追踪
 	attempts []model.ChannelAttempt
 	count    int
+}
+
+// PreferenceSource identifies why a candidate was moved ahead of the normal
+// load-balancer order. The numeric order also represents routing priority.
+type PreferenceSource uint8
+
+const (
+	PreferenceNone PreferenceSource = iota
+	PreferenceResponsesReplay
+	PreferenceChannelAffinity
+	PreferenceLegacySticky
+)
+
+type routingPreference struct {
+	source PreferenceSource
+	entry  SessionEntry
 }
 
 // NewIterator 创建负载均衡迭代器
@@ -31,49 +48,82 @@ func NewIterator(group model.Group, apiKeyID int, requestModel string) *Iterator
 // preferred 非空时，会优先把指定通道提前到候选列表最前面。
 func NewIteratorWithPreference(group model.Group, apiKeyID int, requestModel string, preferred *SessionEntry) *Iterator {
 	b := GetBalancer(group.Mode)
-	candidates := b.Candidates(group.Items)
-
-	stickyIdx := -1
-	stickyKeyID := 0
+	remaining := b.Candidates(group.Items)
+	preferenceCandidates := make([]routingPreference, 0, 3)
 	if preferred != nil && preferred.ChannelID > 0 {
-		for i, item := range candidates {
-			if item.ChannelID == preferred.ChannelID {
-				if i > 0 {
-					preferredItem := candidates[i]
-					copy(candidates[1:i+1], candidates[0:i])
-					candidates[0] = preferredItem
-				}
-				stickyIdx = 0
-				stickyKeyID = preferred.ChannelKeyID
+		preferenceCandidates = append(preferenceCandidates, routingPreference{
+			source: PreferenceResponsesReplay,
+			entry:  *preferred,
+		})
+	}
+	if affinity := GetChannelAffinity(apiKeyID, requestModel); affinity != nil {
+		preferenceCandidates = append(preferenceCandidates, routingPreference{
+			source: PreferenceChannelAffinity,
+			entry:  *affinity,
+		})
+	}
+	if group.SessionKeepTime > 0 {
+		stickyTTL := time.Duration(group.SessionKeepTime) * time.Second
+		if sticky := GetSticky(apiKeyID, requestModel, stickyTTL); sticky != nil {
+			preferenceCandidates = append(preferenceCandidates, routingPreference{
+				source: PreferenceLegacySticky,
+				entry:  *sticky,
+			})
+		}
+	}
+
+	candidates := make([]model.GroupItem, 0, len(remaining))
+	preferences := make(map[int]routingPreference, len(preferenceCandidates))
+	selectedChannels := make(map[int]struct{}, len(preferenceCandidates))
+	for _, preference := range preferenceCandidates {
+		channelID := preference.entry.ChannelID
+		if channelID <= 0 {
+			continue
+		}
+		if _, selected := selectedChannels[channelID]; selected {
+			continue
+		}
+
+		preferredIndex := -1
+		for i, item := range remaining {
+			if item.ChannelID == channelID {
+				preferredIndex = i
 				break
 			}
 		}
-	}
-	if stickyIdx < 0 && group.SessionKeepTime > 0 {
-		stickyTTL := time.Duration(group.SessionKeepTime) * time.Second
-		if sticky := GetSticky(apiKeyID, requestModel, stickyTTL); sticky != nil {
-			for i, item := range candidates {
-				if item.ChannelID == sticky.ChannelID {
-					if i > 0 {
-						// 将粘性通道移到最前面
-						stickyItem := candidates[i]
-						copy(candidates[1:i+1], candidates[0:i])
-						candidates[0] = stickyItem
-					}
-					stickyIdx = 0
-					stickyKeyID = sticky.ChannelKeyID
-					break
-				}
+		if preferredIndex < 0 {
+			switch preference.source {
+			case PreferenceChannelAffinity:
+				DeleteChannelAffinity(apiKeyID, requestModel)
+			case PreferenceLegacySticky:
+				DeleteSticky(apiKeyID, requestModel)
+			}
+			continue
+		}
+
+		preferences[len(candidates)] = preference
+		candidates = append(candidates, remaining[preferredIndex])
+		selectedChannels[channelID] = struct{}{}
+
+		// A group may contain multiple mappings for the same channel. Once a
+		// preferred channel is selected, remove its duplicate fallback items.
+		filtered := remaining[:0]
+		for _, item := range remaining {
+			if item.ChannelID != channelID {
+				filtered = append(filtered, item)
 			}
 		}
+		remaining = filtered
 	}
+	candidates = append(candidates, remaining...)
 
 	return &Iterator{
-		candidates:  candidates,
-		index:       -1,
-		stickyIdx:   stickyIdx,
-		stickyKeyID: stickyKeyID,
-		modelName:   requestModel,
+		candidates:   candidates,
+		index:        -1,
+		preferences:  preferences,
+		apiKeyID:     apiKeyID,
+		requestModel: requestModel,
+		modelName:    requestModel,
 	}
 }
 
@@ -90,14 +140,40 @@ func (it *Iterator) Item() model.GroupItem {
 
 // IsSticky 当前候选是否为粘性通道
 func (it *Iterator) IsSticky() bool {
-	return it.stickyIdx >= 0 && it.index == it.stickyIdx
+	_, ok := it.preferences[it.index]
+	return ok
 }
 
 func (it *Iterator) StickyKeyID() int {
-	if !it.IsSticky() {
+	preference, ok := it.preferences[it.index]
+	if !ok {
 		return 0
 	}
-	return it.stickyKeyID
+	return preference.entry.ChannelKeyID
+}
+
+func (it *Iterator) PreferenceSource() PreferenceSource {
+	preference, ok := it.preferences[it.index]
+	if !ok {
+		return PreferenceNone
+	}
+	return preference.source
+}
+
+// InvalidateCurrentPreference clears ordinary affinity after the preferred
+// channel proves unusable before downstream payload is written. Replay state
+// and replay routing preferences remain independent and untouched.
+func (it *Iterator) InvalidateCurrentPreference() {
+	preference, ok := it.preferences[it.index]
+	if !ok || preference.source == PreferenceResponsesReplay {
+		return
+	}
+	DeleteRoutingAffinity(it.apiKeyID, it.requestModel)
+	for index, remainingPreference := range it.preferences {
+		if index >= it.index && remainingPreference.source != PreferenceResponsesReplay {
+			delete(it.preferences, index)
+		}
+	}
 }
 
 // Len 返回候选列表长度
@@ -112,6 +188,7 @@ func (it *Iterator) Index() int {
 
 // Skip 记录当前通道被跳过（通道禁用、无Key、类型不兼容等）
 func (it *Iterator) Skip(channelID, channelKeyID int, channelName, msg string) {
+	sticky := it.IsSticky()
 	it.count++
 	it.attempts = append(it.attempts, model.ChannelAttempt{
 		ChannelID:    channelID,
@@ -120,9 +197,10 @@ func (it *Iterator) Skip(channelID, channelKeyID int, channelName, msg string) {
 		ModelName:    it.candidates[it.index].ModelName,
 		AttemptNum:   it.count,
 		Status:       model.AttemptSkipped,
-		Sticky:       it.IsSticky(),
+		Sticky:       sticky,
 		Msg:          msg,
 	})
+	it.InvalidateCurrentPreference()
 }
 
 // SkipCircuitBreak 检查熔断状态，若已熔断自动记录（含剩余冷却时间）并返回 true

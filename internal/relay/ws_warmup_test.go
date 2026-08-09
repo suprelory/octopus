@@ -92,6 +92,9 @@ func TestBestEffortWarmupUpstreamWSPrimesPoolAndSticky(t *testing.T) {
 	if sticky.ChannelID != channel.ID || sticky.ChannelKeyID != channel.Keys[0].ID {
 		t.Fatalf("expected sticky to target warmed channel/key, got %#v", sticky)
 	}
+	if affinity := balancer.GetChannelAffinity(321, "relay-warmup-group"); affinity != nil {
+		t.Fatalf("expected warmup not to create or refresh channel affinity, got %#v", affinity)
+	}
 
 	pc := wsUpstreamPool.Get(newWSPoolKey(channel.ID, channel.Keys[0].ID, buildUpstreamWSHeaders(nil, channel, channel.Keys[0].ChannelKey)))
 	if pc == nil {

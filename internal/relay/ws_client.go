@@ -256,7 +256,7 @@ func processWSResponseCreate(
 	if result.ResetConversation && autoRestart && !req.streamWriter.Written() {
 		log.Debugf("ws relay switching to replay (apikey=%d, request_model=%s, failed_previous_response_id=%s, reset_conversation=%t)",
 			apiKeyID, requestModel, failedPreviousResponseID, result.ResetConversation)
-		balancer.DeleteSticky(apiKeyID, requestModel)
+		balancer.DeleteRoutingAffinity(apiKeyID, requestModel)
 		replayedRequest := conversationState.BuildReplayRequest(originalRequest)
 		replayReq, replayGroup, replayErr := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, clientIP, replayedRequest, originalRequest, preferredSticky, bodyBytes)
 		if replayErr == nil {
@@ -542,6 +542,8 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group) ws
 		if usedKey.ChannelKey == "" {
 			if len(selectOpts.ExcludeKeyIDs) == 0 {
 				req.iter.Skip(channel.ID, 0, channel.Name, "no available key")
+			} else {
+				req.iter.InvalidateCurrentPreference()
 			}
 			continue
 		}
@@ -588,6 +590,7 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group) ws
 				failureKind = balancer.FailureHard
 			}
 			balancer.RecordFailure(channel.ID, usedKey.ID, req.internalRequest.Model, failureKind)
+			req.iter.InvalidateCurrentPreference()
 		}
 
 		if result.Success {
@@ -628,7 +631,7 @@ func finalizeWSRelay(ctx context.Context, conn *websocket.Conn, req *relayReques
 	}
 	if result.PublicError != nil {
 		if result.PublicError.ResetConversation {
-			balancer.DeleteSticky(req.apiKeyID, req.requestModel)
+			balancer.DeleteRoutingAffinity(req.apiKeyID, req.requestModel)
 		}
 		writeWSError(ctx, conn, result.PublicError.Status, result.PublicError.Code, result.PublicError.Message)
 		return result

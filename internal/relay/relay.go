@@ -253,6 +253,8 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 		if usedKey.ChannelKey == "" {
 			if len(selectOpts.ExcludeKeyIDs) == 0 {
 				iter.Skip(channel.ID, 0, channel.Name, "no available key")
+			} else {
+				iter.InvalidateCurrentPreference()
 			}
 			continue
 		}
@@ -375,6 +377,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 			metrics.SaveWithChannelStats(c.Request.Context(), false, result.Err, iter.Attempts(), false)
 			return
 		}
+		iter.InvalidateCurrentPreference()
 		lastErr = result.Err
 		lastResult = result
 	}
@@ -452,8 +455,8 @@ func (ra *relayAttempt) attempt() attemptResult {
 
 		// 熔断器：记录成功
 		balancer.RecordSuccess(ra.channel.ID, ra.usedKey.ID, ra.internalRequest.Model)
-		// 会话保持：更新粘性记录
-		balancer.SetSticky(ra.apiKeyID, ra.requestModel, ra.channel.ID, ra.usedKey.ID)
+		// Refresh model affinity only after the complete response succeeds.
+		balancer.SetRoutingAffinity(ra.apiKeyID, ra.requestModel, ra.channel.ID, ra.usedKey.ID)
 
 		return attemptResult{Success: true}
 	}
@@ -575,7 +578,7 @@ func (ra *relayAttempt) forward() (int, error) {
 				return statusCode, err
 			}
 			if requiresUpstreamWSContinuation(ra.internalRequest) {
-				balancer.DeleteSticky(ra.apiKeyID, ra.requestModel)
+				balancer.DeleteRoutingAffinity(ra.apiKeyID, ra.requestModel)
 				return http.StatusConflict, fmt.Errorf("upstream continuation transport unavailable; please restart the conversation")
 			}
 			ra.metrics.SetWSRecovery(dbmodel.RelayLogWSRecoveryDowngrade)
@@ -630,7 +633,7 @@ func (ra *relayAttempt) forwardViaWS(ctx context.Context) (int, error) {
 				return statusCode, redialErr
 			}
 			if requiresUpstreamWSContinuation(ra.internalRequest) {
-				balancer.DeleteSticky(ra.apiKeyID, ra.requestModel)
+				balancer.DeleteRoutingAffinity(ra.apiKeyID, ra.requestModel)
 				return http.StatusConflict, fmt.Errorf("upstream continuation transport unavailable; please restart the conversation")
 			}
 		}
@@ -659,7 +662,7 @@ func (ra *relayAttempt) forwardViaWS(ctx context.Context) (int, error) {
 			}
 		}
 		if requiresUpstreamWSContinuation(ra.internalRequest) && isContinuationTransportFailure(err) {
-			balancer.DeleteSticky(ra.apiKeyID, ra.requestModel)
+			balancer.DeleteRoutingAffinity(ra.apiKeyID, ra.requestModel)
 			return http.StatusConflict, fmt.Errorf("upstream continuation transport unavailable; please restart the conversation")
 		}
 		if ra.requestContext().Err() == nil {
@@ -690,7 +693,7 @@ func (ra *relayAttempt) retryViaFreshUpstreamWS(ctx context.Context, reqBody []b
 		wsUpstreamPool.RemoveConn(redialed)
 		wsUpstreamPool.RecordWSFailure(ra.channel.ID)
 		if requiresUpstreamWSContinuation(ra.internalRequest) {
-			balancer.DeleteSticky(ra.apiKeyID, ra.requestModel)
+			balancer.DeleteRoutingAffinity(ra.apiKeyID, ra.requestModel)
 			return http.StatusConflict, fmt.Errorf("upstream continuation transport unavailable; please restart the conversation"), true
 		}
 		return -1, nil, true
@@ -709,7 +712,7 @@ func (ra *relayAttempt) retryViaFreshUpstreamWS(ctx context.Context, reqBody []b
 		log.Debugf("fresh upstream WS redial stream failed (channel=%s, key=%d, status=%d, err=%v)",
 			ra.channel.Name, ra.usedKey.ID, reader.StatusCode(), streamErr)
 		if requiresUpstreamWSContinuation(ra.internalRequest) && isContinuationTransportFailure(streamErr) {
-			balancer.DeleteSticky(ra.apiKeyID, ra.requestModel)
+			balancer.DeleteRoutingAffinity(ra.apiKeyID, ra.requestModel)
 			return http.StatusConflict, fmt.Errorf("upstream continuation transport unavailable; please restart the conversation"), true
 		}
 		if ra.requestContext().Err() == nil {

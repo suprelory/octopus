@@ -87,8 +87,8 @@ func (b *Weighted) Candidates(items []model.GroupItem) []model.GroupItem {
 
 	// 构建加权随机排序
 	type weightedItem struct {
-		item   model.GroupItem
-		score  float64
+		item  model.GroupItem
+		score float64
 	}
 
 	totalWeight := 0
@@ -139,4 +139,5 @@ func Reset() {
 	roundRobinCounter = 0
 	globalBreaker = sync.Map{}
 	globalSession = sync.Map{}
+	channelAffinity = sync.Map{}
 }
