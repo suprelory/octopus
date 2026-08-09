@@ -25,10 +25,18 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
       - name: Prepare embedded static directory
         run: |
           mkdir -p static/out
           touch static/out/.keep
+
+      - name: Test price generator
+        run: python -m unittest discover -s scripts -p 'test_*.py'
 
       - name: Test
         run: go test ./...
