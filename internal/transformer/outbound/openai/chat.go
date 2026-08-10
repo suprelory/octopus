@@ -80,6 +80,10 @@ type ChatCompletionsAudio struct {
 }
 
 func (o *ChatOutbound) TransformRequest(ctx context.Context, request *model.InternalLLMRequest, baseUrl, key string) (*http.Request, error) {
+	if request == nil {
+		return nil, fmt.Errorf("request is nil")
+	}
+	request = request.Clone()
 	request.ClearHelpFields()
 	request.NormalizeMessages()
 	request.FlattenUnsupportedBlocks(model.AlternationProviderOpenAI)

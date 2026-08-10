@@ -4,10 +4,62 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"reflect"
 	"testing"
 
 	"github.com/bestruirui/octopus/internal/transformer/model"
 )
+
+func TestOpenAIOutboundsDoNotMutateRequest(t *testing.T) {
+	outbounds := map[string]model.Outbound{
+		"chat":      &ChatOutbound{},
+		"responses": &ResponseOutbound{},
+	}
+	baseURLs := map[string]string{
+		"success": "https://api.openai.com/v1",
+		"failure": "http://[::1",
+	}
+
+	for outboundName, transformer := range outbounds {
+		for resultName, baseURL := range baseURLs {
+			t.Run(outboundName+"/"+resultName, func(t *testing.T) {
+				empty := ""
+				text := "hello"
+				stream := true
+				request := &model.InternalLLMRequest{
+					Model:  "gpt-test",
+					Stream: &stream,
+					Messages: []model.Message{{
+						Role: "user",
+						Content: model.MessageContent{MultipleContent: []model.MessageContentPart{
+							{Type: "text", Text: &empty},
+							{Type: "text", Text: &text},
+						}},
+						ReasoningBlocks: []model.ReasoningBlock{{Kind: model.ReasoningBlockKindThinking, Text: "runtime"}},
+					}},
+					TransformerMetadata: map[string]string{"source": "client"},
+				}
+				before := request.Clone()
+				_, err := transformer.TransformRequest(context.Background(), request, baseURL, "key")
+				if resultName == "failure" && err == nil {
+					t.Fatal("TransformRequest() error = nil, want invalid URL error")
+				}
+				if resultName == "success" && err != nil {
+					t.Fatalf("TransformRequest() error = %v", err)
+				}
+				if !reflect.DeepEqual(request, before) {
+					t.Fatalf("TransformRequest() mutated caller request\nbefore: %#v\nafter:  %#v", before, request)
+				}
+			})
+		}
+	}
+}
+
+func TestChatOutboundRejectsNilRequest(t *testing.T) {
+	if _, err := (&ChatOutbound{}).TransformRequest(context.Background(), nil, "https://api.openai.com/v1", "key"); err == nil {
+		t.Fatal("TransformRequest(nil) error = nil")
+	}
+}
 
 func TestBuildChatCompletionsRequestUsesExplicitWhitelist(t *testing.T) {
 	content := "hello"

@@ -2,6 +2,7 @@ package relay
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -109,6 +110,42 @@ type relayRequest struct {
 
 	streamPayloadWritten atomic.Bool
 	responseCollected    atomic.Bool
+}
+
+// newAttemptRelayRequest creates the mutable state owned by one upstream
+// attempt. Request-level collaborators are shared only when they are safe to
+// reuse across attempts.
+func newAttemptRelayRequest(base *relayRequest, ctx context.Context, modelName string) (*relayRequest, error) {
+	if base == nil {
+		return nil, fmt.Errorf("base relay request is nil")
+	}
+	if base.internalRequest == nil {
+		return nil, fmt.Errorf("base internal request is nil")
+	}
+
+	internalRequest := base.internalRequest.Clone()
+	internalRequest.Model = modelName
+	inAdapter, err := newAttemptInboundAdapter(base.inboundType, ctx, base.rawBody)
+	if err != nil {
+		return nil, err
+	}
+
+	return &relayRequest{
+		c:               base.c,
+		ctx:             ctx,
+		inAdapter:       inAdapter,
+		inboundType:     base.inboundType,
+		internalRequest: internalRequest,
+		metrics:         base.metrics,
+		apiKeyID:        base.apiKeyID,
+		requestModel:    base.requestModel,
+		groupID:         base.groupID,
+		groupSessionTTL: base.groupSessionTTL,
+		iter:            base.iter,
+		rawBody:         base.rawBody,
+		streamWriter:    base.streamWriter,
+		heartbeat:       base.heartbeat,
+	}, nil
 }
 
 // requestContext returns the request context from gin or the standalone context.

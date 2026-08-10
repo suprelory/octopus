@@ -20,6 +20,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/bestruirui/octopus/internal/transformer/model"
+	"github.com/bestruirui/octopus/internal/transformer/rawjson"
 )
 
 // ResponseOutbound implements the Outbound interface for OpenAI Responses API.
@@ -152,6 +153,7 @@ func (o *ResponseOutbound) TransformRequest(ctx context.Context, request *model.
 	if request == nil {
 		return nil, fmt.Errorf("request is nil")
 	}
+	request = request.Clone()
 
 	request.NormalizeMessages()
 
@@ -233,16 +235,7 @@ func (o *ResponseOutbound) TransformRequestRaw(ctx context.Context, rawBody []by
 }
 
 func rewriteRawResponsesRequestModel(rawBody []byte, modelName string) ([]byte, error) {
-	var payload map[string]any
-	if err := json.Unmarshal(rawBody, &payload); err != nil {
-		return nil, fmt.Errorf("failed to decode raw responses request: %w", err)
-	}
-	payload["model"] = strings.TrimSpace(modelName)
-	rewrittenBody, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encode raw responses request: %w", err)
-	}
-	return rewrittenBody, nil
+	return rawjson.ReplaceTopLevelString(rawBody, "model", strings.TrimSpace(modelName))
 }
 
 func (o *ResponseOutbound) TransformResponse(ctx context.Context, response *http.Response) (*model.InternalLLMResponse, error) {

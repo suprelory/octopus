@@ -171,6 +171,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 
 	var lastErr error
 	var lastResult attemptResult
+	var lastAttempt *relayRequest
 
 	// 同通道重试次数：启用时使用配置值，否则 1 次（不重试）
 	maxSameChannelRetries := 1
@@ -213,9 +214,9 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 			}
 		}
 
-		// 出站适配器
-		outAdapter := outbound.Get(channel.Type)
-		if outAdapter == nil {
+		// Validate the outbound type before selecting a key. Every actual retry
+		// below receives a fresh stateful outbound adapter.
+		if outbound.Get(channel.Type) == nil {
 			iter.Skip(channel.ID, 0, channel.Name, fmt.Sprintf("unsupported channel type: %d", channel.Type))
 			continue
 		}
@@ -226,9 +227,6 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 			iter.Skip(channel.ID, 0, channel.Name, fmt.Sprintf("channel type not compatible with %s request", requestType))
 			continue
 		}
-
-		// 设置实际模型
-		internalRequest.Model = item.ModelName
 
 		log.Debugf("request model %s, mode: %d, forwarding to channel: %s model: %s (attempt %d/%d, sticky=%t)",
 			requestModel, group.Mode, channel.Name, item.ModelName,
@@ -275,29 +273,25 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 				case <-time.After(delay):
 				}
 
-				// 重建 outAdapter 以重置流式状态（toolIndex, toolCalls 等）
-				outAdapter = outbound.Get(channel.Type)
 			}
 
-			// Each attempt gets a fresh stateful inbound transformer. A failed
-			// precommit transform must not pollute aggregation for the next channel.
-			attemptInbound, adapterErr := newAttemptInboundAdapter(inboundType, c.Request.Context(), rawBody)
-			if adapterErr != nil {
-				result = attemptResult{Err: adapterErr, StatusCode: http.StatusBadRequest, ProtocolError: relayProtocolError(http.StatusBadRequest, "invalid_request", adapterErr.Error())}
+			attemptRequest, attemptErr := newAttemptRelayRequest(req, c.Request.Context(), item.ModelName)
+			if attemptErr != nil {
+				result = attemptResult{Err: attemptErr, StatusCode: http.StatusBadRequest, ProtocolError: relayProtocolError(http.StatusBadRequest, "invalid_request", attemptErr.Error())}
 				break
 			}
-			req.inAdapter = attemptInbound
 
 			// 构造尝试级上下文
 			ra := &relayAttempt{
-				relayRequest:         req,
-				outAdapter:           outAdapter,
+				relayRequest:         attemptRequest,
+				outAdapter:           outbound.Get(channel.Type),
 				channel:              channel,
 				usedKey:              usedKey,
 				firstTokenTimeOutSec: group.FirstTokenTimeOut,
 			}
 
 			result = ra.attempt()
+			lastAttempt = attemptRequest
 			if result.Success || result.Written || result.Canceled || result.ResetConversation || result.FirstTokenTimeout || !isRetryableStatus(result.StatusCode) {
 				break
 			}
@@ -306,10 +300,10 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 		// 同通道重试耗尽后记录熔断器失败
 		if !result.Success && !result.Written && !result.Canceled && !result.ResetConversation {
 			failureKind := circuitFailureKind(group.RetryEnabled, result.StatusCode)
-			balancer.RecordFailure(channel.ID, usedKey.ID, internalRequest.Model, failureKind)
+			balancer.RecordFailure(channel.ID, usedKey.ID, item.ModelName, failureKind)
 			outlierwindow.Report(channel.ID, false, result.StatusCode, time.Now())
 			if failureKind == balancer.FailureHard {
-				maybeLearnManagedRoute(c.Request.Context(), channel.ID, internalRequest.Model, inboundType, result.Err)
+				maybeLearnManagedRoute(c.Request.Context(), channel.ID, item.ModelName, inboundType, result.Err)
 			}
 		}
 
@@ -320,12 +314,12 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 			// 成功后，如果是 OpenAI Responses HTTP 请求，保存 replay 状态供后续续接
 			// 注意：exact replay 请求成功后也需要保存新状态，否则只能续接一轮
 			// 优先使用 metrics.InternalResponse（streaming 安全），避免二次 GetInternalResponse 消耗聚合器
-			if inboundType == inbound.InboundTypeOpenAIResponse &&
-				req.internalRequest.RawAPIFormat == model.APIFormatOpenAIResponse {
+			if inboundType == inbound.InboundTypeOpenAIResponse && lastAttempt != nil &&
+				lastAttempt.internalRequest.RawAPIFormat == model.APIFormatOpenAIResponse {
 				internalResponse := metrics.InternalResponse
 				if internalResponse == nil {
 					var err error
-					internalResponse, err = req.inAdapter.GetInternalResponse(c.Request.Context())
+					internalResponse, err = lastAttempt.inAdapter.GetInternalResponse(c.Request.Context())
 					if err != nil {
 						log.Debugf("failed to get internal response for replay state save: %v", err)
 					}
@@ -333,7 +327,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 				if internalResponse != nil {
 					// 如果是 exact replay 请求，基于已有状态继续累积
 					var newState *wsConversationState
-					if req.internalRequest.IsOpenAIExactReplayRequest() && responsesReplayState != nil {
+					if lastAttempt.internalRequest.IsOpenAIExactReplayRequest() && responsesReplayState != nil {
 						newState = cloneWSConversationState(responsesReplayState)
 						if newState != nil {
 							newState.ChannelID = channel.ID
@@ -347,12 +341,12 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 							ChannelKeyID: usedKey.ID,
 						}
 					}
-					newState.ApplySuccessfulTurn(req.internalRequest, internalResponse)
+					newState.ApplySuccessfulTurn(lastAttempt.internalRequest, internalResponse)
 					if newState.LastResponseID != "" {
 						ttl := wsConversationStateTTL(group.SessionKeepTime)
 						storeResponsesReplayState(apiKeyID, group.ID, requestModel, newState, ttl)
 						log.Debugf("saved HTTP replay state (apikey=%d, group=%d, model=%s, response_id=%s, channel=%d, key=%d, ttl=%v, is_replay=%t)",
-							apiKeyID, group.ID, requestModel, newState.LastResponseID, channel.ID, usedKey.ID, ttl, req.internalRequest.IsOpenAIExactReplayRequest())
+							apiKeyID, group.ID, requestModel, newState.LastResponseID, channel.ID, usedKey.ID, ttl, lastAttempt.internalRequest.IsOpenAIExactReplayRequest())
 					}
 				}
 			}
@@ -366,10 +360,14 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 		}
 		if result.ResetConversation {
 			metrics.SaveWithChannelStats(c.Request.Context(), false, result.Err, iter.Attempts(), false)
+			errorAdapter := req.inAdapter
+			if lastAttempt != nil {
+				errorAdapter = lastAttempt.inAdapter
+			}
 			if publicErr, ok := classifyWSPublicError(result.Err, result.StatusCode); ok {
-				writeInboundProtocolError(c, hb, req.inAdapter, relayProtocolError(publicErr.Status, CodeRelayUpstreamFailed, publicErr.Message))
+				writeInboundProtocolError(c, hb, errorAdapter, relayProtocolError(publicErr.Status, CodeRelayUpstreamFailed, publicErr.Message))
 			} else {
-				writeInboundProtocolError(c, hb, req.inAdapter, protocolErrorFromError(result.StatusCode, result.Err))
+				writeInboundProtocolError(c, hb, errorAdapter, protocolErrorFromError(result.StatusCode, result.Err))
 			}
 			return
 		}
@@ -390,20 +388,24 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 		return
 	}
 	metrics.SaveWithChannelStats(c.Request.Context(), false, lastErr, iter.Attempts(), false)
+	errorAdapter := req.inAdapter
+	if lastAttempt != nil {
+		errorAdapter = lastAttempt.inAdapter
+	}
 
 	// 透传 429/503 状态码和 Retry-After 头，让客户端 SDK 的重试机制接管
 	if isPassthroughStatus(lastResult.StatusCode) {
 		if lastResult.RetryAfter > 0 {
 			c.Header("Retry-After", fmt.Sprintf("%d", int(lastResult.RetryAfter.Seconds())))
 		}
-		writeInboundProtocolError(c, hb, req.inAdapter, lastResult.ProtocolError)
+		writeInboundProtocolError(c, hb, errorAdapter, lastResult.ProtocolError)
 		return
 	}
 	if lastResult.StatusCode > 0 {
-		writeInboundProtocolError(c, hb, req.inAdapter, lastResult.ProtocolError)
+		writeInboundProtocolError(c, hb, errorAdapter, lastResult.ProtocolError)
 		return
 	}
-	writeInboundProtocolError(c, hb, req.inAdapter, protocolErrorFromError(http.StatusBadGateway, lastErr))
+	writeInboundProtocolError(c, hb, errorAdapter, protocolErrorFromError(http.StatusBadGateway, lastErr))
 }
 
 func newAttemptInboundAdapter(inboundType inbound.InboundType, ctx context.Context, rawBody []byte) (model.Inbound, error) {

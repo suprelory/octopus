@@ -2,8 +2,6 @@ package relay
 
 import (
 	"encoding/json"
-	"maps"
-	"net/url"
 	"strings"
 
 	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
@@ -239,102 +237,15 @@ func assistantMessagesFromResponse(resp *transformerModel.InternalLLMResponse) [
 }
 
 func cloneInternalRequest(req *transformerModel.InternalLLMRequest) *transformerModel.InternalLLMRequest {
-	if req == nil {
-		return nil
-	}
-	cloned := *req
-	cloned.Messages = cloneMessages(req.Messages)
-	cloned.Modalities = append([]string(nil), req.Modalities...)
-	cloned.Tools = append([]transformerModel.Tool(nil), req.Tools...)
-	cloned.Include = append([]string(nil), req.Include...)
-	cloned.LogitBias = maps.Clone(req.LogitBias)
-	cloned.Metadata = maps.Clone(req.Metadata)
-	cloned.TransformerMetadata = maps.Clone(req.TransformerMetadata)
-	cloned.ProviderExtensions = transformerModel.CloneProviderExtensions(req.ProviderExtensions)
-	cloned.Query = cloneQuery(req.Query)
-	cloned.RawRequest = append([]byte(nil), req.RawRequest...)
-	cloned.ExtraBody = append([]byte(nil), req.ExtraBody...)
-	cloned.Prompt = append([]byte(nil), req.Prompt...)
-	cloned.Conversation = append([]byte(nil), req.Conversation...)
-	cloned.ContextManagement = append([]byte(nil), req.ContextManagement...)
-	cloned.ResponsesStreamOptions = append([]byte(nil), req.ResponsesStreamOptions...)
-	cloned.RawInputItems = append([]byte(nil), req.RawInputItems...)
-	return &cloned
+	return req.Clone()
 }
 
 func cloneMessages(messages []transformerModel.Message) []transformerModel.Message {
-	if len(messages) == 0 {
-		return nil
-	}
-	cloned := make([]transformerModel.Message, len(messages))
-	for i, message := range messages {
-		cloned[i] = cloneMessage(message)
-	}
-	return cloned
+	return transformerModel.CloneMessages(messages)
 }
 
 func cloneMessage(message transformerModel.Message) transformerModel.Message {
-	cloned := message
-	cloned.Name = cloneStringPointer(message.Name)
-	cloned.ToolCallID = cloneStringPointer(message.ToolCallID)
-	cloned.ToolCallName = cloneStringPointer(message.ToolCallName)
-	cloned.ReasoningContent = cloneStringPointer(message.ReasoningContent)
-	cloned.Reasoning = cloneStringPointer(message.Reasoning)
-	cloned.ReasoningSignature = cloneStringPointer(message.ReasoningSignature)
-	cloned.ToolCallIsError = cloneBoolPointer(message.ToolCallIsError)
-	cloned.Content = cloneMessageContent(message.Content)
-	cloned.ToolCalls = append([]transformerModel.ToolCall(nil), message.ToolCalls...)
-	cloned.Images = cloneContentParts(message.Images)
-	cloned.RedactedThinkingBlocks = append([]string(nil), message.RedactedThinkingBlocks...)
-	cloned.ReasoningBlocks = append([]transformerModel.ReasoningBlock(nil), message.ReasoningBlocks...)
-	if message.Audio != nil {
-		audio := *message.Audio
-		cloned.Audio = &audio
-	}
-	return cloned
-}
-
-func cloneMessageContent(content transformerModel.MessageContent) transformerModel.MessageContent {
-	return transformerModel.MessageContent{
-		Content:         cloneStringPointer(content.Content),
-		MultipleContent: cloneContentParts(content.MultipleContent),
-	}
-}
-
-func cloneContentParts(parts []transformerModel.MessageContentPart) []transformerModel.MessageContentPart {
-	if len(parts) == 0 {
-		return nil
-	}
-	cloned := make([]transformerModel.MessageContentPart, len(parts))
-	for i, part := range parts {
-		cloned[i] = part
-		cloned[i].Text = cloneStringPointer(part.Text)
-		if part.ImageURL != nil {
-			imageURL := *part.ImageURL
-			imageURL.Detail = cloneStringPointer(part.ImageURL.Detail)
-			cloned[i].ImageURL = &imageURL
-		}
-		if part.Audio != nil {
-			audio := *part.Audio
-			cloned[i].Audio = &audio
-		}
-		if part.File != nil {
-			file := *part.File
-			cloned[i].File = &file
-		}
-	}
-	return cloned
-}
-
-func cloneQuery(values url.Values) url.Values {
-	if len(values) == 0 {
-		return nil
-	}
-	cloned := make(url.Values, len(values))
-	for key, value := range values {
-		cloned[key] = append([]string(nil), value...)
-	}
-	return cloned
+	return message.Clone()
 }
 
 func cloneStringPointer(value *string) *string {

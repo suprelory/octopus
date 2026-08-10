@@ -27,7 +27,8 @@ type Inbound interface {
 }
 
 type Outbound interface {
-	// 将入站内部通用请求转为出站对应的请求格式
+	// 将入站内部通用请求转为出站对应的请求格式。request 属于调用方，
+	// 实现必须将其视为只读数据，并在 normalize 或 patch 前创建副本。
 	TransformRequest(ctx context.Context, request *InternalLLMRequest, baseUrl, key string) (*http.Request, error)
 
 	// 将出站响应转为内部通用响应格式

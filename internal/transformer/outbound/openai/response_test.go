@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -521,9 +522,11 @@ func TestConvertToResponsesRequestPreservesImageGenerationTools(t *testing.T) {
 
 func TestTransformRequestRawRewritesModel(t *testing.T) {
 	outbound := &ResponseOutbound{}
+	rawBody := []byte(" {\n  \"input\": 9007199254740993,\n  \"metadata\": {\"model\": \"nested\"},\n  \"model\": \"old-model\",\n  \"tools\": [{\"type\": \"apply_patch\"}]\n} \n")
+	wantBody := []byte(" {\n  \"input\": 9007199254740993,\n  \"metadata\": {\"model\": \"nested\"},\n  \"model\": \"new-model\",\n  \"tools\": [{\"type\": \"apply_patch\"}]\n} \n")
 	req, err := outbound.TransformRequestRaw(
 		context.Background(),
-		[]byte(`{"model":"old-model","tools":[{"type":"apply_patch"}],"input":"hello"}`),
+		rawBody,
 		"new-model",
 		"https://example.com/v1",
 		"test-key",
@@ -536,6 +539,9 @@ func TestTransformRequestRawRewritesModel(t *testing.T) {
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
 		t.Fatalf("read request body failed: %v", err)
+	}
+	if !bytes.Equal(body, wantBody) {
+		t.Fatalf("raw request bytes changed outside model token\ngot:  %s\nwant: %s", body, wantBody)
 	}
 
 	var payload map[string]any
@@ -552,6 +558,20 @@ func TestTransformRequestRawRewritesModel(t *testing.T) {
 	tool, ok := tools[0].(map[string]any)
 	if !ok || tool["type"] != "apply_patch" {
 		t.Fatalf("expected raw apply_patch tool to be preserved, got %#v", tools[0])
+	}
+}
+
+func TestTransformRequestRawRejectsAmbiguousModel(t *testing.T) {
+	_, err := (&ResponseOutbound{}).TransformRequestRaw(
+		context.Background(),
+		[]byte(`{"model":"one","model":"two","input":"hello"}`),
+		"new-model",
+		"https://example.com/v1",
+		"test-key",
+		nil,
+	)
+	if err == nil {
+		t.Fatal("TransformRequestRaw() error = nil")
 	}
 }
 

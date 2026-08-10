@@ -32,6 +32,7 @@ type wsRelayResult struct {
 	Canceled          bool
 	Err               error
 	PublicError       *wsPublicError
+	Attempt           *relayRequest
 }
 
 // HandleWSResponse handles WebSocket upgrade for /v1/responses.
@@ -253,6 +254,9 @@ func processWSResponseCreate(
 			return preferredSticky.ChannelKeyID
 		}())
 	result := runWSRelay(ctx, req, group)
+	if result.Attempt != nil {
+		req = result.Attempt
+	}
 	if result.ResetConversation && autoRestart && !req.streamWriter.Written() {
 		log.Debugf("ws relay switching to replay (apikey=%d, request_model=%s, failed_previous_response_id=%s, reset_conversation=%t)",
 			apiKeyID, requestModel, failedPreviousResponseID, result.ResetConversation)
@@ -265,6 +269,9 @@ func processWSResponseCreate(
 			req = replayReq
 			group = replayGroup
 			result = runWSRelay(ctx, req, group)
+			if result.Attempt != nil {
+				req = result.Attempt
+			}
 		}
 	}
 
@@ -434,6 +441,7 @@ func newWSRelayRequest(
 		c:               nil,
 		ctx:             ctx,
 		inAdapter:       inAdapter,
+		inboundType:     inbound.InboundTypeOpenAIResponse,
 		internalRequest: executionRequest,
 		metrics:         NewRelayMetrics(apiKeyID, requestModel, "responses", clientIP, rawBody, metricsRequest),
 		apiKeyID:        apiKeyID,
@@ -441,6 +449,7 @@ func newWSRelayRequest(
 		groupID:         group.ID,
 		groupSessionTTL: group.SessionKeepTime,
 		iter:            iter,
+		rawBody:         rawBody,
 		streamWriter:    NewWSStreamWriter(ctx, conn),
 	}, &group, nil
 }
@@ -458,9 +467,6 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group) ws
 		var cancel context.CancelFunc
 		relayCtx, cancel = context.WithTimeoutCause(ctx, budget, errLocalRelayBudgetExceeded)
 		defer cancel()
-		if req != nil {
-			req.ctx = relayCtx
-		}
 	}
 
 	maxSameChannelRetries := 1
@@ -473,6 +479,7 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group) ws
 
 	var lastErr error
 	var lastResult attemptResult
+	var lastAttempt *relayRequest
 	maxChannelAttempts := req.iter.Len()
 	if replayExact && maxChannelAttempts > 3 {
 		maxChannelAttempts = 3
@@ -490,9 +497,9 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group) ws
 					Code:    "replay_recovery_timeout",
 					Message: "exact replay 恢复超过本地 15 秒预算，请重试",
 				}
-				return wsRelayResult{Err: contextError(relayCtx), PublicError: &publicErr}
+				return wsRelayResult{Err: contextError(relayCtx), PublicError: &publicErr, Attempt: lastAttempt}
 			}
-			return wsRelayResult{Canceled: true, Err: relayCtx.Err()}
+			return wsRelayResult{Canceled: true, Err: relayCtx.Err(), Attempt: lastAttempt}
 		default:
 		}
 
@@ -509,8 +516,7 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group) ws
 			continue
 		}
 
-		outAdapter := outbound.Get(channel.Type)
-		if outAdapter == nil {
+		if outbound.Get(channel.Type) == nil {
 			req.iter.Skip(channel.ID, 0, channel.Name, fmt.Sprintf("unsupported channel type: %d", channel.Type))
 			continue
 		}
@@ -519,8 +525,6 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group) ws
 			req.iter.Skip(channel.ID, 0, channel.Name, "channel type not compatible with chat request")
 			continue
 		}
-
-		req.internalRequest.Model = item.ModelName
 
 		selectOpts := dbmodel.ChannelKeySelectOptions{
 			ExcludeKeyIDs:  make(map[int]struct{}),
@@ -563,22 +567,29 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group) ws
 							Code:    "replay_recovery_timeout",
 							Message: "exact replay 恢复超过本地 15 秒预算，请重试",
 						}
-						return wsRelayResult{Err: contextError(relayCtx), PublicError: &publicErr}
+						return wsRelayResult{Err: contextError(relayCtx), PublicError: &publicErr, Attempt: lastAttempt}
 					}
-					return wsRelayResult{Canceled: true, Err: relayCtx.Err()}
+					return wsRelayResult{Canceled: true, Err: relayCtx.Err(), Attempt: lastAttempt}
 				case <-time.After(delay):
 				}
 			}
 
+			attemptRequest, attemptErr := newAttemptRelayRequest(req, relayCtx, item.ModelName)
+			if attemptErr != nil {
+				result = attemptResult{Err: attemptErr, StatusCode: http.StatusBadRequest, ProtocolError: relayProtocolError(http.StatusBadRequest, "invalid_request", attemptErr.Error())}
+				break
+			}
+
 			ra := &relayAttempt{
-				relayRequest:         req,
-				outAdapter:           outAdapter,
+				relayRequest:         attemptRequest,
+				outAdapter:           outbound.Get(channel.Type),
 				channel:              channel,
 				usedKey:              usedKey,
 				firstTokenTimeOutSec: group.FirstTokenTimeOut,
 			}
 
 			result = ra.attempt()
+			lastAttempt = attemptRequest
 			if result.Success || result.Written || result.Canceled || result.ResetConversation || !isRetryableStatus(result.StatusCode) {
 				break
 			}
@@ -589,7 +600,7 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group) ws
 			if replayExact && result.StatusCode == http.StatusServiceUnavailable && isNoAvailableAccountError(relayErrorMessage(result.Err)) {
 				failureKind = balancer.FailureHard
 			}
-			balancer.RecordFailure(channel.ID, usedKey.ID, req.internalRequest.Model, failureKind)
+			balancer.RecordFailure(channel.ID, usedKey.ID, item.ModelName, failureKind)
 			req.iter.InvalidateCurrentPreference()
 		}
 
@@ -598,25 +609,25 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group) ws
 			if req.metrics.InternalResponse != nil {
 				respID = req.metrics.InternalResponse.ID
 			}
-			return wsRelayResult{Success: true, ResponseID: respID}
+			return wsRelayResult{Success: true, ResponseID: respID, Attempt: lastAttempt}
 		}
 		if result.ResetConversation {
 			if publicErr, ok := classifyWSPublicError(result.Err, result.StatusCode); ok {
-				return wsRelayResult{ResetConversation: publicErr.ResetConversation, Err: result.Err, PublicError: &publicErr}
+				return wsRelayResult{ResetConversation: publicErr.ResetConversation, Err: result.Err, PublicError: &publicErr, Attempt: lastAttempt}
 			}
-			return wsRelayResult{ResetConversation: true, Err: result.Err}
+			return wsRelayResult{ResetConversation: true, Err: result.Err, Attempt: lastAttempt}
 		}
 		if result.Canceled || result.Written {
-			return wsRelayResult{Written: result.Written, Canceled: result.Canceled, Err: result.Err}
+			return wsRelayResult{Written: result.Written, Canceled: result.Canceled, Err: result.Err, Attempt: lastAttempt}
 		}
 		lastErr = result.Err
 		lastResult = result
 	}
 
 	if publicErr, ok := classifyWSPublicError(lastErr, lastResult.StatusCode); ok {
-		return wsRelayResult{ResetConversation: publicErr.ResetConversation, Err: lastErr, PublicError: &publicErr}
+		return wsRelayResult{ResetConversation: publicErr.ResetConversation, Err: lastErr, PublicError: &publicErr, Attempt: lastAttempt}
 	}
-	return wsRelayResult{Err: lastErr}
+	return wsRelayResult{Err: lastErr, Attempt: lastAttempt}
 }
 
 func finalizeWSRelay(ctx context.Context, conn *websocket.Conn, req *relayRequest, result wsRelayResult) wsRelayResult {

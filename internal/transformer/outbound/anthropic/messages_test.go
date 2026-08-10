@@ -1,9 +1,11 @@
 package anthropic
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -11,13 +13,49 @@ import (
 	"github.com/bestruirui/octopus/internal/transformer/model"
 )
 
+func TestMessageOutboundDoesNotMutateRequest(t *testing.T) {
+	for name, baseURL := range map[string]string{"success": "https://api.anthropic.com/v1", "failure": "http://[::1"} {
+		t.Run(name, func(t *testing.T) {
+			empty := ""
+			first := "first"
+			second := "second"
+			request := &model.InternalLLMRequest{
+				Model: "claude-test",
+				Messages: []model.Message{
+					{Role: "user", Content: model.MessageContent{MultipleContent: []model.MessageContentPart{{Type: "text", Text: &empty}, {Type: "text", Text: &first}}}},
+					{Role: "user", Content: model.MessageContent{Content: &second}},
+				},
+				TransformerMetadata: map[string]string{"source": "client"},
+			}
+			before := request.Clone()
+			_, err := (&MessageOutbound{}).TransformRequest(context.Background(), request, baseURL, "key")
+			if name == "failure" && err == nil {
+				t.Fatal("TransformRequest() error = nil, want invalid URL error")
+			}
+			if name == "success" && err != nil {
+				t.Fatalf("TransformRequest() error = %v", err)
+			}
+			if !reflect.DeepEqual(request, before) {
+				t.Fatalf("TransformRequest() mutated caller request\nbefore: %#v\nafter:  %#v", before, request)
+			}
+		})
+	}
+}
+
 func TestTransformRequestRawRewritesModel(t *testing.T) {
 	outbound := &MessageOutbound{}
 	rawBody := []byte(`{
 		"model":"internal-alias",
-		"max_tokens":16,
+		"max_tokens":9007199254740993,
 		"messages":[{"role":"user","content":"hello"}],
-		"metadata":{"user_id":"user-123"},
+		"metadata":{"user_id":"user-123","model":"nested"},
+		"custom_flag":true
+	}`)
+	wantBody := []byte(`{
+		"model":"claude-3-5-sonnet-20241022",
+		"max_tokens":9007199254740993,
+		"messages":[{"role":"user","content":"hello"}],
+		"metadata":{"user_id":"user-123","model":"nested"},
 		"custom_flag":true
 	}`)
 
@@ -37,6 +75,9 @@ func TestTransformRequestRawRewritesModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadAll(req.Body) error = %v", err)
 	}
+	if !bytes.Equal(body, wantBody) {
+		t.Fatalf("raw request bytes changed outside model token\ngot:  %s\nwant: %s", body, wantBody)
+	}
 
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {
@@ -47,6 +88,20 @@ func TestTransformRequestRawRewritesModel(t *testing.T) {
 	}
 	if got := payload["custom_flag"]; got != true {
 		t.Fatalf("expected custom fields to survive rewrite, got %#v", got)
+	}
+}
+
+func TestTransformRequestRawRejectsMissingModel(t *testing.T) {
+	_, err := (&MessageOutbound{}).TransformRequestRaw(
+		context.Background(),
+		[]byte(`{"max_tokens":16,"messages":[]}`),
+		"claude-3-5-sonnet-20241022",
+		"https://example.com/v1",
+		"test-key",
+		nil,
+	)
+	if err == nil {
+		t.Fatal("TransformRequestRaw() error = nil")
 	}
 }
 

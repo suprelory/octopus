@@ -50,6 +50,7 @@ func (o *MessagesOutbound) TransformRequest(ctx context.Context, request *model.
 	if request == nil {
 		return nil, fmt.Errorf("request is nil")
 	}
+	request = request.Clone()
 
 	request.NormalizeMessages()
 	request.EnforceMessageAlternation(model.AlternationProviderGemini)
