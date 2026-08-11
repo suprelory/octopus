@@ -32,6 +32,27 @@ func TestCrossProtocolRequestGolden(t *testing.T) {
 			baseURL:  "https://api.anthropic.com",
 		},
 		{
+			name:     "openai_chat_to_openai_chat",
+			body:     `{"model":"client-model","messages":[{"role":"system","content":"Be concise."},{"role":"user","content":"Hello"}],"temperature":0.3,"max_tokens":64,"stream":false}`,
+			inbound:  &openaiInbound.ChatInbound{},
+			outbound: &openaiOutbound.ChatOutbound{},
+			baseURL:  "https://api.openai.com/v1",
+		},
+		{
+			name:     "openai_chat_to_openai_responses",
+			body:     `{"model":"client-model","messages":[{"role":"system","content":"Be concise."},{"role":"user","content":"Hello"}],"temperature":0.3,"max_tokens":64,"stream":false}`,
+			inbound:  &openaiInbound.ChatInbound{},
+			outbound: &openaiOutbound.ResponseOutbound{},
+			baseURL:  "https://api.openai.com/v1",
+		},
+		{
+			name:     "openai_chat_to_gemini",
+			body:     `{"model":"client-model","messages":[{"role":"system","content":"Be concise."},{"role":"user","content":"Hello"}],"temperature":0.3,"max_tokens":64,"stream":false}`,
+			inbound:  &openaiInbound.ChatInbound{},
+			outbound: &geminiOutbound.MessagesOutbound{},
+			baseURL:  "https://generativelanguage.googleapis.com/v1beta",
+		},
+		{
 			name:     "anthropic_to_openai_chat",
 			body:     `{"model":"client-model","max_tokens":64,"system":"Be concise.","messages":[{"role":"user","content":"Hello"}],"temperature":0.3,"stream":false}`,
 			inbound:  &anthropicInbound.MessagesInbound{},
@@ -39,11 +60,53 @@ func TestCrossProtocolRequestGolden(t *testing.T) {
 			baseURL:  "https://api.openai.com/v1",
 		},
 		{
+			name:     "anthropic_to_openai_responses",
+			body:     `{"model":"client-model","max_tokens":64,"system":"Be concise.","messages":[{"role":"user","content":"Hello"}],"temperature":0.3,"stream":false}`,
+			inbound:  &anthropicInbound.MessagesInbound{},
+			outbound: &openaiOutbound.ResponseOutbound{},
+			baseURL:  "https://api.openai.com/v1",
+		},
+		{
+			name:     "anthropic_to_anthropic",
+			body:     `{"model":"client-model","max_tokens":64,"system":"Be concise.","messages":[{"role":"user","content":"Hello"}],"temperature":0.3,"stream":false}`,
+			inbound:  &anthropicInbound.MessagesInbound{},
+			outbound: &anthropicOutbound.MessageOutbound{},
+			baseURL:  "https://api.anthropic.com",
+		},
+		{
+			name:     "anthropic_to_gemini",
+			body:     `{"model":"client-model","max_tokens":64,"system":"Be concise.","messages":[{"role":"user","content":"Hello"}],"temperature":0.3,"stream":false}`,
+			inbound:  &anthropicInbound.MessagesInbound{},
+			outbound: &geminiOutbound.MessagesOutbound{},
+			baseURL:  "https://generativelanguage.googleapis.com/v1beta",
+		},
+		{
 			name:     "openai_responses_to_gemini",
 			body:     `{"model":"client-model","input":"Hello from Responses","instructions":"Be concise.","temperature":0.3,"max_output_tokens":64,"stream":false}`,
 			inbound:  &openaiInbound.ResponseInbound{},
 			outbound: &geminiOutbound.MessagesOutbound{},
 			baseURL:  "https://generativelanguage.googleapis.com/v1beta",
+		},
+		{
+			name:     "openai_responses_to_openai_chat",
+			body:     `{"model":"client-model","input":"Hello from Responses","instructions":"Be concise.","temperature":0.3,"max_output_tokens":64,"stream":false}`,
+			inbound:  &openaiInbound.ResponseInbound{},
+			outbound: &openaiOutbound.ChatOutbound{},
+			baseURL:  "https://api.openai.com/v1",
+		},
+		{
+			name:     "openai_responses_to_openai_responses",
+			body:     `{"model":"client-model","input":"Hello from Responses","instructions":"Be concise.","temperature":0.3,"max_output_tokens":64,"stream":false}`,
+			inbound:  &openaiInbound.ResponseInbound{},
+			outbound: &openaiOutbound.ResponseOutbound{},
+			baseURL:  "https://api.openai.com/v1",
+		},
+		{
+			name:     "openai_responses_to_anthropic",
+			body:     `{"model":"client-model","input":"Hello from Responses","instructions":"Be concise.","temperature":0.3,"max_output_tokens":64,"stream":false}`,
+			inbound:  &openaiInbound.ResponseInbound{},
+			outbound: &anthropicOutbound.MessageOutbound{},
+			baseURL:  "https://api.anthropic.com",
 		},
 	}
 
@@ -75,11 +138,18 @@ func TestCrossProtocolRequestGolden(t *testing.T) {
 func assertJSONGolden(t *testing.T, name string, actual []byte) {
 	t.Helper()
 	path := filepath.Join("testdata", name)
+	actual = canonicalJSON(t, actual)
+	if os.Getenv("UPDATE_GOLDEN") == "1" {
+		actual = append(actual, '\n')
+		if err := os.WriteFile(path, actual, 0o644); err != nil {
+			t.Fatalf("update golden %s: %v", path, err)
+		}
+		return
+	}
 	expected, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read golden %s: %v", path, err)
 	}
-	actual = canonicalJSON(t, actual)
 	expected = canonicalJSON(t, expected)
 	if string(actual) != string(expected) {
 		t.Fatalf("golden mismatch for %s\nactual:\n%s\nexpected:\n%s", name, actual, expected)

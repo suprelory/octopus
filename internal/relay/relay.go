@@ -443,6 +443,7 @@ func planRelayCapability(req *relayRequest, channel *dbmodel.Channel, adapter mo
 }
 
 func logRelayCapability(channel *dbmodel.Channel, modelName string, decision outbound.CapabilityDecision) {
+	outbound.RecordCapabilityDecision(decision)
 	if channel == nil {
 		return
 	}
@@ -455,6 +456,7 @@ func logRelayCapability(channel *dbmodel.Channel, modelName string, decision out
 		"required_features", decision.RequiredFeatures,
 		"degraded_fields", decision.DegradedFields,
 		"lossiness", decision.Lossiness,
+		"static_quality", decision.StaticQuality,
 		"reasons", decision.Reasons,
 	)
 }

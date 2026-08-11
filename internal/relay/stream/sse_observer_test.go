@@ -3,6 +3,7 @@ package stream
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -38,6 +39,33 @@ func TestIncrementalSSEObserverHandlesSplitAndMultilineEvents(t *testing.T) {
 	}
 	if !observer.ReachedTerminal() {
 		t.Fatal("terminal event was not detected")
+	}
+}
+
+func BenchmarkIncrementalSSEObserver(b *testing.B) {
+	for _, size := range []int{256, 1 << 20} {
+		name := "Small"
+		if size > 256 {
+			name = "LargePayload"
+		}
+		payload := []byte("data: {\"type\":\"response.output_text.delta\",\"delta\":\"" + strings.Repeat("x", size) + "\"}\n\n")
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.SetBytes(int64(len(payload)))
+			ctx := context.Background()
+			for range b.N {
+				observer := NewIncrementalSSEObserver(len(payload)+1, nil, nil)
+				for offset := 0; offset < len(payload); offset += 4096 {
+					end := min(offset+4096, len(payload))
+					if err := observer.Observe(ctx, payload[offset:end]); err != nil {
+						b.Fatal(err)
+					}
+				}
+				if err := observer.Finalize(ctx); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }
 

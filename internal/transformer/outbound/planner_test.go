@@ -42,7 +42,7 @@ func TestPlanRequestCoversRequestedSemantics(t *testing.T) {
 }
 
 func TestPlanRequestRejectsNativeResponsesSemantics(t *testing.T) {
-	req := &model.InternalLLMRequest{RequestType: model.RequestTypeChat, RawAPIFormat: model.APIFormatOpenAIResponse, Model: "gpt-5", Messages: []model.Message{{Role: "user"}}}
+	req := &model.InternalLLMRequest{RequestType: model.RequestTypeResponses, RawAPIFormat: model.APIFormatOpenAIResponse, Model: "gpt-5", Messages: []model.Message{{Role: "user"}}}
 	req.MarkOpenAIResponsesPassthroughRequired("tool:web_search")
 	decision := PlanRequest(req, OutboundTypeGemini, false)
 	if decision.Status != CapabilityRejected {
@@ -63,7 +63,7 @@ func TestPlanRequestNativePassthroughIsLossless(t *testing.T) {
 
 func TestPlanRequestDetectsLossyGeminiSchema(t *testing.T) {
 	req := &model.InternalLLMRequest{
-		RequestType:  model.RequestTypeChat,
+		RequestType:  model.RequestTypeResponses,
 		RawAPIFormat: model.APIFormatOpenAIResponse,
 		Model:        "gemini-2.5-pro",
 		Messages:     []model.Message{{Role: "user"}},

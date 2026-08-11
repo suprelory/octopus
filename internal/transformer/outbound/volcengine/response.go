@@ -138,7 +138,7 @@ type ResponsesItem struct {
 }
 
 func convertToResponsesInput(input openai.ResponsesInput) ResponsesInput {
-	result := ResponsesInput{}
+	result := ResponsesInput{Items: make([]ResponsesItem, 0, len(input.Items))}
 	if input.Text != nil {
 		result.Text = input.Text
 		return result
@@ -146,6 +146,9 @@ func convertToResponsesInput(input openai.ResponsesInput) ResponsesInput {
 
 	for _, item := range input.Items {
 		result.Items = append(result.Items, ResponsesItem{ResponsesItem: item})
+	}
+	if len(result.Items) == 0 {
+		return result
 	}
 	// If the role of the last message is the assistant, needs set partial.
 	idx := len(input.Items) - 1

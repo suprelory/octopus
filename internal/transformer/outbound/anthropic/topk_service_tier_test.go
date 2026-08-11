@@ -5,8 +5,8 @@ import (
 
 	"github.com/samber/lo"
 
-	anthropicModel "github.com/bestruirui/octopus/internal/transformer/inbound/anthropic"
 	"github.com/bestruirui/octopus/internal/transformer/model"
+	anthropicModel "github.com/bestruirui/octopus/internal/transformer/protocol/anthropic"
 )
 
 // TestConvertToAnthropicRequestForwardsTopKAndServiceTier covers A-H3: the

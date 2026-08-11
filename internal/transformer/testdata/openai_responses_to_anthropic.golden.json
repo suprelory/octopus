@@ -1,0 +1,18 @@
+{
+  "max_tokens": 64,
+  "messages": [
+    {
+      "content": "Hello from Responses",
+      "role": "user"
+    }
+  ],
+  "model": "upstream-model",
+  "stream": false,
+  "system": [
+    {
+      "text": "Be concise.",
+      "type": "text"
+    }
+  ],
+  "temperature": 0.3
+}

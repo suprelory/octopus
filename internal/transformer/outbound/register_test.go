@@ -14,7 +14,7 @@ func TestEndpointCapabilities(t *testing.T) {
 		format      model.APIFormat
 	}{
 		{"chat", OutboundTypeOpenAIChat, model.RequestTypeChat, model.APIFormatOpenAIChatCompletion},
-		{"responses", OutboundTypeOpenAIResponse, model.RequestTypeChat, model.APIFormatOpenAIResponse},
+		{"responses", OutboundTypeOpenAIResponse, model.RequestTypeResponses, model.APIFormatOpenAIResponse},
 		{"anthropic", OutboundTypeAnthropic, model.RequestTypeChat, model.APIFormatAnthropicMessage},
 		{"gemini", OutboundTypeGemini, model.RequestTypeChat, model.APIFormatGeminiContents},
 		{"embedding", OutboundTypeOpenAIEmbedding, model.RequestTypeEmbedding, model.APIFormatOpenAIEmbedding},
@@ -33,6 +33,11 @@ func TestEndpointCapabilities(t *testing.T) {
 
 	if SupportsRequestType(OutboundTypeOpenAIEmbedding, model.RequestTypeChat) {
 		t.Fatal("embedding endpoint must not accept chat requests")
+	}
+	for _, typ := range []OutboundType{OutboundTypeOpenAIChat, OutboundTypeOpenAIResponse, OutboundTypeAnthropic, OutboundTypeGemini, OutboundTypeVolcengine} {
+		if !SupportsRequestType(typ, model.RequestTypeResponses) {
+			t.Fatalf("%v must accept canonical Responses operations", typ)
+		}
 	}
 	if SupportsRequestType(OutboundTypeOpenAIChat, model.RequestTypeEmbedding) {
 		t.Fatal("chat endpoint must not accept embedding requests")

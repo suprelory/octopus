@@ -1,0 +1,16 @@
+{
+  "max_completion_tokens": 64,
+  "messages": [
+    {
+      "content": "Be concise.",
+      "role": "system"
+    },
+    {
+      "content": "Hello from Responses",
+      "role": "user"
+    }
+  ],
+  "model": "upstream-model",
+  "stream": false,
+  "temperature": 0.3
+}

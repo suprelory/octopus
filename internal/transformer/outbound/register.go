@@ -36,25 +36,25 @@ func (c EndpointCapability) Supports(requestType model.RequestType) bool {
 var endpointCapabilities = map[OutboundType]EndpointCapability{
 	OutboundTypeOpenAIChat: {
 		APIFormat:    model.APIFormatOpenAIChatCompletion,
-		RequestTypes: requestTypes(model.RequestTypeChat),
+		RequestTypes: requestTypes(model.RequestTypeChat, model.RequestTypeResponses),
 	},
 	OutboundTypeOpenAIResponse: {
 		APIFormat:          model.APIFormatOpenAIResponse,
-		RequestTypes:       requestTypes(model.RequestTypeChat),
+		RequestTypes:       requestTypes(model.RequestTypeChat, model.RequestTypeResponses),
 		NativeInputFormats: apiFormats(model.APIFormatOpenAIResponse),
 	},
 	OutboundTypeAnthropic: {
 		APIFormat:          model.APIFormatAnthropicMessage,
-		RequestTypes:       requestTypes(model.RequestTypeChat),
+		RequestTypes:       requestTypes(model.RequestTypeChat, model.RequestTypeResponses),
 		NativeInputFormats: apiFormats(model.APIFormatAnthropicMessage),
 	},
 	OutboundTypeGemini: {
 		APIFormat:    model.APIFormatGeminiContents,
-		RequestTypes: requestTypes(model.RequestTypeChat),
+		RequestTypes: requestTypes(model.RequestTypeChat, model.RequestTypeResponses),
 	},
 	OutboundTypeVolcengine: {
 		APIFormat:    model.APIFormatOpenAIResponse,
-		RequestTypes: requestTypes(model.RequestTypeChat),
+		RequestTypes: requestTypes(model.RequestTypeChat, model.RequestTypeResponses),
 	},
 	OutboundTypeOpenAIEmbedding: {
 		APIFormat:    model.APIFormatOpenAIEmbedding,

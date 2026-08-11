@@ -13,8 +13,8 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/bestruirui/octopus/internal/transformer/compat"
-	anthropicModel "github.com/bestruirui/octopus/internal/transformer/inbound/anthropic"
 	"github.com/bestruirui/octopus/internal/transformer/model"
+	anthropicModel "github.com/bestruirui/octopus/internal/transformer/protocol/anthropic"
 	"github.com/bestruirui/octopus/internal/transformer/rawjson"
 	"github.com/bestruirui/octopus/internal/utils/log"
 	"github.com/bestruirui/octopus/internal/utils/xurl"

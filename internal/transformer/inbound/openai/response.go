@@ -86,7 +86,10 @@ func (i *ResponseInbound) TransformRequest(ctx context.Context, body []byte) (*m
 	if err != nil {
 		return nil, err
 	}
-	internalRequest.RequestType = model.RequestTypeChat
+	internalRequest.RequestType = model.RequestTypeResponses
+	if err := internalRequest.NormalizeOperation(); err != nil {
+		return nil, err
+	}
 	return internalRequest, nil
 }
 

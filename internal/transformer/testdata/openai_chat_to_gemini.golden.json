@@ -1,0 +1,23 @@
+{
+  "contents": [
+    {
+      "parts": [
+        {
+          "text": "Hello"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "generationConfig": {
+    "maxOutputTokens": 64,
+    "temperature": 0.3
+  },
+  "systemInstruction": {
+    "parts": [
+      {
+        "text": "Be concise."
+      }
+    ]
+  }
+}

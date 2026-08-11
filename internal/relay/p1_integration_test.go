@@ -76,7 +76,7 @@ func TestHandlerRecordsDegradedCapabilityTrace(t *testing.T) {
 func TestPlanRelayCapabilityUsesCandidateModelWithoutMutatingRequest(t *testing.T) {
 	request := &transformerModel.InternalLLMRequest{
 		Model:           "group-alias",
-		RequestType:     transformerModel.RequestTypeChat,
+		RequestType:     transformerModel.RequestTypeResponses,
 		ReasoningEffort: "medium",
 		RawAPIFormat:    transformerModel.APIFormatOpenAIResponse,
 	}

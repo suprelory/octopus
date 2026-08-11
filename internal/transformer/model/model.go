@@ -54,6 +54,11 @@ type InternalLLMRequest struct {
 	// provider API format. It is internal-only and inferred for legacy callers.
 	RequestType RequestType `json:"-"`
 
+	// Operation is the tagged operation payload. It is the preferred API for
+	// new endpoints; legacy top-level payload fields remain populated while
+	// adapters migrate to operation-specific request types.
+	Operation *RequestOperation `json:"-"`
+
 	// Messages is a list of messages to send to the llm model.
 	// For chat completion requests, this field is required.
 	// For embedding requests, this field should be empty and Input should be used instead.
@@ -419,33 +424,32 @@ func (r *InternalLLMRequest) Validate() error {
 		}
 	}
 
-	// 检查是否是 embedding 请求
-	isEmbeddingRequest := r.EmbeddingInput != nil
-	isChatRequest := r.IsChatRequest()
-
-	if isEmbeddingRequest && isChatRequest {
-		return errors.New("cannot specify both messages and input")
-	}
-
-	if !isEmbeddingRequest && !isChatRequest {
-		return errors.New("either messages or input is required")
-	}
-
-	// 验证 embedding 请求
-	if isEmbeddingRequest {
+	switch r.ResolveRequestType() {
+	case RequestTypeEmbedding:
+		if len(r.Messages) > 0 || len(r.RawInputItems) > 0 {
+			return errors.New("cannot specify both messages and input")
+		}
+		if r.EmbeddingInput == nil {
+			return errors.New("input is required")
+		}
 		if r.EmbeddingInput.Single == nil && len(r.EmbeddingInput.Multiple) == 0 {
 			return errors.New("input cannot be empty")
 		}
-	}
-
-	// 验证 chat 请求
-	if isChatRequest && len(r.Messages) == 0 && len(r.RawInputItems) == 0 {
-		return errors.New("messages are required")
-	}
-
-	if len(r.Messages) > 0 {
-		r.fillMissingToolCallIDsFromToolMessages()
-		r.fillMissingToolCallIDs()
+	case RequestTypeChat, RequestTypeResponses:
+		if r.EmbeddingInput != nil {
+			return errors.New("cannot specify both messages and input")
+		}
+		if len(r.Messages) == 0 && len(r.RawInputItems) == 0 {
+			return errors.New("messages are required")
+		}
+		if len(r.Messages) > 0 {
+			r.fillMissingToolCallIDsFromToolMessages()
+			r.fillMissingToolCallIDs()
+		}
+	case RequestTypeImages, RequestTypeRerank:
+		// The operation-specific payload was validated by normalizeRequestType.
+	default:
+		return errors.New("either messages or input is required")
 	}
 
 	return nil
@@ -592,7 +596,8 @@ func (r *InternalLLMRequest) IsEmbeddingRequest() bool {
 
 // IsChatRequest returns true if this is a chat completion request.
 func (r *InternalLLMRequest) IsChatRequest() bool {
-	return r.ResolveRequestType() == RequestTypeChat
+	requestType := r.ResolveRequestType()
+	return requestType == RequestTypeChat || requestType == RequestTypeResponses
 }
 
 func (r *InternalLLMRequest) MarkOpenAIResponsesPassthroughRequired(reason string) {
@@ -678,7 +683,7 @@ func (r *InternalLLMRequest) EnforceMessageAlternation(provider AlternationProvi
 }
 
 func (r *InternalLLMRequest) IsImageGenerationRequest() bool {
-	return len(r.Modalities) > 0 && slices.Contains(r.Modalities, "image")
+	return r.ResolveRequestType() == RequestTypeImages || len(r.Modalities) > 0 && slices.Contains(r.Modalities, "image")
 }
 
 type TransformOptions struct {

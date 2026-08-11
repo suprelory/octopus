@@ -455,6 +455,9 @@ func (i *MessagesInbound) TransformRequest(ctx context.Context, body []byte) (*m
 			log.Warnf("unknown thinking type: %s", anthropicReq.Thinking.Type)
 		}
 	}
+	if err := chatReq.NormalizeOperation(); err != nil {
+		return nil, err
+	}
 	return chatReq, nil
 }
 

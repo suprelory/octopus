@@ -1,0 +1,4 @@
+go test fuzz v1
+[]byte("{\"model\":\"0\",\"messAges\":[{\"Content\":\"\"}]}")
+byte('\x02')
+byte('\x1c')

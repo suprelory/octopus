@@ -2,6 +2,8 @@ package volcengine
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"reflect"
 	"testing"
 
@@ -36,5 +38,31 @@ func TestResponseOutboundDoesNotMutateRequest(t *testing.T) {
 				t.Fatalf("TransformRequest() mutated caller request\nbefore: %#v\nafter:  %#v", before, request)
 			}
 		})
+	}
+}
+
+func TestResponseOutboundHandlesNormalizedEmptyMessages(t *testing.T) {
+	empty := ""
+	request := &model.InternalLLMRequest{
+		Model: "doubao-test",
+		Messages: []model.Message{{
+			Content: model.MessageContent{Content: &empty},
+		}},
+	}
+	httpRequest, err := (&ResponseOutbound{}).TransformRequest(context.Background(), request, "https://ark.cn-beijing.volces.com/api/v3", "key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer httpRequest.Body.Close()
+	body, err := io.ReadAll(httpRequest.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if string(payload["input"]) != "[]" {
+		t.Fatalf("input = %s, want []", payload["input"])
 	}
 }

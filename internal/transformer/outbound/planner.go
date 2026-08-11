@@ -39,6 +39,7 @@ type CapabilityDecision struct {
 	DegradedFields   []string
 	Reasons          []string
 	Lossiness        string
+	StaticQuality    ConversionQuality
 	Passthrough      bool
 }
 
@@ -70,6 +71,7 @@ func PlanRequest(req *model.InternalLLMRequest, outboundType OutboundType, passt
 		return rejectDecision(decision, fmt.Sprintf("unsupported outbound type %d", outboundType))
 	}
 	decision.OutboundFormat = capability.APIFormat
+	decision.StaticQuality = StaticConversionQuality(req.RawAPIFormat, outboundType, decision.RequestType)
 	decision.Passthrough = passthrough && SupportsNativeFormat(outboundType, req.RawAPIFormat)
 	decision.ConversionPath = conversionPath(req.RawAPIFormat, capability.APIFormat, decision.Passthrough)
 	decision.RequiredFeatures = requestedFeatures(req)

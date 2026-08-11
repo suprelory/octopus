@@ -1,0 +1,7 @@
+{
+  "input": "Hello",
+  "instructions": "Be concise.",
+  "model": "upstream-model",
+  "stream": false,
+  "temperature": 0.3
+}

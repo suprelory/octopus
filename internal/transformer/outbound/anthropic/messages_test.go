@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	anthropicModel "github.com/bestruirui/octopus/internal/transformer/inbound/anthropic"
 	"github.com/bestruirui/octopus/internal/transformer/model"
+	anthropicModel "github.com/bestruirui/octopus/internal/transformer/protocol/anthropic"
 )
 
 func TestMessageOutboundDoesNotMutateRequest(t *testing.T) {

@@ -1,0 +1,8 @@
+{
+  "input": "Hello",
+  "instructions": "Be concise.",
+  "model": "upstream-model",
+  "prompt_cache_key": "anthropic-cache-70ed0a0a2a0ee4a246e7aa0586a0578cdc6ec0ea945e7215b4c0984fe38a0f2e",
+  "stream": false,
+  "temperature": 0.3
+}

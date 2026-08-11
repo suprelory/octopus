@@ -23,6 +23,9 @@ func (i *ChatInbound) TransformRequest(ctx context.Context, body []byte) (*model
 	// apart from a Responses request.
 	request.RawAPIFormat = model.APIFormatOpenAIChatCompletion
 	request.RequestType = model.RequestTypeChat
+	if err := request.NormalizeOperation(); err != nil {
+		return nil, err
+	}
 	return &request, nil
 }
 
