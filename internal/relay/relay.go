@@ -278,16 +278,23 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 
 			// 构造尝试级上下文
 			ra := &relayAttempt{
-				relayRequest:         attemptRequest,
-				outAdapter:           outbound.Get(channel.Type),
-				channel:              channel,
-				usedKey:              usedKey,
-				firstTokenTimeOutSec: group.FirstTokenTimeOut,
-				capabilityDecision:   decision,
+				relayRequest:           attemptRequest,
+				outAdapter:             outbound.Get(channel.Type),
+				channel:                channel,
+				usedKey:                usedKey,
+				firstTokenTimeOutSec:   group.FirstTokenTimeOut,
+				emptyResponseDetection: group.EmptyResponseDetection,
+				capabilityDecision:     decision,
 			}
 
 			result = ra.attempt()
 			lastAttempt = attemptRequest
+			if result.EmptyResponse {
+				log.Warnf("empty response from channel %s (model=%s, stream=%t, retry %d/%d)",
+					channel.Name, item.ModelName,
+					req.internalRequest.Stream != nil && *req.internalRequest.Stream,
+					retryNum+1, maxSameChannelRetries)
+			}
 			if result.Success || result.Written || result.Canceled || result.ResetConversation || result.FirstTokenTimeout || !isRetryableStatus(result.StatusCode) {
 				break
 			}
@@ -546,6 +553,7 @@ func (ra *relayAttempt) attempt() attemptResult {
 		Written:           written,
 		ResetConversation: statusCode == http.StatusConflict && needsConversationRestart(relayErrorMessage(fwdErr)),
 		FirstTokenTimeout: firstTokenTimeout,
+		EmptyResponse:     errors.Is(fwdErr, stream.ErrEmptyUpstreamStream),
 		Err:               fmt.Errorf("channel %s failed: %v", ra.channel.Name, fwdErr),
 		StatusCode:        statusCode,
 		RetryAfter:        ra.retryAfter,
@@ -822,6 +830,7 @@ func (ra *relayAttempt) handleWSStreamResponseV2(ctx context.Context, reader *ws
 		PrecommitPredicate: precommit,
 		PrecommitMaxEvents: 8,
 		PrecommitMaxBytes:  64 * 1024,
+		AllowEmptyPayload:  ra.allowEmptyPayload(),
 		OnFirstToken: func() {
 			ra.metrics.SetFirstTokenTime(time.Now())
 			ra.stopFirstTokenTimer()
@@ -1209,6 +1218,7 @@ func (ra *relayAttempt) handleStreamResponseV2(ctx context.Context, response *ht
 		PrecommitPredicate: precommit,
 		PrecommitMaxEvents: 8,
 		PrecommitMaxBytes:  64 * 1024,
+		AllowEmptyPayload:  ra.allowEmptyPayload(),
 		OnFirstToken: func() {
 			ra.metrics.SetFirstTokenTime(time.Now())
 			ra.stopFirstTokenTimer()
@@ -1309,6 +1319,7 @@ func (ra *relayAttempt) handleStreamResponsePassthroughV2(ctx context.Context, r
 		PrecommitPredicate: precommit,
 		PrecommitMaxEvents: precommitMaxEvents,
 		PrecommitMaxBytes:  precommitMaxBytes,
+		AllowEmptyPayload:  ra.allowEmptyPayload(),
 		OnFirstToken: func() {
 			ra.metrics.SetFirstTokenTime(time.Now())
 			ra.stopFirstTokenTimer()
@@ -1425,6 +1436,15 @@ func (ra *relayAttempt) handleResponse(ctx context.Context, response *http.Respo
 	if err != nil {
 		log.Warnf("failed to transform response: %v", err)
 		return fmt.Errorf("failed to transform outbound response: %w", err)
+	}
+
+	// Empty response detection for non-streaming responses
+	if ra.emptyResponseDetection {
+		if err := validateNonStreamResponse(internalResponse); err != nil {
+			log.Warnf("empty non-stream response detected from channel %s (model=%s)",
+				ra.channel.Name, ra.internalRequest.Model)
+			return err
+		}
 	}
 
 	inResponse, err := ra.inAdapter.TransformResponse(ctx, internalResponse)

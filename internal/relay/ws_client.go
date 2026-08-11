@@ -591,12 +591,13 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group) ws
 			}
 
 			ra := &relayAttempt{
-				relayRequest:         attemptRequest,
-				outAdapter:           outbound.Get(channel.Type),
-				channel:              channel,
-				usedKey:              usedKey,
-				firstTokenTimeOutSec: group.FirstTokenTimeOut,
-				capabilityDecision:   decision,
+				relayRequest:           attemptRequest,
+				outAdapter:             outbound.Get(channel.Type),
+				channel:                channel,
+				usedKey:                usedKey,
+				firstTokenTimeOutSec:   group.FirstTokenTimeOut,
+				emptyResponseDetection: group.EmptyResponseDetection,
+				capabilityDecision:     decision,
 			}
 
 			result = ra.attempt()

@@ -258,6 +258,72 @@ func TestStreamProcessor_PrecommitLimitFailsWithoutWriting(t *testing.T) {
 	}
 }
 
+// AllowEmptyPayload suppresses only the empty-response verdict: the buffered
+// metadata is handed to the client and the stream completes normally.
+func TestStreamProcessor_AllowEmptyPayloadFlushesMetadataOnlyStream(t *testing.T) {
+	writer := newMockStreamWriter()
+	processor := NewStreamProcessor(StreamConfig{
+		Source:  newMockStreamSource([][]byte{[]byte(`{"type":"response.created"}`), []byte(`{"type":"response.completed"}`)}),
+		Writer:  writer,
+		Context: context.Background(),
+		Transform: func(_ context.Context, data []byte) ([]byte, error) {
+			return append(append([]byte("data: "), data...), []byte("\n\n")...), nil
+		},
+		PrecommitPredicate: IsMeaningfulPayload,
+		AllowEmptyPayload:  true,
+	})
+
+	if err := processor.Run(); err != nil {
+		t.Fatalf("Run() error = %v, want nil", err)
+	}
+	body := writer.buffer.String()
+	if !strings.Contains(body, "response.created") || !strings.Contains(body, "response.completed") {
+		t.Fatalf("expected buffered metadata to be flushed, got %q", body)
+	}
+}
+
+// Hitting the precommit limit with detection disabled commits the buffer
+// instead of failing the attempt.
+func TestStreamProcessor_AllowEmptyPayloadCommitsAtPrecommitLimit(t *testing.T) {
+	writer := newMockStreamWriter()
+	processor := NewStreamProcessor(StreamConfig{
+		Source:  newMockStreamSource([][]byte{[]byte(`{"type":"response.created"}`), []byte(`{"type":"response.in_progress"}`)}),
+		Writer:  writer,
+		Context: context.Background(),
+		Transform: func(_ context.Context, data []byte) ([]byte, error) {
+			return append(append([]byte("data: "), data...), []byte("\n\n")...), nil
+		},
+		PrecommitPredicate: func(_, _ []byte) bool { return false },
+		PrecommitMaxEvents: 2,
+		PrecommitMaxBytes:  1024,
+		AllowEmptyPayload:  true,
+	})
+
+	if err := processor.Run(); err != nil {
+		t.Fatalf("Run() error = %v, want nil", err)
+	}
+	if !writer.Written() {
+		t.Fatal("expected buffered events to be committed at the precommit limit")
+	}
+}
+
+// A stream that forwards nothing at all is broken regardless of the switch.
+func TestStreamProcessor_AllowEmptyPayloadStillRejectsSilentStream(t *testing.T) {
+	writer := newMockStreamWriter()
+	processor := NewStreamProcessor(StreamConfig{
+		Source:             newMockStreamSource(nil),
+		Writer:             writer,
+		Context:            context.Background(),
+		Transform:          func(context.Context, []byte) ([]byte, error) { return nil, nil },
+		PrecommitPredicate: IsMeaningfulPayload,
+		AllowEmptyPayload:  true,
+	})
+
+	if err := processor.Run(); !errors.Is(err, ErrEmptyUpstreamStream) {
+		t.Fatalf("Run() error = %v, want ErrEmptyUpstreamStream", err)
+	}
+}
+
 func TestStreamProcessor_ContextCancellation(t *testing.T) {
 	// Source that emits one chunk then blocks until cancelled
 	source := &cancelTestSource{first: []byte(`chunk1`)}

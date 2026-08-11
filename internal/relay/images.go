@@ -655,6 +655,12 @@ func imagesAttempt(
 	}
 
 	u, w, err := proxyNonStream(c, respUp)
+
+	// Empty response detection: if nothing was written, treat as empty response
+	if err == nil && !w {
+		err = fmt.Errorf("empty image response: no data written")
+	}
+
 	return respUp.StatusCode, w, u, upstreamCT, err
 }
 
@@ -847,10 +853,20 @@ func proxySSE(ctx context.Context, c *gin.Context, respUp *http.Response, firstT
 
 		case r, ok := <-results:
 			if !ok {
-				return completedScanner.Usage(), !firstWrite, nil
+				usage, written := completedScanner.Usage(), !firstWrite
+				// Empty stream detection: no data written
+				if !written {
+					return usage, written, fmt.Errorf("empty image stream: no events received")
+				}
+				return usage, written, nil
 			}
 			if r.eof {
-				return completedScanner.Usage(), !firstWrite, nil
+				usage, written := completedScanner.Usage(), !firstWrite
+				// Empty stream detection: no data written
+				if !written {
+					return usage, written, fmt.Errorf("empty image stream: no events received")
+				}
+				return usage, written, nil
 			}
 			if r.err != nil {
 				return completedScanner.Usage(), !firstWrite, fmt.Errorf("failed to read stream line: %w", r.err)

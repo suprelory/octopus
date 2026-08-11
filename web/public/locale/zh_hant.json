@@ -623,6 +623,8 @@
             "retryEnabledHint": "啟用後，遇到 429/5xx 等可重試錯誤時先在同通道重試，全部失敗後透傳狀態碼給客戶端",
             "maxRetries": "最大重試",
             "maxRetriesHint": "同通道重試次數，僅在開啟同通道重試時生效",
+            "emptyResponseDetection": "空回檢測",
+            "emptyResponseDetectionHint": "啟用後，上游返回 200 但無有效內容（無文字、工具呼叫或推理）時判定為失敗並切換通道重試",
             "items": "已選模型",
             "addItem": "新增模型",
             "autoAdd": "自動新增",

@@ -29,6 +29,7 @@ export type GroupEditorValues = {
     session_keep_time: number;
     retry_enabled: boolean;
     max_retries: number;
+    empty_response_detection: boolean;
     members: SelectedMember[];
 };
 
@@ -279,6 +280,7 @@ export function GroupEditor({
     const [sessionKeepTime, setSessionKeepTime] = useState<number>(initial?.session_keep_time ?? 0);
     const [retryEnabled, setRetryEnabled] = useState<boolean>(initial?.retry_enabled ?? false);
     const [maxRetries, setMaxRetries] = useState<number>(initial?.max_retries ?? 3);
+    const [emptyResponseDetection, setEmptyResponseDetection] = useState<boolean>(initial?.empty_response_detection ?? true);
     const [selectedMembers, setSelectedMembers] = useState<SelectedMember[]>(initial?.members ?? []);
     const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
 
@@ -364,6 +366,7 @@ export function GroupEditor({
             session_keep_time: sessionKeepTime,
             retry_enabled: retryEnabled,
             max_retries: maxRetries,
+            empty_response_detection: emptyResponseDetection,
             members: selectedMembers,
         });
     };
@@ -553,6 +556,22 @@ export function GroupEditor({
                                 </Tooltip>
                             </TooltipProvider>
                         )}
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <label className="flex shrink-0 cursor-pointer items-center gap-2">
+                                        <Switch
+                                            checked={emptyResponseDetection}
+                                            onCheckedChange={setEmptyResponseDetection}
+                                        />
+                                        <span className="text-sm text-muted-foreground">{t('form.emptyResponseDetection')}</span>
+                                    </label>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    {t('form.emptyResponseDetectionHint')}
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
                             </div>
                         </section>
 

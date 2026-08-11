@@ -85,6 +85,14 @@ type StreamConfig struct {
 	PrecommitMaxEvents int
 	PrecommitMaxBytes  int
 
+	// AllowEmptyPayload turns off the *verdict* half of precommit without
+	// touching the buffer itself: a stream that only ever produced metadata is
+	// flushed downstream and reported as success instead of failing with
+	// ErrNoMeaningfulUpstreamPayload. The buffer still runs, so failover on a
+	// late upstream error stays possible either way. A stream that forwarded
+	// nothing at all still fails with ErrEmptyUpstreamStream.
+	AllowEmptyPayload bool
+
 	// Passthrough-specific
 	BufferRawStream bool                // Enable raw stream buffering for metrics
 	TerminalEvents  map[string]struct{} // Protocol terminal events for early completion
@@ -267,19 +275,30 @@ func (p *StreamProcessor) processEvent(data []byte) error {
 		p.pendingEvents++
 		if !p.config.PrecommitPredicate(data, output) {
 			if p.pendingEvents >= p.config.PrecommitMaxEvents || p.pendingBuffer.Len() >= p.config.PrecommitMaxBytes {
-				return fmt.Errorf("%w: events=%d bytes=%d", ErrPrecommitLimitExceeded, p.pendingEvents, p.pendingBuffer.Len())
+				if !p.config.AllowEmptyPayload {
+					return fmt.Errorf("%w: events=%d bytes=%d", ErrPrecommitLimitExceeded, p.pendingEvents, p.pendingBuffer.Len())
+				}
+				// Detection disabled: commit what we buffered instead of failing.
+				return p.flushPending()
 			}
 			return nil
 		}
 		p.committed = true
-		if err := p.writeOutput(p.pendingBuffer.Bytes()); err != nil {
-			return err
-		}
-		p.pendingBuffer.Reset()
-		return nil
+		return p.flushPending()
 	}
 
 	return p.writeOutput(output)
+}
+
+// flushPending commits the precommit buffer downstream and marks the stream as
+// committed so later events write straight through.
+func (p *StreamProcessor) flushPending() error {
+	p.committed = true
+	if err := p.writeOutput(p.pendingBuffer.Bytes()); err != nil {
+		return err
+	}
+	p.pendingBuffer.Reset()
+	return nil
 }
 
 func (p *StreamProcessor) writeOutput(output []byte) error {
@@ -342,7 +361,14 @@ func (p *StreamProcessor) finalize() error {
 		}
 	}
 	if p.config.PrecommitPredicate != nil && !p.committed && p.pendingBuffer.Len() > 0 {
-		return ErrNoMeaningfulUpstreamPayload
+		if !p.config.AllowEmptyPayload {
+			return ErrNoMeaningfulUpstreamPayload
+		}
+		// Detection disabled: hand the buffered metadata to the client so the
+		// stream completes instead of failing over.
+		if err := p.flushPending(); err != nil {
+			return err
+		}
 	}
 	if !p.payloadWritten {
 		return ErrEmptyUpstreamStream

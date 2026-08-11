@@ -46,11 +46,18 @@ func getGroupList(c *gin.Context) {
 }
 
 func createGroup(c *gin.Context) {
-	var group model.Group
-	if err := c.ShouldBindJSON(&group); err != nil {
+	// EmptyResponseDetection 用指针接收以区分「客户端没发」和「客户端发了 false」：
+	// 省略时默认开启，与存量分组的迁移回填保持一致。外层字段会遮蔽内嵌的同名字段。
+	var payload struct {
+		model.Group
+		EmptyResponseDetection *bool `json:"empty_response_detection"`
+	}
+	if err := c.ShouldBindJSON(&payload); err != nil {
 		resp.InvalidJSON(c)
 		return
 	}
+	group := payload.Group
+	group.EmptyResponseDetection = payload.EmptyResponseDetection == nil || *payload.EmptyResponseDetection
 	if group.MatchRegex != "" {
 		_, err := regexp2.Compile(group.MatchRegex, regexp2.ECMAScript)
 		if err != nil {

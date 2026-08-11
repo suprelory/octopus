@@ -43,8 +43,9 @@ func newEmptyStreamTestAttempt(t *testing.T, inType inbound.InboundType, rawForm
 		requestModel:    internalReq.Model,
 	}
 	return &relayAttempt{
-		relayRequest: req,
-		outAdapter:   outbound.Get(outType),
+		relayRequest:           req,
+		outAdapter:             outbound.Get(outType),
+		emptyResponseDetection: true,
 	}, recorder
 }
 
