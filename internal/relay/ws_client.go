@@ -516,13 +516,23 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group) ws
 			continue
 		}
 
-		if outbound.Get(channel.Type) == nil {
+		candidateAdapter := outbound.Get(channel.Type)
+		if candidateAdapter == nil {
 			req.iter.Skip(channel.ID, 0, channel.Name, fmt.Sprintf("unsupported channel type: %d", channel.Type))
 			continue
 		}
 
-		if !outbound.IsChatChannelType(channel.Type) {
-			req.iter.Skip(channel.ID, 0, channel.Name, "channel type not compatible with chat request")
+		decision := planRelayCapability(req, channel, candidateAdapter, item.ModelName)
+		logRelayCapability(channel, item.ModelName, decision)
+		if decision.Rejected() {
+			message := decision.Summary()
+			req.iter.SkipWithCapability(channel.ID, 0, channel.Name, message, string(decision.Status), decision.ConversionPath, decision.RequiredFeatures, decision.DegradedFields, decision.Lossiness, decision.Reasons)
+			lastErr = fmt.Errorf("capability rejected: %s", message)
+			lastResult = attemptResult{
+				Err:           lastErr,
+				StatusCode:    http.StatusBadRequest,
+				ProtocolError: relayProtocolError(http.StatusBadRequest, CodeRelayModelNotSupported, message),
+			}
 			continue
 		}
 
@@ -586,6 +596,7 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group) ws
 				channel:              channel,
 				usedKey:              usedKey,
 				firstTokenTimeOutSec: group.FirstTokenTimeOut,
+				capabilityDecision:   decision,
 			}
 
 			result = ra.attempt()
@@ -626,6 +637,10 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group) ws
 
 	if publicErr, ok := classifyWSPublicError(lastErr, lastResult.StatusCode); ok {
 		return wsRelayResult{ResetConversation: publicErr.ResetConversation, Err: lastErr, PublicError: &publicErr, Attempt: lastAttempt}
+	}
+	if lastResult.StatusCode == http.StatusBadRequest && lastResult.ProtocolError != nil {
+		publicErr := wsPublicError{Status: http.StatusBadRequest, Code: CodeRelayModelNotSupported, Message: lastResult.ProtocolError.Detail.Message}
+		return wsRelayResult{Err: lastErr, PublicError: &publicErr, Attempt: lastAttempt}
 	}
 	return wsRelayResult{Err: lastErr, Attempt: lastAttempt}
 }

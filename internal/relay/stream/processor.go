@@ -25,6 +25,10 @@ var ErrEmptyUpstreamStream = errors.New("upstream stream ended without forwardin
 // existing failover checks continue to work.
 var ErrNoMeaningfulUpstreamPayload = fmt.Errorf("%w: no meaningful payload", ErrEmptyUpstreamStream)
 
+// ErrPrecommitLimitExceeded prevents metadata-only upstream streams from
+// forcing an early downstream commit merely by filling the bounded buffer.
+var ErrPrecommitLimitExceeded = errors.New("stream semantic precommit limit exceeded")
+
 // StreamSource abstracts different event sources (SSE, WebSocket, raw bytes).
 type StreamSource interface {
 	// ReadEvent blocks until the next event is available or returns an error.
@@ -40,6 +44,14 @@ type StreamSource interface {
 // For passthrough, set to nil in StreamConfig.
 type StreamTransform func(ctx context.Context, data []byte) ([]byte, error)
 
+// StreamObserver receives raw bytes without changing what is forwarded. It is
+// used by passthrough streams to collect semantic events incrementally.
+type StreamObserver interface {
+	Observe(ctx context.Context, data []byte) error
+	Finalize(ctx context.Context) error
+	ReachedTerminal() bool
+}
+
 // StreamWriter abstracts the HTTP/WebSocket response writer.
 type StreamWriter interface {
 	Write(data []byte) (int, error)
@@ -54,6 +66,7 @@ type StreamConfig struct {
 	// Core dependencies
 	Source    StreamSource
 	Transform StreamTransform // nil for passthrough
+	Observer  StreamObserver  // optional sidecar for passthrough observation
 	Writer    StreamWriter
 	Context   context.Context
 
@@ -186,11 +199,19 @@ func (p *StreamProcessor) Run() error {
 				if r.err == io.EOF {
 					return p.finalize()
 				}
+				if p.config.Context.Err() != nil {
+					return p.handleDisconnect()
+				}
 				return fmt.Errorf("stream read error: %w", r.err)
 			}
 
 			if len(r.data) == 0 {
 				continue
+			}
+			if p.config.Observer != nil {
+				if err := p.config.Observer.Observe(p.config.Context, r.data); err != nil {
+					return fmt.Errorf("stream observe error: %w", err)
+				}
 			}
 
 			// Buffer raw data if enabled
@@ -244,10 +265,10 @@ func (p *StreamProcessor) processEvent(data []byte) error {
 	if p.config.PrecommitPredicate != nil && !p.committed {
 		p.pendingBuffer.Write(output)
 		p.pendingEvents++
-		shouldCommit := p.config.PrecommitPredicate(data, output) ||
-			p.pendingEvents >= p.config.PrecommitMaxEvents ||
-			p.pendingBuffer.Len() >= p.config.PrecommitMaxBytes
-		if !shouldCommit {
+		if !p.config.PrecommitPredicate(data, output) {
+			if p.pendingEvents >= p.config.PrecommitMaxEvents || p.pendingBuffer.Len() >= p.config.PrecommitMaxBytes {
+				return fmt.Errorf("%w: events=%d bytes=%d", ErrPrecommitLimitExceeded, p.pendingEvents, p.pendingBuffer.Len())
+			}
 			return nil
 		}
 		p.committed = true
@@ -281,6 +302,10 @@ func (p *StreamProcessor) writeHeartbeat() error {
 
 // handleDisconnect handles context cancellation or timeout.
 func (p *StreamProcessor) handleDisconnect() error {
+	if p.config.Observer != nil && p.config.Observer.ReachedTerminal() {
+		log.Debugf("client disconnected after observer reached terminal event, treating as success")
+		return p.finalize()
+	}
 	// Check for terminal events in buffered stream
 	if p.config.BufferRawStream && len(p.config.TerminalEvents) > 0 {
 		if p.streamReachedTerminal() {
@@ -311,6 +336,11 @@ func (p *StreamProcessor) handleFirstTokenTimeout() error {
 
 // finalize completes the stream and calls OnFinish callback.
 func (p *StreamProcessor) finalize() error {
+	if p.config.Observer != nil {
+		if err := p.config.Observer.Finalize(p.config.Context); err != nil {
+			return fmt.Errorf("stream observer finalize error: %w", err)
+		}
+	}
 	if p.config.PrecommitPredicate != nil && !p.committed && p.pendingBuffer.Len() > 0 {
 		return ErrNoMeaningfulUpstreamPayload
 	}

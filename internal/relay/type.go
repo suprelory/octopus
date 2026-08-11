@@ -16,6 +16,7 @@ import (
 	"github.com/bestruirui/octopus/internal/relay/balancer"
 	"github.com/bestruirui/octopus/internal/transformer/inbound"
 	"github.com/bestruirui/octopus/internal/transformer/model"
+	"github.com/bestruirui/octopus/internal/transformer/outbound"
 	"github.com/gin-gonic/gin"
 )
 
@@ -167,6 +168,8 @@ type relayAttempt struct {
 	firstTokenBudget     *firstTokenBudget
 	retryAfter           time.Duration // forward() 提取后暂存
 	upstreamError        *model.ResponseError
+	capabilityDecision   outbound.CapabilityDecision
+	streamFinalizer      *model.StreamFinalizer
 }
 
 // attemptResult 封装单次尝试的结果

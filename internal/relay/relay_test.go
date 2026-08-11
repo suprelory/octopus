@@ -563,12 +563,18 @@ func TestHandlerPassthroughsOpenAIResponsesRawTools(t *testing.T) {
 func TestHandlerRejectsResponsesNativeToolsWithoutResponsesChannel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx := setupRelayTestDB(t)
+	var upstreamHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamHits.Add(1)
+		http.Error(w, "planner must reject before upstream", http.StatusInternalServerError)
+	}))
+	defer server.Close()
 
 	channel := &model.Channel{
 		Name:     "relay-openai-chat-only",
 		Type:     outbound.OutboundTypeOpenAIChat,
 		Enabled:  true,
-		BaseUrls: []model.BaseUrl{{URL: "https://example.com/v1"}},
+		BaseUrls: []model.BaseUrl{{URL: server.URL + "/v1"}},
 		Model:    "gpt-4o",
 		Keys:     []model.ChannelKey{{Enabled: true, ChannelKey: "test-key"}},
 	}
@@ -597,6 +603,20 @@ func TestHandlerRejectsResponsesNativeToolsWithoutResponsesChannel(t *testing.T)
 	}
 	if !strings.Contains(recorder.Body.String(), "仅支持 OpenAI Responses 通道直通") {
 		t.Fatalf("expected clear passthrough-only error, got %s", recorder.Body.String())
+	}
+	if upstreamHits.Load() != 0 {
+		t.Fatalf("rejected capability reached upstream %d times", upstreamHits.Load())
+	}
+	logs, err := op.RelayLogList(ctx, nil, nil, nil, 1, 10)
+	if err != nil || len(logs) == 0 || len(logs[0].Attempts) != 1 {
+		t.Fatalf("expected one logged capability rejection, logs=%#v err=%v", logs, err)
+	}
+	attempt := logs[0].Attempts[0]
+	if attempt.Status != model.AttemptSkipped || attempt.CapabilityStatus != "rejected" || attempt.Lossiness != "rejected" {
+		t.Fatalf("unexpected rejected capability trace: %#v", attempt)
+	}
+	if len(attempt.ConversionPath) != 3 || attempt.FallbackReason == "" || len(attempt.CapabilityReasons) == 0 {
+		t.Fatalf("incomplete rejected capability trace: %#v", attempt)
 	}
 }
 

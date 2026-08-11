@@ -191,11 +191,11 @@ func (o *MessagesOutbound) TransformStreamEvent(ctx context.Context, eventData [
 						o.nextReasoningIndex(candidate.Index)
 						events = append(events, model.StreamEvent{Kind: model.StreamEventKindSignatureDelta, ID: base.ID, Model: base.Model, Index: base.Index, Delta: &model.StreamDelta{Signature: part.ThoughtSignature, ProviderExtensions: geminiThoughtSignatureProviderExtension(part.ThoughtSignature)}})
 					}
-					events = append(events, model.StreamEvent{Kind: model.StreamEventKindToolCallStart, ID: base.ID, Model: base.Model, Index: toolCall.Index, ToolCall: &toolCall})
+					events = append(events, model.StreamEvent{Kind: model.StreamEventKindToolCallStart, ID: base.ID, Model: base.Model, Index: base.Index, ToolCall: &toolCall})
 					toolDelta := toolCall
 					toolDelta.Function.Arguments = string(argsJSON)
-					events = append(events, model.StreamEvent{Kind: model.StreamEventKindToolCallDelta, ID: base.ID, Model: base.Model, Index: toolDelta.Index, ToolCall: &toolDelta, Delta: &model.StreamDelta{Arguments: string(argsJSON), ProviderExtensions: geminiThoughtSignatureProviderExtension(part.ThoughtSignature)}})
-					events = append(events, model.StreamEvent{Kind: model.StreamEventKindToolCallStop, ID: base.ID, Model: base.Model, Index: toolCall.Index, ToolCall: &toolCall})
+					events = append(events, model.StreamEvent{Kind: model.StreamEventKindToolCallDelta, ID: base.ID, Model: base.Model, Index: base.Index, ToolCall: &toolDelta, Delta: &model.StreamDelta{Arguments: string(argsJSON), ProviderExtensions: geminiThoughtSignatureProviderExtension(part.ThoughtSignature)}})
+					events = append(events, model.StreamEvent{Kind: model.StreamEventKindToolCallStop, ID: base.ID, Model: base.Model, Index: base.Index, ToolCall: &toolCall})
 				}
 			}
 		}

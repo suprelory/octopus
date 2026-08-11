@@ -53,6 +53,33 @@ type StreamContentBlock struct {
 	ProviderExtensions *ProviderExtensions `json:"provider_extensions,omitempty"`
 }
 
+// HasSemanticStreamEvents reports whether a canonical event batch contains
+// model output that makes the stream safe to commit downstream. Lifecycle and
+// accounting-only events deliberately remain precommit-buffered.
+func HasSemanticStreamEvents(events []StreamEvent) bool {
+	for _, event := range events {
+		switch event.Kind {
+		case StreamEventKindTextDelta:
+			if event.Delta != nil && (event.Delta.Text != "" || event.Delta.Refusal != "") {
+				return true
+			}
+		case StreamEventKindThinkingDelta, StreamEventKindSignatureDelta:
+			if event.Delta != nil && (event.Delta.Thinking != "" || event.Delta.Signature != "") {
+				return true
+			}
+		case StreamEventKindToolCallStart, StreamEventKindToolCallDelta:
+			if event.ToolCall != nil || event.Delta != nil {
+				return true
+			}
+		case StreamEventKindContentBlockStart:
+			if event.ContentBlock != nil && (event.ContentBlock.Text != "" || event.ContentBlock.Data != "" || event.ContentBlock.Name != "" || len(event.ContentBlock.Input) > 0) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 type StreamDelta struct {
 	Text      string `json:"text,omitempty"`
 	Thinking  string `json:"thinking,omitempty"`

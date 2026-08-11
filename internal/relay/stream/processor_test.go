@@ -235,6 +235,29 @@ func TestStreamProcessor_PrecommitRejectsMetadataOnlyStream(t *testing.T) {
 	}
 }
 
+func TestStreamProcessor_PrecommitLimitFailsWithoutWriting(t *testing.T) {
+	writer := newMockStreamWriter()
+	processor := NewStreamProcessor(StreamConfig{
+		Source:  newMockStreamSource([][]byte{[]byte(`{"type":"response.created"}`), []byte(`{"type":"response.in_progress"}`)}),
+		Writer:  writer,
+		Context: context.Background(),
+		Transform: func(_ context.Context, data []byte) ([]byte, error) {
+			return append(append([]byte("data: "), data...), []byte("\n\n")...), nil
+		},
+		PrecommitPredicate: func(_, _ []byte) bool { return false },
+		PrecommitMaxEvents: 2,
+		PrecommitMaxBytes:  1024,
+	})
+
+	err := processor.Run()
+	if !errors.Is(err, ErrPrecommitLimitExceeded) {
+		t.Fatalf("Run() error = %v, want ErrPrecommitLimitExceeded", err)
+	}
+	if writer.Written() {
+		t.Fatalf("precommit limit failure must not write downstream bytes, got %q", writer.buffer.String())
+	}
+}
+
 func TestStreamProcessor_ContextCancellation(t *testing.T) {
 	// Source that emits one chunk then blocks until cancelled
 	source := &cancelTestSource{first: []byte(`chunk1`)}

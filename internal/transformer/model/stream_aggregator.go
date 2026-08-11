@@ -46,6 +46,12 @@ func (a *StreamAggregator) Response() *InternalLLMResponse {
 		if chunk.Usage != nil {
 			result.Usage = chunk.Usage
 		}
+		if chunk.Error != nil {
+			result.Error = chunk.Error
+		}
+		if len(chunk.RawResponsesOutputItems) > 0 {
+			result.RawResponsesOutputItems = append(result.RawResponsesOutputItems[:0], chunk.RawResponsesOutputItems...)
+		}
 		for _, choice := range chunk.Choices {
 			existingChoice := choicesMap[choice.Index]
 			if existingChoice == nil {
@@ -116,6 +122,16 @@ func mergeChoiceDelta(existingChoice *Choice, choice Choice) {
 			}
 			*existingChoice.Message.ReasoningContent += reasoning
 		}
+		if delta.ReasoningSignature != nil && *delta.ReasoningSignature != "" {
+			signature := *delta.ReasoningSignature
+			existingChoice.Message.ReasoningSignature = &signature
+		}
+		if len(delta.ReasoningBlocks) > 0 {
+			existingChoice.Message.ReasoningBlocks = append(existingChoice.Message.ReasoningBlocks, delta.ReasoningBlocks...)
+		}
+		if len(delta.RedactedThinkingBlocks) > 0 {
+			existingChoice.Message.RedactedThinkingBlocks = append(existingChoice.Message.RedactedThinkingBlocks, delta.RedactedThinkingBlocks...)
+		}
 		for _, toolCall := range delta.ToolCalls {
 			existingChoice.Message.ToolCalls = MergeToolCallDelta(existingChoice.Message.ToolCalls, toolCall)
 		}
@@ -125,6 +141,9 @@ func mergeChoiceDelta(existingChoice *Choice, choice Choice) {
 	}
 	if choice.FinishReason != nil {
 		existingChoice.FinishReason = choice.FinishReason
+	}
+	if choice.StopSequence != nil {
+		existingChoice.StopSequence = choice.StopSequence
 	}
 	if choice.Logprobs != nil {
 		if existingChoice.Logprobs == nil {
@@ -152,6 +171,18 @@ func MergeToolCallDelta(toolCalls []ToolCall, delta ToolCall) []ToolCall {
 			}
 			if delta.Function.Arguments != "" {
 				toolCalls[i].Function.Arguments += delta.Function.Arguments
+			}
+			if delta.Function.Namespace != "" {
+				toolCalls[i].Function.Namespace = delta.Function.Namespace
+			}
+			if delta.ThoughtSignature != "" {
+				toolCalls[i].ThoughtSignature = delta.ThoughtSignature
+			}
+			if delta.ProviderExtensions != nil {
+				toolCalls[i].ProviderExtensions = delta.ProviderExtensions
+			}
+			if delta.CacheControl != nil {
+				toolCalls[i].CacheControl = delta.CacheControl
 			}
 			return toolCalls
 		}

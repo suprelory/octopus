@@ -239,7 +239,6 @@ func (o *MessageOutbound) TransformStreamEvent(ctx context.Context, eventData []
 		if streamEvent.ContentBlock == nil {
 			return nil, nil
 		}
-		idx := anthropicStreamIndex(streamEvent.Index)
 		switch streamEvent.ContentBlock.Type {
 		case "tool_use":
 			o.toolIndex++
@@ -252,12 +251,12 @@ func (o *MessageOutbound) TransformStreamEvent(ctx context.Context, eventData []
 				},
 			}
 			o.toolCalls[o.toolIndex] = &toolCall
-			events = append(events, model.StreamEvent{Kind: model.StreamEventKindToolCallStart, ID: o.streamID, Model: o.streamModel, Index: toolCall.Index, ToolCall: &toolCall})
+			events = append(events, model.StreamEvent{Kind: model.StreamEventKindToolCallStart, ID: o.streamID, Model: o.streamModel, Index: 0, ToolCall: &toolCall})
 		case "text", "thinking":
-			events = append(events, model.StreamEvent{Kind: model.StreamEventKindContentBlockStart, ID: o.streamID, Model: o.streamModel, Index: idx, ContentBlock: &model.StreamContentBlock{Type: streamEvent.ContentBlock.Type}})
+			events = append(events, model.StreamEvent{Kind: model.StreamEventKindContentBlockStart, ID: o.streamID, Model: o.streamModel, Index: 0, ContentBlock: &model.StreamContentBlock{Type: streamEvent.ContentBlock.Type}})
 		case "redacted_thinking":
-			events = append(events, model.StreamEvent{Kind: model.StreamEventKindContentBlockStart, ID: o.streamID, Model: o.streamModel, Index: idx, ContentBlock: &model.StreamContentBlock{Type: "redacted_thinking", Data: streamEvent.ContentBlock.Data}})
-			events = append(events, model.StreamEvent{Kind: model.StreamEventKindContentBlockStop, ID: o.streamID, Model: o.streamModel, Index: idx, ContentBlock: &model.StreamContentBlock{Type: "redacted_thinking"}})
+			events = append(events, model.StreamEvent{Kind: model.StreamEventKindContentBlockStart, ID: o.streamID, Model: o.streamModel, Index: 0, ContentBlock: &model.StreamContentBlock{Type: "redacted_thinking", Data: streamEvent.ContentBlock.Data}})
+			events = append(events, model.StreamEvent{Kind: model.StreamEventKindContentBlockStop, ID: o.streamID, Model: o.streamModel, Index: 0, ContentBlock: &model.StreamContentBlock{Type: "redacted_thinking"}})
 		default:
 			return nil, nil
 		}
@@ -266,11 +265,10 @@ func (o *MessageOutbound) TransformStreamEvent(ctx context.Context, eventData []
 		if streamEvent.Delta == nil || streamEvent.Delta.Type == nil {
 			return nil, nil
 		}
-		idx := anthropicStreamIndex(streamEvent.Index)
 		switch *streamEvent.Delta.Type {
 		case "text_delta":
 			if streamEvent.Delta.Text != nil {
-				events = append(events, model.StreamEvent{Kind: model.StreamEventKindTextDelta, ID: o.streamID, Model: o.streamModel, Index: idx, Delta: &model.StreamDelta{Text: *streamEvent.Delta.Text}})
+				events = append(events, model.StreamEvent{Kind: model.StreamEventKindTextDelta, ID: o.streamID, Model: o.streamModel, Index: 0, Delta: &model.StreamDelta{Text: *streamEvent.Delta.Text}})
 			}
 		case "input_json_delta":
 			if streamEvent.Delta.PartialJSON != nil && o.toolIndex >= 0 {
@@ -278,15 +276,15 @@ func (o *MessageOutbound) TransformStreamEvent(ctx context.Context, eventData []
 				if existing := o.toolCalls[o.toolIndex]; existing != nil {
 					toolCall.ID = existing.ID
 				}
-				events = append(events, model.StreamEvent{Kind: model.StreamEventKindToolCallDelta, ID: o.streamID, Model: o.streamModel, Index: toolCall.Index, ToolCall: &toolCall, Delta: &model.StreamDelta{Arguments: *streamEvent.Delta.PartialJSON}})
+				events = append(events, model.StreamEvent{Kind: model.StreamEventKindToolCallDelta, ID: o.streamID, Model: o.streamModel, Index: 0, ToolCall: &toolCall, Delta: &model.StreamDelta{Arguments: *streamEvent.Delta.PartialJSON}})
 			}
 		case "thinking_delta":
 			if streamEvent.Delta.Thinking != nil {
-				events = append(events, model.StreamEvent{Kind: model.StreamEventKindThinkingDelta, ID: o.streamID, Model: o.streamModel, Index: idx, Delta: &model.StreamDelta{Thinking: *streamEvent.Delta.Thinking}})
+				events = append(events, model.StreamEvent{Kind: model.StreamEventKindThinkingDelta, ID: o.streamID, Model: o.streamModel, Index: 0, Delta: &model.StreamDelta{Thinking: *streamEvent.Delta.Thinking}})
 			}
 		case "signature_delta":
 			if streamEvent.Delta.Signature != nil {
-				events = append(events, model.StreamEvent{Kind: model.StreamEventKindSignatureDelta, ID: o.streamID, Model: o.streamModel, Index: idx, Delta: &model.StreamDelta{Signature: *streamEvent.Delta.Signature}})
+				events = append(events, model.StreamEvent{Kind: model.StreamEventKindSignatureDelta, ID: o.streamID, Model: o.streamModel, Index: 0, Delta: &model.StreamDelta{Signature: *streamEvent.Delta.Signature}})
 			}
 		default:
 			return nil, nil
@@ -333,8 +331,7 @@ func (o *MessageOutbound) TransformStreamEvent(ctx context.Context, eventData []
 		appendUsage(o.streamUsage)
 
 	case "content_block_stop":
-		idx := anthropicStreamIndex(streamEvent.Index)
-		events = append(events, model.StreamEvent{Kind: model.StreamEventKindContentBlockStop, ID: o.streamID, Model: o.streamModel, Index: idx})
+		events = append(events, model.StreamEvent{Kind: model.StreamEventKindContentBlockStop, ID: o.streamID, Model: o.streamModel, Index: 0})
 
 	case "ping":
 		return nil, nil
@@ -353,13 +350,6 @@ func (o *MessageOutbound) TransformStreamEvent(ctx context.Context, eventData []
 		return nil, nil
 	}
 	return events, nil
-}
-
-func anthropicStreamIndex(index *int64) int {
-	if index == nil {
-		return 0
-	}
-	return int(*index)
 }
 
 func (o *MessageOutbound) TransformStream(ctx context.Context, eventData []byte) (*model.InternalLLMResponse, error) {

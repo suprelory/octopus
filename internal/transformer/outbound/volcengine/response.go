@@ -84,6 +84,10 @@ func (o *ResponseOutbound) TransformStream(ctx context.Context, eventData []byte
 	return o.inner.TransformStream(ctx, eventData)
 }
 
+func (o *ResponseOutbound) TransformStreamEvent(ctx context.Context, eventData []byte) ([]model.StreamEvent, error) {
+	return o.inner.TransformStreamEvent(ctx, eventData)
+}
+
 type ResponsesRequest struct {
 	*openai.ResponsesRequest
 	Input    ResponsesInput `json:"input"`

@@ -77,6 +77,10 @@ func (i *EmbeddingInbound) TransformStream(ctx context.Context, stream *model.In
 	return nil, errors.New("streaming is not supported for embedding API")
 }
 
+func (i *EmbeddingInbound) TransformStreamEvents(ctx context.Context, events []model.StreamEvent) ([]byte, error) {
+	return nil, errors.New("streaming is not supported for embedding API")
+}
+
 // GetInternalResponse returns the complete internal response for logging, statistics, etc.
 func (i *EmbeddingInbound) GetInternalResponse(ctx context.Context) (*model.InternalLLMResponse, error) {
 	return i.storedResponse, nil

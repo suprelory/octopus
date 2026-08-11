@@ -252,7 +252,7 @@ func (i *ResponseInbound) processStreamEvents(ctx context.Context, events []mode
 			}
 
 		case model.StreamEventKindDone:
-			if len(out) == 0 {
+			if !i.responseCompleted && len(out) == 0 {
 				return []byte("data: [DONE]\n\n"), nil
 			}
 

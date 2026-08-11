@@ -16,6 +16,10 @@ type Inbound interface {
 	// 将出站内部通用流式响应转为入站对应的流式响应格式
 	TransformStream(ctx context.Context, stream *InternalLLMResponse) ([]byte, error)
 
+	// TransformStreamEvents converts canonical stream events into the inbound
+	// wire format. Relay streaming always uses this contract.
+	TransformStreamEvents(ctx context.Context, events []StreamEvent) ([]byte, error)
+
 	// TransformError converts a normalized error into the inbound protocol's
 	// HTTP and streaming wire representations.
 	TransformError(ctx context.Context, response *ResponseError) (*ProtocolErrorResponse, error)
@@ -37,18 +41,23 @@ type Outbound interface {
 	// 将出站流式转为内部通用流式响应格式
 	TransformStream(ctx context.Context, eventData []byte) (*InternalLLMResponse, error)
 
+	// TransformStreamEvent converts provider bytes into canonical stream events.
+	// Relay must not inspect provider-specific chunks after this boundary.
+	TransformStreamEvent(ctx context.Context, eventData []byte) ([]StreamEvent, error)
+
 	// TransformError converts an upstream protocol error into the normalized
 	// error model used by relay failover and the inbound transformer.
 	TransformError(ctx context.Context, statusCode int, headers http.Header, body []byte) *ResponseError
 }
 
+// These narrow compatibility views remain available to callers that used the
+// former optional contracts. Inbound and Outbound themselves now require the
+// corresponding methods.
 type OutboundStreamEventTransformer interface {
-	// TransformStreamEvent converts provider stream bytes into explicit stream events.
 	TransformStreamEvent(ctx context.Context, eventData []byte) ([]StreamEvent, error)
 }
 
 type InboundStreamEventTransformer interface {
-	// TransformStreamEvents converts explicit stream events into the inbound wire format.
 	TransformStreamEvents(ctx context.Context, events []StreamEvent) ([]byte, error)
 }
 

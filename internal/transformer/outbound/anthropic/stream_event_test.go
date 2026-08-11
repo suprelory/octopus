@@ -62,6 +62,9 @@ func TestTransformStreamEventAnthropicNativeMapping(t *testing.T) {
 	if events[0].Delta == nil || events[0].Delta.Text != "hello" {
 		t.Fatalf("text lost: %+v", events[0].Delta)
 	}
+	if events[0].Index != 0 {
+		t.Fatalf("canonical choice index = %d, want 0 (provider content block index must not leak)", events[0].Index)
+	}
 
 	// Test tool_use start
 	toolStartChunk := []byte(`{"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"call_1","name":"lookup"}}`)
@@ -139,5 +142,33 @@ func TestTransformStreamEventAnthropicNativeMapping(t *testing.T) {
 	}
 	if events[0].Error == nil || events[0].Error.Detail.Message != "Overloaded" {
 		t.Fatalf("error detail lost: %+v", events[0].Error)
+	}
+}
+
+func TestAnthropicMultiBlockEventsFinalizeAsSingleChoice(t *testing.T) {
+	outbound := &MessageOutbound{}
+	finalizer := model.NewStreamFinalizer()
+	chunks := [][]byte{
+		[]byte(`{"type":"message_start","message":{"id":"msg_1","model":"claude","role":"assistant","usage":{"input_tokens":2,"output_tokens":0}}}`),
+		[]byte(`{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"plan"}}`),
+		[]byte(`{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"answer"}}`),
+		[]byte(`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2}}`),
+		[]byte(`{"type":"message_stop"}`),
+	}
+	for _, chunk := range chunks {
+		events, err := outbound.TransformStreamEvent(context.Background(), chunk)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := finalizer.ProcessStreamEvents(events); err != nil {
+			t.Fatalf("ProcessStreamEvents(%s) error = %v", chunk, err)
+		}
+	}
+	finalized, err := finalizer.FinalizeStream()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finalized.Response == nil || len(finalized.Response.Choices) != 1 || finalized.FinishReasons[0] != model.FinishReasonStop {
+		t.Fatalf("unexpected single-choice finalization: %#v", finalized)
 	}
 }

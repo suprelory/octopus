@@ -188,17 +188,33 @@ func (it *Iterator) Index() int {
 
 // Skip 记录当前通道被跳过（通道禁用、无Key、类型不兼容等）
 func (it *Iterator) Skip(channelID, channelKeyID int, channelName, msg string) {
+	it.skip(channelID, channelKeyID, channelName, msg, "", nil, nil, nil, "", nil)
+}
+
+// SkipWithCapability records a planner rejection before an upstream attempt.
+func (it *Iterator) SkipWithCapability(channelID, channelKeyID int, channelName, msg, capabilityStatus string, conversionPath, requiredFeatures, degradedFields []string, lossiness string, reasons []string) {
+	it.skip(channelID, channelKeyID, channelName, msg, capabilityStatus, conversionPath, requiredFeatures, degradedFields, lossiness, reasons)
+}
+
+func (it *Iterator) skip(channelID, channelKeyID int, channelName, msg, capabilityStatus string, conversionPath, requiredFeatures, degradedFields []string, lossiness string, reasons []string) {
 	sticky := it.IsSticky()
 	it.count++
 	it.attempts = append(it.attempts, model.ChannelAttempt{
-		ChannelID:    channelID,
-		ChannelKeyID: channelKeyID,
-		ChannelName:  channelName,
-		ModelName:    it.candidates[it.index].ModelName,
-		AttemptNum:   it.count,
-		Status:       model.AttemptSkipped,
-		Sticky:       sticky,
-		Msg:          msg,
+		ChannelID:         channelID,
+		ChannelKeyID:      channelKeyID,
+		ChannelName:       channelName,
+		ModelName:         it.candidates[it.index].ModelName,
+		AttemptNum:        it.count,
+		Status:            model.AttemptSkipped,
+		Sticky:            sticky,
+		Msg:               msg,
+		CapabilityStatus:  capabilityStatus,
+		ConversionPath:    append([]string(nil), conversionPath...),
+		RequiredFeatures:  append([]string(nil), requiredFeatures...),
+		DegradedFields:    append([]string(nil), degradedFields...),
+		Lossiness:         lossiness,
+		CapabilityReasons: append([]string(nil), reasons...),
+		FallbackReason:    msg,
 	})
 	it.InvalidateCurrentPreference()
 }
@@ -216,14 +232,15 @@ func (it *Iterator) SkipCircuitBreak(channelID, channelKeyID int, channelName st
 	}
 	it.count++
 	it.attempts = append(it.attempts, model.ChannelAttempt{
-		ChannelID:    channelID,
-		ChannelKeyID: channelKeyID,
-		ChannelName:  channelName,
-		ModelName:    modelName,
-		AttemptNum:   it.count,
-		Status:       model.AttemptCircuitBreak,
-		Sticky:       it.IsSticky(),
-		Msg:          msg,
+		ChannelID:      channelID,
+		ChannelKeyID:   channelKeyID,
+		ChannelName:    channelName,
+		ModelName:      modelName,
+		AttemptNum:     it.count,
+		Status:         model.AttemptCircuitBreak,
+		Sticky:         it.IsSticky(),
+		Msg:            msg,
+		FallbackReason: msg,
 	})
 	return true
 }
@@ -267,12 +284,25 @@ func (s *AttemptSpan) End(status model.AttemptStatus, statusCode int, msg string
 	s.attempt.Status = status
 	s.attempt.Duration = int(time.Since(s.startTime).Milliseconds())
 	s.attempt.Msg = msg
+	if status == model.AttemptFailed && msg != "" {
+		s.attempt.FallbackReason = msg
+	}
 	s.iter.attempts = append(s.iter.attempts, s.attempt)
 }
 
 // SetAdapterType records the outbound protocol selected for this attempt.
 func (s *AttemptSpan) SetAdapterType(adapterType string) {
 	s.attempt.AdapterType = adapterType
+}
+
+// SetCapability records the semantic planning decision that authorized this attempt.
+func (s *AttemptSpan) SetCapability(status string, conversionPath, requiredFeatures, degradedFields []string, lossiness string, reasons []string) {
+	s.attempt.CapabilityStatus = status
+	s.attempt.ConversionPath = append([]string(nil), conversionPath...)
+	s.attempt.RequiredFeatures = append([]string(nil), requiredFeatures...)
+	s.attempt.DegradedFields = append([]string(nil), degradedFields...)
+	s.attempt.Lossiness = lossiness
+	s.attempt.CapabilityReasons = append([]string(nil), reasons...)
 }
 
 // Duration 返回从开始到现在的耗时
