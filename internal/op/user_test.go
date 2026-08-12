@@ -1,0 +1,217 @@
+package op
+
+import (
+	"fmt"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	dbpkg "github.com/bestruirui/octopus/internal/db"
+	"github.com/bestruirui/octopus/internal/model"
+	"gorm.io/gorm"
+)
+
+func TestUserInitAndVerify(t *testing.T) {
+	setupSiteOpTestDB(t)
+
+	if err := UserInit(); err != nil {
+		t.Fatalf("UserInit failed: %v", err)
+	}
+
+	if err := UserVerify("admin", "admin"); err != nil {
+		t.Fatalf("UserVerify with the initial credentials failed: %v", err)
+	}
+	if err := UserVerify("admin", "wrong"); err == nil {
+		t.Fatal("UserVerify accepted a wrong password")
+	}
+	if err := UserVerify("nobody", "admin"); err == nil {
+		t.Fatal("UserVerify accepted a wrong username")
+	}
+
+	user := UserGet()
+	if user.ID == 0 {
+		t.Fatal("the initial user was created without a primary key")
+	}
+	if user.Password == "admin" {
+		t.Fatal("the initial password was stored in plaintext")
+	}
+}
+
+func TestUserChangePasswordPersists(t *testing.T) {
+	setupSiteOpTestDB(t)
+
+	if err := UserInit(); err != nil {
+		t.Fatalf("UserInit failed: %v", err)
+	}
+
+	if err := UserChangePassword("wrong-old", "new-password"); err == nil {
+		t.Fatal("UserChangePassword accepted a wrong old password")
+	}
+	// 旧密码校验失败后缓存不能被改动。
+	if err := UserVerify("admin", "admin"); err != nil {
+		t.Fatalf("a rejected password change invalidated the old password: %v", err)
+	}
+
+	if err := UserChangePassword("admin", "new-password"); err != nil {
+		t.Fatalf("UserChangePassword failed: %v", err)
+	}
+	if err := UserVerify("admin", "new-password"); err != nil {
+		t.Fatalf("the new password does not verify: %v", err)
+	}
+	if err := UserVerify("admin", "admin"); err == nil {
+		t.Fatal("the old password still verifies after a successful change")
+	}
+}
+
+func TestUserChangeUsernamePersists(t *testing.T) {
+	setupSiteOpTestDB(t)
+
+	if err := UserInit(); err != nil {
+		t.Fatalf("UserInit failed: %v", err)
+	}
+
+	if err := UserChangeUsername("admin"); err == nil {
+		t.Fatal("UserChangeUsername accepted the current username")
+	}
+	if err := UserChangeUsername("operator"); err != nil {
+		t.Fatalf("UserChangeUsername failed: %v", err)
+	}
+	if got := UserGet().Username; got != "operator" {
+		t.Fatalf("username after change = %q, want %q", got, "operator")
+	}
+	if err := UserVerify("operator", "admin"); err != nil {
+		t.Fatalf("verify with the new username failed: %v", err)
+	}
+}
+
+// userCache 被登录路径读、被改密改名路径写。跑 `go test -race ./internal/op/...`
+// 时这个用例会抓到未加锁的访问。
+func TestUserCacheConcurrentReadWrite(t *testing.T) {
+	setupSiteOpTestDB(t)
+
+	if err := UserInit(); err != nil {
+		t.Fatalf("UserInit failed: %v", err)
+	}
+
+	const writes = 20
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				_ = UserGet()
+			}
+		}()
+	}
+
+	// bcrypt 很慢，读侧只留一个 goroutine 走完整的校验路径。
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			_ = UserVerify("admin", "admin")
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer close(stop)
+		for i := 0; i < writes; i++ {
+			if err := UserChangeUsername(fmt.Sprintf("admin-%d", i)); err != nil {
+				t.Errorf("UserChangeUsername(%d) failed: %v", i, err)
+				return
+			}
+		}
+	}()
+
+	wg.Wait()
+
+	if got := UserGet().Username; got != fmt.Sprintf("admin-%d", writes-1) {
+		t.Fatalf("username after concurrent writes = %q, want %q", got, fmt.Sprintf("admin-%d", writes-1))
+	}
+}
+
+func TestUserWritersSerializeDBAndCacheCommit(t *testing.T) {
+	setupSiteOpTestDB(t)
+	if err := UserInit(); err != nil {
+		t.Fatalf("UserInit failed: %v", err)
+	}
+
+	const callbackName = "test:user-writer-serialization"
+	entered := make(chan int, 2)
+	releaseFirst := make(chan struct{})
+	var calls atomic.Int32
+	database := dbpkg.GetDB()
+	err := database.Callback().Update().Before("gorm:update").Register(callbackName, func(_ *gorm.DB) {
+		call := int(calls.Add(1))
+		entered <- call
+		if call == 1 {
+			<-releaseFirst
+		}
+	})
+	if err != nil {
+		t.Fatalf("register update callback: %v", err)
+	}
+	t.Cleanup(func() { _ = database.Callback().Update().Remove(callbackName) })
+
+	errs := make(chan error, 2)
+	go func() { errs <- UserChangeUsername("operator-a") }()
+	select {
+	case call := <-entered:
+		if call != 1 {
+			t.Fatalf("first callback call = %d, want 1", call)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("first writer did not reach the DB update callback")
+	}
+
+	go func() { errs <- UserChangeUsername("operator-b") }()
+	secondEnteredEarly := false
+	select {
+	case <-entered:
+		secondEnteredEarly = true
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(releaseFirst)
+	if secondEnteredEarly {
+		t.Fatal("second writer crossed the DB update boundary before the first committed")
+	}
+
+	select {
+	case call := <-entered:
+		if call != 2 {
+			t.Fatalf("second callback call = %d, want 2", call)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("second writer did not resume after the first committed")
+	}
+	for i := 0; i < 2; i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("UserChangeUsername failed: %v", err)
+		}
+	}
+
+	var stored model.User
+	if err := database.First(&stored).Error; err != nil {
+		t.Fatalf("load stored user: %v", err)
+	}
+	if got := UserGet().Username; got != stored.Username || got != "operator-b" {
+		t.Fatalf("cache username %q and DB username %q diverged", got, stored.Username)
+	}
+}

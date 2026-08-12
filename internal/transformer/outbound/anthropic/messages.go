@@ -13,6 +13,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/bestruirui/octopus/internal/transformer/compat"
+	"github.com/bestruirui/octopus/internal/transformer/httpio"
 	"github.com/bestruirui/octopus/internal/transformer/model"
 	anthropicModel "github.com/bestruirui/octopus/internal/transformer/protocol/anthropic"
 	"github.com/bestruirui/octopus/internal/transformer/rawjson"
@@ -153,7 +154,7 @@ func (o *MessageOutbound) TransformResponse(ctx context.Context, response *http.
 		return nil, fmt.Errorf("response is nil")
 	}
 
-	body, err := io.ReadAll(response.Body)
+	body, err := httpio.ReadResponseBody(response.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}

@@ -48,7 +48,7 @@ func init() {
 func ensureGroupHealthEnabled(c *gin.Context) bool {
 	enabled, err := op.SettingGetBool(model.SettingKeyGroupHealthEnabled)
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return false
 	}
 	if !enabled {
@@ -64,7 +64,7 @@ func listGroupHealth(c *gin.Context) {
 	}
 	views, err := defaultGroupHealthService.ListGroupHealthViews(c.Request.Context())
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
 	resp.Success(c, views)
@@ -81,7 +81,7 @@ func getGroupHealth(c *gin.Context) {
 	}
 	view, err := defaultGroupHealthService.GetGroupHealthViewByID(c.Request.Context(), groupID)
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
 	resp.Success(c, view)
@@ -129,7 +129,7 @@ func runGroupHealth(c *gin.Context) {
 		return
 	}
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
 

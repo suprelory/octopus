@@ -39,7 +39,7 @@ func init() {
 func getGroupList(c *gin.Context) {
 	groups, err := op.GroupList(c.Request.Context())
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
 	resp.Success(c, groups)

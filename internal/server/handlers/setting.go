@@ -48,7 +48,7 @@ func init() {
 func getSettingList(c *gin.Context) {
 	settings, err := op.SettingList(c.Request.Context())
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
 	resp.Success(c, settings)
@@ -65,7 +65,7 @@ func setSetting(c *gin.Context) {
 		return
 	}
 	if err := op.SettingSetString(setting.Key, setting.Value); err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
 	switch setting.Key {
@@ -149,7 +149,7 @@ func exportDB(c *gin.Context) {
 
 	dump, err := op.DBExportAll(c.Request.Context(), includeLogs, includeStats)
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
 

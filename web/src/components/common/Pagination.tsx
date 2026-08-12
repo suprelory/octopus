@@ -40,6 +40,14 @@ interface PaginationProps {
     page: number;
     pageSize: number;
     total: number;
+    /**
+     * total 是否为精确值。后端对超大表做有界计数时只回下界（见
+     * relayLogTotalMaxExact），此时显示 "10000+"，"下一页"由 hasMore 控制，
+     * "跳到末页"因为末页未知而禁用。默认 true。
+     */
+    totalExact?: boolean;
+    /** Whether another page exists when totalExact is false. */
+    hasMore?: boolean;
     pageSizeOptions?: readonly number[];
     disabled?: boolean;
     onPageChange: (page: number) => void;
@@ -51,6 +59,8 @@ export function Pagination({
     page,
     pageSize,
     total,
+    totalExact = true,
+    hasMore = false,
     pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
     disabled = false,
     onPageChange,
@@ -58,17 +68,25 @@ export function Pagination({
     className,
 }: PaginationProps) {
     const t = useTranslations('common.pagination');
-    const totalPages = Math.max(1, Math.ceil(total / pageSize));
-    const currentPage = Math.min(Math.max(1, page), totalPages);
+    const knownPages = Math.max(1, Math.ceil(total / pageSize));
+    // total 是下界时页数也只是下界：不要把当前页夹回去，也不要禁用"下一页"。
+    const currentPage = totalExact
+        ? Math.min(Math.max(1, page), knownPages)
+        : Math.max(1, page);
+    const totalPages = Math.max(knownPages, currentPage);
     const canPrev = currentPage > 1 && !disabled;
-    const canNext = currentPage < totalPages && !disabled;
+    const canNext = (totalExact ? currentPage < knownPages : hasMore) && !disabled;
+    const canJumpLast = totalExact && currentPage < knownPages && !disabled;
     const pageNumbers = getPageNumbers(currentPage, totalPages);
 
     return (
         <div className={cn('flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2', className)}>
             <div className="flex items-baseline gap-1.5 text-xs">
                 <span className="text-muted-foreground">{t('total')}</span>
-                <span className="font-medium tabular-nums text-foreground">{total.toLocaleString()}</span>
+                <span className="font-medium tabular-nums text-foreground">
+                    {total.toLocaleString()}
+                    {totalExact ? '' : '+'}
+                </span>
             </div>
 
             <div className="flex items-center gap-2 sm:gap-3">
@@ -163,8 +181,8 @@ export function Pagination({
                         type="button"
                         aria-label={t('lastPage')}
                         title={t('lastPage')}
-                        disabled={!canNext}
-                        onClick={() => onPageChange(totalPages)}
+                        disabled={!canJumpLast}
+                        onClick={() => onPageChange(knownPages)}
                         className={cn(navButtonClass, 'hidden lg:inline-flex')}
                     >
                         <ChevronsRight className="size-4" />

@@ -7,6 +7,7 @@ const (
 	CodeRelayChannelDisabled       = "relay.channel_disabled"
 	CodeRelayNoAvailableKey        = "relay.no_available_key"
 	CodeRelayUpstreamFailed        = "relay.upstream_failed"
+	CodeRelayRequestTooLarge       = "relay.request_too_large"
 	CodeRelayTimeout               = "relay.timeout"
 	CodeRelayCircuitBreakerTripped = "relay.circuit_breaker_tripped"
 )

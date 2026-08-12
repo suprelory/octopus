@@ -155,6 +155,8 @@ function appendLogListParams(params: URLSearchParams, filters?: LogFilterParams)
 export interface LogPageResponse {
     logs: RelayLog[];
     total: number;
+    /** false 表示 total 是下界（后端做了有界计数），UI 应显示 "N+"。 */
+    total_exact: boolean;
     has_more?: boolean;
     next_cursor?: LogCursor | null;
     search_mode?: string;
@@ -179,12 +181,14 @@ export function useLogPage(params: LogListParams) {
             search.set('include_content', String(params.include_content ?? false));
             search.set('with_total', String(params.with_total ?? true));
             appendLogListParams(search, params);
-            const result = await apiClient.get<{ logs: RelayLog[] | null; total: number; has_more?: boolean; next_cursor?: LogCursor | null; warning?: string; search_mode?: string } | null>(
+            const result = await apiClient.get<{ logs: RelayLog[] | null; total: number; total_exact?: boolean; has_more?: boolean; next_cursor?: LogCursor | null; warning?: string; search_mode?: string } | null>(
                 `/api/v1/log/list?${search.toString()}`,
             );
             return {
                 logs: result?.logs ?? [],
                 total: result?.total ?? 0,
+                // 老后端不回该字段，缺省按精确值处理。
+                total_exact: result?.total_exact ?? true,
                 has_more: result?.has_more ?? false,
                 next_cursor: result?.next_cursor ?? null,
                 warning: result?.warning,

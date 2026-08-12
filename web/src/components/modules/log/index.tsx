@@ -142,17 +142,20 @@ export function Log() {
 
     const logs = useMemo(() => logsQuery.data?.logs ?? [], [logsQuery.data]);
     const total = logsQuery.data?.total ?? 0;
+    const totalExact = logsQuery.data?.total_exact ?? true;
+    const hasMore = logsQuery.data?.has_more ?? false;
     const warning = logsQuery.data?.warning ?? null;
     const errorMessage = logsQuery.isError
         ? (logsQuery.error instanceof Error ? logsQuery.error.message : String(logsQuery.error))
         : null;
 
     // 日志清理或筛选收窄后当前页可能越界，回退到最后一页而不是停在空白页。
+    // total 是下界时（后端有界计数）不能这样回退——真实页数还在后面。
     useEffect(() => {
-        if (logsQuery.isFetching || total === 0) return;
+        if (logsQuery.isFetching || total === 0 || !totalExact) return;
         const totalPages = Math.max(1, Math.ceil(total / pageSize));
         if (page > totalPages) setPage(totalPages);
-    }, [logsQuery.isFetching, page, pageSize, setPage, total]);
+    }, [logsQuery.isFetching, page, pageSize, setPage, total, totalExact]);
 
     // 只有第 1 页 + 无筛选时才推送：其余情况下推送与 offset 分页语义冲突，
     // 且流里的日志未必符合当前筛选条件。
@@ -332,6 +335,8 @@ export function Log() {
                 page={page}
                 pageSize={pageSize}
                 total={total}
+                totalExact={totalExact}
+                hasMore={hasMore}
                 onPageChange={setPage}
                 onPageSizeChange={setPageSize}
                 className="px-1 pb-1"

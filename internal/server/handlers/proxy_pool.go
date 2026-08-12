@@ -30,7 +30,7 @@ func init() {
 func listProxyConfigurations(c *gin.Context) {
 	items, err := op.ProxyConfigurationList(c.Request.Context())
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
 	resp.Success(c, items)
@@ -115,7 +115,7 @@ func testProxyConfiguration(c *gin.Context) {
 	}
 	result, err := op.ProxyConfigurationTest(req, c.Request.Context())
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
 	resp.Success(c, result)

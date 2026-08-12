@@ -13,6 +13,19 @@ import (
 type Server struct {
 	Host string `mapstructure:"host"`
 	Port int    `mapstructure:"port"`
+	// MaxRequestBodyMB 是客户端请求体上限（MB）。<=0 表示不限制。
+	// 不覆盖 /v1/images（由 OCTOPUS_IMAGES_BODY_MAX_MB 控制，会落盘不驻留内存）
+	// 与 /api/v1/setting/import（管理员数据库导入，体积不可预测）。
+	MaxRequestBodyMB int `mapstructure:"max_request_body_mb"`
+	// TrustedProxies 是可信反向代理的 IP / CIDR 列表。
+	//
+	// 为空（默认）表示不信任任何代理：c.ClientIP() 等于 TCP 对端地址，
+	// X-Forwarded-For / X-Real-IP 一律忽略。登录限流依赖这一点 —— 否则任何人
+	// 伪造一个 XFF 头就能换一个限流桶。
+	//
+	// 部署在 nginx / LB 后面时填代理地址，如 ["127.0.0.1"] 或 ["10.0.0.0/8"]，
+	// 否则所有请求会共用代理的 IP，登录限流会误伤同一代理后的其他用户。
+	TrustedProxies []string `mapstructure:"trusted_proxies"`
 }
 
 type Log struct {
@@ -46,6 +59,19 @@ type Config struct {
 }
 
 var AppConfig Config
+
+// DefaultMaxRequestBodyMB 是客户端请求体的默认上限。取 32 MB：足够容纳带图片
+// 的多模态对话（base64 后约 1.3 倍膨胀），又不至于让单个请求吃掉过多内存。
+const DefaultMaxRequestBodyMB = 32
+
+// MaxRequestBodyBytes 返回客户端请求体上限（字节）。返回 0 表示不限制。
+func MaxRequestBodyBytes() int64 {
+	mb := AppConfig.Server.MaxRequestBodyMB
+	if mb <= 0 {
+		return 0
+	}
+	return int64(mb) * 1024 * 1024
+}
 
 func CacheInitTimeout() time.Duration {
 	seconds := AppConfig.Startup.CacheInitTimeoutSeconds
@@ -95,6 +121,8 @@ func Load(path string) error {
 func setDefaults() {
 	viper.SetDefault("server.host", "0.0.0.0")
 	viper.SetDefault("server.port", 8080)
+	viper.SetDefault("server.max_request_body_mb", DefaultMaxRequestBodyMB)
+	viper.SetDefault("server.trusted_proxies", []string{})
 	viper.SetDefault("database.type", "sqlite")
 	viper.SetDefault("database.path", "data/data.db")
 	viper.SetDefault("log.level", "info")

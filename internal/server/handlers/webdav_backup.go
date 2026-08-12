@@ -49,7 +49,7 @@ func testWebDAVConnection(c *gin.Context) {
 
 func triggerWebDAVBackup(c *gin.Context) {
 	if err := webdav.RunBackup(c.Request.Context()); err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
 
@@ -59,7 +59,7 @@ func triggerWebDAVBackup(c *gin.Context) {
 func listWebDAVBackups(c *gin.Context) {
 	backups, err := webdav.ListBackups(c.Request.Context())
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
 
@@ -77,7 +77,7 @@ func restoreWebDAVBackup(c *gin.Context) {
 
 	result, err := webdav.RestoreFromBackup(c.Request.Context(), req.Filename)
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
 

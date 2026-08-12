@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -20,6 +22,21 @@ import (
 
 var httpSrv http.Server
 
+const (
+	// readHeaderTimeout 限制读完请求头的时间，防 Slowloris（gosec G112）。
+	readHeaderTimeout = 15 * time.Second
+	// idleTimeout 限制 keep-alive 连接的空闲时长。
+	idleTimeout = 60 * time.Second
+	// shutdownGracePeriod 是优雅关闭等待在途请求的上限。docker stop 默认给
+	// 10s，其中 cmd.ensureIndexShutdownGrace 已占最多 3s，后面还有 relay log
+	// flush 与 db.Close，所以这里只取 5s。跑得更久的流式请求仍会被截断，
+	// 但至少不再是所有连接一起硬切。
+	shutdownGracePeriod = 5 * time.Second
+)
+
+// 有意不设置 ReadTimeout / WriteTimeout：SSE 流式响应与 WebSocket 长连接
+// 会被这两个超时直接截断。
+
 func Start() error {
 	if conf.IsDebug() {
 		gin.SetMode(gin.DebugMode)
@@ -35,6 +52,15 @@ func Start() error {
 	}
 
 	r := gin.New()
+	// gin 默认信任所有代理，这会让 c.ClientIP() 直接采信 X-Forwarded-For。
+	// 登录限流按 ClientIP 分桶，必须显式声明可信代理才安全。
+	if err := r.SetTrustedProxies(conf.AppConfig.Server.TrustedProxies); err != nil {
+		return fmt.Errorf("invalid server.trusted_proxies: %w", err)
+	}
+	if len(conf.AppConfig.Server.TrustedProxies) == 0 {
+		log.Infof("no trusted proxies configured: client IP comes from the TCP peer address, X-Forwarded-For is ignored")
+	}
+
 	r.Use(gin.CustomRecovery(func(c *gin.Context, recovered interface{}) {
 		log.Errorf("http panic recovered: %v", recovered)
 		resp.Error(c, http.StatusInternalServerError, resp.ErrInternalServer)
@@ -51,12 +77,15 @@ func Start() error {
 		SlowThreshold: time.Duration(conf.AppConfig.Log.Access.SlowThresholdMS) * time.Millisecond,
 	}))
 	r.Use(middleware.Cors())
+	r.Use(middleware.MaxBodySize())
 	r.Use(middleware.StaticEmbed("/", static.StaticFS))
 
 	router.RegisterAll(r)
 
 	httpSrv.Addr = fmt.Sprintf("%s:%d", conf.AppConfig.Server.Host, conf.AppConfig.Server.Port)
 	httpSrv.Handler = r
+	httpSrv.ReadHeaderTimeout = readHeaderTimeout
+	httpSrv.IdleTimeout = idleTimeout
 	safe.Go("http-listen", func() {
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Errorf("http server listen and serve error: %v", err)
@@ -65,6 +94,18 @@ func Start() error {
 	return nil
 }
 
+// Close 优雅关闭 HTTP server：停止接受新连接，给在途请求 shutdownGracePeriod
+// 的时间收尾，超时后再强制断开。
 func Close() error {
-	return httpSrv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownGracePeriod)
+	defer cancel()
+
+	if err := httpSrv.Shutdown(ctx); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			log.Warnf("http server graceful shutdown timed out after %s, forcing close", shutdownGracePeriod)
+			return httpSrv.Close()
+		}
+		return err
+	}
+	return nil
 }

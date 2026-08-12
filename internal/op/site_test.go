@@ -28,6 +28,10 @@ func setupSiteOpTestDB(t *testing.T) context.Context {
 		_ = dbpkg.Close()
 	})
 
+	// total 缓存是包级的：换了 DB 不清掉，上一个用例的计数会漏到下一个用例。
+	RelayLogTotalCacheInvalidate()
+	t.Cleanup(RelayLogTotalCacheInvalidate)
+
 	return context.Background()
 }
 

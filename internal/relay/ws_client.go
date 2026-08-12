@@ -569,8 +569,7 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group) ws
 		for retryNum := 0; retryNum < maxSameChannelRetries; retryNum++ {
 			if retryNum > 0 {
 				delay := computeBackoff(retryNum, result.RetryAfter)
-				select {
-				case <-relayCtx.Done():
+				if !waitBackoff(relayCtx, delay) {
 					if isLocalRelayBudgetExceeded(relayCtx, contextError(relayCtx)) {
 						publicErr := wsPublicError{
 							Status:  http.StatusGatewayTimeout,
@@ -580,7 +579,6 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group) ws
 						return wsRelayResult{Err: contextError(relayCtx), PublicError: &publicErr, Attempt: lastAttempt}
 					}
 					return wsRelayResult{Canceled: true, Err: relayCtx.Err(), Attempt: lastAttempt}
-				case <-time.After(delay):
 				}
 			}
 

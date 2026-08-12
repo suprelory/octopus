@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/bestruirui/octopus/internal/apperror"
+	"github.com/bestruirui/octopus/internal/utils/log"
 	"github.com/gin-gonic/gin"
 )
 
@@ -58,6 +59,34 @@ func InvalidParam(c *gin.Context) {
 
 func InternalError(c *gin.Context) {
 	ErrorWithAppError(c, http.StatusInternalServerError, apperror.New(apperror.CodeCommonInternalError, ErrInternalServer).WithStatus(http.StatusInternalServerError))
+}
+
+// InternalErrorWithLog 给客户端返回通用文案，把真实错误写进日志。
+//
+// 直接 resp.Error(c, 500, err.Error()) 会把 SQL 文本、文件路径、上游 URL 泄给
+// 客户端，同时绕过 apperror 的错误码体系。带 apperror 码的错误按原样返回
+// （那是给前端翻译用的稳定标识，本来就不含内部细节）。
+func InternalErrorWithLog(c *gin.Context, err error) {
+	if err == nil {
+		InternalError(c)
+		return
+	}
+	if code := apperror.Code(err); code != "" {
+		ErrorWithAppError(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	method, path := "", ""
+	if c != nil && c.Request != nil {
+		method = c.Request.Method
+		path = c.Request.URL.Path
+	}
+	log.Errorw("handler.internal_error",
+		"method", method,
+		"path", path,
+		"error", err.Error(),
+	)
+	InternalError(c)
 }
 
 func DatabaseError(c *gin.Context) {

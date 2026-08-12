@@ -7,12 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/bestruirui/octopus/internal/utils/log"
 	"github.com/bestruirui/octopus/internal/utils/safe"
-	"github.com/tmaxmax/go-sse"
 )
 
 // ErrEmptyUpstreamStream marks 200 SSE streams that ended without forwarding
@@ -75,8 +73,8 @@ type StreamConfig struct {
 	HeartbeatInterval time.Duration // 0 to disable
 
 	// Callbacks
-	OnFirstToken func()                                            // Called when first payload written
-	OnFinish     func(ctx context.Context, rawStream []byte) error // Called on stream end
+	OnFirstToken func()                          // Called when first payload written
+	OnFinish     func(ctx context.Context) error // Called on stream end
 
 	// Precommit buffers transformed events until a semantic payload is seen.
 	// This keeps failover possible when an upstream emits headers/metadata and
@@ -92,10 +90,6 @@ type StreamConfig struct {
 	// late upstream error stays possible either way. A stream that forwarded
 	// nothing at all still fails with ErrEmptyUpstreamStream.
 	AllowEmptyPayload bool
-
-	// Passthrough-specific
-	BufferRawStream bool                // Enable raw stream buffering for metrics
-	TerminalEvents  map[string]struct{} // Protocol terminal events for early completion
 }
 
 // StreamProcessor unifies all stream handling logic.
@@ -103,7 +97,6 @@ type StreamProcessor struct {
 	config StreamConfig
 
 	// State
-	rawBuffer      bytes.Buffer
 	pendingBuffer  bytes.Buffer
 	pendingEvents  int
 	payloadWritten bool
@@ -222,11 +215,6 @@ func (p *StreamProcessor) Run() error {
 				}
 			}
 
-			// Buffer raw data if enabled
-			if p.config.BufferRawStream {
-				p.rawBuffer.Write(r.data)
-			}
-
 			// Transform and write
 			if err := p.processEvent(r.data); err != nil {
 				return err
@@ -325,24 +313,10 @@ func (p *StreamProcessor) handleDisconnect() error {
 		log.Debugf("client disconnected after observer reached terminal event, treating as success")
 		return p.finalize()
 	}
-	// Check for terminal events in buffered stream
-	if p.config.BufferRawStream && len(p.config.TerminalEvents) > 0 {
-		if p.streamReachedTerminal() {
-			log.Debugf("client disconnected but stream reached terminal event, treating as success")
-			return p.finalize()
-		}
-	}
 
 	err := p.config.Context.Err()
 	log.Debugf("client disconnected, stopping stream: written=%t first_token_seen=%t err=%v",
 		p.payloadWritten, !p.firstToken, err)
-
-	if p.config.BufferRawStream && p.rawBuffer.Len() > 0 {
-		// Still call OnFinish to collect partial metrics
-		if p.config.OnFinish != nil {
-			_ = p.config.OnFinish(context.Background(), p.rawBuffer.Bytes())
-		}
-	}
 
 	return err
 }
@@ -377,8 +351,7 @@ func (p *StreamProcessor) finalize() error {
 	log.Debugf("stream end (payload_written=%t)", p.payloadWritten)
 
 	if p.config.OnFinish != nil {
-		rawStream := p.rawBuffer.Bytes()
-		if err := p.config.OnFinish(p.config.Context, rawStream); err != nil {
+		if err := p.config.OnFinish(p.config.Context); err != nil {
 			return err
 		}
 	}
@@ -389,52 +362,4 @@ func (p *StreamProcessor) finalize() error {
 // PayloadWritten returns whether any payload has been written to the client.
 func (p *StreamProcessor) PayloadWritten() bool {
 	return p.payloadWritten
-}
-
-// streamReachedTerminal checks if buffered stream contains a terminal event.
-func (p *StreamProcessor) streamReachedTerminal() bool {
-	if p.rawBuffer.Len() == 0 {
-		return false
-	}
-
-	readCfg := &sse.ReadConfig{MaxEventSize: 32 * 1024 * 1024}
-	for ev, err := range sse.Read(bytes.NewReader(p.rawBuffer.Bytes()), readCfg) {
-		if err != nil {
-			break
-		}
-
-		// Extract event type
-		typ := strings.TrimSpace(ev.Type)
-		if typ == "" {
-			data := ev.Data
-			if len(data) > 0 && data[0] == '{' {
-				typ = extractJSONType(data)
-			}
-		}
-
-		if _, ok := p.config.TerminalEvents[typ]; ok {
-			return true
-		}
-	}
-
-	return false
-}
-
-// extractJSONType extracts "type" field from JSON without full unmarshaling.
-func extractJSONType(data string) string {
-	// Simple extraction: find "type":"value"
-	if idx := strings.Index(data, `"type"`); idx >= 0 {
-		rest := data[idx+6:]
-		if idx := strings.IndexByte(rest, ':'); idx >= 0 {
-			rest = rest[idx+1:]
-			rest = strings.TrimSpace(rest)
-			if len(rest) > 0 && rest[0] == '"' {
-				rest = rest[1:]
-				if idx := strings.IndexByte(rest, '"'); idx >= 0 {
-					return rest[:idx]
-				}
-			}
-		}
-	}
-	return ""
 }

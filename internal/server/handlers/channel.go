@@ -61,7 +61,7 @@ func init() {
 func listChannel(c *gin.Context) {
 	channels, err := op.ChannelList(c.Request.Context())
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
 	channelIDs := make([]int, 0, len(channels))
@@ -70,7 +70,7 @@ func listChannel(c *gin.Context) {
 	}
 	bindingMap, err := op.SiteChannelBindingMapByChannelIDs(channelIDs, c.Request.Context())
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
 	for i, channel := range channels {

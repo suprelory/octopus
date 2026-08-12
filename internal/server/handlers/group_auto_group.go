@@ -23,7 +23,7 @@ func init() {
 func getGroupAutoGroupConfig(c *gin.Context) {
 	config, err := op.GroupAutoGroupConfigGet(c.Request.Context())
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
 	resp.Success(c, config)

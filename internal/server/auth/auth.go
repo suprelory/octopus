@@ -3,7 +3,6 @@ package auth
 import (
 	"crypto/rand"
 	"encoding/base64"
-	"math/big"
 	"sync"
 	"time"
 
@@ -47,19 +46,49 @@ func getJWTSecret() []byte {
 	return jwtSecretKey
 }
 
+// JWT 有效期约定（分钟）：
+//   - expire == 0：默认短有效期
+//   - expire == -1：「记住我」
+//   - expire > 0：客户端指定，但会被 clamp 到 MaxJWTExpiresMin
+//
+// 其它取值由 handler 侧拒绝；jwtLifetime 仍然兜底到默认值，保证 ExpiresAt
+// 一定非 nil（历史实现里 expire < -1 三个分支都不命中，会签出没有 exp 声明的
+// token，并在随后的 claims.ExpiresAt.Format 上空指针 panic）。
+const (
+	defaultJWTExpiresMin    = 15
+	rememberMeJWTExpiresMin = 30 * 24 * 60
+	// MaxJWTExpiresMin 是客户端可请求的最长有效期（30 天）。
+	MaxJWTExpiresMin = 30 * 24 * 60
+)
+
+// JWTExpireValid 判断客户端传来的 expire 是否在白名单内。正数超过上限不算
+// 非法，会在 jwtLifetime 里被 clamp。
+func JWTExpireValid(expiresMin int) bool {
+	return expiresMin >= -1
+}
+
+// jwtLifetime 把 expire 映射成有效期，任何不认识的取值都落到默认值。
+func jwtLifetime(expiresMin int) time.Duration {
+	switch {
+	case expiresMin > 0:
+		if expiresMin > MaxJWTExpiresMin {
+			expiresMin = MaxJWTExpiresMin
+		}
+		return time.Duration(expiresMin) * time.Minute
+	case expiresMin == -1:
+		return time.Duration(rememberMeJWTExpiresMin) * time.Minute
+	default:
+		return time.Duration(defaultJWTExpiresMin) * time.Minute
+	}
+}
+
 func GenerateJWTToken(expiresMin int) (string, string, error) {
 	now := time.Now()
 	claims := &jwt.RegisteredClaims{
 		IssuedAt:  jwt.NewNumericDate(now),
 		NotBefore: jwt.NewNumericDate(now),
 		Issuer:    conf.APP_NAME,
-	}
-	if expiresMin == 0 {
-		claims.ExpiresAt = jwt.NewNumericDate(now.Add(time.Duration(15) * time.Minute))
-	} else if expiresMin > 0 {
-		claims.ExpiresAt = jwt.NewNumericDate(now.Add(time.Duration(expiresMin) * time.Minute))
-	} else if expiresMin == -1 {
-		claims.ExpiresAt = jwt.NewNumericDate(now.Add(time.Duration(30) * 24 * time.Hour))
+		ExpiresAt: jwt.NewNumericDate(now.Add(jwtLifetime(expiresMin))),
 	}
 	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(getJWTSecret())
 	if err != nil {
@@ -69,9 +98,15 @@ func GenerateJWTToken(expiresMin int) (string, string, error) {
 }
 
 func VerifyJWTToken(token string) bool {
-	jwtToken, err := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
-		return getJWTSecret(), nil
-	})
+	// 固定签名算法与签发者。golang-jwt v5 本身已拒绝 alg:none，且 keyfunc 返回
+	// []byte 时 RS256 会因密钥类型不匹配而失败，这里属于纵深防御。
+	jwtToken, err := jwt.Parse(token,
+		func(token *jwt.Token) (interface{}, error) {
+			return getJWTSecret(), nil
+		},
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+		jwt.WithIssuer(conf.APP_NAME),
+	)
 	if err != nil || !jwtToken.Valid {
 		return false
 	}
@@ -80,14 +115,27 @@ func VerifyJWTToken(token string) bool {
 
 func GenerateAPIKey() string {
 	const keyChars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	b := make([]byte, 48)
-	maxI := big.NewInt(int64(len(keyChars)))
-	for i := range b {
-		n, err := rand.Int(rand.Reader, maxI)
-		if err != nil {
+	const keyLen = 48
+	// 字符集长度 62 不是 2 的幂，直接对随机字节取模会让前 8 个字符出现概率偏高，
+	// 所以做拒绝采样：只接受 < 248 (= 62*4) 的字节，丢弃率约 3%。
+	const maxAcceptable = 256 - 256%len(keyChars)
+
+	out := make([]byte, 0, keyLen)
+	// 一次多读一些，正常情况下一轮就够；不够再补读，避免 48 次系统调用。
+	buf := make([]byte, keyLen+keyLen/8+8)
+	for len(out) < keyLen {
+		if _, err := rand.Read(buf); err != nil {
 			return ""
 		}
-		b[i] = keyChars[n.Int64()]
+		for _, v := range buf {
+			if int(v) >= maxAcceptable {
+				continue
+			}
+			out = append(out, keyChars[int(v)%len(keyChars)])
+			if len(out) == keyLen {
+				break
+			}
+		}
 	}
-	return "sk-" + conf.APP_NAME + "-" + string(b)
+	return "sk-" + conf.APP_NAME + "-" + string(out)
 }

@@ -172,18 +172,11 @@ func listLog(c *gin.Context) {
 			resp.Error(c, http.StatusBadRequest, fe.Message)
 			return
 		}
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
 
-	resp.Success(c, gin.H{
-		"logs":        result.Logs,
-		"total":       result.Total,
-		"has_more":    result.HasMore,
-		"next_cursor": result.NextCursor,
-		"search_mode": result.SearchMode,
-		"warning":     result.Warning,
-	})
+	resp.Success(c, result)
 }
 
 func parseBoolQuery(c *gin.Context, key string, defaultValue bool) (bool, error) {
@@ -228,7 +221,7 @@ func getLogSiteActionTargets(c *gin.Context) {
 	}
 	data, err := op.RelayLogSiteActionTargets(c.Request.Context(), ids)
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
 	resp.Success(c, data)
@@ -246,7 +239,7 @@ func getLog(c *gin.Context) {
 			resp.NotFound(c)
 			return
 		}
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
 	resp.Success(c, logItem)
@@ -254,7 +247,7 @@ func getLog(c *gin.Context) {
 
 func clearLog(c *gin.Context) {
 	if err := op.RelayLogClear(c.Request.Context()); err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
 	resp.Success(c, nil)
@@ -263,7 +256,7 @@ func clearLog(c *gin.Context) {
 func getStreamToken(c *gin.Context) {
 	token, err := op.RelayLogStreamTokenCreate()
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
 	resp.Success(c, gin.H{"token": token})

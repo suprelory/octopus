@@ -57,13 +57,13 @@ func init() {
 func getModelList(c *gin.Context) {
 	models, err := op.GroupListModel(c.Request.Context())
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
 	apiKeyId := c.GetInt("api_key_id")
 	apiKey, err := op.APIKeyGet(apiKeyId, c.Request.Context())
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
 	if apiKey.SupportedModels != "" {
@@ -115,7 +115,7 @@ func getModelList(c *gin.Context) {
 func listLLM(c *gin.Context) {
 	models, err := op.LLMList(c.Request.Context())
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
 	resp.Success(c, models)
@@ -124,7 +124,7 @@ func listLLM(c *gin.Context) {
 func listLLMByChannel(c *gin.Context) {
 	channels, err := op.ChannelLLMList(c.Request.Context())
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
 	resp.Success(c, channels)

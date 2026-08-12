@@ -33,18 +33,36 @@ func static(urlPrefix string, fileSystem http.FileSystem) gin.HandlerFunc {
 		fileserver = http.StripPrefix(urlPrefix, fileserver)
 	}
 	return func(c *gin.Context) {
-		if strings.HasPrefix(c.Request.URL.Path, "/api") {
+		if skipStaticLookup(c.Request) {
 			c.Next()
 			return
 		}
-		if _, err := fileSystem.Open(c.Request.URL.Path); err == nil {
-			if isHashedAsset(c.Request.URL.Path) {
-				c.Header("Cache-Control", "public, max-age=31536000, immutable")
-			} else {
-				c.Header("Cache-Control", "no-cache")
-			}
-			fileserver.ServeHTTP(c.Writer, c.Request)
-			c.Abort()
+
+		f, err := fileSystem.Open(c.Request.URL.Path)
+		if err != nil {
+			return
 		}
+		// http.Dir 每次 Open 都是一个真实的 *os.File，不 Close 会持续泄漏 fd。
+		f.Close()
+
+		if isHashedAsset(c.Request.URL.Path) {
+			c.Header("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			c.Header("Cache-Control", "no-cache")
+		}
+		fileserver.ServeHTTP(c.Writer, c.Request)
+		c.Abort()
 	}
+}
+
+// skipStaticLookup 跳过一定不是静态资源的请求，避免在 relay 热路径上白做一次
+// 文件系统查找。/v1 是 relay 路由（handlers/relay.go），每个
+// POST /v1/chat/completions 都会走到这里。
+func skipStaticLookup(r *http.Request) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return true
+	}
+	path := r.URL.Path
+	return strings.HasPrefix(path, "/api/") || path == "/api" ||
+		strings.HasPrefix(path, "/v1/") || path == "/v1"
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"github.com/bestruirui/octopus/internal/outlierwindow"
 	"github.com/bestruirui/octopus/internal/relay/balancer"
 	"github.com/bestruirui/octopus/internal/server/resp"
+	"github.com/bestruirui/octopus/internal/transformer/httpio"
 	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
 	"github.com/bestruirui/octopus/internal/transformer/outbound"
 	openaiOutbound "github.com/bestruirui/octopus/internal/transformer/outbound/openai"
@@ -44,6 +46,12 @@ type responsesCompactResponse struct {
 func HandleResponsesCompact(c *gin.Context) {
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
+		// middleware.MaxBodySize 命中时要回 413，别把限流当成内部错误。
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			resp.ErrorWithCode(c, http.StatusRequestEntityTooLarge, CodeRelayRequestTooLarge, "request body too large")
+			return
+		}
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -159,11 +167,9 @@ func HandleResponsesCompact(c *gin.Context) {
 		for retryNum := 0; retryNum < maxSameChannelRetries; retryNum++ {
 			if retryNum > 0 {
 				delay := computeBackoff(retryNum, retryAfter)
-				select {
-				case <-c.Request.Context().Done():
+				if !waitBackoff(c.Request.Context(), delay) {
 					metrics.SaveWithChannelStats(c.Request.Context(), false, context.Canceled, iter.Attempts(), false)
 					return
-				case <-time.After(delay):
 				}
 			}
 
@@ -246,10 +252,10 @@ func forwardResponsesCompact(c *gin.Context, metrics *RelayMetrics, iter *balanc
 	}
 	defer response.Body.Close()
 
-	body, readErr := io.ReadAll(response.Body)
+	body, readErr := httpio.ReadResponseBody(response.Body)
 	if readErr != nil {
 		span.End(dbmodel.AttemptFailed, response.StatusCode, readErr.Error())
-		return response.StatusCode, 0, fmt.Errorf("failed to read compact response body: %w", readErr)
+		return responseProcessingErrorStatus(response.StatusCode), 0, fmt.Errorf("failed to read compact response body: %w", readErr)
 	}
 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {

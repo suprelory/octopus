@@ -5,11 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
 
+	"github.com/bestruirui/octopus/internal/transformer/httpio"
 	"github.com/bestruirui/octopus/internal/transformer/model"
 )
 
@@ -293,7 +293,7 @@ func convertToolsToChatCompletions(tools []model.Tool) []ChatCompletionsTool {
 }
 
 func (o *ChatOutbound) TransformResponse(ctx context.Context, response *http.Response) (*model.InternalLLMResponse, error) {
-	body, err := io.ReadAll(response.Body)
+	body, err := httpio.ReadResponseBody(response.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}

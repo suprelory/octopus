@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 
+	"github.com/bestruirui/octopus/internal/apperror"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/server/auth"
@@ -42,10 +44,29 @@ func login(c *gin.Context) {
 		resp.InvalidJSON(c)
 		return
 	}
+	// expire 只接受 0（默认）、-1（记住我）和正数分钟数。历史实现把任意值直接
+	// 传给 GenerateJWTToken，expire < -1 会签出没有 exp 声明的 token 并 panic。
+	if !auth.JWTExpireValid(user.Expire) {
+		resp.InvalidParam(c)
+		return
+	}
+
+	source := c.ClientIP()
+	if allowed, retryAfter := op.LoginAttemptAllow(source); !allowed {
+		c.Header("Retry-After", strconv.Itoa(retryAfter))
+		resp.ErrorWithAppError(c, http.StatusTooManyRequests,
+			apperror.New(apperror.CodeAuthLoginRateLimited, "too many login attempts").
+				WithStatus(http.StatusTooManyRequests))
+		return
+	}
+
 	if err := op.UserVerify(user.Username, user.Password); err != nil {
+		op.LoginAttemptFailed(source)
 		resp.InvalidCredentials(c)
 		return
 	}
+	op.LoginAttemptSucceeded(source)
+
 	token, expire, err := auth.GenerateJWTToken(user.Expire)
 	if err != nil {
 		resp.InternalError(c)
@@ -74,7 +95,7 @@ func changeUsername(c *gin.Context) {
 		return
 	}
 	if err := op.UserChangeUsername(user.NewUsername); err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
 	resp.Success(c, "username changed successfully")

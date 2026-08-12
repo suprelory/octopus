@@ -1878,6 +1878,22 @@ func TestHandleResponsesCompactSkipsIncompatibleChannels(t *testing.T) {
 	}
 }
 
+func TestResponseProcessingErrorStatus(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		want   int
+	}{
+		{http.StatusOK, 0},
+		{http.StatusNoContent, 0},
+		{http.StatusTooManyRequests, http.StatusTooManyRequests},
+		{http.StatusInternalServerError, http.StatusInternalServerError},
+	} {
+		if got := responseProcessingErrorStatus(tc.status); got != tc.want {
+			t.Errorf("responseProcessingErrorStatus(%d) = %d, want %d", tc.status, got, tc.want)
+		}
+	}
+}
+
 func setupRelayTestDB(t *testing.T) context.Context {
 	t.Helper()
 

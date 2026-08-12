@@ -175,6 +175,43 @@ func TestRelayLogListCursorReturnsNextCursorWithoutTotal(t *testing.T) {
 	}
 }
 
+func TestRelayLogListPageReportsHasMore(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+	if err := settingRefreshCache(ctx); err != nil {
+		t.Fatalf("settingRefreshCache failed: %v", err)
+	}
+	resetRelayLogStateForTest()
+
+	rows := []model.RelayLog{
+		{ID: 501, Time: 501, RequestModelName: "a", Success: true},
+		{ID: 502, Time: 502, RequestModelName: "b", Success: true},
+		{ID: 503, Time: 503, RequestModelName: "c", Success: true},
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&rows).Error; err != nil {
+		t.Fatalf("create relay logs failed: %v", err)
+	}
+
+	first, err := RelayLogListWithFilter(ctx, RelayLogListFilter{
+		Pagination: "page", Page: 1, PageSize: 2, WithTotal: true,
+	})
+	if err != nil {
+		t.Fatalf("first page failed: %v", err)
+	}
+	if !first.HasMore || len(first.Logs) != 2 || first.Total != 3 || !first.TotalExact {
+		t.Fatalf("unexpected first page: %+v", first)
+	}
+
+	last, err := RelayLogListWithFilter(ctx, RelayLogListFilter{
+		Pagination: "page", Page: 2, PageSize: 2, WithTotal: true,
+	})
+	if err != nil {
+		t.Fatalf("last page failed: %v", err)
+	}
+	if last.HasMore || len(last.Logs) != 1 || last.Logs[0].ID != 501 {
+		t.Fatalf("unexpected last page: %+v", last)
+	}
+}
+
 func TestRelayLogGetReturnsFullContent(t *testing.T) {
 	ctx := setupSiteOpTestDB(t)
 	if err := settingRefreshCache(ctx); err != nil {

@@ -42,8 +42,14 @@ var relayLogLastDropWarn atomic.Int64
 var relayLogSubscribers = make(map[chan model.RelayLog]struct{})
 var relayLogSubscribersLock sync.RWMutex
 
-var relayLogStreamTokens = make(map[string]struct{})
-var relayLogStreamTokensLock sync.RWMutex
+// relayLogStreamTokenTTL 是 /log/stream-token 的有效期。前端 useLogStream 每次
+// 重连都会重新取一个 token，SSE 反复失败时每轮退避都会签发一个；没有 TTL 时
+// 这些 token 既是内存泄漏，也长期可用。签发和校验都顺手清理过期项。
+const relayLogStreamTokenTTL = 30 * time.Second
+
+// relayLogStreamTokens 记录 token 的签发时间。
+var relayLogStreamTokens = make(map[string]time.Time)
+var relayLogStreamTokensLock sync.Mutex
 
 func RelayLogStreamTokenCreate() (string, error) {
 	bytes := make([]byte, 32)
@@ -52,24 +58,45 @@ func RelayLogStreamTokenCreate() (string, error) {
 	}
 	token := hex.EncodeToString(bytes)
 
+	now := time.Now()
 	relayLogStreamTokensLock.Lock()
-	relayLogStreamTokens[token] = struct{}{}
+	relayLogStreamTokensPruneLocked(now)
+	relayLogStreamTokens[token] = now
 	relayLogStreamTokensLock.Unlock()
 
 	return token, nil
 }
 
 func RelayLogStreamTokenVerify(token string) bool {
-	relayLogStreamTokensLock.RLock()
-	_, ok := relayLogStreamTokens[token]
-	relayLogStreamTokensLock.RUnlock()
-	return ok
+	now := time.Now()
+
+	relayLogStreamTokensLock.Lock()
+	defer relayLogStreamTokensLock.Unlock()
+
+	issuedAt, ok := relayLogStreamTokens[token]
+	if !ok {
+		return false
+	}
+	if now.Sub(issuedAt) > relayLogStreamTokenTTL {
+		delete(relayLogStreamTokens, token)
+		return false
+	}
+	return true
 }
 
 func RelayLogStreamTokenRevoke(token string) {
 	relayLogStreamTokensLock.Lock()
 	delete(relayLogStreamTokens, token)
 	relayLogStreamTokensLock.Unlock()
+}
+
+// relayLogStreamTokensPruneLocked 删除已过期的 token。调用方必须持有锁。
+func relayLogStreamTokensPruneLocked(now time.Time) {
+	for token, issuedAt := range relayLogStreamTokens {
+		if now.Sub(issuedAt) > relayLogStreamTokenTTL {
+			delete(relayLogStreamTokens, token)
+		}
+	}
 }
 
 func RelayLogSubscribe() chan model.RelayLog {
@@ -453,12 +480,15 @@ type RelayLogListFilter struct {
 }
 
 type RelayLogListResult struct {
-	Logs       []model.RelayLog `json:"logs"`
-	Total      int              `json:"total"`
-	HasMore    bool             `json:"has_more"`
-	NextCursor *RelayLogCursor  `json:"next_cursor,omitempty"`
-	SearchMode string           `json:"search_mode,omitempty"`
-	Warning    string           `json:"warning,omitempty"`
+	Logs  []model.RelayLog `json:"logs"`
+	Total int              `json:"total"`
+	// TotalExact 为 false 表示 Total 是下界（命中了有界计数上限），
+	// UI 应显示成 "Total+" 而不是精确值。
+	TotalExact bool            `json:"total_exact"`
+	HasMore    bool            `json:"has_more"`
+	NextCursor *RelayLogCursor `json:"next_cursor,omitempty"`
+	SearchMode string          `json:"search_mode,omitempty"`
+	Warning    string          `json:"warning,omitempty"`
 }
 
 const (
@@ -559,6 +589,8 @@ func RelayLogListWithFilter(ctx context.Context, filter RelayLogListFilter) (Rel
 		if err != nil {
 			return RelayLogListResult{}, err
 		}
+		// cursor 模式不报 total，标成 exact 以免前端把 0 当成下界渲染。
+		result.TotalExact = true
 		result.SearchMode = relayLogSearchMode(filter)
 		result.Warning = warning
 		return result, nil
@@ -566,13 +598,18 @@ func RelayLogListWithFilter(ctx context.Context, filter RelayLogListFilter) (Rel
 
 	var logs []model.RelayLog
 	total := 0
+	// Page mode reads one extra row so callers can keep navigating when Total is
+	// only a lower bound. The extra row is removed before returning.
+	pageFetchLimit := filter.PageSize + 1
+	// 未落库的 pending 条目是精确计数；只有 DB 侧的有界计数会把它变成下界。
+	totalExact := true
 	if filter.WithTotal {
 		total = cacheCount
 	}
 
 	// 先从未落库 pending 中取（pending 是最新日志）；已落库日志从 DB 取，避免重复分页。
 	if offset < cacheCount {
-		cacheEnd := offset + filter.PageSize
+		cacheEnd := offset + pageFetchLimit
 		if cacheEnd > cacheCount {
 			cacheEnd = cacheCount
 		}
@@ -582,16 +619,15 @@ func RelayLogListWithFilter(ctx context.Context, filter RelayLogListFilter) (Rel
 	// 如果启用了日志保存，从数据库读取剩余条目；仅按需统计总数。
 	if enabled {
 		if filter.WithTotal {
-			var dbCount int64
-			countQuery := db.GetDB().WithContext(ctx).Model(&model.RelayLog{})
-			countQuery = applyRelayLogDBFilters(countQuery, filter)
-			if err := countQuery.Count(&dbCount).Error; err != nil {
+			dbCount, exact, err := relayLogDBTotal(ctx, filter)
+			if err != nil {
 				return RelayLogListResult{}, err
 			}
-			total += int(dbCount)
+			total += dbCount
+			totalExact = exact
 		}
 
-		remaining := filter.PageSize - len(logs)
+		remaining := pageFetchLimit - len(logs)
 		if remaining > 0 {
 			dbOffset := 0
 			if offset > cacheCount {
@@ -610,7 +646,19 @@ func RelayLogListWithFilter(ctx context.Context, filter RelayLogListFilter) (Rel
 		}
 	}
 
-	return RelayLogListResult{Logs: logs, Total: total, SearchMode: relayLogSearchMode(filter), Warning: warning}, nil
+	hasMore := len(logs) > filter.PageSize
+	if hasMore {
+		logs = logs[:filter.PageSize]
+	}
+
+	return RelayLogListResult{
+		Logs:       logs,
+		Total:      total,
+		TotalExact: totalExact,
+		HasMore:    hasMore,
+		SearchMode: relayLogSearchMode(filter),
+		Warning:    warning,
+	}, nil
 }
 
 func relayLogListCursor(ctx context.Context, filter RelayLogListFilter, cachedLogs []model.RelayLog, enabled bool) (RelayLogListResult, error) {
@@ -1022,6 +1070,9 @@ func relayLogSearchMode(filter RelayLogListFilter) string {
 func RelayLogClear(ctx context.Context) error {
 	relayLogFlushLock.Lock()
 	defer relayLogFlushLock.Unlock()
+
+	// 缓存的 total 在删除后立刻失效，否则清空日志后列表还会显示旧总数。
+	defer RelayLogTotalCacheInvalidate()
 
 	relayLogPendingLock.Lock()
 	relayLogPending = make([]model.RelayLog, 0, relayLogBatchSize)

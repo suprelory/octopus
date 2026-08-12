@@ -380,7 +380,7 @@ func (s *cancelTestSource) Close() error {
 	return nil
 }
 
-func TestStreamProcessor_BufferRawStream(t *testing.T) {
+func TestStreamProcessor_OnFinish(t *testing.T) {
 	events := [][]byte{
 		[]byte(`chunk1`),
 		[]byte(`chunk2`),
@@ -390,14 +390,13 @@ func TestStreamProcessor_BufferRawStream(t *testing.T) {
 	writer := newMockStreamWriter()
 	ctx := context.Background()
 
-	var bufferedData []byte
+	finished := false
 	processor := NewStreamProcessor(StreamConfig{
-		Source:          source,
-		Writer:          writer,
-		Context:         ctx,
-		BufferRawStream: true,
-		OnFinish: func(ctx context.Context, rawStream []byte) error {
-			bufferedData = rawStream
+		Source:  source,
+		Writer:  writer,
+		Context: ctx,
+		OnFinish: func(ctx context.Context) error {
+			finished = true
 			return nil
 		},
 	})
@@ -407,9 +406,13 @@ func TestStreamProcessor_BufferRawStream(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
+	if !finished {
+		t.Error("OnFinish was not called")
+	}
+
 	expected := "chunk1chunk2"
-	if string(bufferedData) != expected {
-		t.Errorf("unexpected buffered data:\ngot:  %q\nwant: %q", bufferedData, expected)
+	if got := writer.buffer.String(); got != expected {
+		t.Errorf("unexpected forwarded data:\ngot:  %q\nwant: %q", got, expected)
 	}
 }
 
@@ -452,8 +455,23 @@ func (s *blockingStreamSource) Close() error {
 	return nil
 }
 
+// stubTerminalObserver reports that a terminal event was seen. Terminal
+// detection lives on the Observer since the raw-stream buffer was removed.
+type stubTerminalObserver struct {
+	terminal  bool
+	finalized bool
+}
+
+func (o *stubTerminalObserver) Observe(ctx context.Context, data []byte) error { return nil }
+
+func (o *stubTerminalObserver) Finalize(ctx context.Context) error {
+	o.finalized = true
+	return nil
+}
+
+func (o *stubTerminalObserver) ReachedTerminal() bool { return o.terminal }
+
 func TestStreamProcessor_TerminalEventDetection(t *testing.T) {
-	// SSE stream with terminal event
 	sseData := `data: {"type":"message_start"}
 
 data: {"type":"content_block_delta"}
@@ -465,17 +483,14 @@ data: {"type":"message_stop"}
 	writer := newMockStreamWriter()
 	ctx, cancel := context.WithCancel(context.Background())
 
-	terminalEvents := map[string]struct{}{
-		"message_stop": {},
-	}
+	observer := &stubTerminalObserver{terminal: true}
 
 	firstTokenSeen := make(chan struct{})
 	processor := NewStreamProcessor(StreamConfig{
-		Source:          source,
-		Writer:          writer,
-		Context:         ctx,
-		BufferRawStream: true,
-		TerminalEvents:  terminalEvents,
+		Source:   source,
+		Writer:   writer,
+		Context:  ctx,
+		Observer: observer,
 		OnFirstToken: func() {
 			close(firstTokenSeen)
 		},
@@ -491,10 +506,13 @@ data: {"type":"message_stop"}
 	<-firstTokenSeen
 	cancel()
 
-	// Should treat as success because terminal event was reached
+	// Should treat as success because the observer reached a terminal event
 	err := <-errChan
 	if err != nil {
 		t.Errorf("expected nil error due to terminal event detection, got: %v", err)
+	}
+	if !observer.finalized {
+		t.Error("expected the observer to be finalized on the success path")
 	}
 }
 

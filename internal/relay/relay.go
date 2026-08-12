@@ -19,6 +19,7 @@ import (
 	"github.com/bestruirui/octopus/internal/relay/balancer"
 	"github.com/bestruirui/octopus/internal/relay/stream"
 	"github.com/bestruirui/octopus/internal/server/resp"
+	"github.com/bestruirui/octopus/internal/transformer/httpio"
 	"github.com/bestruirui/octopus/internal/transformer/inbound"
 	"github.com/bestruirui/octopus/internal/transformer/model"
 	"github.com/bestruirui/octopus/internal/transformer/outbound"
@@ -260,14 +261,11 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 				delay := computeBackoff(retryNum, result.RetryAfter)
 				log.Infof("same-channel retry %d/%d for %s, waiting %v",
 					retryNum, maxSameChannelRetries, channel.Name, delay)
-				select {
-				case <-c.Request.Context().Done():
+				if !waitBackoff(c.Request.Context(), delay) {
 					log.Debugf("request context canceled during retry backoff")
 					metrics.SaveWithChannelStats(c.Request.Context(), false, context.Canceled, iter.Attempts(), false)
 					return
-				case <-time.After(delay):
 				}
-
 			}
 
 			attemptRequest, attemptErr := newAttemptRelayRequest(req, c.Request.Context(), item.ModelName)
@@ -580,6 +578,12 @@ func protocolErrorFromAttempt(upstreamError *model.ResponseError, statusCode int
 func parseRequest(inboundType inbound.InboundType, c *gin.Context) ([]byte, *model.InternalLLMRequest, model.Inbound, error) {
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
+		// middleware.MaxBodySize 命中时要回 413，别把限流当成内部错误。
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			resp.ErrorWithCode(c, http.StatusRequestEntityTooLarge, CodeRelayRequestTooLarge, "request body too large")
+			return nil, nil, nil, err
+		}
 		resp.ErrorWithCode(c, http.StatusInternalServerError, CodeRelayUpstreamFailed, err.Error())
 		return nil, nil, nil, err
 	}
@@ -835,7 +839,7 @@ func (ra *relayAttempt) handleWSStreamResponseV2(ctx context.Context, reader *ws
 			ra.metrics.SetFirstTokenTime(time.Now())
 			ra.stopFirstTokenTimer()
 		},
-		OnFinish: func(context.Context, []byte) error {
+		OnFinish: func(context.Context) error {
 			return ra.finalizeStreamLifecycle(ctx, true)
 		},
 	})
@@ -946,12 +950,25 @@ func (ra *relayAttempt) forwardViaHTTPPassthrough(ctx context.Context, pt model.
 		}
 		return response.StatusCode, nil
 	}
-	return response.StatusCode, ra.handleResponsePassthrough(ctx, response, cfg)
+	if err := ra.handleResponsePassthrough(ctx, response, cfg); err != nil {
+		return responseProcessingErrorStatus(response.StatusCode), err
+	}
+	return response.StatusCode, nil
+}
+
+// A successful HTTP status is not a successful relay attempt when response
+// processing fails. Status 0 feeds the error into the existing retry/failover
+// path; non-2xx statuses retain their original retry semantics.
+func responseProcessingErrorStatus(status int) int {
+	if status >= 200 && status < 300 {
+		return 0
+	}
+	return status
 }
 
 // handleResponsePassthrough handles non-streaming passthrough responses.
 func (ra *relayAttempt) handleResponsePassthrough(ctx context.Context, response *http.Response, cfg model.PassthroughConfig) error {
-	body, err := io.ReadAll(response.Body)
+	body, err := httpio.ReadResponseBody(response.Body)
 	if err != nil {
 		return fmt.Errorf("failed to read response body: %w", err)
 	}
@@ -1052,15 +1069,17 @@ func readOutboundRequestBody(req *http.Request) ([]byte, error) {
 	if req == nil || req.Body == nil {
 		return nil, nil
 	}
+	// 出站 body 由入站 body 转换而来，本身已被 middleware.MaxBodySize 限住，
+	// 这里用同一个上限兜底，避免 transformer 里的意外膨胀。
 	if req.GetBody != nil {
 		bodyReader, err := req.GetBody()
 		if err != nil {
 			return nil, err
 		}
 		defer bodyReader.Close()
-		return io.ReadAll(bodyReader)
+		return httpio.ReadResponseBody(bodyReader)
 	}
-	body, err := io.ReadAll(req.Body)
+	body, err := httpio.ReadResponseBody(req.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -1223,7 +1242,7 @@ func (ra *relayAttempt) handleStreamResponseV2(ctx context.Context, response *ht
 			ra.metrics.SetFirstTokenTime(time.Now())
 			ra.stopFirstTokenTimer()
 		},
-		OnFinish: func(context.Context, []byte) error {
+		OnFinish: func(context.Context) error {
 			return ra.finalizeStreamLifecycle(ctx, true)
 		},
 	})
@@ -1324,7 +1343,7 @@ func (ra *relayAttempt) handleStreamResponsePassthroughV2(ctx context.Context, r
 			ra.metrics.SetFirstTokenTime(time.Now())
 			ra.stopFirstTokenTimer()
 		},
-		OnFinish: func(ctx context.Context, _ []byte) error {
+		OnFinish: func(ctx context.Context) error {
 			if err := ra.finalizeStreamLifecycle(ctx, false); err != nil {
 				return err
 			}
