@@ -1050,7 +1050,7 @@
             "save": "Save",
             "saving": "Saving...",
             "saved": "Advanced settings saved",
-            "invalidParamOverride": "Parameter override must be a valid JSON object",
+            "invalidParamOverride": "Parameter override must be a valid JSON object or operation array",
             "saveFailed": "Failed to save advanced settings"
         }
     },

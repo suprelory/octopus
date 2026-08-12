@@ -155,8 +155,8 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 			continue
 		}
 
-		// channel.Type 限制：仅 OpenAI Chat/Responses
-		if channel.Type != outbound.OutboundTypeOpenAIChat && channel.Type != outbound.OutboundTypeOpenAIResponse {
+		// Images is a relay-level operation declared by the protocol descriptor.
+		if !outbound.SupportsRelayOperation(channel.Type, "images") {
 			iter.Skip(channel.ID, 0, channel.Name, fmt.Sprintf("unsupported channel type: %d", channel.Type))
 			continue
 		}

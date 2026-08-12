@@ -1050,7 +1050,7 @@
             "save": "儲存",
             "saving": "儲存中...",
             "saved": "進階設定已儲存",
-            "invalidParamOverride": "參數覆蓋必須是合法的 JSON 物件",
+            "invalidParamOverride": "參數覆蓋必須是合法的 JSON 物件或操作陣列",
             "saveFailed": "儲存進階設定失敗"
         }
     },

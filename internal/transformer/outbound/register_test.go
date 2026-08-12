@@ -49,3 +49,23 @@ func TestEndpointCapabilities(t *testing.T) {
 		t.Fatal("Volcengine Responses-compatible endpoint must not claim byte-stable native passthrough")
 	}
 }
+
+func TestProtocolDescriptorsHaveCompleteFactories(t *testing.T) {
+	for outboundType, descriptor := range protocolDescriptors {
+		if descriptor.Name == "" || descriptor.APIFormat == "" || descriptor.Transport == "" || descriptor.Factory == nil {
+			t.Fatalf("descriptor %v is incomplete: %#v", outboundType, descriptor)
+		}
+		if got := Get(outboundType); got == nil {
+			t.Fatalf("descriptor %v factory returned nil", outboundType)
+		}
+	}
+	if !SupportsRelayOperation(OutboundTypeOpenAIChat, "images") {
+		t.Fatal("OpenAI Chat descriptor must declare images relay operation")
+	}
+	if !SupportsRelayOperation(OutboundTypeOpenAIResponse, "responses/compact") {
+		t.Fatal("OpenAI Responses descriptor must declare compact relay operation")
+	}
+	if SupportsRelayOperation(OutboundTypeAnthropic, "images") {
+		t.Fatal("Anthropic descriptor must not declare OpenAI images relay operation")
+	}
+}

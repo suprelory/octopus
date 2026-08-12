@@ -226,12 +226,7 @@ func HandleResponsesCompact(c *gin.Context) {
 }
 
 func supportsResponsesCompact(channelType outbound.OutboundType) bool {
-	switch channelType {
-	case outbound.OutboundTypeOpenAIResponse:
-		return true
-	default:
-		return false
-	}
+	return outbound.SupportsRelayOperation(channelType, "responses/compact")
 }
 
 func forwardResponsesCompact(c *gin.Context, metrics *RelayMetrics, iter *balancer.Iterator, channel *dbmodel.Channel, usedKey dbmodel.ChannelKey, requestBody []byte) (int, time.Duration, error) {

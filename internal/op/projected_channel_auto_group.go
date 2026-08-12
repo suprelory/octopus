@@ -163,6 +163,8 @@ func splitChannelModelNames(values ...string) []string {
 	return result
 }
 
+// ValidateJSONOverrideObject keeps its historical name for API compatibility,
+// but accepts both the legacy object merge and the structured operation array.
 func ValidateJSONOverrideObject(value string) error {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
@@ -172,8 +174,10 @@ func ValidateJSONOverrideObject(value string) error {
 	if err := json.Unmarshal([]byte(trimmed), &decoded); err != nil {
 		return err
 	}
-	if _, ok := decoded.(map[string]any); !ok {
-		return fmt.Errorf("param_override must be a JSON object")
+	switch decoded.(type) {
+	case map[string]any, []any:
+		return nil
+	default:
+		return fmt.Errorf("param_override must be a JSON object or operation array")
 	}
-	return nil
 }

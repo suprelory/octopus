@@ -19,48 +19,85 @@ const (
 	OutboundTypeOpenAIEmbedding
 )
 
-// EndpointCapability describes the semantic operations and wire format
-// exposed by one outbound endpoint. Keeping this next to the factory registry
-// prevents routing checks from drifting away from transformer registration.
-type EndpointCapability struct {
+// ProtocolDescriptor is the single registry entry for an outbound protocol.
+// It combines wire format, semantic operations, native passthrough support,
+// relay-only auxiliary endpoints, transport metadata, and the transformer
+// factory so those declarations cannot drift across separate maps.
+type ProtocolDescriptor struct {
+	Name               string
 	APIFormat          model.APIFormat
 	RequestTypes       map[model.RequestType]struct{}
 	NativeInputFormats map[model.APIFormat]struct{}
+	RelayOperations    map[string]struct{}
+	Transport          string
+	Factory            func() model.Outbound
 }
 
-func (c EndpointCapability) Supports(requestType model.RequestType) bool {
+// EndpointCapability remains as a source-compatible alias for callers that
+// used the pre-descriptor registry name.
+type EndpointCapability = ProtocolDescriptor
+
+func (c ProtocolDescriptor) Supports(requestType model.RequestType) bool {
 	_, ok := c.RequestTypes[requestType]
 	return ok
 }
 
-var endpointCapabilities = map[OutboundType]EndpointCapability{
+func (c ProtocolDescriptor) SupportsRelayOperation(operation string) bool {
+	_, ok := c.RelayOperations[operation]
+	return ok
+}
+
+var protocolDescriptors = map[OutboundType]ProtocolDescriptor{
 	OutboundTypeOpenAIChat: {
-		APIFormat:    model.APIFormatOpenAIChatCompletion,
-		RequestTypes: requestTypes(model.RequestTypeChat, model.RequestTypeResponses),
+		Name:            "openai_chat",
+		APIFormat:       model.APIFormatOpenAIChatCompletion,
+		RequestTypes:    requestTypes(model.RequestTypeChat, model.RequestTypeResponses),
+		RelayOperations: relayOperations("images"),
+		Transport:       "http",
+		Factory:         func() model.Outbound { return &openai.ChatOutbound{} },
 	},
 	OutboundTypeOpenAIResponse: {
+		Name:               "openai_responses",
 		APIFormat:          model.APIFormatOpenAIResponse,
 		RequestTypes:       requestTypes(model.RequestTypeChat, model.RequestTypeResponses),
 		NativeInputFormats: apiFormats(model.APIFormatOpenAIResponse),
+		RelayOperations:    relayOperations("images", "responses/compact"),
+		Transport:          "http+websocket",
+		Factory:            func() model.Outbound { return &openai.ResponseOutbound{} },
 	},
 	OutboundTypeAnthropic: {
+		Name:               "anthropic_messages",
 		APIFormat:          model.APIFormatAnthropicMessage,
 		RequestTypes:       requestTypes(model.RequestTypeChat, model.RequestTypeResponses),
 		NativeInputFormats: apiFormats(model.APIFormatAnthropicMessage),
+		Transport:          "http",
+		Factory:            func() model.Outbound { return &outAnthropic.MessageOutbound{} },
 	},
 	OutboundTypeGemini: {
+		Name:         "gemini_contents",
 		APIFormat:    model.APIFormatGeminiContents,
 		RequestTypes: requestTypes(model.RequestTypeChat, model.RequestTypeResponses),
+		Transport:    "http",
+		Factory:      func() model.Outbound { return &gemini.MessagesOutbound{} },
 	},
 	OutboundTypeVolcengine: {
+		Name:         "volcengine_responses",
 		APIFormat:    model.APIFormatOpenAIResponse,
 		RequestTypes: requestTypes(model.RequestTypeChat, model.RequestTypeResponses),
+		Transport:    "http",
+		Factory:      func() model.Outbound { return &volcengine.ResponseOutbound{} },
 	},
 	OutboundTypeOpenAIEmbedding: {
+		Name:         "openai_embeddings",
 		APIFormat:    model.APIFormatOpenAIEmbedding,
 		RequestTypes: requestTypes(model.RequestTypeEmbedding),
+		Transport:    "http",
+		Factory:      func() model.Outbound { return &openai.EmbeddingOutbound{} },
 	},
 }
+
+// endpointCapabilities is retained for package-local quality matrix callers.
+var endpointCapabilities = protocolDescriptors
 
 func requestTypes(types ...model.RequestType) map[model.RequestType]struct{} {
 	result := make(map[model.RequestType]struct{}, len(types))
@@ -78,8 +115,21 @@ func apiFormats(formats ...model.APIFormat) map[model.APIFormat]struct{} {
 	return result
 }
 
+func relayOperations(operations ...string) map[string]struct{} {
+	result := make(map[string]struct{}, len(operations))
+	for _, operation := range operations {
+		result[operation] = struct{}{}
+	}
+	return result
+}
+
+func Descriptor(outboundType OutboundType) (ProtocolDescriptor, bool) {
+	descriptor, ok := protocolDescriptors[outboundType]
+	return descriptor, ok
+}
+
 func Capabilities(outboundType OutboundType) (EndpointCapability, bool) {
-	capability, ok := endpointCapabilities[outboundType]
+	capability, ok := Descriptor(outboundType)
 	return capability, ok
 }
 
@@ -100,6 +150,11 @@ func SupportsNativeFormat(outboundType OutboundType, format model.APIFormat) boo
 	}
 	_, ok = capability.NativeInputFormats[format]
 	return ok
+}
+
+func SupportsRelayOperation(outboundType OutboundType, operation string) bool {
+	descriptor, ok := Descriptor(outboundType)
+	return ok && descriptor.SupportsRelayOperation(operation)
 }
 
 func (t OutboundType) String() string {
@@ -133,18 +188,9 @@ func IsChatChannelType(channelType OutboundType) bool {
 	return SupportsRequestType(channelType, model.RequestTypeChat)
 }
 
-var outboundFactories = map[OutboundType]func() model.Outbound{
-	OutboundTypeOpenAIChat:      func() model.Outbound { return &openai.ChatOutbound{} },
-	OutboundTypeOpenAIResponse:  func() model.Outbound { return &openai.ResponseOutbound{} },
-	OutboundTypeOpenAIEmbedding: func() model.Outbound { return &openai.EmbeddingOutbound{} },
-	OutboundTypeAnthropic:       func() model.Outbound { return &outAnthropic.MessageOutbound{} },
-	OutboundTypeGemini:          func() model.Outbound { return &gemini.MessagesOutbound{} },
-	OutboundTypeVolcengine:      func() model.Outbound { return &volcengine.ResponseOutbound{} },
-}
-
 func Get(outboundType OutboundType) model.Outbound {
-	if factory, ok := outboundFactories[outboundType]; ok {
-		return factory()
+	if descriptor, ok := Descriptor(outboundType); ok && descriptor.Factory != nil {
+		return descriptor.Factory()
 	}
 	return nil
 }

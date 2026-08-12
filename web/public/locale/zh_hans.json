@@ -1050,7 +1050,7 @@
             "save": "保存",
             "saving": "保存中...",
             "saved": "高级设置已保存",
-            "invalidParamOverride": "参数覆盖必须是合法的 JSON 对象",
+            "invalidParamOverride": "参数覆盖必须是合法的 JSON 对象或操作数组",
             "saveFailed": "保存高级设置失败"
         }
     },
