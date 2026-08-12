@@ -14,6 +14,10 @@ func TestInternalLLMRequestCloneDeepCopiesRuntimeAndNestedFields(t *testing.T) {
 	request := &InternalLLMRequest{
 		RequestType: RequestTypeChat,
 		Model:       "source-model",
+		Presence:    map[string]FieldPresence{"temperature": FieldExplicitNull},
+		Operation: &RequestOperation{Chat: &ChatOperation{Messages: []Message{{
+			Role: "user",
+		}}}},
 		Messages: []Message{{
 			Role: "user",
 			Content: MessageContent{MultipleContent: []MessageContentPart{{
@@ -51,6 +55,8 @@ func TestInternalLLMRequestCloneDeepCopiesRuntimeAndNestedFields(t *testing.T) {
 	cloned.Messages[0].ProviderExtensions.Anthropic.Beta[0] = "changed"
 	cloned.RawRequest[0] = 'R'
 	cloned.TransformerMetadata["mode"] = "changed"
+	cloned.Presence["temperature"] = FieldPresent
+	cloned.Operation.Chat.Messages[0].Role = "assistant"
 	cloned.Query["include"][0] = "changed"
 	cloned.ProviderExtensions.Common.Raw[0] = '['
 	*cloned.ProviderExtensions.Gemini.CachedContentRef = "changed"
@@ -63,6 +69,8 @@ func TestInternalLLMRequestCloneDeepCopiesRuntimeAndNestedFields(t *testing.T) {
 		request.Messages[0].ProviderExtensions.Anthropic.Beta[0] != "feature" ||
 		string(request.RawRequest) != "raw-request" ||
 		request.TransformerMetadata["mode"] != "original" ||
+		request.Presence["temperature"] != FieldExplicitNull ||
+		request.Operation.Chat.Messages[0].Role != "user" ||
 		request.Query["include"][0] != "usage" ||
 		string(request.ProviderExtensions.Common.Raw) != `{"nested":[1,2]}` ||
 		*request.ProviderExtensions.Gemini.CachedContentRef != "cachedContents/1" ||

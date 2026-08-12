@@ -90,7 +90,8 @@ func (f *StreamFinalizer) ProcessStreamEvents(events []StreamEvent) ([]StreamEve
 			f.started[event.Index] = true
 
 		case StreamEventKindTextDelta, StreamEventKindThinkingDelta, StreamEventKindSignatureDelta,
-			StreamEventKindContentBlockStart, StreamEventKindToolCallStart, StreamEventKindToolCallDelta:
+			StreamEventKindContentBlockStart, StreamEventKindToolCallStart, StreamEventKindToolCallDelta,
+			StreamEventKindImageDelta, StreamEventKindAudioDelta, StreamEventKindOpaque:
 			if !f.started[event.Index] {
 				start := StreamEvent{Kind: StreamEventKindMessageStart, ID: event.ID, Model: event.Model, Index: event.Index, Role: "assistant"}
 				normalized = append(normalized, start)

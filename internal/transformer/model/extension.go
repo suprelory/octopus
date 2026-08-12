@@ -42,9 +42,10 @@ type GeminiExtension struct {
 }
 
 type OpenAIExtension struct {
-	ResponsesPassthroughRequired bool            `json:"responses_passthrough_required,omitempty"`
-	ResponsesPassthroughReason   string          `json:"responses_passthrough_reason,omitempty"`
-	RawResponseItems             json.RawMessage `json:"raw_response_items,omitempty"`
+	ResponsesPassthroughRequired bool                    `json:"responses_passthrough_required,omitempty"`
+	ResponsesPassthroughReason   string                  `json:"responses_passthrough_reason,omitempty"`
+	RawResponseItems             json.RawMessage         `json:"raw_response_items,omitempty"`
+	Responses                    *OpenAIResponsesOptions `json:"responses,omitempty"`
 }
 
 type OpenAIResponsesOptions struct {
@@ -135,6 +136,7 @@ func CloneProviderExtensions(ext *ProviderExtensions) *ProviderExtensions {
 			ResponsesPassthroughRequired: ext.OpenAI.ResponsesPassthroughRequired,
 			ResponsesPassthroughReason:   ext.OpenAI.ResponsesPassthroughReason,
 			RawResponseItems:             cloneRawMessage(ext.OpenAI.RawResponseItems),
+			Responses:                    cloneOpenAIResponsesOptions(ext.OpenAI.Responses),
 		}
 	}
 	if ext.Volcengine != nil {
@@ -203,6 +205,7 @@ func (r *InternalLLMRequest) SetOpenAIExtensions(ext OpenAIExtension) {
 		ResponsesPassthroughRequired: ext.ResponsesPassthroughRequired,
 		ResponsesPassthroughReason:   ext.ResponsesPassthroughReason,
 		RawResponseItems:             cloneRawMessage(ext.RawResponseItems),
+		Responses:                    cloneOpenAIResponsesOptions(ext.Responses),
 	}
 	mergeOpenAIExtension(providerExtensions.OpenAI, &extCopy)
 	r.OpenAIResponsesPassthroughRequired = providerExtensions.OpenAI.ResponsesPassthroughRequired
@@ -219,11 +222,15 @@ func (r *InternalLLMRequest) SetOpenAIRawInputItems(raw json.RawMessage) {
 	if r == nil {
 		return
 	}
+	r.RawInputItems = cloneRawMessage(raw)
 	providerExtensions := r.ensureProviderExtensions()
 	if providerExtensions.OpenAI == nil {
 		providerExtensions.OpenAI = &OpenAIExtension{}
 	}
-	r.RawInputItems = cloneRawMessage(raw)
+	if providerExtensions.OpenAI.Responses == nil {
+		providerExtensions.OpenAI.Responses = &OpenAIResponsesOptions{}
+	}
+	providerExtensions.OpenAI.Responses.RawInputItems = cloneRawMessage(raw)
 	providerExtensions.OpenAI.RawResponseItems = cloneRawMessage(raw)
 }
 
@@ -243,14 +250,20 @@ func (r *InternalLLMRequest) SetOpenAIResponsesOptions(options OpenAIResponsesOp
 	r.ResponsesStreamOptions = cloneRawMessage(options.StreamOptions)
 	r.ReasoningSummary = cloneStringPtr(options.ReasoningSummary)
 	r.ReasoningGenerateSummary = cloneStringPtr(options.ReasoningGenerateSummary)
-	r.SetOpenAIRawInputItems(options.RawInputItems)
+	r.RawInputItems = cloneRawMessage(options.RawInputItems)
+	providerExtensions := r.ensureProviderExtensions()
+	if providerExtensions.OpenAI == nil {
+		providerExtensions.OpenAI = &OpenAIExtension{}
+	}
+	providerExtensions.OpenAI.Responses = cloneOpenAIResponsesOptions(&options)
+	providerExtensions.OpenAI.RawResponseItems = cloneRawMessage(options.RawInputItems)
 }
 
 func (r *InternalLLMRequest) GetOpenAIResponsesOptions() OpenAIResponsesOptions {
 	if r == nil {
 		return OpenAIResponsesOptions{}
 	}
-	return OpenAIResponsesOptions{
+	options := OpenAIResponsesOptions{
 		PreviousResponseID:       cloneStringPtr(r.PreviousResponseID),
 		Background:               cloneBoolPtr(r.Background),
 		Prompt:                   cloneRawMessage(r.Prompt),
@@ -265,6 +278,10 @@ func (r *InternalLLMRequest) GetOpenAIResponsesOptions() OpenAIResponsesOptions 
 		ReasoningGenerateSummary: cloneStringPtr(r.ReasoningGenerateSummary),
 		RawInputItems:            cloneRawMessage(r.RawInputItems),
 	}
+	if r.ProviderExtensions != nil && r.ProviderExtensions.OpenAI != nil {
+		mergeOpenAIResponsesOptions(&options, r.ProviderExtensions.OpenAI.Responses)
+	}
+	return options
 }
 
 func (r *InternalLLMRequest) OpenAIRawInputItems() json.RawMessage {
@@ -438,5 +455,65 @@ func mergeOpenAIExtension(dst *OpenAIExtension, src *OpenAIExtension) {
 	}
 	if len(src.RawResponseItems) > 0 {
 		dst.RawResponseItems = cloneRawMessage(src.RawResponseItems)
+	}
+	if src.Responses != nil {
+		if dst.Responses == nil {
+			dst.Responses = &OpenAIResponsesOptions{}
+		}
+		mergeOpenAIResponsesOptions(dst.Responses, src.Responses)
+	}
+}
+
+func cloneOpenAIResponsesOptions(options *OpenAIResponsesOptions) *OpenAIResponsesOptions {
+	if options == nil {
+		return nil
+	}
+	cloned := OpenAIResponsesOptions{}
+	mergeOpenAIResponsesOptions(&cloned, options)
+	return &cloned
+}
+
+func mergeOpenAIResponsesOptions(dst *OpenAIResponsesOptions, src *OpenAIResponsesOptions) {
+	if dst == nil || src == nil {
+		return
+	}
+	if src.PreviousResponseID != nil {
+		dst.PreviousResponseID = cloneStringPtr(src.PreviousResponseID)
+	}
+	if src.Background != nil {
+		dst.Background = cloneBoolPtr(src.Background)
+	}
+	if len(src.Prompt) > 0 {
+		dst.Prompt = cloneRawMessage(src.Prompt)
+	}
+	if src.PromptCacheKey != nil {
+		dst.PromptCacheKey = cloneStringPtr(src.PromptCacheKey)
+	}
+	if src.PromptCacheRetention != nil {
+		dst.PromptCacheRetention = cloneStringPtr(src.PromptCacheRetention)
+	}
+	if src.SafetyIdentifier != nil {
+		dst.SafetyIdentifier = cloneStringPtr(src.SafetyIdentifier)
+	}
+	if src.MaxToolCalls != nil {
+		dst.MaxToolCalls = cloneInt64Ptr(src.MaxToolCalls)
+	}
+	if len(src.Conversation) > 0 {
+		dst.Conversation = cloneRawMessage(src.Conversation)
+	}
+	if len(src.ContextManagement) > 0 {
+		dst.ContextManagement = cloneRawMessage(src.ContextManagement)
+	}
+	if len(src.StreamOptions) > 0 {
+		dst.StreamOptions = cloneRawMessage(src.StreamOptions)
+	}
+	if src.ReasoningSummary != nil {
+		dst.ReasoningSummary = cloneStringPtr(src.ReasoningSummary)
+	}
+	if src.ReasoningGenerateSummary != nil {
+		dst.ReasoningGenerateSummary = cloneStringPtr(src.ReasoningGenerateSummary)
+	}
+	if len(src.RawInputItems) > 0 {
+		dst.RawInputItems = cloneRawMessage(src.RawInputItems)
 	}
 }

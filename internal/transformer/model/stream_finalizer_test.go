@@ -138,3 +138,43 @@ func TestStreamFinalizerInfersToolFinishReasonPerChoice(t *testing.T) {
 		t.Fatalf("finish reasons = %#v, want choice 0 stop and choice 1 tool_calls", stops)
 	}
 }
+
+func TestStreamFinalizerNormalizesAndAggregatesNonChatEvents(t *testing.T) {
+	finalizer := NewStreamFinalizer()
+	events, err := finalizer.ProcessStreamEvents([]StreamEvent{
+		{Kind: StreamEventKindImageDelta, ID: "resp_media", Model: "media-model", Index: 1, Media: &StreamMedia{MediaType: "image/png", Data: "AA=="}},
+		{Kind: StreamEventKindOpaque, ID: "resp_media", Model: "media-model", Index: 1, Opaque: []byte(`{"type":"compact.delta"}`)},
+		{Kind: StreamEventKindMessageStop, ID: "resp_media", Model: "media-model", Index: 1},
+		{Kind: StreamEventKindDone},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantKinds := []StreamEventKind{
+		StreamEventKindMessageStart,
+		StreamEventKindImageDelta,
+		StreamEventKindOpaque,
+		StreamEventKindMessageStop,
+		StreamEventKindUsageDelta,
+		StreamEventKindDone,
+	}
+	if len(events) != len(wantKinds) {
+		t.Fatalf("events = %#v, want kinds %v", events, wantKinds)
+	}
+	for index, want := range wantKinds {
+		if events[index].Kind != want {
+			t.Fatalf("events[%d].Kind = %q, want %q", index, events[index].Kind, want)
+		}
+	}
+
+	finalized, err := finalizer.FinalizeStream()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finalized.FinishReasons[1] != FinishReasonStop {
+		t.Fatalf("finish reason = %q, want stop", finalized.FinishReasons[1])
+	}
+	if finalized.Response == nil || len(finalized.Response.NonChatStreamEvents) != 2 {
+		t.Fatalf("aggregate = %#v", finalized.Response)
+	}
+}

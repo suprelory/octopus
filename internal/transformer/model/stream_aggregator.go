@@ -52,6 +52,9 @@ func (a *StreamAggregator) Response() *InternalLLMResponse {
 		if len(chunk.RawResponsesOutputItems) > 0 {
 			result.RawResponsesOutputItems = append(result.RawResponsesOutputItems[:0], chunk.RawResponsesOutputItems...)
 		}
+		for _, event := range chunk.NonChatStreamEvents {
+			result.NonChatStreamEvents = append(result.NonChatStreamEvents, cloneNonChatStreamEvent(event))
+		}
 		for _, choice := range chunk.Choices {
 			existingChoice := choicesMap[choice.Index]
 			if existingChoice == nil {

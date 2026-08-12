@@ -488,9 +488,9 @@ func TestInternalLLMRequestOpenAIResponsesOptionsRoundTripAndClone(t *testing.T)
 	if !strings.Contains(string(options.Prompt), "prompt_1") || !strings.Contains(string(options.RawInputItems), "hello") {
 		t.Fatalf("expected raw responses options to round-trip, got prompt=%s raw=%s", options.Prompt, options.RawInputItems)
 	}
-	if req.ProviderExtensions == nil || req.ProviderExtensions.OpenAI == nil ||
-		string(req.ProviderExtensions.OpenAI.RawResponseItems) != string(req.RawInputItems) {
-		t.Fatalf("expected raw input mirror to stay synchronized")
+	if req.ProviderExtensions == nil || req.ProviderExtensions.OpenAI == nil || req.ProviderExtensions.OpenAI.Responses == nil ||
+		string(req.ProviderExtensions.OpenAI.Responses.RawInputItems) != string(req.RawInputItems) {
+		t.Fatalf("expected typed responses sidecar to stay synchronized")
 	}
 
 	*options.PreviousResponseID = "mutated"

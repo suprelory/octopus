@@ -257,5 +257,8 @@ func (r *InternalLLMRequest) applyOperationToLegacyFields() {
 		r.EmbeddingEncodingFormat = r.Operation.Embeddings.EncodingFormat
 		r.Messages = nil
 		r.RawInputItems = nil
+	case RequestTypeImages, RequestTypeRerank:
+		// These operations have no legacy top-level payload. The tagged operation
+		// remains authoritative until their dedicated relays adopt this IR.
 	}
 }

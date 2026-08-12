@@ -15,7 +15,7 @@ func FuzzStreamFinalizerStateMachine(f *testing.F) {
 		finalizer := NewStreamFinalizer()
 		events := []StreamEvent{{Kind: StreamEventKindMessageStart, ID: "id", Model: "m", Role: "assistant"}}
 		for index, value := range sequence {
-			switch value % 5 {
+			switch value % 8 {
 			case 0:
 				events = append(events, StreamEvent{Kind: StreamEventKindTextDelta, Index: 0, Delta: &StreamDelta{Text: string([]byte{value})}})
 			case 1:
@@ -26,6 +26,12 @@ func FuzzStreamFinalizerStateMachine(f *testing.F) {
 				events = append(events, StreamEvent{Kind: StreamEventKindToolCallDelta, Index: 0, ToolCall: &ToolCall{Index: 0, Function: FunctionCall{Arguments: string([]byte{value})}}})
 			case 4:
 				events = append(events, StreamEvent{Kind: StreamEventKindContentBlockStart, Index: 0, ContentBlock: &StreamContentBlock{Type: "opaque", Data: string([]byte{value})}})
+			case 5:
+				events = append(events, StreamEvent{Kind: StreamEventKindImageDelta, Index: 0, Media: &StreamMedia{Data: string([]byte{value})}})
+			case 6:
+				events = append(events, StreamEvent{Kind: StreamEventKindAudioDelta, Index: 0, Media: &StreamMedia{Data: string([]byte{value})}})
+			case 7:
+				events = append(events, StreamEvent{Kind: StreamEventKindOpaque, Index: 0, Opaque: []byte{value}})
 			}
 		}
 		events = append(events, StreamEvent{Kind: StreamEventKindMessageStop, Index: 0, StopReason: FinishReasonStop})

@@ -87,6 +87,9 @@ func (i *ResponseInbound) TransformRequest(ctx context.Context, body []byte) (*m
 		return nil, err
 	}
 	internalRequest.RequestType = model.RequestTypeResponses
+	if err := internalRequest.CaptureFieldPresence(body); err != nil {
+		return nil, err
+	}
 	if err := internalRequest.NormalizeOperation(); err != nil {
 		return nil, err
 	}

@@ -73,6 +73,9 @@ func (i *MessagesInbound) TransformRequest(ctx context.Context, body []byte) (*m
 		RawAPIFormat:        model.APIFormatAnthropicMessage,
 		TransformerMetadata: map[string]string{},
 	}
+	if err := chatReq.CaptureFieldPresence(body); err != nil {
+		return nil, err
+	}
 	if tier := strings.TrimSpace(anthropicReq.ServiceTier); tier != "" {
 		chatReq.ServiceTier = &tier
 	}

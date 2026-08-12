@@ -1,6 +1,7 @@
 package model
 
 import (
+	"bytes"
 	"encoding/json"
 	"sort"
 )
@@ -21,6 +22,9 @@ const (
 	StreamEventKindMessageStop       StreamEventKind = "message_stop"
 	StreamEventKindDone              StreamEventKind = "done"
 	StreamEventKindError             StreamEventKind = "error"
+	StreamEventKindImageDelta        StreamEventKind = "image_delta"
+	StreamEventKindAudioDelta        StreamEventKind = "audio_delta"
+	StreamEventKindOpaque            StreamEventKind = "opaque"
 )
 
 type StreamEvent struct {
@@ -38,8 +42,21 @@ type StreamEvent struct {
 	StopReason   FinishReason        `json:"stop_reason,omitempty"`
 	StopSequence *string             `json:"stop_sequence,omitempty"`
 	Error        *ResponseError      `json:"error,omitempty"`
+	Media        *StreamMedia        `json:"media,omitempty"`
+	Opaque       json.RawMessage     `json:"opaque,omitempty"`
 
 	ProviderExtensions *ProviderExtensions `json:"provider_extensions,omitempty"`
+}
+
+type StreamMedia struct {
+	MediaType  string `json:"media_type,omitempty"`
+	Data       string `json:"data,omitempty"`
+	URI        string `json:"uri,omitempty"`
+	Format     string `json:"format,omitempty"`
+	ID         string `json:"id,omitempty"`
+	Transcript string `json:"transcript,omitempty"`
+	ExpiresAt  int64  `json:"expires_at,omitempty"`
+	Index      int    `json:"index,omitempty"`
 }
 
 type StreamContentBlock struct {
@@ -75,6 +92,14 @@ func HasSemanticStreamEvents(events []StreamEvent) bool {
 			if event.ContentBlock != nil && (event.ContentBlock.Text != "" || event.ContentBlock.Data != "" || event.ContentBlock.Name != "" || len(event.ContentBlock.Input) > 0) {
 				return true
 			}
+		case StreamEventKindImageDelta, StreamEventKindAudioDelta:
+			if event.Media != nil && (event.Media.Data != "" || event.Media.URI != "") {
+				return true
+			}
+		case StreamEventKindOpaque:
+			if len(bytes.TrimSpace(event.Opaque)) > 0 {
+				return true
+			}
 		}
 	}
 	return false
@@ -100,7 +125,17 @@ func StreamEventsFromInternalResponse(response *InternalLLMResponse) []StreamEve
 	if response.Error != nil {
 		return []StreamEvent{{Kind: StreamEventKindError, ID: response.ID, Model: response.Model, Error: response.Error}}
 	}
-	events := make([]StreamEvent, 0, len(response.Choices)+1)
+	events := make([]StreamEvent, 0, len(response.NonChatStreamEvents)+len(response.Choices)+1)
+	for _, source := range response.NonChatStreamEvents {
+		event := cloneNonChatStreamEvent(source)
+		if event.ID == "" {
+			event.ID = response.ID
+		}
+		if event.Model == "" {
+			event.Model = response.Model
+		}
+		events = append(events, event)
+	}
 	for _, choice := range response.Choices {
 		if choice.Delta != nil {
 			delta := choice.Delta
@@ -154,6 +189,20 @@ func StreamEventsFromInternalResponse(response *InternalLLMResponse) []StreamEve
 				}
 				events = append(events, event)
 			}
+			for _, image := range delta.Images {
+				if media := streamMediaFromImageContent(image); media != nil {
+					events = append(events, StreamEvent{Kind: StreamEventKindImageDelta, ID: response.ID, Model: response.Model, Index: choice.Index, Media: media})
+				}
+			}
+			if delta.Audio != nil && (delta.Audio.Data != "" || delta.Audio.ID != "" || delta.Audio.Transcript != "") {
+				events = append(events, StreamEvent{Kind: StreamEventKindAudioDelta, ID: response.ID, Model: response.Model, Index: choice.Index, Media: &StreamMedia{
+					MediaType:  "audio",
+					Data:       delta.Audio.Data,
+					ID:         delta.Audio.ID,
+					Transcript: delta.Audio.Transcript,
+					ExpiresAt:  delta.Audio.ExpiresAt,
+				}})
+			}
 		}
 		if choice.FinishReason != nil {
 			event := StreamEvent{Kind: StreamEventKindMessageStop, ID: response.ID, Model: response.Model, Index: choice.Index, StopReason: ParseFinishReason(*choice.FinishReason), StopSequence: choice.StopSequence}
@@ -200,6 +249,10 @@ func InternalResponseFromStreamEvents(events []StreamEvent) *InternalLLMResponse
 		}
 		if event.Kind == StreamEventKindError {
 			response.Error = event.Error
+			continue
+		}
+		if event.Kind == StreamEventKindImageDelta || event.Kind == StreamEventKindAudioDelta || event.Kind == StreamEventKindOpaque {
+			response.NonChatStreamEvents = append(response.NonChatStreamEvents, cloneNonChatStreamEvent(event))
 			continue
 		}
 		choice := choices[event.Index]
@@ -263,8 +316,26 @@ func InternalResponseFromStreamEvents(events []StreamEvent) *InternalLLMResponse
 	for _, idx := range indices {
 		response.Choices = append(response.Choices, *choices[idx])
 	}
-	if len(response.Choices) == 0 && response.Usage == nil && response.Error == nil {
+	if len(response.Choices) == 0 && response.Usage == nil && response.Error == nil && len(response.NonChatStreamEvents) == 0 {
 		return nil
 	}
 	return response
+}
+
+func cloneNonChatStreamEvent(event StreamEvent) StreamEvent {
+	cloned := event
+	if event.Media != nil {
+		media := *event.Media
+		cloned.Media = &media
+	}
+	cloned.Opaque = cloneRawMessage(event.Opaque)
+	cloned.ProviderExtensions = CloneProviderExtensions(event.ProviderExtensions)
+	return cloned
+}
+
+func streamMediaFromImageContent(image MessageContentPart) *StreamMedia {
+	if image.ImageURL == nil || image.ImageURL.URL == "" {
+		return nil
+	}
+	return &StreamMedia{MediaType: "image", URI: image.ImageURL.URL}
 }
