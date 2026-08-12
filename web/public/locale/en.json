@@ -226,6 +226,10 @@
             "label": "Group Health Checks",
             "description": "When enabled, show the home health summary, group-card health status, and allow manual health checks."
         },
+        "emptyResponseDetection": {
+            "label": "Empty Response Detection",
+            "description": "Applies to all groups. When enabled, an upstream 200 response with no meaningful content (text, tool calls, or reasoning) is treated as failed and retried on another channel."
+        },
         "channelAffinity": {
             "title": "Channel Affinity",
             "description": "Remembers the channel and channel key from the latest fully successful request for each API key and requested model, then prefers them on later requests. Responses continuation routing still takes precedence.",
@@ -639,8 +643,6 @@
             "retryEnabledHint": "When enabled, retries on the same channel for 429/5xx errors before passing through the status code to the client",
             "maxRetries": "Max Retries",
             "maxRetriesHint": "Same-channel retry count, only effective when same-channel retry is enabled",
-            "emptyResponseDetection": "Empty Response Detection",
-            "emptyResponseDetectionHint": "When enabled, an upstream 200 response carrying no meaningful content (no text, tool calls, or reasoning) is treated as a failed attempt and retried on another channel",
             "items": "Selected Models",
             "addItem": "Add Model",
             "autoAdd": "Auto Add",

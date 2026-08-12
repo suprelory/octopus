@@ -26,6 +26,7 @@ export const SettingKey = {
     CircuitBreakerMaxCooldown: 'circuit_breaker_max_cooldown',
     ChannelAffinityEnabled: 'channel_affinity_enabled',
     ChannelAffinityTTLSeconds: 'channel_affinity_ttl_seconds',
+    EmptyResponseDetectionEnabled: 'empty_response_detection_enabled',
     ResponsesWSEnabled: 'responses_ws_enabled',
     ResponsesWSDefaultMode: 'responses_ws_default_mode',
     SSEHeartbeatInterval: 'sse_heartbeat_interval',
@@ -307,4 +308,3 @@ export function useRestoreWebDAVBackup() {
         },
     });
 }
-

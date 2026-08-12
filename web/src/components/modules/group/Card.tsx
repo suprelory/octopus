@@ -73,7 +73,6 @@ function EditDialogContent({ group, displayMembers, isSubmitting, onSubmit }: Ed
                         session_keep_time: group.session_keep_time ?? 0,
                         retry_enabled: group.retry_enabled ?? false,
                         max_retries: group.max_retries ?? 3,
-                        empty_response_detection: group.empty_response_detection ?? true,
                         members: displayMembers,
                     }}
                     submitText={t('detail.actions.save')}
@@ -317,7 +316,6 @@ export function GroupCard({ group }: { group: Group }) {
             if (nextSessionKeepTime !== (group.session_keep_time ?? 0)) payload.session_keep_time = nextSessionKeepTime;
             if (values.retry_enabled !== (group.retry_enabled ?? false)) payload.retry_enabled = values.retry_enabled;
             if (values.max_retries !== (group.max_retries ?? 3)) payload.max_retries = values.max_retries;
-            if (values.empty_response_detection !== (group.empty_response_detection ?? true)) payload.empty_response_detection = values.empty_response_detection;
             if (itemsToAdd.length > 0) payload.items_to_add = itemsToAdd;
             if (itemsToUpdate.length > 0) payload.items_to_update = itemsToUpdate;
             if (itemsToDelete.length > 0) payload.items_to_delete = itemsToDelete;

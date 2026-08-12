@@ -1,7 +1,7 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import { Hash, HeartPulse, Route, ShieldCheck, Timer, TimerOff, type LucideIcon } from 'lucide-react';
+import { CircleAlert, Hash, HeartPulse, Route, ShieldCheck, Timer, TimerOff, type LucideIcon } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { SettingKey } from '@/api/endpoints/setting';
@@ -52,12 +52,18 @@ export function SettingReliability() {
     const outlier = useSettingToggle(SettingKey.OutlierRetireEnabled);
     const groupHealth = useSettingToggle(SettingKey.GroupHealthEnabled);
     const channelAffinity = useSettingToggle(SettingKey.ChannelAffinityEnabled);
+    const emptyResponseDetection = useSettingToggle(SettingKey.EmptyResponseDetectionEnabled);
 
     return (
         <SettingCard icon={ShieldCheck} title={t('reliability.title')}>
             {/* 分组健康检查 */}
             <SettingRow icon={HeartPulse} label={t('groupHealth.label')} tooltip={t('groupHealth.description')}>
                 <Switch checked={groupHealth.enabled} onCheckedChange={groupHealth.toggle} />
+            </SettingRow>
+
+            {/* 空回检测 */}
+            <SettingRow icon={CircleAlert} label={t('emptyResponseDetection.label')} tooltip={t('emptyResponseDetection.description')}>
+                <Switch checked={emptyResponseDetection.enabled} onCheckedChange={emptyResponseDetection.toggle} />
             </SettingRow>
 
             {/* 渠道亲和 */}

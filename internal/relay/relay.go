@@ -84,6 +84,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 
 	requestModel := internalRequest.Model
 	apiKeyID := c.GetInt("api_key_id")
+	emptyResponseDetection := emptyResponseDetectionEnabled()
 
 	// 获取通道分组
 	group, err := op.GroupGetEnabledMap(requestModel, c.Request.Context())
@@ -281,7 +282,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 				channel:                channel,
 				usedKey:                usedKey,
 				firstTokenTimeOutSec:   group.FirstTokenTimeOut,
-				emptyResponseDetection: group.EmptyResponseDetection,
+				emptyResponseDetection: emptyResponseDetection,
 				capabilityDecision:     decision,
 			}
 

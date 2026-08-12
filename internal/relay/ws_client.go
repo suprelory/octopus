@@ -225,6 +225,7 @@ func processWSResponseCreate(
 	}
 
 	requestModel = executionRequest.Model
+	emptyResponseDetection := emptyResponseDetectionEnabled()
 	req, group, err := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, clientIP, cloneInternalRequest(executionRequest), originalRequest, preferredSticky, bodyBytes)
 	if err != nil {
 		status := 404
@@ -253,7 +254,7 @@ func processWSResponseCreate(
 			}
 			return preferredSticky.ChannelKeyID
 		}())
-	result := runWSRelay(ctx, req, group)
+	result := runWSRelay(ctx, req, group, emptyResponseDetection)
 	if result.Attempt != nil {
 		req = result.Attempt
 	}
@@ -268,7 +269,7 @@ func processWSResponseCreate(
 			replayReq.metrics.SetWSRecovery(dbmodel.RelayLogWSRecoveryReplay)
 			req = replayReq
 			group = replayGroup
-			result = runWSRelay(ctx, req, group)
+			result = runWSRelay(ctx, req, group, emptyResponseDetection)
 			if result.Attempt != nil {
 				req = result.Attempt
 			}
@@ -454,7 +455,7 @@ func newWSRelayRequest(
 	}, &group, nil
 }
 
-func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group) wsRelayResult {
+func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group, emptyResponseDetection bool) wsRelayResult {
 	replayExact := req != nil && req.internalRequest != nil && req.internalRequest.IsOpenAIExactReplayRequest()
 	relayCtx := ctx
 	if replayExact {
@@ -594,7 +595,7 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group) ws
 				channel:                channel,
 				usedKey:                usedKey,
 				firstTokenTimeOutSec:   group.FirstTokenTimeOut,
-				emptyResponseDetection: group.EmptyResponseDetection,
+				emptyResponseDetection: emptyResponseDetection,
 				capabilityDecision:     decision,
 			}
 

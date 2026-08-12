@@ -166,7 +166,7 @@ type relayAttempt struct {
 	usedKey                dbmodel.ChannelKey
 	firstTokenTimeOutSec   int
 	firstTokenBudget       *firstTokenBudget
-	emptyResponseDetection bool // 空回检测开关（来自 Group 配置）
+	emptyResponseDetection bool          // 空回检测开关（来自全局设置）
 	retryAfter             time.Duration // forward() 提取后暂存
 	upstreamError          *model.ResponseError
 	capabilityDecision     outbound.CapabilityDecision

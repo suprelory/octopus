@@ -226,6 +226,10 @@
             "label": "分组健康检查",
             "description": "启用后显示首页分组健康摘要、分组卡片健康状态，并允许手动运行健康检查。"
         },
+        "emptyResponseDetection": {
+            "label": "空回检测",
+            "description": "对所有分组生效。启用后，上游返回 200 但无有效内容（无文本、工具调用或推理）时判定为失败并切换渠道重试。"
+        },
         "channelAffinity": {
             "title": "渠道亲和",
             "description": "按 API Key 和请求模型记录最近一次完整成功的渠道与渠道密钥，并在后续请求中优先复用；Responses 会话续接仍具有更高优先级。",
@@ -639,8 +643,6 @@
             "retryEnabledHint": "启用后，遇到 429/5xx 等可重试错误时先在同通道重试，全部失败后透传状态码给客户端",
             "maxRetries": "最大重试",
             "maxRetriesHint": "同通道重试次数，仅在开启同通道重试时生效",
-            "emptyResponseDetection": "空回检测",
-            "emptyResponseDetectionHint": "启用后，上游返回 200 但无有效内容（无文本、工具调用或推理）时判定为失败并切换渠道重试",
             "items": "已选模型",
             "addItem": "添加模型",
             "autoAdd": "自动添加",

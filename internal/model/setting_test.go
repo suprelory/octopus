@@ -16,6 +16,27 @@ func TestChannelAffinityDefaultSettings(t *testing.T) {
 	}
 }
 
+func TestEmptyResponseDetectionSetting(t *testing.T) {
+	defaults := make(map[SettingKey]string)
+	for _, setting := range DefaultSettings() {
+		defaults[setting.Key] = setting.Value
+	}
+	if got := defaults[SettingKeyEmptyResponseDetectionEnabled]; got != "true" {
+		t.Fatalf("empty response detection default = %q, want true", got)
+	}
+
+	for _, value := range []string{"true", "false"} {
+		setting := Setting{Key: SettingKeyEmptyResponseDetectionEnabled, Value: value}
+		if err := setting.Validate(); err != nil {
+			t.Fatalf("expected %q to be valid, got %v", value, err)
+		}
+	}
+	invalid := Setting{Key: SettingKeyEmptyResponseDetectionEnabled, Value: "1"}
+	if err := invalid.Validate(); err == nil {
+		t.Fatal("expected non-boolean value to be rejected")
+	}
+}
+
 func TestChannelAffinitySettingValidation(t *testing.T) {
 	tests := []struct {
 		name    string

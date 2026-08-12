@@ -3,9 +3,21 @@ package relay
 import (
 	"strings"
 
+	dbmodel "github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/relay/stream"
 	"github.com/bestruirui/octopus/internal/transformer/model"
+	"github.com/bestruirui/octopus/internal/utils/log"
 )
+
+func emptyResponseDetectionEnabled() bool {
+	enabled, err := op.SettingGetBool(dbmodel.SettingKeyEmptyResponseDetectionEnabled)
+	if err != nil {
+		log.Warnf("failed to read empty response detection setting, defaulting to enabled: %v", err)
+		return true
+	}
+	return enabled
+}
 
 // hasNonStreamContent checks if a non-streaming InternalLLMResponse contains meaningful content.
 // Returns false for empty responses that should trigger retry.
