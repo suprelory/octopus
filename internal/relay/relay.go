@@ -120,7 +120,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 		}
 	}
 
-	// 创建迭代器（策略排序 + 粘性优先）
+	// 创建迭代器（转换质量排序 + 策略排序 + 粘性优先）
 	// 如果有 replay state，注入为 sticky 偏好
 	var preferredSticky *balancer.SessionEntry
 	if responsesReplayState != nil {
@@ -129,7 +129,10 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 			log.Debugf("HTTP replay sticky routing preference (channel=%d, key=%d)", preferredSticky.ChannelID, preferredSticky.ChannelKeyID)
 		}
 	}
-	iter := balancer.NewIteratorWithPreference(group, apiKeyID, requestModel, preferredSticky)
+	capabilityPolicy := getCapabilityDegradationPolicy()
+	iter := balancer.NewIteratorWithPreferenceAndQuality(group, apiKeyID, requestModel, preferredSticky, func(item dbmodel.GroupItem) int {
+		return relayItemCapabilityRank(c.Request.Context(), internalRequest, rawBody, item)
+	})
 	if iter.Len() == 0 {
 		writeInboundProtocolError(c, nil, inAdapter, relayProtocolError(http.StatusServiceUnavailable, CodeRelayNoAvailableChannel, "no available channel"))
 		return
@@ -212,7 +215,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 		}
 
 		decision := planRelayCapability(req, channel, candidateAdapter, item.ModelName)
-		logRelayCapability(channel, item.ModelName, decision)
+		logRelayCapability(channel, item.ModelName, decision, capabilityPolicy)
 		if decision.Rejected() {
 			message := decision.Summary()
 			iter.SkipWithCapability(channel.ID, 0, channel.Name, message, string(decision.Status), decision.ConversionPath, decision.RequiredFeatures, decision.DegradedFields, decision.Lossiness, decision.Reasons)
@@ -448,7 +451,62 @@ func planRelayCapability(req *relayRequest, channel *dbmodel.Channel, adapter mo
 	return outbound.PlanRequest(plannedRequest, channel.Type, passthrough)
 }
 
-func logRelayCapability(channel *dbmodel.Channel, modelName string, decision outbound.CapabilityDecision) {
+type capabilityDegradationPolicy string
+
+const (
+	capabilityPolicyAllow  capabilityDegradationPolicy = "allow"
+	capabilityPolicyWarn   capabilityDegradationPolicy = "warn"
+	capabilityPolicyStrict capabilityDegradationPolicy = "strict"
+)
+
+func getCapabilityDegradationPolicy() capabilityDegradationPolicy {
+	value, err := op.SettingGetString(dbmodel.SettingKeyCapabilityDegradationPolicy)
+	if err != nil {
+		return capabilityPolicyWarn
+	}
+	policy := capabilityDegradationPolicy(strings.ToLower(strings.TrimSpace(value)))
+	switch policy {
+	case capabilityPolicyAllow, capabilityPolicyWarn, capabilityPolicyStrict:
+		return policy
+	default:
+		return capabilityPolicyWarn
+	}
+}
+
+func capabilityRank(decision outbound.CapabilityDecision) int {
+	if decision.Rejected() {
+		return 3
+	}
+	if decision.Status == outbound.CapabilityDegraded {
+		return 2
+	}
+	if decision.StaticQuality == outbound.QualityNative {
+		return 0
+	}
+	return 1
+}
+
+func relayItemCapabilityRank(ctx context.Context, request *model.InternalLLMRequest, rawBody []byte, item dbmodel.GroupItem) int {
+	channel, err := op.ChannelGet(item.ChannelID, ctx)
+	if err != nil || channel == nil || !channel.Enabled {
+		return 3
+	}
+	adapter := outbound.Get(channel.Type)
+	if adapter == nil || request == nil {
+		return 3
+	}
+	planned := request.Clone()
+	if strings.TrimSpace(item.ModelName) != "" {
+		planned.Model = item.ModelName
+	}
+	passthrough := false
+	if capable, ok := adapter.(model.PassthroughCapable); ok && len(rawBody) > 0 {
+		passthrough = capable.CanPassthrough(planned.RawAPIFormat) && channel.AllowsPassthrough()
+	}
+	return capabilityRank(outbound.PlanRequest(planned, channel.Type, passthrough))
+}
+
+func logRelayCapability(channel *dbmodel.Channel, modelName string, decision outbound.CapabilityDecision, policy capabilityDegradationPolicy) {
 	outbound.RecordCapabilityDecision(decision)
 	if channel == nil {
 		return
@@ -465,6 +523,13 @@ func logRelayCapability(channel *dbmodel.Channel, modelName string, decision out
 		"static_quality", decision.StaticQuality,
 		"reasons", decision.Reasons,
 	)
+	if decision.Status == outbound.CapabilityDegraded {
+		if policy == capabilityPolicyWarn {
+			log.Warnw("relay.capability_degraded", "channel_id", channel.ID, "channel", channel.Name, "model", modelName, "fields", decision.DegradedFields, "reasons", decision.Reasons)
+		} else if policy == capabilityPolicyAllow {
+			log.Debugw("relay.capability_degraded_allowed", "channel_id", channel.ID, "channel", channel.Name, "model", modelName, "fields", decision.DegradedFields)
+		}
+	}
 }
 
 func circuitFailureKind(retryEnabled bool, statusCode int) balancer.FailureKind {

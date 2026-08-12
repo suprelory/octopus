@@ -2,6 +2,7 @@ package balancer
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
@@ -22,6 +23,12 @@ type Iterator struct {
 	count    int
 }
 
+// QualityRanker returns a lower-is-better semantic conversion quality rank for
+// a candidate. The iterator applies it after the existing load-balancer order,
+// so round-robin/random/weighted behavior remains intact within each quality
+// tier.
+type QualityRanker func(model.GroupItem) int
+
 // PreferenceSource identifies why a candidate was moved ahead of the normal
 // load-balancer order. The numeric order also represents routing priority.
 type PreferenceSource uint8
@@ -41,14 +48,26 @@ type routingPreference struct {
 // NewIterator 创建负载均衡迭代器
 // 自动处理：策略排序 + 粘性通道提前
 func NewIterator(group model.Group, apiKeyID int, requestModel string) *Iterator {
-	return NewIteratorWithPreference(group, apiKeyID, requestModel, nil)
+	return NewIteratorWithPreferenceAndQuality(group, apiKeyID, requestModel, nil, nil)
 }
 
 // NewIteratorWithPreference 创建带优先通道偏好的负载均衡迭代器。
 // preferred 非空时，会优先把指定通道提前到候选列表最前面。
 func NewIteratorWithPreference(group model.Group, apiKeyID int, requestModel string, preferred *SessionEntry) *Iterator {
+	return NewIteratorWithPreferenceAndQuality(group, apiKeyID, requestModel, preferred, nil)
+}
+
+// NewIteratorWithPreferenceAndQuality is the request-aware iterator constructor.
+// Quality is evaluated before sticky preferences are applied; a sticky route
+// therefore remains preferred only among candidates in the same quality tier.
+func NewIteratorWithPreferenceAndQuality(group model.Group, apiKeyID int, requestModel string, preferred *SessionEntry, quality QualityRanker) *Iterator {
 	b := GetBalancer(group.Mode)
 	remaining := b.Candidates(group.Items)
+	if quality != nil {
+		sort.SliceStable(remaining, func(i, j int) bool {
+			return quality(remaining[i]) < quality(remaining[j])
+		})
+	}
 	preferenceCandidates := make([]routingPreference, 0, 3)
 	if preferred != nil && preferred.ChannelID > 0 {
 		preferenceCandidates = append(preferenceCandidates, routingPreference{
@@ -98,6 +117,9 @@ func NewIteratorWithPreference(group model.Group, apiKeyID int, requestModel str
 			case PreferenceLegacySticky:
 				DeleteSticky(apiKeyID, requestModel)
 			}
+			continue
+		}
+		if quality != nil && len(remaining) > 0 && quality(remaining[preferredIndex]) > quality(remaining[0]) {
 			continue
 		}
 

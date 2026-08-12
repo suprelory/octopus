@@ -37,6 +37,26 @@ func TestEmptyResponseDetectionSetting(t *testing.T) {
 	}
 }
 
+func TestCapabilityDegradationPolicySetting(t *testing.T) {
+	defaults := make(map[SettingKey]string)
+	for _, setting := range DefaultSettings() {
+		defaults[setting.Key] = setting.Value
+	}
+	if got := defaults[SettingKeyCapabilityDegradationPolicy]; got != "warn" {
+		t.Fatalf("capability degradation policy default = %q, want warn", got)
+	}
+	for _, value := range []string{"allow", "warn", "strict"} {
+		setting := Setting{Key: SettingKeyCapabilityDegradationPolicy, Value: value}
+		if err := setting.Validate(); err != nil {
+			t.Fatalf("expected %q to be valid, got %v", value, err)
+		}
+	}
+	invalid := Setting{Key: SettingKeyCapabilityDegradationPolicy, Value: "reject"}
+	if err := invalid.Validate(); err == nil {
+		t.Fatal("expected unknown capability degradation policy to be rejected")
+	}
+}
+
 func TestChannelAffinitySettingValidation(t *testing.T) {
 	tests := []struct {
 		name    string

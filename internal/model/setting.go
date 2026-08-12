@@ -24,6 +24,7 @@ const (
 	SettingKeyChannelAffinityEnabled           SettingKey = "channel_affinity_enabled"             // 是否优先复用同一 API Key/模型上次成功的渠道
 	SettingKeyChannelAffinityTTLSeconds        SettingKey = "channel_affinity_ttl_seconds"         // 渠道亲和记录 TTL（秒）
 	SettingKeyEmptyResponseDetectionEnabled    SettingKey = "empty_response_detection_enabled"     // 是否全局启用空回检测
+	SettingKeyCapabilityDegradationPolicy      SettingKey = "capability_degradation_policy"        // 能力降级策略：allow/warn/strict
 	SettingKeyResponsesWSEnabled               SettingKey = "responses_ws_enabled"                 // 是否启用 OpenAI Responses WS 上游能力（仅客户端 WS 入站）
 	SettingKeyResponsesWSDefaultMode           SettingKey = "responses_ws_default_mode"            // OpenAI Responses WS 默认模式：off/transform/passthrough
 	SettingKeySSEHeartbeatInterval             SettingKey = "sse_heartbeat_interval"               // SSE 流式心跳间隔（秒），0 表示禁用
@@ -74,6 +75,7 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyChannelAffinityEnabled, Value: "true"},        // 默认启用同 API Key/模型的成功渠道亲和
 		{Key: SettingKeyChannelAffinityTTLSeconds, Value: "3600"},     // 默认保留 1 小时
 		{Key: SettingKeyEmptyResponseDetectionEnabled, Value: "true"}, // 默认启用空回检测
+		{Key: SettingKeyCapabilityDegradationPolicy, Value: "warn"},   // 默认允许降级并写入诊断日志
 		{Key: SettingKeyResponsesWSEnabled, Value: "false"},           // 默认关闭 OpenAI Responses WS 新路径
 		{Key: SettingKeyResponsesWSDefaultMode, Value: "passthrough"}, // 启用后默认使用协议保真的 passthrough
 		{Key: SettingKeySSEHeartbeatInterval, Value: "0"},             // 默认禁用 SSE 流式心跳
@@ -139,6 +141,13 @@ func (s *Setting) Validate() error {
 			return fmt.Errorf("setting value must be true or false")
 		}
 		return nil
+	case SettingKeyCapabilityDegradationPolicy:
+		switch s.Value {
+		case "allow", "warn", "strict":
+			return nil
+		default:
+			return fmt.Errorf("setting value must be one of allow, warn, strict")
+		}
 	case SettingKeyProjectedChannelAutoGroupEnabled:
 		if _, ok := ParseAutoGroupSettingValue(s.Value); !ok {
 			return fmt.Errorf("setting value must be one of 0, 1, 2, 3, true, false")

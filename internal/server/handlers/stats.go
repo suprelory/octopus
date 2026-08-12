@@ -7,6 +7,7 @@ import (
 	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/server/resp"
 	"github.com/bestruirui/octopus/internal/server/router"
+	"github.com/bestruirui/octopus/internal/transformer/outbound"
 	"github.com/gin-gonic/gin"
 )
 
@@ -32,6 +33,10 @@ func init() {
 		AddRoute(
 			router.NewRoute("/apikey", http.MethodGet).
 				Handle(getStatsAPIKey),
+		).
+		AddRoute(
+			router.NewRoute("/capability", http.MethodGet).
+				Handle(getStatsCapability),
 		)
 }
 
@@ -58,4 +63,8 @@ func getStatsTotal(c *gin.Context) {
 
 func getStatsAPIKey(c *gin.Context) {
 	resp.Success(c, op.StatsAPIKeyList())
+}
+
+func getStatsCapability(c *gin.Context) {
+	resp.Success(c, outbound.SnapshotCapabilityMetrics())
 }

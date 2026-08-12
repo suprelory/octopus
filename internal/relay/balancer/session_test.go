@@ -144,6 +144,30 @@ func TestIteratorFallsBackFromMissingReplayChannelToAffinity(t *testing.T) {
 	}
 }
 
+func TestIteratorQualityPrecedesStickyPreference(t *testing.T) {
+	Reset()
+	group := model.Group{
+		Mode: model.GroupModeFailover,
+		Items: []model.GroupItem{
+			{ID: 1, ChannelID: 1, ModelName: "degraded", Priority: 1},
+			{ID: 2, ChannelID: 2, ModelName: "native", Priority: 2},
+		},
+	}
+	SetChannelAffinity(1, "routing-model", 1, 101)
+	iterator := NewIteratorWithPreferenceAndQuality(group, 1, "routing-model", nil, func(item model.GroupItem) int {
+		if item.ChannelID == 2 {
+			return 0
+		}
+		return 2
+	})
+	if !iterator.Next() {
+		t.Fatal("expected first candidate")
+	}
+	if got := iterator.Item().ChannelID; got != 2 {
+		t.Fatalf("quality rank should precede affinity, got channel %d", got)
+	}
+}
+
 func TestIteratorKeepsPreferredChannelOnlyOnce(t *testing.T) {
 	Reset()
 	SetChannelAffinity(9, "routing-model", 2, 202)

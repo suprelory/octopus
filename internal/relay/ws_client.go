@@ -433,7 +433,9 @@ func newWSRelayRequest(
 		return nil, nil, fmt.Errorf("model not found")
 	}
 
-	iter := balancer.NewIteratorWithPreference(group, apiKeyID, requestModel, preferredSticky)
+	iter := balancer.NewIteratorWithPreferenceAndQuality(group, apiKeyID, requestModel, preferredSticky, func(item dbmodel.GroupItem) int {
+		return relayItemCapabilityRank(ctx, executionRequest, rawBody, item)
+	})
 	if iter.Len() == 0 {
 		return nil, nil, fmt.Errorf("no available channel")
 	}
@@ -524,7 +526,7 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group, em
 		}
 
 		decision := planRelayCapability(req, channel, candidateAdapter, item.ModelName)
-		logRelayCapability(channel, item.ModelName, decision)
+		logRelayCapability(channel, item.ModelName, decision, getCapabilityDegradationPolicy())
 		if decision.Rejected() {
 			message := decision.Summary()
 			req.iter.SkipWithCapability(channel.ID, 0, channel.Name, message, string(decision.Status), decision.ConversionPath, decision.RequiredFeatures, decision.DegradedFields, decision.Lossiness, decision.Reasons)
@@ -533,6 +535,17 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group, em
 				Err:           lastErr,
 				StatusCode:    http.StatusBadRequest,
 				ProtocolError: relayProtocolError(http.StatusBadRequest, CodeRelayModelNotSupported, message),
+			}
+			continue
+		}
+		if decision.Status == outbound.CapabilityDegraded && getCapabilityDegradationPolicy() == capabilityPolicyStrict {
+			message := decision.Summary()
+			req.iter.SkipWithCapability(channel.ID, 0, channel.Name, message, string(decision.Status), decision.ConversionPath, decision.RequiredFeatures, decision.DegradedFields, decision.Lossiness, decision.Reasons)
+			lastErr = fmt.Errorf("capability degradation rejected: %s", message)
+			lastResult = attemptResult{
+				Err:           lastErr,
+				StatusCode:    http.StatusBadRequest,
+				ProtocolError: relayProtocolError(http.StatusBadRequest, CodeRelayCapabilityRejected, message),
 			}
 			continue
 		}
