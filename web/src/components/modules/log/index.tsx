@@ -1,27 +1,56 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useChannelList } from '@/api/endpoints/channel';
-import { useLogs, useLogSiteActionTargets, type LogKeywordMode, type LogKeywordScope } from '@/api/endpoints/log';
-import { LogCard, type LogSiteActionTargets } from './Item';
-import { Columns3, Loader2 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Columns3, Inbox, TriangleAlert } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useChannelList } from '@/api/endpoints/channel';
+import {
+    logPageQueryKey,
+    useLogPage,
+    useLogSiteActionTargets,
+    useLogStream,
+    type LogKeywordMode,
+    type LogKeywordScope,
+    type LogPageResponse,
+    type LogStatusFilter,
+    type RelayLog,
+} from '@/api/endpoints/log';
+import { Pagination } from '@/components/common/Pagination';
 import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useSearchStore } from '@/components/modules/toolbar';
 import { useToolbarViewOptionsStore } from '@/components/modules/toolbar/view-options-store';
+import { cn } from '@/lib/utils';
+import { LogCard, type LogSiteActionTargets } from './Item';
+import { LogListSkeleton } from './Skeleton';
 import { useLogFieldVisibilityStore, useLogUIStore, type LogFieldName } from './ui-store';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 type LogFilters = {
     keyword: string;
     keywordMode: LogKeywordMode;
     keywordScope: LogKeywordScope;
+    status: LogStatusFilter;
     channelIds: number[];
     startTime?: number;
     endTime?: number;
 };
 
-const LOG_PAGE_SIZE = 10;
+/** 实时推送的四种可见状态；suspended 表示开关是开的但当前页/筛选下不适用。 */
+type LiveState = 'on' | 'connecting' | 'suspended' | 'off';
+
+const VIEW_OPTION_FIELDS: readonly LogFieldName[] = [
+    'endpointType',
+    'channelName',
+    'actualModel',
+    'apiKeyName',
+    'clientIP',
+    'cost',
+    'tps',
+    'cacheHitRate',
+    'reasoningEffort',
+    'reasoningTokens',
+];
 
 function useDebouncedValue<T>(value: T, delay = 200) {
     const [debounced, setDebounced] = useState(value);
@@ -35,6 +64,7 @@ function useDebouncedValue<T>(value: T, delay = 200) {
 function filtersActive(filters: LogFilters) {
     return (
         !!filters.keyword.trim() ||
+        filters.status !== 'all' ||
         filters.channelIds.length > 0 ||
         !!filters.startTime ||
         !!filters.endTime
@@ -43,48 +73,112 @@ function filtersActive(filters: LogFilters) {
 
 /**
  * 日志页面组件
- * - 初始加载 pageSize 条历史日志
- * - SSE 实时推送新日志（无过滤时）
- * - 过滤模式使用 cursor 分页，滚动加载更多
+ * - 页码分页读取历史日志（后端 page 模式只回 total，页数由 total 推导）
+ * - 第 1 页且无筛选时保持 SSE 实时推送，新日志直接插入当前页缓存
+ * - 其余页码/筛选下挂起推送，避免与 offset 分页互相打架
  */
 export function Log() {
-    const t = useTranslations('log');
+    const tList = useTranslations('log.list');
+    const tLive = useTranslations('log.live');
+    const tView = useTranslations('log.viewOptions');
     const pageKey = 'log' as const;
+    const queryClient = useQueryClient();
+
     const searchTerm = useSearchStore((s) => s.getSearchTerm(pageKey));
     const refreshRequestId = useLogUIStore((s) => s.refreshRequestId);
     const setRefreshing = useLogUIStore((s) => s.setRefreshing);
+    const page = useLogUIStore((s) => s.page);
+    const pageSize = useLogUIStore((s) => s.pageSize);
+    const liveEnabled = useLogUIStore((s) => s.liveEnabled);
+    const setPage = useLogUIStore((s) => s.setPage);
+    const setPageSize = useLogUIStore((s) => s.setPageSize);
+    const setLiveEnabled = useLogUIStore((s) => s.setLiveEnabled);
     const lastHandledRefreshRequestIdRef = useRef(refreshRequestId);
+
     const logDateRange = useToolbarViewOptionsStore((s) => s.logDateRange);
     const logChannelIds = useToolbarViewOptionsStore((s) => s.logChannelIds);
     const logKeywordMode = useToolbarViewOptionsStore((s) => s.logKeywordMode);
     const logKeywordScope = useToolbarViewOptionsStore((s) => s.logKeywordScope);
+    const logStatus = useToolbarViewOptionsStore((s) => s.logStatus);
+
     const filters = useMemo<LogFilters>(() => ({
         keyword: searchTerm,
         keywordMode: logKeywordMode,
         keywordScope: logKeywordScope,
+        status: logStatus,
         channelIds: logChannelIds,
         startTime: logDateRange.start,
         endTime: logDateRange.end,
-    }), [logDateRange.end, logDateRange.start, logChannelIds, searchTerm, logKeywordMode, logKeywordScope]);
+    }), [logDateRange.end, logDateRange.start, logChannelIds, searchTerm, logKeywordMode, logKeywordScope, logStatus]);
     const debouncedFilters = useDebouncedValue(filters, 200);
-    const filterMode = filtersActive(debouncedFilters);
+    const hasFilters = filtersActive(debouncedFilters);
     const logFilters = useMemo(() => ({
         keyword: debouncedFilters.keyword.trim() || undefined,
         keyword_mode: debouncedFilters.keyword.trim() ? debouncedFilters.keywordMode : undefined,
         keyword_scope: debouncedFilters.keyword.trim() ? debouncedFilters.keywordScope : undefined,
+        status: debouncedFilters.status,
         channel_ids: debouncedFilters.channelIds.length > 0 ? debouncedFilters.channelIds : undefined,
         start_time: debouncedFilters.startTime,
         end_time: debouncedFilters.endTime,
     }), [debouncedFilters]);
-    const liveLogsQuery = useLogs({ pageSize: LOG_PAGE_SIZE, filters: logFilters, mode: filterMode ? 'paged' : 'stream' });
-    const logs = liveLogsQuery.logs;
-    const hasMore = liveLogsQuery.hasMore;
-    const isLoading = liveLogsQuery.isLoading;
-    const isLoadingMore = liveLogsQuery.isLoadingMore;
-    const loadMore = liveLogsQuery.loadMore;
-    const warning = liveLogsQuery.warning;
+
+    // 筛选变化后停留在旧页码没有意义（总页数已经变了），统一回到第 1 页。
+    const filterSignature = useMemo(() => JSON.stringify(logFilters), [logFilters]);
+    const lastFilterSignatureRef = useRef(filterSignature);
+    useEffect(() => {
+        if (lastFilterSignatureRef.current === filterSignature) return;
+        lastFilterSignatureRef.current = filterSignature;
+        setPage(1);
+    }, [filterSignature, setPage]);
+
+    const logsQuery = useLogPage({
+        page,
+        page_size: pageSize,
+        with_total: true,
+        include_content: false,
+        ...logFilters,
+    });
+    const { refetch } = logsQuery;
+
+    const logs = useMemo(() => logsQuery.data?.logs ?? [], [logsQuery.data]);
+    const total = logsQuery.data?.total ?? 0;
+    const warning = logsQuery.data?.warning ?? null;
+    const errorMessage = logsQuery.isError
+        ? (logsQuery.error instanceof Error ? logsQuery.error.message : String(logsQuery.error))
+        : null;
+
+    // 日志清理或筛选收窄后当前页可能越界，回退到最后一页而不是停在空白页。
+    useEffect(() => {
+        if (logsQuery.isFetching || total === 0) return;
+        const totalPages = Math.max(1, Math.ceil(total / pageSize));
+        if (page > totalPages) setPage(totalPages);
+    }, [logsQuery.isFetching, page, pageSize, setPage, total]);
+
+    // 只有第 1 页 + 无筛选时才推送：其余情况下推送与 offset 分页语义冲突，
+    // 且流里的日志未必符合当前筛选条件。
+    const liveApplicable = page === 1 && !hasFilters;
+    const handleStreamLog = useCallback((log: RelayLog) => {
+        queryClient.setQueryData<LogPageResponse>(logPageQueryKey(pageSize, 1, logFilters), (old) => {
+            if (!old) return old;
+            if (old.logs.some((item) => item.id === log.id)) return old;
+            return {
+                ...old,
+                logs: [log, ...old.logs].slice(0, pageSize),
+                total: old.total + 1,
+            };
+        });
+    }, [logFilters, pageSize, queryClient]);
+    const isLiveConnected = useLogStream(handleStreamLog, liveEnabled && liveApplicable);
+
+    const liveState: LiveState = !liveEnabled
+        ? 'off'
+        : !liveApplicable
+            ? 'suspended'
+            : isLiveConnected
+                ? 'on'
+                : 'connecting';
+
     const visibility = useLogFieldVisibilityStore((state) => state.visibility);
-    const tView = useTranslations('log.viewOptions');
     const { data: channels = [] } = useChannelList();
     const channelNameById = useMemo(() => {
         const map = new Map<number, string>();
@@ -103,12 +197,6 @@ export function Log() {
         return next;
     }, [siteActionTargetsQuery.data]);
 
-    const canLoadMore = hasMore && !isLoading && !isLoadingMore && logs.length > 0;
-    const handleReachEnd = useCallback(() => {
-        if (!canLoadMore) return;
-        void loadMore();
-    }, [canLoadMore, loadMore]);
-
     const refreshIdRef = useRef(0);
     const handleRefresh = useCallback(async () => {
         refreshIdRef.current += 1;
@@ -116,7 +204,7 @@ export function Log() {
         setRefreshing(true);
         const startedAt = Date.now();
         try {
-            await liveLogsQuery.refetch();
+            await refetch();
         } finally {
             const elapsed = Date.now() - startedAt;
             const remaining = Math.max(0, 500 - elapsed);
@@ -124,7 +212,7 @@ export function Log() {
                 if (refreshIdRef.current === myId) setRefreshing(false);
             }, remaining);
         }
-    }, [liveLogsQuery, setRefreshing]);
+    }, [refetch, setRefreshing]);
 
     useEffect(() => {
         if (refreshRequestId === lastHandledRefreshRequestIdRef.current) return;
@@ -132,27 +220,35 @@ export function Log() {
         void handleRefresh();
     }, [handleRefresh, refreshRequestId]);
 
-    const footer = useMemo(() => {
-        if (hasMore) {
-            return (
-                <div className="flex justify-center py-4">
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-            );
-        }
-        if (logs.length > 0) {
-            return (
-                <div className="flex justify-center py-4">
-                    <span className="text-sm text-muted-foreground">{t('list.noMore')}</span>
-                </div>
-            );
-        }
-        return null;
-    }, [hasMore, logs.length, t]);
+    const showSkeleton = logsQuery.isLoading;
+    const showEmpty = !logsQuery.isLoading && !logsQuery.isError && logs.length === 0;
+    const isRefetching = logsQuery.isFetching && !logsQuery.isLoading;
 
     return (
         <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
-            <div className="flex justify-end">
+            <div className="flex shrink-0 items-center justify-end gap-1">
+                <button
+                    type="button"
+                    onClick={() => setLiveEnabled(!liveEnabled)}
+                    title={liveState === 'suspended'
+                        ? tLive('suspendedHint')
+                        : liveEnabled ? tLive('disable') : tLive('enable')}
+                    className={cn(
+                        'flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors hover:bg-muted',
+                        liveState === 'on' ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground hover:text-foreground',
+                    )}
+                >
+                    <span
+                        className={cn(
+                            'size-1.5 rounded-full',
+                            liveState === 'on' && 'animate-pulse bg-emerald-500',
+                            liveState === 'connecting' && 'animate-pulse bg-amber-500',
+                            liveState === 'suspended' && 'bg-amber-500/50',
+                            liveState === 'off' && 'bg-muted-foreground/40',
+                        )}
+                    />
+                    {tLive(liveState)}
+                </button>
                 <Popover>
                     <PopoverTrigger asChild>
                         <button type="button" className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
@@ -162,7 +258,7 @@ export function Log() {
                     <PopoverContent align="end" className="w-56 p-3">
                         <div className="mb-2 text-xs font-medium text-muted-foreground">{tView('title')}</div>
                         <div className="flex flex-col gap-1">
-                            {(['endpointType', 'channelName', 'actualModel', 'apiKeyName', 'clientIP', 'cost', 'tps', 'cacheHitRate', 'reasoningEffort', 'reasoningTokens'] as LogFieldName[]).map((field) => (
+                            {VIEW_OPTION_FIELDS.map((field) => (
                                 <label key={field} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs transition-colors hover:bg-muted">
                                     <input type="checkbox" checked={visibility[field]} onChange={() => useLogFieldVisibilityStore.getState().toggleField(field)} className="size-3 rounded" />
                                     {tView(field)}
@@ -173,26 +269,73 @@ export function Log() {
                     </PopoverContent>
                 </Popover>
             </div>
+
+            {errorMessage ? (
+                <div className="flex shrink-0 items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                    <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                        <p className="font-medium">{tList('loadFailed')}</p>
+                        <p className="mt-0.5 break-words opacity-90">{errorMessage}</p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => void refetch()}
+                        className="shrink-0 rounded-md border border-destructive/40 px-2 py-0.5 font-medium transition-colors hover:bg-destructive/15"
+                    >
+                        {tList('retry')}
+                    </button>
+                </div>
+            ) : null}
+
             {warning ? (
-                <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                <div className="shrink-0 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
                     {warning}
                 </div>
             ) : null}
-            <div className="relative min-h-0 flex-1">
-                <VirtualizedGrid
-                    items={logs}
-                    layout="list"
-                    columns={{ default: 1 }}
-                    estimateItemHeight={180}
-                    overscan={8}
-                    getItemKey={(log) => `log-${log.id}`}
-                    renderItem={(log) => <LogCard log={log} siteTargets={siteActionTargets.get(log.id) ?? null} channelNameById={channelNameById} />}
-                    footer={footer}
-                    onReachEnd={handleReachEnd}
-                    reachEndEnabled={canLoadMore}
-                    reachEndOffset={2}
-                />
+
+            <div
+                aria-busy={isRefetching}
+                className={cn(
+                    'relative min-h-0 flex-1 transition-opacity duration-200',
+                    isRefetching && 'opacity-60',
+                )}
+            >
+                {showSkeleton ? (
+                    <div className="h-full overflow-hidden rounded-t-3xl">
+                        <LogListSkeleton count={Math.min(pageSize, 6)} />
+                    </div>
+                ) : showEmpty ? (
+                    <div className="flex h-full flex-col items-center justify-center gap-2 rounded-3xl border border-dashed border-border/60 px-6 text-center">
+                        <Inbox className="size-8 text-muted-foreground/40" />
+                        <p className="text-sm font-medium text-muted-foreground">
+                            {hasFilters ? tList('emptyFiltered') : tList('empty')}
+                        </p>
+                        <p className="text-xs text-muted-foreground/70">
+                            {hasFilters ? tList('emptyFilteredHint') : tList('emptyHint')}
+                        </p>
+                    </div>
+                ) : (
+                    <VirtualizedGrid
+                        items={logs}
+                        layout="list"
+                        columns={{ default: 1 }}
+                        estimateItemHeight={180}
+                        overscan={8}
+                        getItemKey={(log) => `log-${log.id}`}
+                        renderItem={(log) => <LogCard log={log} siteTargets={siteActionTargets.get(log.id) ?? null} channelNameById={channelNameById} />}
+                        scrollResetKey={`${page}|${pageSize}|${filterSignature}`}
+                    />
+                )}
             </div>
+
+            <Pagination
+                page={page}
+                pageSize={pageSize}
+                total={total}
+                onPageChange={setPage}
+                onPageSizeChange={setPageSize}
+                className="px-1 pb-1"
+            />
         </div>
     );
 }

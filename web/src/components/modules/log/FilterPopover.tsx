@@ -148,10 +148,12 @@ export function LogFilterPopover() {
     const logChannelIds = useToolbarViewOptionsStore((s) => s.logChannelIds);
     const logKeywordMode = useToolbarViewOptionsStore((s) => s.logKeywordMode);
     const logKeywordScope = useToolbarViewOptionsStore((s) => s.logKeywordScope);
+    const logStatus = useToolbarViewOptionsStore((s) => s.logStatus);
     const setLogDateRange = useToolbarViewOptionsStore((s) => s.setLogDateRange);
     const setLogChannelIds = useToolbarViewOptionsStore((s) => s.setLogChannelIds);
     const setLogKeywordMode = useToolbarViewOptionsStore((s) => s.setLogKeywordMode);
     const setLogKeywordScope = useToolbarViewOptionsStore((s) => s.setLogKeywordScope);
+    const setLogStatus = useToolbarViewOptionsStore((s) => s.setLogStatus);
     const { value: logKeepPeriodValue } = useSettingValue(SettingKey.RelayLogKeepPeriod, '0');
     const { data: channels } = useChannelList();
     const { data: sites } = useSiteChannelList({ includeHistory: false });
@@ -246,6 +248,7 @@ export function LogFilterPopover() {
         setLogChannelIds([]);
         setLogKeywordMode('default');
         setLogKeywordScope('default');
+        setLogStatus('all');
         setSearch('');
     };
 
@@ -286,6 +289,7 @@ export function LogFilterPopover() {
     const keywordScopeActive = hasKeyword && logKeywordScope === 'content';
     const activeCount =
         (dateActive ? 1 : 0) +
+        (logStatus !== 'all' ? 1 : 0) +
         (logChannelIds.length > 0 ? 1 : 0) +
         (keywordModeActive || keywordScopeActive ? 1 : 0);
 
@@ -351,6 +355,31 @@ export function LogFilterPopover() {
                         {logKeepPeriod > 0 ? (
                             <p className="text-[11px] leading-4 text-muted-foreground">{t('popover.logFilter.date.hint')}</p>
                         ) : null}
+                    </div>
+
+                    <div className="grid gap-2">
+                        <p className="text-xs font-medium text-muted-foreground">{t('popover.logFilter.status.title')}</p>
+                        <div className="grid grid-cols-3 gap-1 rounded-lg border border-border bg-muted/20 p-0.5">
+                            {(['all', 'success', 'error'] as const).map((status) => (
+                                <button
+                                    key={status}
+                                    type="button"
+                                    onClick={() => setLogStatus(status)}
+                                    className={cn(
+                                        'rounded-md py-1 text-[11px] transition-colors',
+                                        logStatus === status
+                                            ? status === 'error'
+                                                ? 'bg-card text-destructive shadow-sm'
+                                                : status === 'success'
+                                                    ? 'bg-card text-emerald-600 shadow-sm dark:text-emerald-400'
+                                                    : 'bg-card text-foreground shadow-sm'
+                                            : 'text-muted-foreground hover:text-foreground',
+                                    )}
+                                >
+                                    {t(`popover.logFilter.status.${status}`)}
+                                </button>
+                            ))}
+                        </div>
                     </div>
 
                     <div className="grid gap-2">

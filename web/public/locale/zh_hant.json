@@ -81,6 +81,12 @@
                     "clear": "清除時間",
                     "hint": "可選時間會受設定中的日誌保留天數限制。"
                 },
+                "status": {
+                    "title": "狀態",
+                    "all": "全部",
+                    "success": "成功",
+                    "error": "失敗"
+                },
                 "search": {
                     "title": "搜尋模式",
                     "mode": {
@@ -106,6 +112,16 @@
             "success": "複製成功",
             "failed": "複製失敗",
             "noContent": "無可複製內容"
+        },
+        "pagination": {
+            "total": "共",
+            "rowsPerPage": "每頁",
+            "pageIndicator": "{current} / {total}",
+            "gotoPage": "第 {page} 頁",
+            "firstPage": "首頁",
+            "prevPage": "上一頁",
+            "nextPage": "下一頁",
+            "lastPage": "末頁"
         }
     },
     "home": {
@@ -763,7 +779,21 @@
     },
     "log": {
         "list": {
-            "noMore": "沒有更多日誌了"
+            "empty": "暫無日誌",
+            "emptyHint": "新的請求日誌會自動出現在這裡",
+            "emptyFiltered": "沒有符合條件的日誌",
+            "emptyFilteredHint": "試試放寬篩選條件或時間範圍",
+            "loadFailed": "日誌載入失敗",
+            "retry": "重試"
+        },
+        "live": {
+            "on": "即時",
+            "connecting": "連線中",
+            "suspended": "已掛起",
+            "off": "已暫停",
+            "enable": "開啟即時推送",
+            "disable": "暫停即時推送",
+            "suspendedHint": "回到第 1 頁並清除篩選後自動恢復即時推送"
         },
         "viewOptions": {
             "title": "顯示欄位",

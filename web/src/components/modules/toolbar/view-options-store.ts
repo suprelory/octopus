@@ -10,6 +10,7 @@ export type ToolbarPage = (typeof TOOLBAR_PAGES)[number];
 export type LogDateRange = { start?: number; end?: number };
 export type LogKeywordMode = 'default' | 'prefix' | 'exact' | 'contains';
 export type LogKeywordScope = 'default' | 'content';
+export type LogStatusFilter = 'all' | 'success' | 'error';
 
 interface ToolbarViewOptionsState {
     layouts: Partial<Record<ToolbarPage, ToolbarLayout>>;
@@ -19,6 +20,7 @@ interface ToolbarViewOptionsState {
     logChannelIds: number[];
     logKeywordMode: LogKeywordMode;
     logKeywordScope: LogKeywordScope;
+    logStatus: LogStatusFilter;
 
     getLayout: (item: ToolbarPage) => ToolbarLayout;
     setLayout: (item: ToolbarPage, value: ToolbarLayout) => void;
@@ -37,6 +39,7 @@ interface ToolbarViewOptionsState {
     setLogChannelIds: (value: number[]) => void;
     setLogKeywordMode: (value: LogKeywordMode) => void;
     setLogKeywordScope: (value: LogKeywordScope) => void;
+    setLogStatus: (value: LogStatusFilter) => void;
 }
 
 export const useToolbarViewOptionsStore = create<ToolbarViewOptionsState>()(
@@ -49,6 +52,7 @@ export const useToolbarViewOptionsStore = create<ToolbarViewOptionsState>()(
             logChannelIds: [],
             logKeywordMode: 'default',
             logKeywordScope: 'default',
+            logStatus: 'all',
 
             getLayout: (item) => get().layouts[item] || 'grid',
             setLayout: (item, value) => {
@@ -83,6 +87,7 @@ export const useToolbarViewOptionsStore = create<ToolbarViewOptionsState>()(
             setLogChannelIds: (value) => set({ logChannelIds: value }),
             setLogKeywordMode: (value) => set({ logKeywordMode: value }),
             setLogKeywordScope: (value) => set({ logKeywordScope: value }),
+            setLogStatus: (value) => set({ logStatus: value }),
         }),
         {
             name: 'toolbar-view-options-storage',
@@ -94,6 +99,7 @@ export const useToolbarViewOptionsStore = create<ToolbarViewOptionsState>()(
                 logChannelIds: state.logChannelIds,
                 logKeywordMode: state.logKeywordMode,
                 logKeywordScope: state.logKeywordScope,
+                logStatus: state.logStatus,
             }),
         }
     )

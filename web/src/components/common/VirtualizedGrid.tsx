@@ -36,6 +36,8 @@ interface VirtualizedGridProps<T> {
     reachEndEnabled?: boolean;
     reachEndOffset?: number;
     onScroll?: (info: { scrollTop: number; scrollHeight: number; clientHeight: number }) => void;
+    /** 值变化时把滚动位置复位到顶部（翻页、切换筛选等整批换数据的场景）。 */
+    scrollResetKey?: string | number;
 }
 
 function getColumnsForWidth(
@@ -65,6 +67,7 @@ export function VirtualizedGrid<T>({
     reachEndEnabled = false,
     reachEndOffset = 1,
     onScroll,
+    scrollResetKey,
 }: VirtualizedGridProps<T>) {
     'use no memo';
 
@@ -147,6 +150,16 @@ export function VirtualizedGrid<T>({
     });
 
     const virtualRows = rowVirtualizer.getVirtualItems();
+
+    // 整批换数据（翻页/换筛选）时滚动条必须回到顶部，否则会停在上一页的偏移上，
+    // 看起来像"翻页后内容从中间开始"。直接改 scrollTop 让虚拟化器走正常滚动回调。
+    useEffect(() => {
+        if (scrollResetKey === undefined) return;
+        const el = containerRef.current;
+        if (!el) return;
+        el.scrollTop = 0;
+        reachEndTriggeredRef.current = false;
+    }, [scrollResetKey]);
 
     useEffect(() => {
         if (!onReachEnd || !reachEndEnabled || itemRowCount === 0) return;

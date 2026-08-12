@@ -81,6 +81,12 @@
                     "clear": "Clear time",
                     "hint": "Selectable time is limited by the log retention period in Settings."
                 },
+                "status": {
+                    "title": "Status",
+                    "all": "All",
+                    "success": "Success",
+                    "error": "Failed"
+                },
                 "search": {
                     "title": "Search mode",
                     "mode": {
@@ -106,6 +112,16 @@
             "success": "Copied",
             "failed": "Copy failed",
             "noContent": "Nothing to copy"
+        },
+        "pagination": {
+            "total": "Total",
+            "rowsPerPage": "Rows",
+            "pageIndicator": "{current} / {total}",
+            "gotoPage": "Go to page {page}",
+            "firstPage": "First page",
+            "prevPage": "Previous page",
+            "nextPage": "Next page",
+            "lastPage": "Last page"
         }
     },
     "home": {
@@ -763,7 +779,21 @@
     },
     "log": {
         "list": {
-            "noMore": "No more logs"
+            "empty": "No logs yet",
+            "emptyHint": "New request logs will appear here automatically",
+            "emptyFiltered": "No logs match your filters",
+            "emptyFilteredHint": "Try widening the filters or the time range",
+            "loadFailed": "Failed to load logs",
+            "retry": "Retry"
+        },
+        "live": {
+            "on": "Live",
+            "connecting": "Connecting",
+            "suspended": "Suspended",
+            "off": "Paused",
+            "enable": "Enable live updates",
+            "disable": "Pause live updates",
+            "suspendedHint": "Live updates resume on page 1 with no filters"
         },
         "viewOptions": {
             "title": "Display Fields",

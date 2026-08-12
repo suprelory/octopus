@@ -81,6 +81,12 @@
                     "clear": "清除时间",
                     "hint": "可选时间会受设置中的日志保留天数限制。"
                 },
+                "status": {
+                    "title": "状态",
+                    "all": "全部",
+                    "success": "成功",
+                    "error": "失败"
+                },
                 "search": {
                     "title": "搜索模式",
                     "mode": {
@@ -106,6 +112,16 @@
             "success": "复制成功",
             "failed": "复制失败",
             "noContent": "无可复制内容"
+        },
+        "pagination": {
+            "total": "共",
+            "rowsPerPage": "每页",
+            "pageIndicator": "{current} / {total}",
+            "gotoPage": "第 {page} 页",
+            "firstPage": "首页",
+            "prevPage": "上一页",
+            "nextPage": "下一页",
+            "lastPage": "末页"
         }
     },
     "home": {
@@ -763,7 +779,21 @@
     },
     "log": {
         "list": {
-            "noMore": "没有更多日志了"
+            "empty": "暂无日志",
+            "emptyHint": "新的请求日志会自动出现在这里",
+            "emptyFiltered": "没有符合条件的日志",
+            "emptyFilteredHint": "试试放宽筛选条件或时间范围",
+            "loadFailed": "日志加载失败",
+            "retry": "重试"
+        },
+        "live": {
+            "on": "实时",
+            "connecting": "连接中",
+            "suspended": "已挂起",
+            "off": "已暂停",
+            "enable": "开启实时推送",
+            "disable": "暂停实时推送",
+            "suspendedHint": "回到第 1 页并清除筛选后自动恢复实时推送"
         },
         "viewOptions": {
             "title": "显示字段",
