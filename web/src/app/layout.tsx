@@ -1,4 +1,5 @@
 import "./globals.css";
+import type { Viewport } from "next";
 import { ThemeProvider } from "@/provider/theme";
 import { Toaster } from "@/components/ui/sonner"
 import { LocaleProvider } from "@/provider/locale";
@@ -7,6 +8,12 @@ import { ServiceWorkerRegister } from "@/components/sw-register";
 import { TooltipProvider } from "@/components/animate-ui/components/animate/tooltip";
 
 
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
 
 export default function RootLayout({
   children,
