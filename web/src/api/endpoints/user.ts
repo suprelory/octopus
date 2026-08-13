@@ -11,7 +11,7 @@ import { logger } from '@/lib/logger';
 export interface UserLoginRequest {
     username: string;
     password: string;
-    expire: number; // token 过期时间（秒）
+    expire: number; // token 过期时间（分钟）
 }
 
 /**
@@ -20,6 +20,16 @@ export interface UserLoginRequest {
 export interface UserLoginResponse {
     token: string;
     expire_at: string; // ISO 8601 格式
+}
+
+export interface UserBootstrapRequest {
+    username: string;
+    password: string;
+    token: string;
+}
+
+export interface UserBootstrapStatus {
+    required: boolean;
 }
 
 /**
@@ -150,7 +160,7 @@ if (typeof window !== 'undefined') {
  * 
  * @example
  * const login = useLogin();
- * login.mutate({ username: 'admin', password: '123456', expire: 86400 });
+ * login.mutate({ username: 'admin', password: 'strong-password', expire: 1440 });
  * 
  * if (login.isPending) return <Loading />;
  * if (login.isError) return <Error message={login.error.message} />;
@@ -168,6 +178,21 @@ export function useLogin() {
         },
         onError: (error) => {
             logger.error('登录失败:', error);
+        },
+    });
+}
+
+export async function getBootstrapStatus(): Promise<UserBootstrapStatus> {
+    return apiClient.get<UserBootstrapStatus>('/api/v1/user/bootstrap');
+}
+
+export function useBootstrapUser() {
+    return useMutation({
+        mutationFn: async (data: UserBootstrapRequest) => {
+            return apiClient.post<string>('/api/v1/user/bootstrap', data);
+        },
+        onError: (error) => {
+            logger.error('管理员初始化失败:', error);
         },
     });
 }
@@ -252,4 +277,3 @@ export function useAuth() {
         logout: store.logout,
     };
 }
-

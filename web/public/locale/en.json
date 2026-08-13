@@ -18,6 +18,24 @@
             "submit": "Login"
         }
     },
+    "bootstrap": {
+        "title": "Initialize administrator",
+        "description": "This is a new installation. Create the administrator account before management APIs are unlocked. You can also initialize it with OCTOPUS_ADMIN_PASSWORD.",
+        "username": "Administrator username",
+		"token": "One-time initialization token",
+		"tokenDescription": "Copy the bootstrap token printed in the server startup log.",
+        "password": "Administrator password",
+        "confirmPassword": "Confirm administrator password",
+        "error": {
+            "tooShort": "Password must be at least {length} characters",
+            "mismatch": "The passwords do not match",
+            "generic": "Administrator initialization failed"
+        },
+        "button": {
+            "loading": "Initializing...",
+            "submit": "Create administrator"
+        }
+    },
     "apiKeyDashboard": {
         "error": "Failed to load data",
         "logout": "Logout",
@@ -411,7 +429,7 @@
                 "oldEmpty": "Please enter current password",
                 "newEmpty": "Please enter new password",
                 "mismatch": "Passwords do not match",
-                "tooShort": "Password must be at least 6 characters",
+                "tooShort": "Password must be at least 12 characters",
                 "change": "Change Password",
                 "success": "Password changed successfully",
                 "failed": "Failed to change password"

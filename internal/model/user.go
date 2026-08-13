@@ -18,6 +18,16 @@ type UserLogin struct {
 	Expire   int    `json:"expire"`
 }
 
+type UserBootstrap struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Token    string `json:"token"`
+}
+
+type UserBootstrapStatus struct {
+	Required bool `json:"required"`
+}
+
 type UserChangePassword struct {
 	OldPassword string `json:"old_password"`
 	NewPassword string `json:"new_password"`

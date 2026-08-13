@@ -20,6 +20,14 @@ func init() {
 		AddRoute(
 			router.NewRoute("/login", http.MethodPost).
 				Handle(login),
+		).
+		AddRoute(
+			router.NewRoute("/bootstrap", http.MethodGet).
+				Handle(bootstrapStatus),
+		).
+		AddRoute(
+			router.NewRoute("/bootstrap", http.MethodPost).
+				Handle(bootstrap),
 		)
 	router.NewGroupRouter("/api/v1/user").
 		Use(middleware.Auth()).
@@ -61,6 +69,10 @@ func login(c *gin.Context) {
 	}
 
 	if err := op.UserVerify(user.Username, user.Password); err != nil {
+		if apperror.IsCode(err, apperror.CodeAuthBootstrapRequired) {
+			resp.ErrorWithAppError(c, http.StatusServiceUnavailable, err)
+			return
+		}
 		op.LoginAttemptFailed(source)
 		resp.InvalidCredentials(c)
 		return
@@ -73,6 +85,28 @@ func login(c *gin.Context) {
 		return
 	}
 	resp.Success(c, model.UserLoginResponse{Token: token, ExpireAt: expire})
+}
+
+func bootstrapStatus(c *gin.Context) {
+	required, err := op.UserBootstrapRequired()
+	if err != nil {
+		resp.InternalErrorWithLog(c, err)
+		return
+	}
+	resp.Success(c, model.UserBootstrapStatus{Required: required})
+}
+
+func bootstrap(c *gin.Context) {
+	var input model.UserBootstrap
+	if err := c.ShouldBindJSON(&input); err != nil {
+		resp.InvalidJSON(c)
+		return
+	}
+	if err := op.UserBootstrap(input.Username, input.Password, input.Token); err != nil {
+		resp.ErrorWithAppError(c, http.StatusInternalServerError, err)
+		return
+	}
+	resp.Success(c, "administrator initialized successfully")
 }
 
 func changePassword(c *gin.Context) {

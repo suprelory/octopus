@@ -2,30 +2,83 @@ package op
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/bestruirui/octopus/internal/apperror"
 	dbpkg "github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/utils/log"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 	"gorm.io/gorm"
 )
 
-func TestUserInitAndVerify(t *testing.T) {
+const testAdminPassword = "initial-password"
+
+func initTestUser(t *testing.T) {
+	t.Helper()
+	t.Setenv(AdminUsernameEnv, "admin")
+	t.Setenv(AdminPasswordEnv, testAdminPassword)
+	if err := UserInit(); err != nil {
+		t.Fatalf("UserInit failed: %v", err)
+	}
+}
+
+func TestUserInitWithoutEnvironmentRequiresBootstrap(t *testing.T) {
 	setupSiteOpTestDB(t)
+	t.Setenv(AdminUsernameEnv, "")
+	if err := os.Unsetenv(AdminPasswordEnv); err != nil {
+		t.Fatalf("Unsetenv failed: %v", err)
+	}
+
+	if err := UserInit(); err != nil {
+		t.Fatalf("UserInit failed: %v", err)
+	}
+	required, err := UserBootstrapRequired()
+	if err != nil {
+		t.Fatalf("UserBootstrapRequired failed: %v", err)
+	}
+	if !required {
+		t.Fatal("fresh installation did not require administrator bootstrap")
+	}
+	if got := UserGet(); got.ID != 0 {
+		t.Fatalf("fresh installation unexpectedly created user %+v", got)
+	}
+	if bootstrapToken == "" {
+		t.Fatal("fresh installation did not create a one-time bootstrap token")
+	}
+	if err := UserVerify("admin", "admin"); !apperror.IsCode(err, apperror.CodeAuthBootstrapRequired) {
+		t.Fatalf("UserVerify error = %v, want bootstrap required", err)
+	}
+}
+
+func TestUserInitFromEnvironmentAndVerify(t *testing.T) {
+	setupSiteOpTestDB(t)
+
+	secret := "environment-secret"
+	t.Setenv(AdminUsernameEnv, "admin")
+	t.Setenv(AdminPasswordEnv, secret)
+	core, observed := observer.New(zap.InfoLevel)
+	originalLogger := log.Logger
+	log.Logger = zap.New(core).Sugar()
+	t.Cleanup(func() { log.Logger = originalLogger })
 
 	if err := UserInit(); err != nil {
 		t.Fatalf("UserInit failed: %v", err)
 	}
 
-	if err := UserVerify("admin", "admin"); err != nil {
+	if err := UserVerify("admin", secret); err != nil {
 		t.Fatalf("UserVerify with the initial credentials failed: %v", err)
 	}
 	if err := UserVerify("admin", "wrong"); err == nil {
 		t.Fatal("UserVerify accepted a wrong password")
 	}
-	if err := UserVerify("nobody", "admin"); err == nil {
+	if err := UserVerify("nobody", secret); err == nil {
 		t.Fatal("UserVerify accepted a wrong username")
 	}
 
@@ -33,33 +86,125 @@ func TestUserInitAndVerify(t *testing.T) {
 	if user.ID == 0 {
 		t.Fatal("the initial user was created without a primary key")
 	}
-	if user.Password == "admin" {
+	if user.Password == secret {
 		t.Fatal("the initial password was stored in plaintext")
+	}
+	for _, entry := range observed.All() {
+		if strings.Contains(entry.Message+fmt.Sprint(entry.Context), secret) {
+			t.Fatal("initial administrator password was written to logs")
+		}
+	}
+
+	// Existing credentials win on repeated startup, even if the environment is removed.
+	if err := os.Unsetenv(AdminPasswordEnv); err != nil {
+		t.Fatalf("Unsetenv failed: %v", err)
+	}
+	if err := UserInit(); err != nil {
+		t.Fatalf("second UserInit failed: %v", err)
+	}
+	if err := UserVerify("admin", secret); err != nil {
+		t.Fatalf("repeated startup changed the administrator credentials: %v", err)
+	}
+}
+
+func TestUserBootstrapOnce(t *testing.T) {
+	setupSiteOpTestDB(t)
+	t.Setenv(AdminPasswordEnv, "")
+	if err := os.Unsetenv(AdminPasswordEnv); err != nil {
+		t.Fatalf("Unsetenv failed: %v", err)
+	}
+	if err := UserInit(); err != nil {
+		t.Fatalf("UserInit failed: %v", err)
+	}
+
+	token := bootstrapToken
+	if err := UserBootstrap("operator", "bootstrap-secret", "wrong-token"); !apperror.IsCode(err, apperror.CodeAuthBootstrapTokenInvalid) {
+		t.Fatalf("UserBootstrap with wrong token error = %v, want invalid token", err)
+	}
+	if err := UserBootstrap("operator", "bootstrap-secret", token); err != nil {
+		t.Fatalf("UserBootstrap failed: %v", err)
+	}
+	if err := UserVerify("operator", "bootstrap-secret"); err != nil {
+		t.Fatalf("bootstrapped credentials failed: %v", err)
+	}
+	if bootstrapToken != "" {
+		t.Fatal("successful bootstrap did not consume the one-time token")
+	}
+	if err := UserBootstrap("attacker", "another-secret", token); !apperror.IsCode(err, apperror.CodeAuthAlreadyInitialized) {
+		t.Fatalf("second UserBootstrap error = %v, want already initialized", err)
+	}
+}
+
+func TestUserInitRotatesBootstrapTokenOnRestart(t *testing.T) {
+	setupSiteOpTestDB(t)
+	if err := os.Unsetenv(AdminPasswordEnv); err != nil {
+		t.Fatalf("Unsetenv failed: %v", err)
+	}
+	if err := UserInit(); err != nil {
+		t.Fatalf("first UserInit failed: %v", err)
+	}
+	first := bootstrapToken
+	if first == "" {
+		t.Fatal("first UserInit did not create a bootstrap token")
+	}
+	if err := UserInit(); err != nil {
+		t.Fatalf("second UserInit failed: %v", err)
+	}
+	second := bootstrapToken
+	if second == "" || second == first {
+		t.Fatalf("bootstrap token was not rotated across restart: first=%q second=%q", first, second)
+	}
+}
+
+func TestUserInitTreatsEmptyEnvironmentPasswordAsBootstrap(t *testing.T) {
+	setupSiteOpTestDB(t)
+	t.Setenv(AdminPasswordEnv, "")
+	if err := UserInit(); err != nil {
+		t.Fatalf("UserInit with empty environment password failed: %v", err)
+	}
+	if bootstrapToken == "" {
+		t.Fatal("empty environment password did not produce a bootstrap token")
+	}
+	if got := UserGet(); got.ID != 0 {
+		t.Fatalf("empty environment password unexpectedly created user %+v", got)
+	}
+}
+
+func TestUserInitRejectsWeakEnvironmentPassword(t *testing.T) {
+	setupSiteOpTestDB(t)
+	t.Setenv(AdminPasswordEnv, "short")
+	if err := UserInit(); err == nil {
+		t.Fatal("UserInit accepted a weak environment password")
+	}
+	required, err := UserBootstrapRequired()
+	if err != nil {
+		t.Fatalf("UserBootstrapRequired failed: %v", err)
+	}
+	if !required {
+		t.Fatal("weak environment password created an administrator")
 	}
 }
 
 func TestUserChangePasswordPersists(t *testing.T) {
 	setupSiteOpTestDB(t)
 
-	if err := UserInit(); err != nil {
-		t.Fatalf("UserInit failed: %v", err)
-	}
+	initTestUser(t)
 
 	if err := UserChangePassword("wrong-old", "new-password"); err == nil {
 		t.Fatal("UserChangePassword accepted a wrong old password")
 	}
 	// 旧密码校验失败后缓存不能被改动。
-	if err := UserVerify("admin", "admin"); err != nil {
+	if err := UserVerify("admin", testAdminPassword); err != nil {
 		t.Fatalf("a rejected password change invalidated the old password: %v", err)
 	}
 
-	if err := UserChangePassword("admin", "new-password"); err != nil {
+	if err := UserChangePassword(testAdminPassword, "new-password"); err != nil {
 		t.Fatalf("UserChangePassword failed: %v", err)
 	}
 	if err := UserVerify("admin", "new-password"); err != nil {
 		t.Fatalf("the new password does not verify: %v", err)
 	}
-	if err := UserVerify("admin", "admin"); err == nil {
+	if err := UserVerify("admin", testAdminPassword); err == nil {
 		t.Fatal("the old password still verifies after a successful change")
 	}
 }
@@ -67,9 +212,7 @@ func TestUserChangePasswordPersists(t *testing.T) {
 func TestUserChangeUsernamePersists(t *testing.T) {
 	setupSiteOpTestDB(t)
 
-	if err := UserInit(); err != nil {
-		t.Fatalf("UserInit failed: %v", err)
-	}
+	initTestUser(t)
 
 	if err := UserChangeUsername("admin"); err == nil {
 		t.Fatal("UserChangeUsername accepted the current username")
@@ -80,7 +223,7 @@ func TestUserChangeUsernamePersists(t *testing.T) {
 	if got := UserGet().Username; got != "operator" {
 		t.Fatalf("username after change = %q, want %q", got, "operator")
 	}
-	if err := UserVerify("operator", "admin"); err != nil {
+	if err := UserVerify("operator", testAdminPassword); err != nil {
 		t.Fatalf("verify with the new username failed: %v", err)
 	}
 }
@@ -90,9 +233,7 @@ func TestUserChangeUsernamePersists(t *testing.T) {
 func TestUserCacheConcurrentReadWrite(t *testing.T) {
 	setupSiteOpTestDB(t)
 
-	if err := UserInit(); err != nil {
-		t.Fatalf("UserInit failed: %v", err)
-	}
+	initTestUser(t)
 
 	const writes = 20
 
@@ -124,7 +265,7 @@ func TestUserCacheConcurrentReadWrite(t *testing.T) {
 				return
 			default:
 			}
-			_ = UserVerify("admin", "admin")
+			_ = UserVerify("admin", testAdminPassword)
 		}
 	}()
 
@@ -149,9 +290,7 @@ func TestUserCacheConcurrentReadWrite(t *testing.T) {
 
 func TestUserWritersSerializeDBAndCacheCommit(t *testing.T) {
 	setupSiteOpTestDB(t)
-	if err := UserInit(); err != nil {
-		t.Fatalf("UserInit failed: %v", err)
-	}
+	initTestUser(t)
 
 	const callbackName = "test:user-writer-serialization"
 	entered := make(chan int, 2)

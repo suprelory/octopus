@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button';
 import { useChangeUsername, useChangePassword, useAuth } from '@/api/endpoints/user';
 import { toast } from '@/components/common/Toast';
 
+const MIN_PASSWORD_LENGTH = 12;
+
 export function SettingAccount() {
     const t = useTranslations('setting');
     const { logout } = useAuth();
@@ -56,7 +58,7 @@ export function SettingAccount() {
             toast.error(t('account.password.mismatch'));
             return;
         }
-        if (newPassword.length < 6) {
+        if (Array.from(newPassword).length < MIN_PASSWORD_LENGTH) {
             toast.error(t('account.password.tooShort'));
             return;
         }
@@ -174,4 +176,3 @@ export function SettingAccount() {
         </div>
     );
 }
-

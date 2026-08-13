@@ -18,6 +18,24 @@
             "submit": "登录"
         }
     },
+    "bootstrap": {
+        "title": "初始化管理员",
+        "description": "这是全新安装。请创建管理员账号，完成前其他管理接口保持锁定。也可通过 OCTOPUS_ADMIN_PASSWORD 环境变量自动初始化。",
+        "username": "管理员用户名",
+		"token": "一次性初始化令牌",
+		"tokenDescription": "请复制服务启动日志中输出的 bootstrap token。",
+        "password": "管理员密码",
+        "confirmPassword": "确认管理员密码",
+        "error": {
+            "tooShort": "密码长度至少为 {length} 位",
+            "mismatch": "两次输入的密码不一致",
+            "generic": "管理员初始化失败"
+        },
+        "button": {
+            "loading": "正在初始化...",
+            "submit": "创建管理员"
+        }
+    },
     "apiKeyDashboard": {
         "error": "加载数据失败",
         "logout": "退出",
@@ -411,7 +429,7 @@
                 "oldEmpty": "请输入当前密码",
                 "newEmpty": "请输入新密码",
                 "mismatch": "两次输入的密码不一致",
-                "tooShort": "密码长度至少为6位",
+                "tooShort": "密码长度至少为12位",
                 "change": "修改密码",
                 "success": "密码修改成功",
                 "failed": "密码修改失败"

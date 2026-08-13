@@ -3,8 +3,9 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from "motion/react"
-import { useAuth } from '@/api/endpoints/user';
+import { getBootstrapStatus, useAuth } from '@/api/endpoints/user';
 import { LoginForm } from '@/components/modules/login';
+import { BootstrapForm } from '@/components/modules/bootstrap';
 import { APIKeyDashboard } from '@/components/modules/apikey-dashboard';
 import { ContentLoader } from '@/route/content-loader';
 import { NavBar, useNavStore } from '@/components/modules/navbar';
@@ -30,6 +31,8 @@ export function AppContainer() {
 
     // Logo 动画完成状态 — 回访用户缩短动画时间
     const [logoAnimationComplete, setLogoAnimationComplete] = useState(false);
+    const [bootstrapLoading, setBootstrapLoading] = useState(true);
+    const [bootstrapRequired, setBootstrapRequired] = useState(false);
     const bootstrapStartedRef = useRef(false);
 
     // 首屏最早的 server-rendered loader：一旦客户端开始渲染，就淡出移除
@@ -41,6 +44,31 @@ export function AppContainer() {
         const timer = setTimeout(() => el.remove(), 220);
         return () => clearTimeout(timer);
     }, []);
+
+    useEffect(() => {
+        if (authLoading || isAuthenticated) {
+            setBootstrapLoading(false);
+            setBootstrapRequired(false);
+            return;
+        }
+
+        let active = true;
+        setBootstrapLoading(true);
+        getBootstrapStatus()
+            .then((status) => {
+                if (active) setBootstrapRequired(status.required);
+            })
+            .catch((error) => {
+                logger.warn('administrator bootstrap status check failed:', error);
+                if (active) setBootstrapRequired(false);
+            })
+            .finally(() => {
+                if (active) setBootstrapLoading(false);
+            });
+        return () => {
+            active = false;
+        };
+    }, [authLoading, isAuthenticated]);
 
     useEffect(() => {
         const isReturning = sessionStorage.getItem(RETURNING_USER_KEY) === '1';
@@ -169,7 +197,7 @@ export function AppContainer() {
     }, [authLoading, isAuthenticated]);
 
     // 加载状态 — 仅等待认证和 Logo 动画，不再等待数据预取
-    const isLoading = authLoading || !logoAnimationComplete;
+    const isLoading = authLoading || bootstrapLoading || !logoAnimationComplete;
 
     // 加载页面
     if (isLoading) {
@@ -185,6 +213,14 @@ export function AppContainer() {
         return (
             <AnimatePresence mode="wait">
                 <APIKeyDashboard key="apikey-dashboard" />
+            </AnimatePresence>
+        );
+    }
+
+    if (bootstrapRequired) {
+        return (
+            <AnimatePresence mode="wait">
+                <BootstrapForm key="bootstrap" onComplete={() => setBootstrapRequired(false)} />
             </AnimatePresence>
         );
     }

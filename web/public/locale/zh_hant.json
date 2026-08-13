@@ -18,6 +18,24 @@
             "submit": "登入"
         }
     },
+    "bootstrap": {
+        "title": "初始化管理員",
+        "description": "這是全新安裝。請建立管理員帳號，完成前其他管理介面保持鎖定。也可透過 OCTOPUS_ADMIN_PASSWORD 環境變數自動初始化。",
+        "username": "管理員使用者名稱",
+		"token": "一次性初始化權杖",
+		"tokenDescription": "請複製服務啟動日誌中輸出的 bootstrap token。",
+        "password": "管理員密碼",
+        "confirmPassword": "確認管理員密碼",
+        "error": {
+            "tooShort": "密碼長度至少為 {length} 位",
+            "mismatch": "兩次輸入的密碼不一致",
+            "generic": "管理員初始化失敗"
+        },
+        "button": {
+            "loading": "正在初始化...",
+            "submit": "建立管理員"
+        }
+    },
     "apiKeyDashboard": {
         "error": "載入資料失敗",
         "logout": "登出",
@@ -411,7 +429,7 @@
                 "oldEmpty": "請輸入當前密碼",
                 "newEmpty": "請輸入新密碼",
                 "mismatch": "兩次輸入的密碼不一致",
-                "tooShort": "密碼長度至少為6位",
+                "tooShort": "密碼長度至少為12位",
                 "change": "修改密碼",
                 "success": "密碼修改成功",
                 "failed": "密碼修改失敗"

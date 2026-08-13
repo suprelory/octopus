@@ -22,11 +22,11 @@ readonly GIT_VERSION="$(git describe --tags --abbrev=0 2>/dev/null || echo 'dev'
 readonly COMMIT_ID="$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
 
 # Build flags
-readonly LDFLAGS="-X 'github.com/bestruirui/octopus/internal/conf.Version=${GIT_VERSION}' \
-                  -X 'github.com/bestruirui/octopus/internal/conf.BuildTime=${BUILD_TIME}' \
-                  -X 'github.com/bestruirui/octopus/internal/conf.Author=${GIT_AUTHOR}' \
-                  -X 'github.com/bestruirui/octopus/internal/conf.Commit=${COMMIT_ID}' \
-                  -s -w"
+LDFLAGS="-X 'github.com/bestruirui/octopus/internal/conf.Version=${GIT_VERSION}' \
+         -X 'github.com/bestruirui/octopus/internal/conf.BuildTime=${BUILD_TIME}' \
+         -X 'github.com/bestruirui/octopus/internal/conf.Author=${GIT_AUTHOR}' \
+         -X 'github.com/bestruirui/octopus/internal/conf.Commit=${COMMIT_ID}' \
+         -s -w"
 
 # =============================================================================
 # Utility Functions
@@ -193,6 +193,37 @@ prepare_environment() {
     log_success "Build environment ready"
 }
 
+prepare_release_signing() {
+    if [ -z "${OCTOPUS_RELEASE_SIGNING_KEY:-}" ]; then
+        log_error "OCTOPUS_RELEASE_SIGNING_KEY is required for release builds"
+        return 1
+    fi
+
+    local public_key
+    if ! public_key="$(go run scripts/release_sign.go public-key)"; then
+        log_error "Failed to derive the release verification public key"
+        return 1
+    fi
+    if [ -z "${public_key}" ]; then
+        log_error "Derived release verification public key is empty"
+        return 1
+    fi
+    LDFLAGS="${LDFLAGS} -X 'github.com/bestruirui/octopus/internal/update.releasePublicKey=${public_key}'"
+    log_success "Release verification public key prepared"
+}
+
+reset_release_artifacts() {
+    log_step "Resetting release artifacts"
+
+    local subdirs=("bin" "docker" "archives")
+    for subdir in "${subdirs[@]}"; do
+        rm -rf "${OUTPUT_DIR:?}/${subdir}"
+        mkdir -p "${OUTPUT_DIR}/${subdir}"
+    done
+
+    log_success "Release artifact directories reset"
+}
+
 # =============================================================================
 # Build Functions
 # =============================================================================
@@ -288,6 +319,9 @@ build_standard() {
     fi
 
     local output_file="${OUTPUT_DIR}/bin/${APP_NAME}-${os}-${arch}"
+	if [ "${os}" = "windows" ]; then
+		output_file="${output_file}.exe"
+	fi
 
     log_info "Building ${os}/${arch}..."
 
@@ -314,6 +348,8 @@ create_archives() {
     log_step "Creating distribution archives"
 
     local archives_dir="${OUTPUT_DIR}/archives"
+	local archive_count=0
+	local failed=0
 
     # Copy documentation files to archives directory
     cp README.md LICENSE "${archives_dir}/" 2>/dev/null || log_info "Documentation files not found, skipping"
@@ -322,6 +358,7 @@ create_archives() {
     while IFS= read -r -d '' file; do
         local basename_file
         basename_file=$(basename "$file")
+        local archive_basename="${basename_file%.exe}"
         local extension=""
 
         # Add .exe extension for Windows binaries
@@ -331,25 +368,31 @@ create_archives() {
 
         if ! cp "$file" "${archives_dir}/${APP_NAME}${extension}" 2>/dev/null; then
             log_error "Failed to copy $file to ${archives_dir}/${APP_NAME}${extension}"
+			failed=1
             continue
         fi
 
-        if (cd "${archives_dir}" && zip -q "${basename_file}.zip" "${APP_NAME}${extension}" README.md LICENSE 2>/dev/null); then
+		local archive_files=("${APP_NAME}${extension}")
+		[ -f "${archives_dir}/README.md" ] && archive_files+=("README.md")
+		[ -f "${archives_dir}/LICENSE" ] && archive_files+=("LICENSE")
+
+        if (cd "${archives_dir}" && zip -q "${archive_basename}.zip" "${archive_files[@]}" 2>/dev/null); then
             rm -f "${archives_dir}/${APP_NAME}${extension}"
-            log_success "Archived: archives/${basename_file}.zip"
+				archive_count=$((archive_count + 1))
+            log_success "Archived: archives/${archive_basename}.zip"
         else
-            log_error "Failed to create archive: ${basename_file}.zip"
+            log_error "Failed to create archive: ${archive_basename}.zip"
             rm -f "${archives_dir}/${APP_NAME}${extension}"
+			failed=1
         fi
     done < <(find "${OUTPUT_DIR}/bin/" -name "${APP_NAME}-*" -type f -print0 2>/dev/null)
 
     # Cleanup documentation files from archives directory
     rm -f "${archives_dir}/README.md" "${archives_dir}/LICENSE"
-
-    if ! cd .. 2>/dev/null; then
-        log_error "Failed to return to parent directory"
-        return 1
-    fi
+	if [ "${failed}" -ne 0 ] || [ "${archive_count}" -eq 0 ]; then
+		log_error "One or more release archives could not be created"
+		return 1
+	fi
 
     log_success "Created archives in ${archives_dir}/"
 }
@@ -397,6 +440,38 @@ generate_checksums() {
     fi
 }
 
+generate_release_manifest() {
+    log_step "Generating signed release manifest"
+
+    local archives_dir="${OUTPUT_DIR}/archives"
+    local manifest="${archives_dir}/checksums.sha256"
+    local signature="${archives_dir}/checksums.sha256.sig"
+    if [ -z "${OCTOPUS_RELEASE_SIGNING_KEY:-}" ]; then
+        log_error "OCTOPUS_RELEASE_SIGNING_KEY is required to create release artifacts"
+        return 1
+    fi
+
+    python3 - "${archives_dir}" "${manifest}" <<'PY'
+import hashlib
+import pathlib
+import sys
+
+archives_dir, manifest_path = map(pathlib.Path, sys.argv[1:])
+files = sorted(p for p in archives_dir.glob('*.zip') if p.is_file())
+if not files:
+    raise SystemExit('no release archives found')
+
+manifest = ''.join(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n' for p in files).encode()
+manifest_path.write_bytes(manifest)
+PY
+    if ! go run scripts/release_sign.go sign "${manifest}" "${signature}"; then
+        log_error "Failed to sign release manifest"
+        return 1
+    fi
+
+    log_success "Generated ${manifest} and ${signature}"
+}
+
 prepare_docker_binaries() {
     log_step "Preparing Docker binaries"
 
@@ -435,7 +510,7 @@ prepare_docker_binaries() {
         if [ -f "${OUTPUT_DIR}/bin/${binary_name}" ]; then
             if cp "${OUTPUT_DIR}/bin/${binary_name}" "${platform_dir}/${APP_NAME}" 2>/dev/null; then
                 log_success "Copied bin/${binary_name} → docker/${docker_platform}/${APP_NAME}"
-                ((copied_count++))
+				copied_count=$((copied_count + 1))
             else
                 log_error "Failed to copy bin/${binary_name} to ${platform_dir}/${APP_NAME}"
             fi
@@ -564,6 +639,16 @@ main() {
             exit 1
         fi
 
+        if ! prepare_release_signing; then
+            log_error "Failed to prepare release signing"
+            exit 1
+        fi
+
+		if ! reset_release_artifacts; then
+			log_error "Failed to reset release artifacts"
+			exit 1
+		fi
+
         # Build frontend
         if ! build_frontend; then
             log_error "Failed to build frontend"
@@ -580,30 +665,43 @@ main() {
         log_step "Building binaries"
 
         # Standard builds (pure Go, static binaries)
+		local build_failed=0
         if ! build_standard linux x86_64; then
             log_error "Failed to build Linux x86_64"
+			build_failed=1
         fi
         if ! build_standard linux arm64; then
             log_error "Failed to build Linux arm64"
+			build_failed=1
         fi
         if ! build_standard linux armv7; then
             log_error "Failed to build Linux armv7"
+			build_failed=1
         fi
         if ! build_standard linux x86; then
             log_error "Failed to build Linux x86"
+			build_failed=1
         fi
         if ! build_standard windows x86_64; then
             log_error "Failed to build Windows x86_64"
+			build_failed=1
         fi
         if ! build_standard windows x86; then
             log_error "Failed to build Windows x86"
+			build_failed=1
         fi
         if ! build_standard darwin arm64; then
             log_error "Failed to build Darwin arm64"
+			build_failed=1
         fi
         if ! build_standard darwin x86_64; then
-            log_error "Failed to build Darwin arm64"
+			log_error "Failed to build Darwin x86_64"
+			build_failed=1
         fi
+		if [ "${build_failed}" -ne 0 ]; then
+			log_error "Release build aborted because one or more platform builds failed"
+			exit 1
+		fi
 
         # Post-processing
         if ! prepare_docker_binaries; then
@@ -615,7 +713,13 @@ main() {
         fi
 
         if ! create_archives; then
-            log_warning "Failed to create archives, but continuing..."
+			log_error "Failed to create archives"
+			exit 1
+        fi
+
+        if ! generate_release_manifest; then
+            log_error "Failed to generate signed release manifest"
+            exit 1
         fi
 
         log_step "Build completed"
