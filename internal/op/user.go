@@ -21,6 +21,7 @@ const (
 	AdminUsernameEnv = "OCTOPUS_ADMIN_USERNAME"
 	AdminPasswordEnv = "OCTOPUS_ADMIN_PASSWORD"
 	MinPasswordLen   = 12
+	MaxPasswordBytes = 72
 )
 
 // userCache 被登录路径（UserVerify / UserGet）读、被改密改名路径写，必须加锁。
@@ -163,6 +164,9 @@ func validatePassword(password string) error {
 	}
 	if len([]rune(password)) < MinPasswordLen {
 		return apperror.InvalidParam(fmt.Sprintf("password must be at least %d characters", MinPasswordLen))
+	}
+	if len(password) > MaxPasswordBytes {
+		return apperror.InvalidParam(fmt.Sprintf("password must not exceed %d bytes", MaxPasswordBytes))
 	}
 	return nil
 }

@@ -185,6 +185,46 @@ func TestUserInitRejectsWeakEnvironmentPassword(t *testing.T) {
 	}
 }
 
+func TestUserInitRejectsEnvironmentPasswordOverBcryptLimit(t *testing.T) {
+	setupSiteOpTestDB(t)
+	t.Setenv(AdminPasswordEnv, strings.Repeat("😀", 19))
+
+	if err := UserInit(); !apperror.IsCode(err, apperror.CodeCommonInvalidParam) {
+		t.Fatalf("UserInit error = %v, want invalid parameter", err)
+	}
+	required, err := UserBootstrapRequired()
+	if err != nil {
+		t.Fatalf("UserBootstrapRequired failed: %v", err)
+	}
+	if !required {
+		t.Fatal("overlong environment password created an administrator")
+	}
+	if got := UserGet(); got.ID != 0 {
+		t.Fatalf("overlong environment password created user %+v", got)
+	}
+}
+
+func TestUserBootstrapRejectsPasswordOverBcryptLimit(t *testing.T) {
+	setupSiteOpTestDB(t)
+	if err := os.Unsetenv(AdminPasswordEnv); err != nil {
+		t.Fatalf("Unsetenv failed: %v", err)
+	}
+	if err := UserInit(); err != nil {
+		t.Fatalf("UserInit failed: %v", err)
+	}
+
+	token := bootstrapToken
+	if err := UserBootstrap("operator", strings.Repeat("😀", 19), token); !apperror.IsCode(err, apperror.CodeCommonInvalidParam) {
+		t.Fatalf("UserBootstrap error = %v, want invalid parameter", err)
+	}
+	if got := UserGet(); got.ID != 0 {
+		t.Fatalf("overlong bootstrap password created user %+v", got)
+	}
+	if bootstrapToken != token {
+		t.Fatal("rejected bootstrap password consumed the one-time token")
+	}
+}
+
 func TestUserChangePasswordPersists(t *testing.T) {
 	setupSiteOpTestDB(t)
 
@@ -206,6 +246,18 @@ func TestUserChangePasswordPersists(t *testing.T) {
 	}
 	if err := UserVerify("admin", testAdminPassword); err == nil {
 		t.Fatal("the old password still verifies after a successful change")
+	}
+}
+
+func TestUserChangePasswordRejectsPasswordOverBcryptLimit(t *testing.T) {
+	setupSiteOpTestDB(t)
+	initTestUser(t)
+
+	if err := UserChangePassword(testAdminPassword, strings.Repeat("😀", 19)); !apperror.IsCode(err, apperror.CodeCommonInvalidParam) {
+		t.Fatalf("UserChangePassword error = %v, want invalid parameter", err)
+	}
+	if err := UserVerify("admin", testAdminPassword); err != nil {
+		t.Fatalf("rejected password change invalidated the old password: %v", err)
 	}
 }
 
