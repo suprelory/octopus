@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Activity, Globe, Link, Network, Radio, Shield, X } from 'lucide-react';
+import { Activity, Globe, Link, Network, Plus, Radio, Shield, ShieldCheck, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -26,8 +26,8 @@ function toWSMode(enabled: boolean, rawMode: string): WSMode {
     return 'passthrough';
 }
 
-// 逗号/换行/中文逗号分隔的输入 → 去重后的 origin 列表
-function parseCorsOrigins(raw: string): string[] {
+// 逗号/换行/中文逗号分隔的输入 → 去重后的列表
+function parseListEntries(raw: string): string[] {
     return Array.from(new Set(
         raw
             .split(/[,\n，]/)
@@ -83,19 +83,31 @@ export function SettingNetwork() {
     const t = useTranslations('setting');
 
     const proxyUrl = useSettingField(SettingKey.ProxyURL);
+    const trustedProxies = useSettingField(SettingKey.TrustedProxies);
     const apiBaseUrl = useSettingField(SettingKey.ApiBaseUrl);
     const cors = useSettingField(SettingKey.CORSAllowOrigins);
     const sseHeartbeat = useSettingField(SettingKey.SSEHeartbeatInterval, SSE_MIRROR_KEYS);
     const responsesWS = useResponsesWSMode();
 
     const [corsInputValue, setCorsInputValue] = useState('');
+    const [trustedProxyInputValue, setTrustedProxyInputValue] = useState('');
 
     const corsAllowOriginsList = useMemo(() => {
         const value = cors.value.trim();
         if (!value) return [];
         if (value === '*') return ['*'];
-        return parseCorsOrigins(value);
+        return parseListEntries(value);
     }, [cors.value]);
+
+    const trustedProxyList = useMemo(
+        () => parseListEntries(trustedProxies.value),
+        [trustedProxies.value]
+    );
+
+    const trustedProxyDisplay = useMemo(
+        () => (trustedProxyList.length > 0 ? trustedProxyList.join(', ') : t('trustedProxies.hint')),
+        [trustedProxyList, t]
+    );
 
     const corsAllowOriginsDisplay = useMemo(
         () => (corsAllowOriginsList.length > 0 ? corsAllowOriginsList.join(', ') : t('corsAllowOrigins.hint')),
@@ -113,7 +125,7 @@ export function SettingNetwork() {
     };
 
     const handleAddCorsOrigin = () => {
-        const newOrigins = parseCorsOrigins(corsInputValue);
+        const newOrigins = parseListEntries(corsInputValue);
         if (newOrigins.length === 0) return;
 
         if (newOrigins.includes('*')) {
@@ -133,6 +145,23 @@ export function SettingNetwork() {
         saveCorsAllowOrigins(nextOrigins);
     };
 
+    const saveTrustedProxies = (proxies: string[]) => {
+        trustedProxies.commit(Array.from(new Set(
+            proxies.map(proxy => proxy.trim()).filter(Boolean)
+        )).join(','));
+    };
+
+    const handleAddTrustedProxy = () => {
+        const newProxies = parseListEntries(trustedProxyInputValue);
+        if (newProxies.length === 0) return;
+        saveTrustedProxies([...trustedProxyList, ...newProxies]);
+        setTrustedProxyInputValue('');
+    };
+
+    const handleRemoveTrustedProxy = (proxyToRemove: string) => {
+        saveTrustedProxies(trustedProxyList.filter(proxy => proxy !== proxyToRemove));
+    };
+
     return (
         <SettingCard icon={Network} title={t('network.title')}>
             {/* 代理地址 */}
@@ -144,6 +173,69 @@ export function SettingNetwork() {
                     placeholder={t('proxyUrl.placeholder')}
                     className="w-48 rounded-xl"
                 />
+            </SettingRow>
+
+            {/* 可信反向代理 IP/CIDR */}
+            <SettingRow
+                icon={ShieldCheck}
+                label={t('trustedProxies.label')}
+                tooltip={<>{t('trustedProxies.description')}<br />{t('trustedProxies.security')}</>}
+            >
+                <Popover>
+                    <PopoverTrigger asChild>
+                        <button
+                            type="button"
+                            className="border-input focus-visible:border-ring focus-visible:ring-ring/50 w-48 min-h-9 rounded-xl border bg-transparent px-3 py-2 text-left text-sm shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px]"
+                            title={trustedProxyDisplay}
+                        >
+                            <span className={`block overflow-hidden text-ellipsis whitespace-nowrap ${trustedProxyList.length === 0 ? 'text-muted-foreground' : ''}`}>
+                                {trustedProxyDisplay}
+                            </span>
+                        </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-72 space-y-2 rounded-3xl p-3 bg-card">
+                        <div className="flex items-center gap-2">
+                            <Input
+                                value={trustedProxyInputValue}
+                                onChange={(e) => setTrustedProxyInputValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        handleAddTrustedProxy();
+                                    }
+                                }}
+                                placeholder={t('trustedProxies.example')}
+                                className="h-9 min-w-0 rounded-xl"
+                                autoFocus
+                            />
+                            <button
+                                type="button"
+                                onClick={handleAddTrustedProxy}
+                                disabled={!trustedProxyInputValue.trim()}
+                                className="border-input text-muted-foreground hover:text-foreground focus-visible:border-ring focus-visible:ring-ring/50 flex size-9 shrink-0 items-center justify-center rounded-xl border transition-colors outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50"
+                                aria-label={t('trustedProxies.add')}
+                                title={t('trustedProxies.add')}
+                            >
+                                <Plus className="size-4" />
+                            </button>
+                        </div>
+                        <div className="max-h-48 space-y-1 overflow-y-auto">
+                            {trustedProxyList.map((proxy) => (
+                                <div key={proxy} className="flex items-center justify-between gap-2 rounded-xl border border-border/60 px-2 py-1">
+                                    <span className="break-all text-xs leading-5">{proxy}</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleRemoveTrustedProxy(proxy)}
+                                        className="text-muted-foreground transition-colors hover:text-destructive"
+                                        aria-label={`remove ${proxy}`}
+                                    >
+                                        <X className="size-4" />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    </PopoverContent>
+                </Popover>
             </SettingRow>
 
             {/* 对外服务基础地址 */}

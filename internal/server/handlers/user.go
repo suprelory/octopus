@@ -59,7 +59,7 @@ func login(c *gin.Context) {
 		return
 	}
 
-	source := c.ClientIP()
+	source := middleware.ClientIP(c)
 	if allowed, retryAfter := op.LoginAttemptAllow(source); !allowed {
 		c.Header("Retry-After", strconv.Itoa(retryAfter))
 		resp.ErrorWithAppError(c, http.StatusTooManyRequests,

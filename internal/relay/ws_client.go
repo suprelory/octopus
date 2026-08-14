@@ -11,6 +11,7 @@ import (
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/relay/balancer"
+	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/transformer/inbound"
 	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
 	"github.com/bestruirui/octopus/internal/transformer/outbound"
@@ -53,7 +54,7 @@ func HandleWSResponse(c *gin.Context) {
 
 	apiKeyID := c.GetInt("api_key_id")
 	supportedModels := c.GetString("supported_models")
-	clientIP := c.ClientIP()
+	clientIP := middleware.ClientIP(c)
 
 	log.Debugf("ws client connected (apikey=%d)", apiKeyID)
 

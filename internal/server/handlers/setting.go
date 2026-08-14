@@ -69,6 +69,11 @@ func setSetting(c *gin.Context) {
 		return
 	}
 	switch setting.Key {
+	case model.SettingKeyTrustedProxies:
+		if err := middleware.ReloadTrustedProxies(); err != nil {
+			resp.InternalErrorWithLog(c, err)
+			return
+		}
 	case model.SettingKeyModelInfoUpdateInterval:
 		hours, err := strconv.Atoi(setting.Value)
 		if err != nil {
@@ -203,6 +208,9 @@ func importDB(c *gin.Context) {
 
 	if err := op.InitCache(); err != nil {
 		log.Warnf("cache refresh after import failed: %v", err)
+	} else if err := middleware.ReloadTrustedProxies(); err != nil {
+		log.Warnf("trusted proxy refresh after import failed: %v", err)
+		_ = middleware.ConfigureTrustedProxies("")
 	}
 
 	resp.Success(c, result)

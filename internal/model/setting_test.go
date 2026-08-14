@@ -2,6 +2,29 @@ package model
 
 import "testing"
 
+func TestTrustedProxiesSetting(t *testing.T) {
+	defaults := make(map[SettingKey]string)
+	for _, setting := range DefaultSettings() {
+		defaults[setting.Key] = setting.Value
+	}
+	if got := defaults[SettingKeyTrustedProxies]; got != "" {
+		t.Fatalf("trusted proxies default = %q, want empty", got)
+	}
+
+	setting := Setting{Key: SettingKeyTrustedProxies, Value: "172.24.0.1\n10.0.0.0/24,172.24.0.1"}
+	if err := setting.Validate(); err != nil {
+		t.Fatalf("valid trusted proxies rejected: %v", err)
+	}
+	if setting.Value != "10.0.0.0/24,172.24.0.1" {
+		t.Fatalf("normalized trusted proxies = %q", setting.Value)
+	}
+
+	invalid := Setting{Key: SettingKeyTrustedProxies, Value: "proxy.example.com"}
+	if err := invalid.Validate(); err == nil {
+		t.Fatal("expected hostname trusted proxy to be rejected")
+	}
+}
+
 func TestChannelAffinityDefaultSettings(t *testing.T) {
 	defaults := make(map[SettingKey]string)
 	for _, setting := range DefaultSettings() {

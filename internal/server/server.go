@@ -52,13 +52,24 @@ func Start() error {
 	}
 
 	r := gin.New()
-	// gin 默认信任所有代理，这会让 c.ClientIP() 直接采信 X-Forwarded-For。
-	// 登录限流按 ClientIP 分桶，必须显式声明可信代理才安全。
-	if err := r.SetTrustedProxies(conf.AppConfig.Server.TrustedProxies); err != nil {
-		return fmt.Errorf("invalid server.trusted_proxies: %w", err)
+	// Client IP resolution is handled by the runtime setting middleware. Keep
+	// Gin's own proxy parser disabled so a stale static config cannot bypass it.
+	if err := r.SetTrustedProxies(nil); err != nil {
+		return fmt.Errorf("disable Gin trusted proxy parser: %w", err)
 	}
-	if len(conf.AppConfig.Server.TrustedProxies) == 0 {
-		log.Infof("no trusted proxies configured: client IP comes from the TCP peer address, X-Forwarded-For is ignored")
+	if err := middleware.ReloadTrustedProxies(); err != nil {
+		// Fail closed on a malformed value imported from an older/manual backup:
+		// keep the service available, but trust no forwarded headers until an
+		// administrator corrects the setting.
+		log.Warnf("trusted proxy setting is invalid; forwarded headers will be ignored: %v", err)
+		if resetErr := middleware.ConfigureTrustedProxies(""); resetErr != nil {
+			return fmt.Errorf("reset trusted proxy resolver: %w", resetErr)
+		}
+	}
+	if middleware.TrustedProxyCount() == 0 {
+		log.Infof("no trusted proxies configured: client IP comes from the TCP peer address, forwarded headers are ignored")
+	} else {
+		log.Infof("trusted proxy resolution enabled for %d configured IP/CIDR entries", middleware.TrustedProxyCount())
 	}
 
 	r.Use(gin.CustomRecovery(func(c *gin.Context, recovered interface{}) {

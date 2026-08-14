@@ -210,6 +210,14 @@
             "label": "Proxy URL",
             "placeholder": "Enter proxy URL"
         },
+        "trustedProxies": {
+            "label": "Trusted Proxies",
+            "hint": "Not configured",
+            "example": "172.24.0.1 or 172.24.0.0/16",
+            "add": "Add trusted proxy",
+            "description": "X-Forwarded-For / X-Real-IP is accepted only when the TCP peer matches one of these IPs or CIDRs. Changes apply immediately.",
+            "security": "Enter only actual reverse proxy addresses; avoid 0.0.0.0/0 or ::/0."
+        },
         "apiBaseUrl": {
             "label": "API Base URL",
             "placeholder": "https://octopus.example.com",

@@ -35,7 +35,7 @@ func Logger(cfg LoggerConfig) gin.HandlerFunc {
 			"status", status,
 			"latency", latency.String(),
 			"latency_ms", latency.Milliseconds(),
-			"ip", c.ClientIP(),
+			"ip", ClientIP(c),
 		}
 		if query != "" && log.IsDebugEnabled() {
 			fields = append(fields, "query", query)

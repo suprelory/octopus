@@ -19,6 +19,7 @@ import (
 	"github.com/bestruirui/octopus/internal/outlierwindow"
 	"github.com/bestruirui/octopus/internal/relay/balancer"
 	"github.com/bestruirui/octopus/internal/relay/stream"
+	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/server/resp"
 	"github.com/bestruirui/octopus/internal/transformer/compat"
 	"github.com/bestruirui/octopus/internal/transformer/httpio"
@@ -150,7 +151,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 	defer hb.Stop()
 
 	// 初始化 Metrics
-	metrics := NewRelayMetrics(apiKeyID, requestModel, relayEndpointType(inboundType), c.ClientIP(), rawBody, internalRequest)
+	metrics := NewRelayMetrics(apiKeyID, requestModel, relayEndpointType(inboundType), middleware.ClientIP(c), rawBody, internalRequest)
 	// 如果触发了 HTTP replay，记录 ws_mode=replay 和 ws_recovery=replay
 	if responsesReplayState != nil {
 		metrics.SetWSMode(dbmodel.RelayLogWSModeReplay)

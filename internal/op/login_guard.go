@@ -47,8 +47,8 @@ var (
 // LoginAttemptAllow 判断 source 是否还能再尝试登录。
 // 返回 (false, retryAfterSeconds) 时调用方应当返回 429。
 //
-// source 通常是 gin 的 c.ClientIP()。它是否可信取决于 server.trusted_proxies
-// 配置：默认不信任任何代理，此时等于 TCP 对端地址，无法被 X-Forwarded-For 伪造。
+// source 通常由 server/middleware.ClientIP 解析。默认不信任任何代理，此时
+// 等于 TCP 对端地址，无法被 X-Forwarded-For 伪造。
 func LoginAttemptAllow(source string) (bool, int) {
 	if source == "" {
 		return true, 0

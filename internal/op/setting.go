@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
+	"github.com/bestruirui/octopus/internal/conf"
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/utils/cache"
@@ -112,6 +114,16 @@ func settingRefreshCache(ctx context.Context) error {
 
 	for _, defaultSetting := range defaultSettings {
 		if !existingKeys[defaultSetting.Key] {
+			// Preserve deployments that already configured trusted proxies in
+			// data/config.json. This seed runs only while the database key is
+			// missing; once created, the runtime setting is authoritative and may
+			// be cleared from the settings page.
+			if defaultSetting.Key == model.SettingKeyTrustedProxies && len(conf.AppConfig.Server.TrustedProxies) > 0 {
+				defaultSetting.Value = strings.Join(conf.AppConfig.Server.TrustedProxies, ",")
+				if err := defaultSetting.Validate(); err != nil {
+					return fmt.Errorf("invalid configured trusted proxies: %w", err)
+				}
+			}
 			missingSettings = append(missingSettings, defaultSetting)
 		}
 	}

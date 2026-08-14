@@ -17,9 +17,10 @@ type Server struct {
 	// 不覆盖 /v1/images（由 OCTOPUS_IMAGES_BODY_MAX_MB 控制，会落盘不驻留内存）
 	// 与 /api/v1/setting/import（管理员数据库导入，体积不可预测）。
 	MaxRequestBodyMB int `mapstructure:"max_request_body_mb"`
-	// TrustedProxies 是可信反向代理的 IP / CIDR 列表。
+	// TrustedProxies 是可信反向代理的启动默认值。数据库尚无
+	// trusted_proxies 设置时会用它初始化；之后由设置页面中的运行时值接管。
 	//
-	// 为空（默认）表示不信任任何代理：c.ClientIP() 等于 TCP 对端地址，
+	// 为空（默认）表示不信任任何代理：客户端 IP 等于 TCP 对端地址，
 	// X-Forwarded-For / X-Real-IP 一律忽略。登录限流依赖这一点 —— 否则任何人
 	// 伪造一个 XFF 头就能换一个限流桶。
 	//

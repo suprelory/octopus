@@ -210,6 +210,14 @@
             "label": "代理地址",
             "placeholder": "请输入代理地址"
         },
+        "trustedProxies": {
+            "label": "可信代理",
+            "hint": "未配置",
+            "example": "172.24.0.1 或 172.24.0.0/16",
+            "add": "添加可信代理",
+            "description": "仅当请求的 TCP 对端匹配这些 IP 或 CIDR 时，才会采信 X-Forwarded-For / X-Real-IP。保存后立即生效。",
+            "security": "只填写实际反向代理地址；避免使用 0.0.0.0/0 或 ::/0。"
+        },
         "apiBaseUrl": {
             "label": "API 地址",
             "placeholder": "https://octopus.example.com",

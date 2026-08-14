@@ -24,6 +24,7 @@ import (
 	"github.com/bestruirui/octopus/internal/price"
 	"github.com/bestruirui/octopus/internal/relay/balancer"
 	"github.com/bestruirui/octopus/internal/relay/bodycache"
+	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/server/resp"
 	"github.com/bestruirui/octopus/internal/transformer/outbound"
 	"github.com/bestruirui/octopus/internal/utils/log"
@@ -120,7 +121,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 	}
 
 	// 初始化 Metrics（Images 独立，避免 b64_json 内存膨胀）
-	metrics := newImagesRelayMetrics(apiKeyID, requestModel, c.ClientIP())
+	metrics := newImagesRelayMetrics(apiKeyID, requestModel, middleware.ClientIP(c))
 	metrics.RequestContent = buildImagesRequestContentForLog(isMultipart, bc, jsonPayload)
 
 	// === 早期心跳 ===

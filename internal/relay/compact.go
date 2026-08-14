@@ -18,6 +18,7 @@ import (
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/outlierwindow"
 	"github.com/bestruirui/octopus/internal/relay/balancer"
+	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/server/resp"
 	"github.com/bestruirui/octopus/internal/transformer/httpio"
 	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
@@ -95,7 +96,7 @@ func HandleResponsesCompact(c *gin.Context) {
 	}
 
 	metricsReq := &transformerModel.InternalLLMRequest{Model: requestModel, RawRequest: body}
-	metrics := NewRelayMetrics(apiKeyID, requestModel, "responses", c.ClientIP(), body, metricsReq)
+	metrics := NewRelayMetrics(apiKeyID, requestModel, "responses", middleware.ClientIP(c), body, metricsReq)
 
 	var lastErr error
 	var capabilityErr error
