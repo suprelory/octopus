@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
@@ -289,6 +290,9 @@ func TestWSConversationStateBuildReplayRequest(t *testing.T) {
 		ProviderExtensions: &transformerModel.ProviderExtensions{
 			OpenAI: &transformerModel.OpenAIExtension{
 				RawResponseItems: json.RawMessage(`[{"type":"input_text","text":"stale"}]`),
+				Responses: &transformerModel.OpenAIResponsesOptions{
+					RawTools: json.RawMessage(`[{"type":"web_search","search_context_size":"high"}]`),
+				},
 			},
 		},
 		Messages: []transformerModel.Message{{
@@ -337,6 +341,9 @@ func TestWSConversationStateBuildReplayRequest(t *testing.T) {
 	}
 	if replayed.ProviderExtensions == nil || replayed.ProviderExtensions.OpenAI == nil {
 		t.Fatalf("expected replay request to keep OpenAI mirror in sync")
+	}
+	if rawTools := replayed.GetOpenAIResponsesOptions().RawTools; !strings.Contains(string(rawTools), "search_context_size") {
+		t.Fatalf("expected replay request to preserve raw native tools, got %s", rawTools)
 	}
 	if string(replayed.ProviderExtensions.OpenAI.RawResponseItems) != string(replayed.RawInputItems) {
 		t.Fatalf("expected replayed OpenAI mirror to match authoritative RawInputItems, got mirror=%s raw=%s", replayed.ProviderExtensions.OpenAI.RawResponseItems, replayed.RawInputItems)

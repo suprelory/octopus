@@ -226,6 +226,105 @@ func TestCollectGeminiSignaturesByNameReturnsFirstMatch(t *testing.T) {
 	}
 }
 
+func TestGeminiSignatureCollectorsUseAuthoritativeProvenance(t *testing.T) {
+	foreign := model.ReasoningBlock{
+		Kind:         model.ReasoningBlockKindSignature,
+		Provider:     string(model.SignatureProviderGemini),
+		Signature:    "stale-gemini-signature",
+		ToolCallName: "stale-tool",
+		SignatureSource: &model.OpaqueSignature{
+			Provider: model.SignatureProviderOpenAI,
+			Kind:     model.OpaqueSignatureKindOpenAIReasoning,
+			Value:    "openai-signature",
+		},
+	}
+	authoritative := model.ReasoningBlock{
+		Kind:         model.ReasoningBlockKindSignature,
+		Provider:     string(model.SignatureProviderGemini),
+		Signature:    "stale-signature",
+		ToolCallName: "stale-tool",
+		SignatureSource: &model.OpaqueSignature{
+			Provider: model.SignatureProviderGemini,
+			Kind:     model.OpaqueSignatureKindGeminiThought,
+			Value:    "authoritative-signature",
+			ToolCallScope: &model.SignatureToolCallScope{
+				Name: "authoritative-tool",
+			},
+		},
+	}
+
+	got := collectGeminiSignaturesByName([]model.ReasoningBlock{foreign, authoritative})
+	if len(got) != 1 || got["authoritative-tool"] != "authoritative-signature" {
+		t.Fatalf("collector trusted compatibility mirrors: %+v", got)
+	}
+}
+
+func TestGeminiReasoningSignatureValidatesProviderAndKind(t *testing.T) {
+	tests := []struct {
+		name         string
+		block        model.ReasoningBlock
+		wantOK       bool
+		wantProvider model.SignatureProvider
+		wantKind     model.OpaqueSignatureKind
+		wantValue    string
+	}{
+		{
+			name: "gemini provider with openai kind is rejected",
+			block: model.ReasoningBlock{SignatureSource: &model.OpaqueSignature{
+				Provider: model.SignatureProviderGemini,
+				Kind:     model.OpaqueSignatureKindOpenAIReasoning,
+				Value:    "wrong-kind",
+			}},
+		},
+		{
+			name: "openai provider with gemini kind is rejected",
+			block: model.ReasoningBlock{SignatureSource: &model.OpaqueSignature{
+				Provider: model.SignatureProviderOpenAI,
+				Kind:     model.OpaqueSignatureKindGeminiThought,
+				Value:    "wrong-provider",
+			}},
+		},
+		{
+			name:         "legacy signature is normalized",
+			block:        model.ReasoningBlock{Signature: "legacy-signature"},
+			wantOK:       true,
+			wantProvider: model.SignatureProviderGemini,
+			wantKind:     model.OpaqueSignatureKindGeminiThought,
+			wantValue:    "legacy-signature",
+		},
+		{
+			name: "gemini source is accepted",
+			block: model.ReasoningBlock{
+				Signature: "stale-signature",
+				SignatureSource: &model.OpaqueSignature{
+					Provider: model.SignatureProviderGemini,
+					Kind:     model.OpaqueSignatureKindGeminiThought,
+					Value:    "authoritative-signature",
+				},
+			},
+			wantOK:       true,
+			wantProvider: model.SignatureProviderGemini,
+			wantKind:     model.OpaqueSignatureKindGeminiThought,
+			wantValue:    "authoritative-signature",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := geminiReasoningSignature(tt.block)
+			if ok != tt.wantOK {
+				t.Fatalf("accepted = %v, want %v; signature = %+v", ok, tt.wantOK, got)
+			}
+			if !tt.wantOK {
+				return
+			}
+			if got.Provider != tt.wantProvider || got.Kind != tt.wantKind || got.Value != tt.wantValue {
+				t.Fatalf("signature = %+v, want provider=%q kind=%q value=%q", got, tt.wantProvider, tt.wantKind, tt.wantValue)
+			}
+		})
+	}
+}
+
 func firstThinkingEvent(events []model.StreamEvent) *model.StreamEvent {
 	for i := range events {
 		if events[i].Kind == model.StreamEventKindThinkingDelta && events[i].Delta != nil {

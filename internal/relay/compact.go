@@ -98,8 +98,13 @@ func HandleResponsesCompact(c *gin.Context) {
 	metrics := NewRelayMetrics(apiKeyID, requestModel, "responses", c.ClientIP(), body, metricsReq)
 
 	var lastErr error
+	var capabilityErr error
+	var sawSupportedCapability bool
 	var lastStatusCode int
 	var lastRetryAfter time.Duration
+	var capabilityErrorCode string
+	var capabilityErrorMessage string
+	capabilityPolicy := getCapabilityDegradationPolicy()
 
 	maxSameChannelRetries := 1
 	if group.RetryEnabled {
@@ -129,10 +134,17 @@ func HandleResponsesCompact(c *gin.Context) {
 			iter.Skip(channel.ID, 0, channel.Name, "channel disabled")
 			continue
 		}
-		if !supportsResponsesCompact(channel.Type) {
-			iter.Skip(channel.ID, 0, channel.Name, "channel type not compatible with responses compact")
+		decision := outbound.PlanRelayOperation(channel.Type, outbound.RelayOperationResponsesCompact)
+		logRelayCapability(channel, item.ModelName, decision, capabilityPolicy)
+		if reject, errorCode := evaluateCapabilityPolicy(decision, capabilityPolicy); reject {
+			message := capabilityRejectionMessage(decision, channel.Type.String())
+			iter.SkipWithCapability(channel.ID, 0, channel.Name, message, capabilityTrace(decision, capabilityPolicy, channel.Type.String()))
+			capabilityErr = fmt.Errorf("capability rejected: %s", message)
+			capabilityErrorCode = errorCode
+			capabilityErrorMessage = message
 			continue
 		}
+		sawSupportedCapability = true
 
 		selectOpts := dbmodel.ChannelKeySelectOptions{
 			ExcludeKeyIDs:  make(map[int]struct{}),
@@ -173,7 +185,15 @@ func HandleResponsesCompact(c *gin.Context) {
 				}
 			}
 
-			statusCode, retryAfter, attemptErr = forwardResponsesCompact(c, metrics, iter, channel, usedKey, body)
+			statusCode, retryAfter, attemptErr = forwardResponsesCompact(
+				c,
+				metrics,
+				iter,
+				channel,
+				usedKey,
+				body,
+				capabilityTrace(decision, capabilityPolicy, channel.Type.String()),
+			)
 			if attemptErr == nil {
 				success = true
 				break
@@ -206,7 +226,15 @@ func HandleResponsesCompact(c *gin.Context) {
 		lastRetryAfter = retryAfter
 	}
 
-	metrics.SaveWithChannelStats(c.Request.Context(), false, lastErr, iter.Attempts(), false)
+	finalErr := lastErr
+	if !sawSupportedCapability && capabilityErr != nil {
+		finalErr = capabilityErr
+	}
+	metrics.SaveWithChannelStats(c.Request.Context(), false, finalErr, iter.Attempts(), false)
+	if !sawSupportedCapability && lastStatusCode == 0 && capabilityErrorCode != "" {
+		resp.ErrorWithCode(c, http.StatusBadRequest, capabilityErrorCode, capabilityErrorMessage)
+		return
+	}
 	if lastErr == nil && lastStatusCode == 0 {
 		resp.ErrorWithCode(c, http.StatusServiceUnavailable, CodeRelayNoAvailableChannel, "no available channel")
 		return
@@ -225,13 +253,9 @@ func HandleResponsesCompact(c *gin.Context) {
 	resp.Error(c, http.StatusBadGateway, "channel failed")
 }
 
-func supportsResponsesCompact(channelType outbound.OutboundType) bool {
-	return outbound.SupportsRelayOperation(channelType, "responses/compact")
-}
-
-func forwardResponsesCompact(c *gin.Context, metrics *RelayMetrics, iter *balancer.Iterator, channel *dbmodel.Channel, usedKey dbmodel.ChannelKey, requestBody []byte) (int, time.Duration, error) {
+func forwardResponsesCompact(c *gin.Context, metrics *RelayMetrics, iter *balancer.Iterator, channel *dbmodel.Channel, usedKey dbmodel.ChannelKey, requestBody []byte, trace balancer.CapabilityTrace) (int, time.Duration, error) {
 	span := iter.StartAttempt(channel.ID, usedKey.ID, channel.Name)
-	span.SetAdapterType(channel.Type.String())
+	span.SetCapability(trace)
 	request, err := buildResponsesCompactRequest(c.Request.Context(), channel, usedKey.ChannelKey, requestBody)
 	if err != nil {
 		span.End(dbmodel.AttemptFailed, 0, err.Error())

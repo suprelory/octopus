@@ -1876,6 +1876,9 @@ func TestHandleResponsesCompactSkipsIncompatibleChannels(t *testing.T) {
 	if logs[0].Attempts[0].Status != model.AttemptSkipped {
 		t.Fatalf("expected first attempt to skip incompatible channel, got %#v", logs[0].Attempts[0])
 	}
+	if logs[0].Attempts[0].CapabilityStatus != string(outbound.CapabilityRejected) || logs[0].Attempts[0].CapabilityPolicy == "" {
+		t.Fatalf("expected incompatible channel capability trace, got %#v", logs[0].Attempts[0])
+	}
 }
 
 func TestResponseProcessingErrorStatus(t *testing.T) {

@@ -1,9 +1,11 @@
 package relay
 
 import (
+	"encoding/json"
 	"testing"
 
 	dbmodel "github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/op"
 	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
 	"github.com/bestruirui/octopus/internal/transformer/outbound"
 )
@@ -40,5 +42,84 @@ func TestShouldUseHTTPPassthroughKeepsResponsesNativeOnlySafety(t *testing.T) {
 	passthrough := attempt.outAdapter.(transformerModel.PassthroughCapable)
 	if !attempt.shouldUseHTTPPassthrough(passthrough) {
 		t.Fatal("native-only Responses requests must override optional passthrough configuration")
+	}
+}
+
+func TestPlanRelayPassthroughMatchesResponsesExecutionGuards(t *testing.T) {
+	request := &transformerModel.InternalLLMRequest{RawAPIFormat: transformerModel.APIFormatOpenAIResponse}
+	request.SetOpenAIResponsesOptions(transformerModel.OpenAIResponsesOptions{
+		RawTools: json.RawMessage(`[{"type":"custom","name":"shell"}]`),
+	})
+	request.MarkOpenAIResponsesPassthroughRequired("tool:custom")
+	channel := &dbmodel.Channel{
+		Type:            outbound.OutboundTypeOpenAIResponse,
+		PassthroughMode: dbmodel.ChannelPassthroughModeOff,
+	}
+	adapter := outbound.Get(channel.Type)
+	rawBody := []byte(`{"model":"m","tools":[{"type":"custom","name":"shell"}]}`)
+
+	if !planRelayPassthrough(request, rawBody, channel, adapter, false) {
+		t.Fatal("HTTP native-only Responses semantics must force passthrough during planning")
+	}
+
+	request.MarkOpenAIExactReplayRequest()
+	if planRelayPassthrough(request, rawBody, channel, adapter, false) {
+		t.Fatal("exact replay must use canonical recovery instead of raw passthrough")
+	}
+	if decision := outbound.PlanRequest(request, channel.Type, false); decision.Rejected() {
+		t.Fatalf("exact replay must remain eligible for canonical recovery: %#v", decision)
+	}
+}
+
+func TestPlanRelayPassthroughRejectsNativeOnlyWSTransform(t *testing.T) {
+	request := &transformerModel.InternalLLMRequest{RawAPIFormat: transformerModel.APIFormatOpenAIResponse}
+	request.MarkOpenAIResponsesPassthroughRequired("tool:custom")
+	channel := &dbmodel.Channel{
+		Type:   outbound.OutboundTypeOpenAIResponse,
+		WSMode: dbmodel.ChannelWSModeTransform,
+	}
+	adapter := outbound.Get(channel.Type)
+
+	passthrough := planRelayPassthrough(request, []byte(`{"model":"m"}`), channel, adapter, true)
+	if passthrough {
+		t.Fatal("WS transform mode must not be planned as native passthrough")
+	}
+	decision := outbound.PlanRequest(request, channel.Type, passthrough)
+	if !decision.Rejected() {
+		t.Fatalf("native-only WS transform decision = %#v, want rejected", decision)
+	}
+}
+
+func TestPlanRelayPassthroughKeepsWSContinuationOnPassthroughTransport(t *testing.T) {
+	setupRelayTestDB(t)
+	if err := op.SettingSetString(dbmodel.SettingKeyResponsesWSEnabled, "true"); err != nil {
+		t.Fatal(err)
+	}
+
+	previousResponseID := "resp_previous"
+	request := &transformerModel.InternalLLMRequest{
+		RawAPIFormat:       transformerModel.APIFormatOpenAIResponse,
+		PreviousResponseID: &previousResponseID,
+	}
+	request.SetOpenAIResponsesOptions(transformerModel.OpenAIResponsesOptions{
+		PreviousResponseID: &previousResponseID,
+		RawTools:           json.RawMessage(`[{"type":"custom","name":"shell"}]`),
+	})
+	request.MarkOpenAIResponsesPassthroughRequired("tool:custom")
+	channel := &dbmodel.Channel{
+		Type:   outbound.OutboundTypeOpenAIResponse,
+		WSMode: dbmodel.ChannelWSModePassthrough,
+	}
+	adapter := outbound.Get(channel.Type)
+	rawBody := []byte(`{"model":"m","previous_response_id":"resp_previous","tools":[{"type":"custom","name":"shell"}]}`)
+
+	if !planRelayPassthrough(request, rawBody, channel, adapter, true) {
+		t.Fatal("WS passthrough continuation must preserve the original response.create payload")
+	}
+	if planRelayPassthrough(request, rawBody, channel, adapter, false) {
+		t.Fatal("HTTP ingress continuation must stay on the affinity-aware WS transform path")
+	}
+	if decision := outbound.PlanRequest(request, channel.Type, false); decision.Rejected() {
+		t.Fatalf("HTTP continuation must remain eligible for upstream WS recovery: %#v", decision)
 	}
 }

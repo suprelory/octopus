@@ -130,6 +130,11 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 	defer hb.Stop()
 
 	var lastErr error
+	var capabilityErr error
+	var sawSupportedCapability bool
+	var capabilityErrorCode string
+	var capabilityErrorMessage string
+	capabilityPolicy := getCapabilityDegradationPolicy()
 
 	for iter.Next() {
 		select {
@@ -155,11 +160,17 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 			continue
 		}
 
-		// Images is a relay-level operation declared by the protocol descriptor.
-		if !outbound.SupportsRelayOperation(channel.Type, "images") {
-			iter.Skip(channel.ID, 0, channel.Name, fmt.Sprintf("unsupported channel type: %d", channel.Type))
+		decision := outbound.PlanRelayOperation(channel.Type, outbound.RelayOperationImages)
+		logRelayCapability(channel, item.ModelName, decision, capabilityPolicy)
+		if reject, errorCode := evaluateCapabilityPolicy(decision, capabilityPolicy); reject {
+			message := capabilityRejectionMessage(decision, channel.Type.String())
+			iter.SkipWithCapability(channel.ID, 0, channel.Name, message, capabilityTrace(decision, capabilityPolicy, channel.Type.String()))
+			capabilityErr = fmt.Errorf("capability rejected: %s", message)
+			capabilityErrorCode = errorCode
+			capabilityErrorMessage = message
 			continue
 		}
+		sawSupportedCapability = true
 
 		selectOpts := model.ChannelKeySelectOptions{
 			ExcludeKeyIDs:  make(map[int]struct{}),
@@ -191,7 +202,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 			iter.Index()+1, iter.Len(), iter.IsSticky(), stream)
 
 		span := iter.StartAttempt(channel.ID, usedKey.ID, channel.Name)
-		span.SetAdapterType(channel.Type.String())
+		span.SetCapability(capabilityTrace(decision, capabilityPolicy, channel.Type.String()))
 
 		// 尝试一次转发
 		statusCode, written, usage, upstreamCT, fwdErr := imagesAttempt(ctx, endpoint, c, bc, isMultipart, boundary, jsonPayload, stream, channel, usedKey.ChannelKey, group.FirstTokenTimeOut, metrics, item.ModelName, hb)
@@ -251,7 +262,19 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 	}
 
 	// 所有通道都失败
-	metrics.SaveWithChannelStats(ctx, false, lastErr, iter.Attempts(), false)
+	finalErr := lastErr
+	if !sawSupportedCapability && capabilityErr != nil {
+		finalErr = capabilityErr
+	}
+	metrics.SaveWithChannelStats(ctx, false, finalErr, iter.Attempts(), false)
+	if !sawSupportedCapability && capabilityErrorCode != "" {
+		if hb.HeaderWritten() {
+			hb.WriteSSEError(http.StatusBadRequest, capabilityErrorMessage)
+		} else {
+			resp.ErrorWithCode(c, http.StatusBadRequest, capabilityErrorCode, capabilityErrorMessage)
+		}
+		return
+	}
 	hb.FlushOrError(c, http.StatusBadGateway, "all channels failed")
 }
 

@@ -12,6 +12,7 @@ import (
 // 内部编排：策略排序 + 粘性优先 + 决策追踪
 type Iterator struct {
 	candidates   []model.GroupItem
+	tiers        []candidateTier
 	index        int
 	preferences  map[int]routingPreference
 	apiKeyID     int
@@ -24,9 +25,8 @@ type Iterator struct {
 }
 
 // QualityRanker returns a lower-is-better semantic conversion quality rank for
-// a candidate. The iterator applies it after the existing load-balancer order,
-// so round-robin/random/weighted behavior remains intact within each quality
-// tier.
+// a candidate. The iterator partitions candidates by rank, then applies the
+// configured load-balancer independently inside each quality tier.
 type QualityRanker func(model.GroupItem) int
 
 // PreferenceSource identifies why a candidate was moved ahead of the normal
@@ -45,6 +45,26 @@ type routingPreference struct {
 	entry  SessionEntry
 }
 
+type candidateTier struct {
+	start     int
+	end       int
+	mode      model.GroupMode
+	scope     balanceScope
+	scheduled bool
+}
+
+type CapabilityTrace struct {
+	AdapterType      string
+	Status           string
+	Policy           string
+	ConversionPath   []string
+	RequiredFeatures []string
+	DegradedFields   []string
+	Losses           []model.CapabilityLoss
+	Lossiness        string
+	Reasons          []string
+}
+
 // NewIterator 创建负载均衡迭代器
 // 自动处理：策略排序 + 粘性通道提前
 func NewIterator(group model.Group, apiKeyID int, requestModel string) *Iterator {
@@ -61,13 +81,7 @@ func NewIteratorWithPreference(group model.Group, apiKeyID int, requestModel str
 // Quality is evaluated before sticky preferences are applied; a sticky route
 // therefore remains preferred only among candidates in the same quality tier.
 func NewIteratorWithPreferenceAndQuality(group model.Group, apiKeyID int, requestModel string, preferred *SessionEntry, quality QualityRanker) *Iterator {
-	b := GetBalancer(group.Mode)
-	remaining := b.Candidates(group.Items)
-	if quality != nil {
-		sort.SliceStable(remaining, func(i, j int) bool {
-			return quality(remaining[i]) < quality(remaining[j])
-		})
-	}
+	rankedTiers := partitionQualityTiers(group.Items, quality)
 	preferenceCandidates := make([]routingPreference, 0, 3)
 	if preferred != nil && preferred.ChannelID > 0 {
 		preferenceCandidates = append(preferenceCandidates, routingPreference{
@@ -91,7 +105,7 @@ func NewIteratorWithPreferenceAndQuality(group model.Group, apiKeyID int, reques
 		}
 	}
 
-	candidates := make([]model.GroupItem, 0, len(remaining))
+	candidates := make([]model.GroupItem, 0, len(group.Items))
 	preferences := make(map[int]routingPreference, len(preferenceCandidates))
 	selectedChannels := make(map[int]struct{}, len(preferenceCandidates))
 	for _, preference := range preferenceCandidates {
@@ -103,14 +117,8 @@ func NewIteratorWithPreferenceAndQuality(group model.Group, apiKeyID int, reques
 			continue
 		}
 
-		preferredIndex := -1
-		for i, item := range remaining {
-			if item.ChannelID == channelID {
-				preferredIndex = i
-				break
-			}
-		}
-		if preferredIndex < 0 {
+		preferredItem, preferredTier, found := findPreferredCandidate(rankedTiers, channelID)
+		if !found {
 			switch preference.source {
 			case PreferenceChannelAffinity:
 				DeleteChannelAffinity(apiKeyID, requestModel)
@@ -119,28 +127,50 @@ func NewIteratorWithPreferenceAndQuality(group model.Group, apiKeyID int, reques
 			}
 			continue
 		}
-		if quality != nil && len(remaining) > 0 && quality(remaining[preferredIndex]) > quality(remaining[0]) {
+		if preferredTier != 0 {
 			continue
 		}
 
 		preferences[len(candidates)] = preference
-		candidates = append(candidates, remaining[preferredIndex])
+		candidates = append(candidates, preferredItem)
 		selectedChannels[channelID] = struct{}{}
 
 		// A group may contain multiple mappings for the same channel. Once a
 		// preferred channel is selected, remove its duplicate fallback items.
-		filtered := remaining[:0]
-		for _, item := range remaining {
-			if item.ChannelID != channelID {
-				filtered = append(filtered, item)
+		for tierIndex := range rankedTiers {
+			filtered := rankedTiers[tierIndex].items[:0]
+			for _, item := range rankedTiers[tierIndex].items {
+				if item.ChannelID != channelID {
+					filtered = append(filtered, item)
+				}
 			}
+			rankedTiers[tierIndex].items = filtered
 		}
-		remaining = filtered
 	}
-	candidates = append(candidates, remaining...)
+
+	tiers := make([]candidateTier, 0, len(rankedTiers))
+	for _, rankedTier := range rankedTiers {
+		if len(rankedTier.items) == 0 {
+			continue
+		}
+		start := len(candidates)
+		candidates = append(candidates, rankedTier.items...)
+		tiers = append(tiers, candidateTier{
+			start: start,
+			end:   len(candidates),
+			mode:  group.Mode,
+			scope: balanceScope{
+				groupID:       group.ID,
+				requestModel:  requestModel,
+				qualityTier:   rankedTier.rank,
+				qualityRanked: quality != nil,
+			},
+		})
+	}
 
 	return &Iterator{
 		candidates:   candidates,
+		tiers:        tiers,
 		index:        -1,
 		preferences:  preferences,
 		apiKeyID:     apiKeyID,
@@ -149,10 +179,66 @@ func NewIteratorWithPreferenceAndQuality(group model.Group, apiKeyID int, reques
 	}
 }
 
+type rankedCandidateTier struct {
+	rank  int
+	items []model.GroupItem
+}
+
+func partitionQualityTiers(items []model.GroupItem, quality QualityRanker) []rankedCandidateTier {
+	if len(items) == 0 {
+		return nil
+	}
+	if quality == nil {
+		return []rankedCandidateTier{{items: canonicalCandidates(items)}}
+	}
+
+	byRank := make(map[int][]model.GroupItem)
+	ranks := make([]int, 0)
+	for _, item := range items {
+		rank := quality(item)
+		if _, exists := byRank[rank]; !exists {
+			ranks = append(ranks, rank)
+		}
+		byRank[rank] = append(byRank[rank], item)
+	}
+	sort.Ints(ranks)
+	result := make([]rankedCandidateTier, 0, len(ranks))
+	for _, rank := range ranks {
+		result = append(result, rankedCandidateTier{rank: rank, items: canonicalCandidates(byRank[rank])})
+	}
+	return result
+}
+
+func findPreferredCandidate(tiers []rankedCandidateTier, channelID int) (model.GroupItem, int, bool) {
+	for tierIndex, tier := range tiers {
+		for _, item := range tier.items {
+			if item.ChannelID == channelID {
+				return item, tierIndex, true
+			}
+		}
+	}
+	return model.GroupItem{}, -1, false
+}
+
 // Next 移动到下一个候选，返回 false 表示遍历完成
 func (it *Iterator) Next() bool {
-	it.index++
-	return it.index < len(it.candidates)
+	next := it.index + 1
+	if next >= len(it.candidates) {
+		it.index = next
+		return false
+	}
+	for tierIndex := range it.tiers {
+		tier := &it.tiers[tierIndex]
+		if tier.scheduled || tier.start != next {
+			continue
+		}
+		ordered := getBalancer(tier.mode, tier.scope).Candidates(it.candidates[tier.start:tier.end])
+		copy(it.candidates[tier.start:tier.end], ordered)
+		tier.scheduled = true
+		break
+	}
+	it.index = next
+	return true
 }
 
 // Item 返回当前候选的 GroupItem
@@ -210,15 +296,15 @@ func (it *Iterator) Index() int {
 
 // Skip 记录当前通道被跳过（通道禁用、无Key、类型不兼容等）
 func (it *Iterator) Skip(channelID, channelKeyID int, channelName, msg string) {
-	it.skip(channelID, channelKeyID, channelName, msg, "", nil, nil, nil, "", nil)
+	it.skip(channelID, channelKeyID, channelName, msg, CapabilityTrace{})
 }
 
 // SkipWithCapability records a planner rejection before an upstream attempt.
-func (it *Iterator) SkipWithCapability(channelID, channelKeyID int, channelName, msg, capabilityStatus string, conversionPath, requiredFeatures, degradedFields []string, lossiness string, reasons []string) {
-	it.skip(channelID, channelKeyID, channelName, msg, capabilityStatus, conversionPath, requiredFeatures, degradedFields, lossiness, reasons)
+func (it *Iterator) SkipWithCapability(channelID, channelKeyID int, channelName, msg string, trace CapabilityTrace) {
+	it.skip(channelID, channelKeyID, channelName, msg, trace)
 }
 
-func (it *Iterator) skip(channelID, channelKeyID int, channelName, msg, capabilityStatus string, conversionPath, requiredFeatures, degradedFields []string, lossiness string, reasons []string) {
+func (it *Iterator) skip(channelID, channelKeyID int, channelName, msg string, trace CapabilityTrace) {
 	sticky := it.IsSticky()
 	it.count++
 	it.attempts = append(it.attempts, model.ChannelAttempt{
@@ -230,12 +316,15 @@ func (it *Iterator) skip(channelID, channelKeyID int, channelName, msg, capabili
 		Status:            model.AttemptSkipped,
 		Sticky:            sticky,
 		Msg:               msg,
-		CapabilityStatus:  capabilityStatus,
-		ConversionPath:    append([]string(nil), conversionPath...),
-		RequiredFeatures:  append([]string(nil), requiredFeatures...),
-		DegradedFields:    append([]string(nil), degradedFields...),
-		Lossiness:         lossiness,
-		CapabilityReasons: append([]string(nil), reasons...),
+		AdapterType:       trace.AdapterType,
+		CapabilityStatus:  trace.Status,
+		CapabilityPolicy:  trace.Policy,
+		ConversionPath:    append([]string(nil), trace.ConversionPath...),
+		RequiredFeatures:  append([]string(nil), trace.RequiredFeatures...),
+		DegradedFields:    append([]string(nil), trace.DegradedFields...),
+		CapabilityLosses:  append([]model.CapabilityLoss(nil), trace.Losses...),
+		Lossiness:         trace.Lossiness,
+		CapabilityReasons: append([]string(nil), trace.Reasons...),
 		FallbackReason:    msg,
 	})
 	it.InvalidateCurrentPreference()
@@ -318,13 +407,18 @@ func (s *AttemptSpan) SetAdapterType(adapterType string) {
 }
 
 // SetCapability records the semantic planning decision that authorized this attempt.
-func (s *AttemptSpan) SetCapability(status string, conversionPath, requiredFeatures, degradedFields []string, lossiness string, reasons []string) {
-	s.attempt.CapabilityStatus = status
-	s.attempt.ConversionPath = append([]string(nil), conversionPath...)
-	s.attempt.RequiredFeatures = append([]string(nil), requiredFeatures...)
-	s.attempt.DegradedFields = append([]string(nil), degradedFields...)
-	s.attempt.Lossiness = lossiness
-	s.attempt.CapabilityReasons = append([]string(nil), reasons...)
+func (s *AttemptSpan) SetCapability(trace CapabilityTrace) {
+	if trace.AdapterType != "" {
+		s.attempt.AdapterType = trace.AdapterType
+	}
+	s.attempt.CapabilityStatus = trace.Status
+	s.attempt.CapabilityPolicy = trace.Policy
+	s.attempt.ConversionPath = append([]string(nil), trace.ConversionPath...)
+	s.attempt.RequiredFeatures = append([]string(nil), trace.RequiredFeatures...)
+	s.attempt.DegradedFields = append([]string(nil), trace.DegradedFields...)
+	s.attempt.CapabilityLosses = append([]model.CapabilityLoss(nil), trace.Losses...)
+	s.attempt.Lossiness = trace.Lossiness
+	s.attempt.CapabilityReasons = append([]string(nil), trace.Reasons...)
 }
 
 // Duration 返回从开始到现在的耗时

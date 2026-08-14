@@ -479,14 +479,15 @@ func TestInternalLLMRequestOpenAIResponsesOptionsRoundTripAndClone(t *testing.T)
 		ReasoningSummary:         &summary,
 		ReasoningGenerateSummary: &generateSummary,
 		RawInputItems:            json.RawMessage(`[{"type":"input_text","text":"hello"}]`),
+		RawTools:                 json.RawMessage(`[{"type":"web_search","search_context_size":"high"}]`),
 	})
 
 	options := req.GetOpenAIResponsesOptions()
 	if options.PreviousResponseID == nil || *options.PreviousResponseID != previousID {
 		t.Fatalf("expected previous response id to round-trip, got %#v", options.PreviousResponseID)
 	}
-	if !strings.Contains(string(options.Prompt), "prompt_1") || !strings.Contains(string(options.RawInputItems), "hello") {
-		t.Fatalf("expected raw responses options to round-trip, got prompt=%s raw=%s", options.Prompt, options.RawInputItems)
+	if !strings.Contains(string(options.Prompt), "prompt_1") || !strings.Contains(string(options.RawInputItems), "hello") || !strings.Contains(string(options.RawTools), "search_context_size") {
+		t.Fatalf("expected raw responses options to round-trip, got prompt=%s input=%s tools=%s", options.Prompt, options.RawInputItems, options.RawTools)
 	}
 	if req.ProviderExtensions == nil || req.ProviderExtensions.OpenAI == nil || req.ProviderExtensions.OpenAI.Responses == nil ||
 		string(req.ProviderExtensions.OpenAI.Responses.RawInputItems) != string(req.RawInputItems) {
@@ -495,11 +496,15 @@ func TestInternalLLMRequestOpenAIResponsesOptionsRoundTripAndClone(t *testing.T)
 
 	*options.PreviousResponseID = "mutated"
 	options.RawInputItems[0] = 'x'
+	options.RawTools[0] = 'x'
 	if req.OpenAIPreviousResponseID() != previousID {
 		t.Fatalf("expected previous response id getter to be clone-safe, got %q", req.OpenAIPreviousResponseID())
 	}
 	if !strings.Contains(string(req.RawInputItems), "hello") {
 		t.Fatalf("expected raw input items to be clone-safe, got %s", req.RawInputItems)
+	}
+	if rawTools := req.GetOpenAIResponsesOptions().RawTools; !strings.Contains(string(rawTools), "search_context_size") {
+		t.Fatalf("expected raw tools to be clone-safe, got %s", rawTools)
 	}
 }
 

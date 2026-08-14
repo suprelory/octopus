@@ -46,9 +46,9 @@ type ResponseInbound struct {
 	accumulatedReasoning strings.Builder
 	accumulatedRefusal   strings.Builder
 
-	// reasoningBlockSignatures preserves per-thinking-block signatures in
-	// arrival order. 0 → no encrypted_content, 1 → raw string (common case),
-	// N → JSON-encoded array string so information is not lost.
+	// reasoningBlockSignatures holds the signature for the currently open
+	// reasoning item. A signature closes that item so opaque values are never
+	// combined or rewritten.
 	reasoningBlockSignatures []string
 
 	// Tool call tracking
@@ -74,6 +74,19 @@ func (i *ResponseInbound) TransformRequest(ctx context.Context, body []byte) (*m
 	var req ResponsesRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("failed to decode responses api request: %w", err)
+	}
+	var rawFields struct {
+		Input json.RawMessage `json:"input"`
+		Tools json.RawMessage `json:"tools"`
+	}
+	if err := json.Unmarshal(body, &rawFields); err != nil {
+		return nil, fmt.Errorf("failed to preserve responses api native fields: %w", err)
+	}
+	if strings.HasPrefix(strings.TrimSpace(string(rawFields.Input)), "[") {
+		req.RawInputItems = append(json.RawMessage(nil), rawFields.Input...)
+	}
+	if firstUnsupportedResponsesToolType(req.Tools) != "" {
+		req.RawTools = append(json.RawMessage(nil), rawFields.Tools...)
 	}
 
 	if req.Model == "" {
@@ -192,21 +205,27 @@ func (i *ResponseInbound) processStreamEvents(ctx context.Context, events []mode
 			}
 
 		case model.StreamEventKindThinkingDelta:
-			if event.Delta != nil && (event.Delta.Thinking != "" || event.Delta.Signature != "") {
-				if event.Delta.Signature != "" {
-					i.reasoningBlockSignatures = append(i.reasoningBlockSignatures, event.Delta.Signature)
+			if event.Delta != nil {
+				signature := openAIStreamSignature(event.Delta)
+				if event.Delta.Thinking == "" && signature == "" {
+					continue
 				}
 				if event.Delta.Thinking != "" {
 					out = append(out, i.handleReasoningContent(&event.Delta.Thinking)...)
-				} else {
+				} else if signature != "" {
 					out = append(out, i.ensureReasoningItemStarted()...)
+				}
+				if signature != "" {
+					i.reasoningBlockSignatures = append(i.reasoningBlockSignatures, signature)
+					out = append(out, i.closeReasoningItem()...)
 				}
 			}
 
 		case model.StreamEventKindSignatureDelta:
-			if event.Delta != nil && event.Delta.Signature != "" {
-				i.reasoningBlockSignatures = append(i.reasoningBlockSignatures, event.Delta.Signature)
+			if signature := openAIStreamSignature(event.Delta); signature != "" {
 				out = append(out, i.ensureReasoningItemStarted()...)
+				i.reasoningBlockSignatures = append(i.reasoningBlockSignatures, signature)
+				out = append(out, i.closeReasoningItem()...)
 			}
 
 		case model.StreamEventKindContentBlockStart:
@@ -293,6 +312,19 @@ func (i *ResponseInbound) processStreamEvents(ctx context.Context, events []mode
 		}
 	}
 	return result, nil
+}
+
+func openAIStreamSignature(delta *model.StreamDelta) string {
+	if delta == nil {
+		return ""
+	}
+	if delta.SignatureSource == nil {
+		return delta.Signature
+	}
+	if delta.SignatureSource.ValidForKind(model.SignatureProviderOpenAI, model.OpaqueSignatureKindOpenAIReasoning) {
+		return delta.SignatureSource.Value
+	}
+	return ""
 }
 
 func (i *ResponseInbound) enqueueEvent(ev *ResponsesStreamEvent) []byte {
@@ -625,11 +657,6 @@ func (i *ResponseInbound) closeReasoningItem() [][]byte {
 		Text:        fullReasoning,
 	}))
 
-	// Emit output_item.done with encrypted_content if signatures were accumulated.
-	// Single signature is emitted as a bare string (the common Anthropic extended-thinking
-	// case — one thinking block per turn — so the field round-trips verbatim). Multiple
-	// signatures are JSON-encoded into an array string so per-block provenance is not
-	// lost; downstream consumers that only read the scalar still see non-empty content.
 	item := ResponsesItem{
 		ID:   i.currentItemID,
 		Type: "reasoning",
@@ -639,17 +666,9 @@ func (i *ResponseInbound) closeReasoningItem() [][]byte {
 		}},
 	}
 
-	switch len(i.reasoningBlockSignatures) {
-	case 0:
-		// no encrypted_content
-	case 1:
+	if len(i.reasoningBlockSignatures) > 0 {
 		sig := i.reasoningBlockSignatures[0]
 		item.EncryptedContent = &sig
-	default:
-		if encoded, err := json.Marshal(i.reasoningBlockSignatures); err == nil {
-			sig := string(encoded)
-			item.EncryptedContent = &sig
-		}
 	}
 
 	events = append(events, i.enqueueEvent(&ResponsesStreamEvent{
@@ -930,6 +949,8 @@ type ResponsesRequest struct {
 	Conversation         json.RawMessage `json:"conversation,omitempty"`
 	ContextManagement    json.RawMessage `json:"context_management,omitempty"`
 	StreamOptions        json.RawMessage `json:"stream_options,omitempty"`
+	RawInputItems        json.RawMessage `json:"-"`
+	RawTools             json.RawMessage `json:"-"`
 }
 
 type ResponsesInput struct {
@@ -1196,7 +1217,11 @@ func convertToInternalRequest(req *ResponsesRequest) (*model.InternalLLMRequest,
 
 	if req.Input.Text == nil && len(req.Input.Items) > 0 {
 		chatReq.TransformOptions.ArrayInputs = lo.ToPtr(true)
-		if rawItems, marshalErr := json.Marshal(req.Input.Items); marshalErr == nil {
+		rawItems := append(json.RawMessage(nil), req.RawInputItems...)
+		if len(rawItems) == 0 {
+			rawItems, _ = json.Marshal(req.Input.Items)
+		}
+		if len(rawItems) > 0 {
 			chatReq.SetOpenAIRawInputItems(rawItems)
 		}
 	}
@@ -1235,6 +1260,7 @@ func convertToInternalRequest(req *ResponsesRequest) (*model.InternalLLMRequest,
 		ReasoningSummary:         reasoningSummary,
 		ReasoningGenerateSummary: reasoningGenerateSummary,
 		RawInputItems:            chatReq.OpenAIRawInputItems(),
+		RawTools:                 req.RawTools,
 	})
 
 	// Convert tool choice
@@ -1370,14 +1396,14 @@ func convertToolChoiceToInternal(src *ResponsesToolChoice) *model.ToolChoice {
 	result := &model.ToolChoice{}
 	if src.Mode != nil {
 		result.ToolChoice = src.Mode
-	} else if src.Type != nil && src.Name != nil {
-		name := *src.Name
+	} else if src.Type != nil {
 		result.NamedToolChoice = &model.NamedToolChoice{
 			Type: *src.Type,
-			Function: &model.ToolFunction{
-				Name: name,
-			},
-			Name: &name,
+		}
+		if src.Name != nil {
+			name := *src.Name
+			result.NamedToolChoice.Function = &model.ToolFunction{Name: name}
+			result.NamedToolChoice.Name = &name
 		}
 	}
 	return result
@@ -1500,12 +1526,31 @@ func convertItemToMessage(item *ResponsesItem) (*model.Message, error) {
 			Role: "assistant",
 		}
 
-		if reasoningText := reasoningTextFromInputItem(item); reasoningText != "" {
+		reasoningText := reasoningTextFromInputItem(item)
+		if reasoningText != "" {
 			msg.ReasoningContent = lo.ToPtr(reasoningText)
 		}
 
+		blockKind := model.ReasoningBlockKindSignature
+		if reasoningText != "" {
+			blockKind = model.ReasoningBlockKindThinking
+		}
+		block := model.ReasoningBlock{
+			Kind:  blockKind,
+			Index: -1,
+			Text:  reasoningText,
+		}
 		if item.EncryptedContent != nil && *item.EncryptedContent != "" {
-			msg.ReasoningSignature = item.EncryptedContent
+			signature := model.OpaqueSignature{
+				Provider: model.SignatureProviderOpenAI,
+				Kind:     model.OpaqueSignatureKindOpenAIReasoning,
+				Value:    *item.EncryptedContent,
+			}
+			msg.SetOpaqueReasoningSignature(signature)
+			block.SetOpaqueSignature(signature)
+		}
+		if reasoningText != "" || block.SignatureSource != nil {
+			msg.AppendReasoningBlock(block)
 		}
 
 		return msg, nil
@@ -1693,20 +1738,7 @@ func convertToResponsesAPIResponse(resp *model.InternalLLMResponse) *ResponsesRe
 			continue
 		}
 
-		// Handle reasoning content
-		if message.ReasoningContent != nil && *message.ReasoningContent != "" {
-			result.Output = append(result.Output, ResponsesItem{
-				ID:     generateItemID(),
-				Type:   "reasoning",
-				Status: lo.ToPtr("completed"),
-				Summary: []ResponsesReasoningSummary{
-					{
-						Type: "summary_text",
-						Text: *message.ReasoningContent,
-					},
-				},
-			})
-		}
+		result.Output = append(result.Output, openAIMessageReasoningItems(message)...)
 
 		// Handle tool calls
 		if len(message.ToolCalls) > 0 {
@@ -1806,6 +1838,102 @@ func convertToResponsesAPIResponse(resp *model.InternalLLMResponse) *ResponsesRe
 	}
 
 	return result
+}
+
+func openAIMessageReasoningItems(message *model.Message) []ResponsesItem {
+	if message == nil {
+		return nil
+	}
+	items := make([]ResponsesItem, 0, len(message.ReasoningBlocks)+1)
+	hasBlockSummary := false
+	for _, block := range message.ReasoningBlocks {
+		text := ""
+		if block.Kind == model.ReasoningBlockKindThinking {
+			text = block.Text
+			hasBlockSummary = hasBlockSummary || text != ""
+		}
+		signature, hasSignature := openAIMessageBlockSignature(block)
+		if text == "" && !hasSignature {
+			continue
+		}
+		if block.Kind == model.ReasoningBlockKindSignature && hasSignature && len(items) > 0 && items[len(items)-1].EncryptedContent == nil {
+			value := signature.Value
+			items[len(items)-1].EncryptedContent = &value
+			continue
+		}
+		item := ResponsesItem{ID: generateItemID(), Type: "reasoning", Status: lo.ToPtr("completed")}
+		if text != "" {
+			item.Summary = []ResponsesReasoningSummary{{Type: "summary_text", Text: text}}
+		}
+		if hasSignature {
+			value := signature.Value
+			item.EncryptedContent = &value
+		}
+		items = append(items, item)
+	}
+	if message.ReasoningContent != nil && *message.ReasoningContent != "" && !hasBlockSummary {
+		if len(items) == 0 {
+			items = append(items, ResponsesItem{ID: generateItemID(), Type: "reasoning", Status: lo.ToPtr("completed")})
+		}
+		items[0].Summary = []ResponsesReasoningSummary{{Type: "summary_text", Text: *message.ReasoningContent}}
+	}
+	if signature, ok := openAIMessageFlatSignature(message); ok && !openAIMessageBlocksContainSignature(message.ReasoningBlocks, signature) {
+		for index := range items {
+			if items[index].EncryptedContent == nil {
+				value := signature.Value
+				items[index].EncryptedContent = &value
+				return items
+			}
+		}
+		value := signature.Value
+		items = append(items, ResponsesItem{ID: generateItemID(), Type: "reasoning", Status: lo.ToPtr("completed"), EncryptedContent: &value})
+	}
+	return items
+}
+
+func openAIMessageBlockSignature(block model.ReasoningBlock) (model.OpaqueSignature, bool) {
+	if block.SignatureSource == nil && strings.TrimSpace(block.Provider) == "" {
+		if strings.TrimSpace(block.Signature) == "" {
+			return model.OpaqueSignature{}, false
+		}
+		return model.OpaqueSignature{Provider: model.SignatureProviderOpenAI, Kind: model.OpaqueSignatureKindOpenAIReasoning, Value: block.Signature}, true
+	}
+	signature, ok := block.OpaqueSignature()
+	return signature, ok && signature.ValidForKind(model.SignatureProviderOpenAI, model.OpaqueSignatureKindOpenAIReasoning)
+}
+
+func openAIMessageFlatSignature(message *model.Message) (model.OpaqueSignature, bool) {
+	if message == nil {
+		return model.OpaqueSignature{}, false
+	}
+	if message.ReasoningSignatureSource != nil {
+		signature := *message.ReasoningSignatureSource
+		return signature, signature.ValidForKind(model.SignatureProviderOpenAI, model.OpaqueSignatureKindOpenAIReasoning)
+	}
+	if message.ReasoningSignature == nil || strings.TrimSpace(*message.ReasoningSignature) == "" {
+		return model.OpaqueSignature{}, false
+	}
+	return model.OpaqueSignature{Provider: model.SignatureProviderOpenAI, Kind: model.OpaqueSignatureKindOpenAIReasoning, Value: *message.ReasoningSignature}, true
+}
+
+func openAIMessageBlocksContainSignature(blocks []model.ReasoningBlock, target model.OpaqueSignature) bool {
+	for _, block := range blocks {
+		signature, ok := openAIMessageBlockSignature(block)
+		if ok && sameOpenAIMessageSignature(signature, target) {
+			return true
+		}
+	}
+	return false
+}
+
+func sameOpenAIMessageSignature(first, second model.OpaqueSignature) bool {
+	if first.Provider != second.Provider || first.Kind != second.Kind || first.Value != second.Value {
+		return false
+	}
+	if first.ToolCallScope == nil || second.ToolCallScope == nil {
+		return first.ToolCallScope == nil && second.ToolCallScope == nil
+	}
+	return first.ToolCallScope.ID == second.ToolCallScope.ID && first.ToolCallScope.Name == second.ToolCallScope.Name
 }
 
 func convertUsageToResponses(usage *model.Usage) *ResponsesUsage {

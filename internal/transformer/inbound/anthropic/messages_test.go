@@ -73,17 +73,23 @@ func TestAnthropicRequestKeepsNonEmptyThinkingAnthropic(t *testing.T) {
 
 func TestTransformResponseEmitsGeminiThoughtSignatureShim(t *testing.T) {
 	inbound := &MessagesInbound{}
+	signatureBlock := model.ReasoningBlock{Kind: model.ReasoningBlockKindSignature, Index: -1}
+	signatureBlock.SetOpaqueSignature(model.OpaqueSignature{
+		Provider: model.SignatureProviderGemini,
+		Kind:     model.OpaqueSignatureKindGeminiThought,
+		Value:    "sig-gemini",
+		ToolCallScope: &model.SignatureToolCallScope{
+			ID:   "call_Bash_2",
+			Name: "Bash",
+		},
+	})
 	out, err := inbound.TransformResponse(context.Background(), &model.InternalLLMResponse{
 		ID:    "msg_1",
 		Model: "gemini-3.1-pro",
 		Choices: []model.Choice{{
 			Message: &model.Message{
-				Role: "assistant",
-				ReasoningBlocks: []model.ReasoningBlock{{
-					Kind:      model.ReasoningBlockKindSignature,
-					Signature: "sig-gemini",
-					Provider:  "gemini",
-				}},
+				Role:            "assistant",
+				ReasoningBlocks: []model.ReasoningBlock{signatureBlock},
 				ToolCalls: []model.ToolCall{{
 					ID: "call_Bash_2",
 					Function: model.FunctionCall{
@@ -115,9 +121,106 @@ func TestTransformResponseEmitsGeminiThoughtSignatureShim(t *testing.T) {
 	}
 }
 
+func TestTransformResponseFiltersReasoningSignatureProvenance(t *testing.T) {
+	tests := []struct {
+		name          string
+		configure     func(*model.Message)
+		wantSignature bool
+	}{
+		{
+			name: "legacy",
+			configure: func(message *model.Message) {
+				message.ReasoningSignature = stringPtr("legacy-signature")
+			},
+			wantSignature: true,
+		},
+		{
+			name: "anthropic",
+			configure: func(message *model.Message) {
+				message.SetOpaqueReasoningSignature(model.OpaqueSignature{
+					Provider: model.SignatureProviderAnthropic,
+					Kind:     model.OpaqueSignatureKindAnthropicThinking,
+					Value:    "anthropic-signature",
+				})
+			},
+			wantSignature: true,
+		},
+		{
+			name: "foreign",
+			configure: func(message *model.Message) {
+				message.SetOpaqueReasoningSignature(model.OpaqueSignature{
+					Provider: model.SignatureProviderOpenAI,
+					Kind:     model.OpaqueSignatureKindOpenAIReasoning,
+					Value:    "openai-signature",
+				})
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			message := &model.Message{Role: "assistant", ReasoningContent: stringPtr("summary")}
+			test.configure(message)
+			out, err := (&MessagesInbound{}).TransformResponse(context.Background(), &model.InternalLLMResponse{
+				ID:      "msg_1",
+				Model:   "model",
+				Choices: []model.Choice{{Message: message}},
+			})
+			if err != nil {
+				t.Fatalf("TransformResponse() error = %v", err)
+			}
+			var response Message
+			if err := json.Unmarshal(out, &response); err != nil {
+				t.Fatalf("unmarshal response: %v", err)
+			}
+			if len(response.Content) == 0 || response.Content[0].Type != "thinking" {
+				t.Fatalf("missing thinking block: %+v", response.Content)
+			}
+			if got := response.Content[0].Signature != nil; got != test.wantSignature {
+				t.Fatalf("signature present = %t, want %t: %+v", got, test.wantSignature, response.Content[0])
+			}
+		})
+	}
+}
+
+func TestTransformResponseDropsForeignBlockSignature(t *testing.T) {
+	block := model.ReasoningBlock{Kind: model.ReasoningBlockKindThinking, Index: -1, Text: "summary"}
+	block.SetOpaqueSignature(model.OpaqueSignature{
+		Provider: model.SignatureProviderOpenAI,
+		Kind:     model.OpaqueSignatureKindOpenAIReasoning,
+		Value:    "openai-signature",
+	})
+	out, err := (&MessagesInbound{}).TransformResponse(context.Background(), &model.InternalLLMResponse{
+		ID:      "msg_1",
+		Model:   "model",
+		Choices: []model.Choice{{Message: &model.Message{Role: "assistant", ReasoningBlocks: []model.ReasoningBlock{block}}}},
+	})
+	if err != nil {
+		t.Fatalf("TransformResponse() error = %v", err)
+	}
+	var response Message
+	if err := json.Unmarshal(out, &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(response.Content) == 0 || response.Content[0].Thinking == nil || *response.Content[0].Thinking != "summary" {
+		t.Fatalf("foreign block text was not preserved: %+v", response.Content)
+	}
+	if response.Content[0].Signature != nil {
+		t.Fatalf("foreign block signature leaked: %+v", response.Content[0])
+	}
+}
+
 func TestAnthropicRequestRestoresGeminiThoughtSignatureFromCache(t *testing.T) {
 	inbound := &MessagesInbound{}
-	_, err := inbound.TransformResponse(context.Background(), &model.InternalLLMResponse{
+	_, err := inbound.TransformRequest(context.Background(), []byte(`{
+		"model":"claude-3-5-sonnet",
+		"max_tokens":16,
+		"messages":[{"role":"user","content":"run a tool"}]
+	}`))
+	if err != nil {
+		t.Fatalf("initialize request scope: %v", err)
+	}
+	_, err = inbound.TransformResponse(context.Background(), &model.InternalLLMResponse{
 		ID:    "msg_1",
 		Model: "gemini-3.1-pro",
 		Choices: []model.Choice{{
@@ -186,18 +289,24 @@ func TestTransformResponseOmitsOctopusExtension(t *testing.T) {
 
 func TestTransformStreamEmitsGeminiThoughtSignatureShim(t *testing.T) {
 	inbound := &MessagesInbound{}
+	signatureBlock := model.ReasoningBlock{Kind: model.ReasoningBlockKindSignature, Index: -1}
+	signatureBlock.SetOpaqueSignature(model.OpaqueSignature{
+		Provider: model.SignatureProviderGemini,
+		Kind:     model.OpaqueSignatureKindGeminiThought,
+		Value:    "sig-gemini",
+		ToolCallScope: &model.SignatureToolCallScope{
+			ID:   "call_Bash_2",
+			Name: "Bash",
+		},
+	})
 	out, err := inbound.TransformStream(context.Background(), &model.InternalLLMResponse{
 		ID:     "msg_1",
 		Model:  "gemini-3.1-pro",
 		Object: "chat.completion.chunk",
 		Choices: []model.Choice{{
 			Delta: &model.Message{
-				Role: "assistant",
-				ReasoningBlocks: []model.ReasoningBlock{{
-					Kind:      model.ReasoningBlockKindSignature,
-					Signature: "sig-gemini",
-					Provider:  "gemini",
-				}},
+				Role:            "assistant",
+				ReasoningBlocks: []model.ReasoningBlock{signatureBlock},
 				ToolCalls: []model.ToolCall{{
 					Index: 0,
 					ID:    "call_Bash_2",
@@ -226,6 +335,61 @@ func TestTransformStreamEmitsGeminiThoughtSignatureShim(t *testing.T) {
 	}
 	if strings.Index(text, `"type":"signature_delta"`) > strings.Index(text, `"type":"tool_use"`) {
 		t.Fatalf("expected signature_delta before tool_use, got %s", text)
+	}
+}
+
+func TestTransformStreamFiltersReasoningSignatureProvenance(t *testing.T) {
+	tests := []struct {
+		name          string
+		configure     func(*model.ReasoningBlock)
+		wantSignature bool
+	}{
+		{
+			name:          "legacy",
+			configure:     func(*model.ReasoningBlock) {},
+			wantSignature: true,
+		},
+		{
+			name: "anthropic",
+			configure: func(block *model.ReasoningBlock) {
+				block.SetOpaqueSignature(model.OpaqueSignature{
+					Provider: model.SignatureProviderAnthropic,
+					Kind:     model.OpaqueSignatureKindAnthropicThinking,
+					Value:    "signature",
+				})
+			},
+			wantSignature: true,
+		},
+		{
+			name: "foreign",
+			configure: func(block *model.ReasoningBlock) {
+				block.SetOpaqueSignature(model.OpaqueSignature{
+					Provider: model.SignatureProviderOpenAI,
+					Kind:     model.OpaqueSignatureKindOpenAIReasoning,
+					Value:    "signature",
+				})
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			block := model.ReasoningBlock{Kind: model.ReasoningBlockKindThinking, Index: -1, Text: "summary", Signature: "signature"}
+			test.configure(&block)
+			out, err := (&MessagesInbound{}).TransformStream(context.Background(), &model.InternalLLMResponse{
+				ID:      "msg_1",
+				Model:   "model",
+				Object:  "chat.completion.chunk",
+				Choices: []model.Choice{{Delta: &model.Message{Role: "assistant", ReasoningBlocks: []model.ReasoningBlock{block}}}},
+			})
+			if err != nil {
+				t.Fatalf("TransformStream() error = %v", err)
+			}
+			got := strings.Contains(string(out), `"type":"signature_delta"`)
+			if got != test.wantSignature {
+				t.Fatalf("signature_delta present = %t, want %t: %s", got, test.wantSignature, out)
+			}
+		})
 	}
 }
 
@@ -512,6 +676,39 @@ func TestTransformStreamEventsDirectAnthropicSSE(t *testing.T) {
 	}
 }
 
+func TestTransformStreamEventsDropsForeignSignatureSource(t *testing.T) {
+	inbound := &MessagesInbound{}
+	events := []model.StreamEvent{
+		{Kind: model.StreamEventKindMessageStart, ID: "msg_1", Model: "model", Role: "assistant"},
+		{
+			Kind:  model.StreamEventKindThinkingDelta,
+			ID:    "msg_1",
+			Model: "model",
+			Delta: &model.StreamDelta{
+				Thinking:  "summary",
+				Signature: "openai-signature",
+				SignatureSource: &model.OpaqueSignature{
+					Provider: model.SignatureProviderOpenAI,
+					Kind:     model.OpaqueSignatureKindOpenAIReasoning,
+					Value:    "openai-signature",
+				},
+			},
+		},
+	}
+
+	out, err := inbound.TransformStreamEvents(context.Background(), events)
+	if err != nil {
+		t.Fatalf("TransformStreamEvents() error = %v", err)
+	}
+	text := string(out)
+	if !strings.Contains(text, `"type":"thinking_delta"`) {
+		t.Fatalf("foreign block text was not preserved: %s", text)
+	}
+	if strings.Contains(text, `"type":"signature_delta"`) || strings.Contains(text, "openai-signature") {
+		t.Fatalf("foreign signature leaked into Anthropic SSE: %s", text)
+	}
+}
+
 func TestTransformStreamEventsStartsRepeatedToolIndexAfterStop(t *testing.T) {
 	inbound := &MessagesInbound{}
 	first := []model.StreamEvent{
@@ -664,5 +861,22 @@ func TestTransformRequestPreservesServerToolOnInternalRequest(t *testing.T) {
 	}
 	if fn.Function.Name != "lookup" {
 		t.Fatalf("function tool name mismatch, got %q", fn.Function.Name)
+	}
+}
+
+func TestTransformRequestRecordsMaxTokensRepair(t *testing.T) {
+	req, err := (&MessagesInbound{}).TransformRequest(context.Background(), []byte(`{
+		"model":"claude-test",
+		"max_tokens":0,
+		"messages":[{"role":"user","content":"hello"}]
+	}`))
+	if err != nil {
+		t.Fatalf("TransformRequest: %v", err)
+	}
+	if req.MaxTokens == nil || *req.MaxTokens != 1 {
+		t.Fatalf("max_tokens was not repaired: %#v", req.MaxTokens)
+	}
+	if got := req.TransformerMetadataValue(model.TransformerMetadataAnthropicMaxTokensRepairFrom); got != "0" {
+		t.Fatalf("repair provenance = %q, want 0", got)
 	}
 }

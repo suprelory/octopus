@@ -41,12 +41,115 @@ func TestPlanRequestCoversRequestedSemantics(t *testing.T) {
 	}
 }
 
+func TestPlanRelayOperationUsesProtocolDescriptor(t *testing.T) {
+	supported := PlanRelayOperation(OutboundTypeOpenAIResponse, RelayOperationResponsesCompact)
+	if supported.Status != CapabilitySupported || supported.StaticQuality != QualityNative {
+		t.Fatalf("supported operation decision = %#v", supported)
+	}
+	if supported.RequestType != model.RequestTypeResponses || supported.InboundFormat != model.APIFormatOpenAIResponse {
+		t.Fatalf("supported operation request metadata = %#v", supported)
+	}
+
+	rejected := PlanRelayOperation(OutboundTypeAnthropic, RelayOperationImages)
+	if !rejected.Rejected() || rejected.StaticQuality != QualityUnsupported {
+		t.Fatalf("rejected operation decision = %#v", rejected)
+	}
+}
+
 func TestPlanRequestRejectsNativeResponsesSemantics(t *testing.T) {
 	req := &model.InternalLLMRequest{RequestType: model.RequestTypeResponses, RawAPIFormat: model.APIFormatOpenAIResponse, Model: "gpt-5", Messages: []model.Message{{Role: "user"}}}
 	req.MarkOpenAIResponsesPassthroughRequired("tool:web_search")
-	decision := PlanRequest(req, OutboundTypeGemini, false)
-	if decision.Status != CapabilityRejected {
-		t.Fatalf("status = %s, want rejected", decision.Status)
+	for _, outboundType := range []OutboundType{OutboundTypeOpenAIResponse, OutboundTypeGemini} {
+		decision := PlanRequest(req, outboundType, false)
+		if decision.Status != CapabilityRejected {
+			t.Fatalf("outbound %s status = %s, want rejected", outboundType, decision.Status)
+		}
+	}
+
+	decision := PlanRequest(req, OutboundTypeOpenAIResponse, true)
+	if decision.Status != CapabilitySupported || !decision.Passthrough {
+		t.Fatalf("native Responses passthrough decision = %#v, want supported passthrough", decision)
+	}
+}
+
+func TestPlanRequestAllowsNativeResponsesRecoveryWithoutRawPassthrough(t *testing.T) {
+	previousResponseID := "resp_previous"
+	tests := []struct {
+		name    string
+		request *model.InternalLLMRequest
+	}{
+		{
+			name: "exact replay",
+			request: func() *model.InternalLLMRequest {
+				req := &model.InternalLLMRequest{
+					RequestType:   model.RequestTypeResponses,
+					RawAPIFormat:  model.APIFormatOpenAIResponse,
+					Model:         "gpt-5",
+					RawInputItems: json.RawMessage(`[{"type":"computer_call_output","call_id":"call_1","output":"ok"}]`),
+				}
+				req.MarkOpenAIResponsesPassthroughRequired("input:computer_call_output")
+				req.MarkOpenAIExactReplayRequest()
+				return req
+			}(),
+		},
+		{
+			name: "upstream continuation",
+			request: func() *model.InternalLLMRequest {
+				req := &model.InternalLLMRequest{
+					RequestType:        model.RequestTypeResponses,
+					RawAPIFormat:       model.APIFormatOpenAIResponse,
+					Model:              "gpt-5",
+					PreviousResponseID: &previousResponseID,
+					RawInputItems:      json.RawMessage(`[{"type":"computer_call_output","call_id":"call_1","output":"ok"}]`),
+				}
+				req.MarkOpenAIResponsesPassthroughRequired("input:computer_call_output")
+				return req
+			}(),
+		},
+		{
+			name: "exact replay with native tool",
+			request: func() *model.InternalLLMRequest {
+				req := &model.InternalLLMRequest{
+					RequestType:  model.RequestTypeResponses,
+					RawAPIFormat: model.APIFormatOpenAIResponse,
+					Model:        "gpt-5",
+					Messages:     []model.Message{{Role: "user"}},
+				}
+				req.SetOpenAIResponsesOptions(model.OpenAIResponsesOptions{
+					RawTools: json.RawMessage(`[{"type":"web_search","search_context_size":"high"}]`),
+				})
+				req.MarkOpenAIResponsesPassthroughRequired("tool:web_search")
+				req.MarkOpenAIExactReplayRequest()
+				return req
+			}(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			decision := PlanRequest(tt.request, OutboundTypeOpenAIResponse, false)
+			if decision.Rejected() || decision.Passthrough {
+				t.Fatalf("Responses recovery decision = %#v, want canonical non-rejected path", decision)
+			}
+			if decision := PlanRequest(tt.request, OutboundTypeGemini, false); !decision.Rejected() {
+				t.Fatalf("non-Responses recovery decision = %#v, want rejected", decision)
+			}
+		})
+	}
+}
+
+func TestPlanRequestRejectsResponsesRecoveryWithoutNativeSidecar(t *testing.T) {
+	request := &model.InternalLLMRequest{
+		RequestType:  model.RequestTypeResponses,
+		RawAPIFormat: model.APIFormatOpenAIResponse,
+		Model:        "gpt-5",
+		Messages:     []model.Message{{Role: "user"}},
+	}
+	request.MarkOpenAIResponsesPassthroughRequired("tool:web_search")
+	request.MarkOpenAIExactReplayRequest()
+
+	if decision := PlanRequest(request, OutboundTypeOpenAIResponse, false); !decision.Rejected() {
+		t.Fatalf("recovery without raw native tools must remain rejected: %#v", decision)
 	}
 }
 
@@ -75,6 +178,384 @@ func TestPlanRequestDetectsLossyGeminiSchema(t *testing.T) {
 	decision := PlanRequest(req, OutboundTypeGemini, false)
 	if decision.Status != CapabilityDegraded || !slices.Contains(decision.DegradedFields, "response_format.schema") {
 		t.Fatalf("unexpected schema decision: %+v", decision)
+	}
+	assertCapabilityLoss(t, decision, "response_format.schema", LossActionTranslate)
+}
+
+func TestPlanRequestReportsAdapterFieldLosses(t *testing.T) {
+	topK := int64(40)
+	fiveStops := &model.Stop{MultipleStop: []string{"a", "b", "c", "d", "e"}}
+	fourStops := &model.Stop{MultipleStop: []string{"a", "b", "c", "d"}}
+	singleStop := "done"
+
+	tests := []struct {
+		name         string
+		outboundType OutboundType
+		inbound      model.APIFormat
+		topK         *int64
+		stop         *model.Stop
+		wantStatus   CapabilityStatus
+		wantLosses   map[string]LossAction
+	}{
+		{
+			name:         "OpenAI Chat drops top_k",
+			outboundType: OutboundTypeOpenAIChat,
+			inbound:      model.APIFormatOpenAIChatCompletion,
+			topK:         &topK,
+			wantStatus:   CapabilityDegraded,
+			wantLosses:   map[string]LossAction{"top_k": LossActionDrop},
+		},
+		{
+			name:         "OpenAI Responses drops top_k and stop",
+			outboundType: OutboundTypeOpenAIResponse,
+			inbound:      model.APIFormatOpenAIChatCompletion,
+			topK:         &topK,
+			stop:         &model.Stop{Stop: &singleStop},
+			wantStatus:   CapabilityDegraded,
+			wantLosses: map[string]LossAction{
+				"top_k": LossActionDrop,
+				"stop":  LossActionDrop,
+			},
+		},
+		{
+			name:         "Anthropic truncates excess stop sequences",
+			outboundType: OutboundTypeAnthropic,
+			inbound:      model.APIFormatOpenAIChatCompletion,
+			stop:         fiveStops,
+			wantStatus:   CapabilityDegraded,
+			wantLosses:   map[string]LossAction{"stop": LossActionTruncate},
+		},
+		{
+			name:         "Anthropic preserves stop sequences at limit",
+			outboundType: OutboundTypeAnthropic,
+			inbound:      model.APIFormatOpenAIChatCompletion,
+			stop:         fourStops,
+			wantStatus:   CapabilitySupported,
+		},
+		{
+			name:         "Gemini carries top_k and stop sequences",
+			outboundType: OutboundTypeGemini,
+			inbound:      model.APIFormatOpenAIChatCompletion,
+			topK:         &topK,
+			stop:         fiveStops,
+			wantStatus:   CapabilitySupported,
+		},
+		{
+			name:         "OpenAI Chat preserves native stop",
+			outboundType: OutboundTypeOpenAIChat,
+			inbound:      model.APIFormatOpenAIChatCompletion,
+			stop:         &model.Stop{Stop: &singleStop},
+			wantStatus:   CapabilitySupported,
+		},
+		{
+			name:         "OpenAI Chat drops Anthropic stop semantics",
+			outboundType: OutboundTypeOpenAIChat,
+			inbound:      model.APIFormatAnthropicMessage,
+			stop:         &model.Stop{Stop: &singleStop},
+			wantStatus:   CapabilityDegraded,
+			wantLosses:   map[string]LossAction{"stop": LossActionDrop},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := &model.InternalLLMRequest{
+				RequestType:  model.RequestTypeChat,
+				RawAPIFormat: test.inbound,
+				TopK:         test.topK,
+				Stop:         test.stop,
+			}
+			decision := PlanRequest(request, test.outboundType, false)
+			if decision.Status != test.wantStatus {
+				t.Fatalf("status = %s, want %s: %#v", decision.Status, test.wantStatus, decision)
+			}
+			for field, action := range test.wantLosses {
+				assertCapabilityLoss(t, decision, field, action)
+			}
+		})
+	}
+}
+
+func TestPlanRequestReportsAnthropicThinkingRepairs(t *testing.T) {
+	topK := int64(40)
+	topP := 0.8
+	temperature := 0.4
+	request := &model.InternalLLMRequest{
+		RequestType:     model.RequestTypeChat,
+		RawAPIFormat:    model.APIFormatOpenAIChatCompletion,
+		ReasoningEffort: "high",
+		TopK:            &topK,
+		TopP:            &topP,
+		Temperature:     &temperature,
+	}
+
+	decision := PlanRequest(request, OutboundTypeAnthropic, false)
+	if decision.Status != CapabilityDegraded {
+		t.Fatalf("status = %s, want degraded: %#v", decision.Status, decision)
+	}
+	assertCapabilityLoss(t, decision, "top_k", LossActionDrop)
+	assertCapabilityLoss(t, decision, "top_p", LossActionDrop)
+	assertCapabilityLoss(t, decision, "temperature", LossActionRepair)
+}
+
+func TestPlanRequestReportsResponsesBuilderDrops(t *testing.T) {
+	frequencyPenalty := 0.2
+	presencePenalty := 0.3
+	logprobs := true
+	seed := int64(42)
+	user := "user-1"
+	request := &model.InternalLLMRequest{
+		RequestType:      model.RequestTypeChat,
+		RawAPIFormat:     model.APIFormatOpenAIChatCompletion,
+		FrequencyPenalty: &frequencyPenalty,
+		PresencePenalty:  &presencePenalty,
+		Logprobs:         &logprobs,
+		Seed:             &seed,
+		LogitBias:        map[string]int64{"42": 10},
+		User:             &user,
+		Prediction:       json.RawMessage(`{"type":"content","content":"known"}`),
+		WebSearchOptions: json.RawMessage(`{"search_context_size":"low"}`),
+		Metadata:         map[string]string{"trace": "request-1"},
+		Audio: &struct {
+			Format string `json:"format,omitempty"`
+			Voice  string `json:"voice,omitempty"`
+		}{Format: "wav", Voice: "alloy"},
+	}
+	commonLosses := []string{
+		"audio",
+		"frequency_penalty",
+		"logit_bias",
+		"logprobs",
+		"prediction",
+		"presence_penalty",
+		"seed",
+		"user",
+		"web_search_options",
+	}
+
+	openAIDecision := PlanRequest(request, OutboundTypeOpenAIResponse, false)
+	for _, field := range commonLosses {
+		assertCapabilityLoss(t, openAIDecision, field, LossActionDrop)
+	}
+	if slices.Contains(openAIDecision.DegradedFields, "metadata") {
+		t.Fatalf("OpenAI Responses should preserve metadata: %#v", openAIDecision)
+	}
+
+	volcDecision := PlanRequest(request, OutboundTypeVolcengine, false)
+	for _, field := range append(commonLosses, "metadata") {
+		assertCapabilityLoss(t, volcDecision, field, LossActionDrop)
+	}
+}
+
+func TestPlanRequestReportsGeminiTopLogprobsClamp(t *testing.T) {
+	topLogprobs := int64(8)
+	request := &model.InternalLLMRequest{
+		RequestType:  model.RequestTypeChat,
+		RawAPIFormat: model.APIFormatOpenAIChatCompletion,
+		TopLogprobs:  &topLogprobs,
+	}
+
+	decision := PlanRequest(request, OutboundTypeGemini, false)
+	assertCapabilityLoss(t, decision, "top_logprobs", LossActionTruncate)
+
+	topLogprobs = 5
+	decision = PlanRequest(request, OutboundTypeGemini, false)
+	if slices.Contains(decision.DegradedFields, "top_logprobs") {
+		t.Fatalf("in-range top_logprobs should not be degraded: %#v", decision)
+	}
+}
+
+func TestPlanRequestReportsAnthropicAndGeminiBuilderDrops(t *testing.T) {
+	frequencyPenalty := 0.2
+	presencePenalty := 0.3
+	logprobs := true
+	seed := int64(42)
+	topLogprobs := int64(3)
+	user := "user-1"
+	request := &model.InternalLLMRequest{
+		RequestType:      model.RequestTypeChat,
+		RawAPIFormat:     model.APIFormatOpenAIChatCompletion,
+		FrequencyPenalty: &frequencyPenalty,
+		PresencePenalty:  &presencePenalty,
+		Logprobs:         &logprobs,
+		TopLogprobs:      &topLogprobs,
+		Seed:             &seed,
+		LogitBias:        map[string]int64{"42": 10},
+		User:             &user,
+		Prediction:       json.RawMessage(`{"type":"content","content":"known"}`),
+		WebSearchOptions: json.RawMessage(`{"search_context_size":"low"}`),
+		Metadata:         map[string]string{"trace": "request-1"},
+		Audio: &struct {
+			Format string `json:"format,omitempty"`
+			Voice  string `json:"voice,omitempty"`
+		}{Format: "wav", Voice: "alloy"},
+	}
+
+	anthropicDecision := PlanRequest(request, OutboundTypeAnthropic, false)
+	for _, field := range []string{
+		"audio",
+		"frequency_penalty",
+		"logit_bias",
+		"logprobs",
+		"metadata",
+		"prediction",
+		"presence_penalty",
+		"seed",
+		"top_logprobs",
+		"web_search_options",
+	} {
+		assertCapabilityLoss(t, anthropicDecision, field, LossActionDrop)
+	}
+	if slices.Contains(anthropicDecision.DegradedFields, "user") {
+		t.Fatalf("Anthropic should translate user to metadata.user_id: %#v", anthropicDecision)
+	}
+
+	request.Metadata = map[string]string{"user_id": "anthropic-user"}
+	anthropicDecision = PlanRequest(request, OutboundTypeAnthropic, false)
+	if slices.Contains(anthropicDecision.DegradedFields, "metadata") {
+		t.Fatalf("Anthropic should preserve metadata.user_id: %#v", anthropicDecision)
+	}
+	assertCapabilityLoss(t, anthropicDecision, "user", LossActionDrop)
+
+	geminiDecision := PlanRequest(request, OutboundTypeGemini, false)
+	for _, field := range []string{"logit_bias", "prediction", "user", "web_search_options"} {
+		assertCapabilityLoss(t, geminiDecision, field, LossActionDrop)
+	}
+	for _, field := range []string{"frequency_penalty", "logprobs", "metadata", "presence_penalty", "seed", "top_logprobs"} {
+		if slices.Contains(geminiDecision.DegradedFields, field) {
+			t.Fatalf("Gemini should preserve %s: %#v", field, geminiDecision)
+		}
+	}
+}
+
+func TestPlanRequestReportsGeminiThinkingChanges(t *testing.T) {
+	zero := int64(0)
+	request := &model.InternalLLMRequest{
+		RequestType:     model.RequestTypeChat,
+		RawAPIFormat:    model.APIFormatOpenAIChatCompletion,
+		Model:           "gemini-2.5-pro",
+		ReasoningBudget: &zero,
+	}
+	decision := PlanRequest(request, OutboundTypeGemini, false)
+	assertCapabilityLoss(t, decision, "reasoning_budget", LossActionRepair)
+
+	huge := int64(1 << 40)
+	request.ReasoningBudget = &huge
+	decision = PlanRequest(request, OutboundTypeGemini, false)
+	assertCapabilityLoss(t, decision, "reasoning_budget", LossActionRepair)
+
+	budget := int64(4096)
+	request.Model = "gemini-3-pro"
+	request.ReasoningBudget = &budget
+	decision = PlanRequest(request, OutboundTypeGemini, false)
+	assertCapabilityLoss(t, decision, "reasoning_budget", LossActionTranslate)
+
+	request.ReasoningBudget = nil
+	request.ReasoningEffort = "medium"
+	decision = PlanRequest(request, OutboundTypeGemini, false)
+	assertCapabilityLoss(t, decision, "reasoning_effort", LossActionRepair)
+
+	request.Model = "gemini-2.5-flash-lite"
+	request.ReasoningEffort = "high"
+	decision = PlanRequest(request, OutboundTypeGemini, false)
+	assertCapabilityLoss(t, decision, "reasoning", LossActionDrop)
+}
+
+func TestPlanRequestGeminiBudgetTakesPrecedenceOverEffort(t *testing.T) {
+	budget := int64(4096)
+	request := &model.InternalLLMRequest{
+		RequestType:     model.RequestTypeResponses,
+		RawAPIFormat:    model.APIFormatOpenAIResponse,
+		Model:           "gemini-2.5-pro",
+		ReasoningBudget: &budget,
+		ReasoningEffort: "minimal",
+	}
+
+	decision := PlanRequest(request, OutboundTypeGemini, false)
+	if slices.Contains(decision.DegradedFields, "reasoning_effort") {
+		t.Fatalf("ignored effort was reported as degraded: %#v", decision)
+	}
+}
+
+func TestPlanRequestReportsGeminiUnknownModalityDrop(t *testing.T) {
+	request := &model.InternalLLMRequest{
+		RequestType:  model.RequestTypeChat,
+		RawAPIFormat: model.APIFormatOpenAIChatCompletion,
+		Modalities:   []string{"text", "video"},
+	}
+
+	decision := PlanRequest(request, OutboundTypeGemini, false)
+	assertCapabilityLoss(t, decision, "modalities", LossActionDrop)
+}
+
+func TestPlanRequestReportsAnthropicRepairs(t *testing.T) {
+	zero := int64(0)
+	request := &model.InternalLLMRequest{
+		RequestType:  model.RequestTypeChat,
+		RawAPIFormat: model.APIFormatOpenAIChatCompletion,
+		MaxTokens:    &zero,
+		ToolChoice: &model.ToolChoice{NamedToolChoice: &model.NamedToolChoice{
+			Type: "function",
+		}},
+	}
+
+	decision := PlanRequest(request, OutboundTypeAnthropic, false)
+	assertCapabilityLoss(t, decision, "max_tokens", LossActionRepair)
+	assertCapabilityLoss(t, decision, "tool_choice.name", LossActionRepair)
+}
+
+func TestPlanRequestReportsAnthropicInboundMaxTokensRepair(t *testing.T) {
+	one := int64(1)
+	request := &model.InternalLLMRequest{
+		RequestType:         model.RequestTypeChat,
+		RawAPIFormat:        model.APIFormatAnthropicMessage,
+		MaxTokens:           &one,
+		TransformerMetadata: map[string]string{model.TransformerMetadataAnthropicMaxTokensRepairFrom: "0"},
+	}
+
+	decision := PlanRequest(request, OutboundTypeOpenAIChat, false)
+	assertCapabilityLoss(t, decision, "max_tokens", LossActionRepair)
+}
+
+func TestPlanRequestReportsOpenAIChatDocumentTranslation(t *testing.T) {
+	request := &model.InternalLLMRequest{
+		RequestType:  model.RequestTypeChat,
+		RawAPIFormat: model.APIFormatAnthropicMessage,
+		Messages: []model.Message{{
+			Role: "user",
+			Content: model.MessageContent{MultipleContent: []model.MessageContentPart{{
+				Type: "document",
+				Document: &model.DocumentSource{
+					Type:  "url",
+					URL:   "https://example.com/report.pdf",
+					Title: "Report",
+				},
+			}}},
+		}},
+	}
+
+	decision := PlanRequest(request, OutboundTypeOpenAIChat, false)
+	assertCapabilityLoss(t, decision, "messages[0].content[0]", LossActionTranslate)
+}
+
+func TestCapabilityLossJSONFieldNames(t *testing.T) {
+	payload, err := json.Marshal(CapabilityLoss{Field: "top_k", Action: LossActionDrop, Reason: "not preserved"})
+	if err != nil {
+		t.Fatalf("marshal capability loss: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("decode capability loss: %v", err)
+	}
+	for _, field := range []string{"field", "action", "reason"} {
+		if _, ok := decoded[field]; !ok {
+			t.Errorf("missing JSON field %q in %s", field, payload)
+		}
+	}
+	for _, legacyField := range []string{"Field", "Action", "Reason"} {
+		if _, ok := decoded[legacyField]; ok {
+			t.Errorf("unexpected Go field name %q in %s", legacyField, payload)
+		}
 	}
 }
 
@@ -130,3 +611,17 @@ func TestPlanRequestReportsKnownFieldLosses(t *testing.T) {
 }
 
 func int64Ptr(value int64) *int64 { return &value }
+
+func assertCapabilityLoss(t *testing.T, decision CapabilityDecision, field string, action LossAction) {
+	t.Helper()
+	if !slices.Contains(decision.DegradedFields, field) {
+		t.Errorf("missing degraded field %q in %#v", field, decision)
+		return
+	}
+	for _, loss := range decision.Losses {
+		if loss.Field == field && loss.Action == action {
+			return
+		}
+	}
+	t.Errorf("missing %s loss for field %q in %#v", action, field, decision.Losses)
+}

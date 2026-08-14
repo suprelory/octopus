@@ -1,9 +1,12 @@
 package openai
 
 import (
+	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
+	"github.com/bestruirui/octopus/internal/transformer/model"
 	"github.com/samber/lo"
 )
 
@@ -32,6 +35,28 @@ func TestConvertToInternalRequestPreservesRawInputItems(t *testing.T) {
 	}
 	if internalReq.TransformOptions.ArrayInputs == nil || !*internalReq.TransformOptions.ArrayInputs {
 		t.Fatalf("expected array input flag to stay true")
+	}
+}
+
+func TestResponseInboundPreservesNativeRecoverySidecars(t *testing.T) {
+	body := []byte(`{
+		"model":"gpt-5",
+		"input":[{"type":"apply_patch_call_output","call_id":"call_1","output":"ok","native_meta":{"keep":true}}],
+		"tools":[{"type":"apply_patch","name":"patch","native_config":{"keep":true}}]
+	}`)
+
+	request, err := (&ResponseInbound{}).TransformRequest(context.Background(), body)
+	if err != nil {
+		t.Fatalf("transform native Responses request: %v", err)
+	}
+	if !request.HasOpenAIResponsesPassthrough() {
+		t.Fatal("native Responses request must retain its passthrough requirement")
+	}
+	if !strings.Contains(string(request.OpenAIRawInputItems()), "native_meta") {
+		t.Fatalf("raw native input fields were lost: %s", request.OpenAIRawInputItems())
+	}
+	if rawTools := request.GetOpenAIResponsesOptions().RawTools; !strings.Contains(string(rawTools), "native_config") {
+		t.Fatalf("raw native tool fields were lost: %s", rawTools)
 	}
 }
 
@@ -179,6 +204,155 @@ func TestConvertItemToMessageUsesReasoningTextContent(t *testing.T) {
 	}
 	if msg == nil || msg.ReasoningContent == nil || *msg.ReasoningContent != "full reasoning" {
 		t.Fatalf("reasoning content = %+v, want reasoning_text", msg)
+	}
+}
+
+func TestConvertItemToMessageTagsEncryptedContentAsOpenAI(t *testing.T) {
+	signature := "encrypted"
+	msg, err := convertItemToMessage(&ResponsesItem{
+		Type:             "reasoning",
+		EncryptedContent: &signature,
+	})
+	if err != nil {
+		t.Fatalf("convertItemToMessage() error = %v", err)
+	}
+	if msg == nil || msg.ReasoningSignatureSource == nil || !msg.ReasoningSignatureSource.ValidFor(model.SignatureProviderOpenAI) {
+		t.Fatalf("missing OpenAI signature provenance: %+v", msg)
+	}
+}
+
+func TestConvertToResponsesAPIResponseFiltersSignatureProvenance(t *testing.T) {
+	tests := []struct {
+		name      string
+		message   *model.Message
+		expected  string
+		wantEmpty bool
+	}{
+		{
+			name: "openai",
+			message: func() *model.Message {
+				msg := &model.Message{ReasoningContent: lo.ToPtr("summary")}
+				msg.SetOpaqueReasoningSignature(model.OpaqueSignature{Provider: model.SignatureProviderOpenAI, Kind: model.OpaqueSignatureKindOpenAIReasoning, Value: "openai-signature"})
+				return msg
+			}(),
+			expected: "openai-signature",
+		},
+		{
+			name: "foreign",
+			message: func() *model.Message {
+				msg := &model.Message{ReasoningContent: lo.ToPtr("summary")}
+				msg.SetOpaqueReasoningSignature(model.OpaqueSignature{Provider: model.SignatureProviderAnthropic, Kind: model.OpaqueSignatureKindAnthropicThinking, Value: "anthropic-signature"})
+				return msg
+			}(),
+			wantEmpty: true,
+		},
+		{
+			name: "legacy",
+			message: &model.Message{
+				ReasoningContent:   lo.ToPtr("summary"),
+				ReasoningSignature: lo.ToPtr("legacy-signature"),
+			},
+			expected: "legacy-signature",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			response := convertToResponsesAPIResponse(&model.InternalLLMResponse{Choices: []model.Choice{{Message: tt.message}}})
+			if len(response.Output) == 0 || response.Output[0].Type != "reasoning" {
+				t.Fatalf("reasoning output missing: %+v", response.Output)
+			}
+			got := response.Output[0].EncryptedContent
+			if tt.wantEmpty {
+				if got != nil {
+					t.Fatalf("foreign encrypted_content = %q, want nil", *got)
+				}
+				return
+			}
+			if got == nil || *got != tt.expected {
+				t.Fatalf("encrypted_content = %v, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestConvertToResponsesAPIResponseKeepsMultipleSignaturesOpaque(t *testing.T) {
+	first := model.ReasoningBlock{Kind: model.ReasoningBlockKindSignature, Index: 0}
+	first.SetOpaqueSignature(model.OpaqueSignature{
+		Provider: model.SignatureProviderOpenAI,
+		Kind:     model.OpaqueSignatureKindOpenAIReasoning,
+		Value:    "signature-one",
+	})
+	second := model.ReasoningBlock{Kind: model.ReasoningBlockKindSignature, Index: 1}
+	second.SetOpaqueSignature(model.OpaqueSignature{
+		Provider: model.SignatureProviderOpenAI,
+		Kind:     model.OpaqueSignatureKindOpenAIReasoning,
+		Value:    "signature-two",
+	})
+	response := convertToResponsesAPIResponse(&model.InternalLLMResponse{Choices: []model.Choice{{Message: &model.Message{
+		ReasoningBlocks: []model.ReasoningBlock{first, second},
+	}}}})
+
+	if len(response.Output) != 2 || response.Output[0].EncryptedContent == nil || response.Output[1].EncryptedContent == nil {
+		t.Fatalf("expected two reasoning items: %+v", response.Output)
+	}
+	if *response.Output[0].EncryptedContent != "signature-one" || *response.Output[1].EncryptedContent != "signature-two" {
+		t.Fatalf("opaque signatures were altered: %+v", response.Output)
+	}
+}
+
+func TestConvertToResponsesAPIResponseKeepsReasoningAssociationsAndDuplicates(t *testing.T) {
+	first := model.ReasoningBlock{Kind: model.ReasoningBlockKindThinking, Index: 0, Text: "summary-one"}
+	first.SetOpaqueSignature(model.OpaqueSignature{
+		Provider: model.SignatureProviderOpenAI,
+		Kind:     model.OpaqueSignatureKindOpenAIReasoning,
+		Value:    "repeated-signature",
+	})
+	second := model.ReasoningBlock{Kind: model.ReasoningBlockKindThinking, Index: 1, Text: "summary-two"}
+	second.SetOpaqueSignature(model.OpaqueSignature{
+		Provider: model.SignatureProviderOpenAI,
+		Kind:     model.OpaqueSignatureKindOpenAIReasoning,
+		Value:    "repeated-signature",
+	})
+	response := convertToResponsesAPIResponse(&model.InternalLLMResponse{Choices: []model.Choice{{Message: &model.Message{
+		ReasoningBlocks: []model.ReasoningBlock{first, second},
+	}}}})
+
+	if len(response.Output) != 2 {
+		t.Fatalf("reasoning items = %d, want 2: %+v", len(response.Output), response.Output)
+	}
+	for index, summary := range []string{"summary-one", "summary-two"} {
+		item := response.Output[index]
+		if len(item.Summary) != 1 || item.Summary[0].Text != summary {
+			t.Fatalf("item %d summary association lost: %+v", index, item)
+		}
+		if item.EncryptedContent == nil || *item.EncryptedContent != "repeated-signature" {
+			t.Fatalf("item %d duplicate opaque signature lost: %+v", index, item)
+		}
+	}
+}
+
+func TestConvertReasoningInputPreservesSummaryOnlyBlock(t *testing.T) {
+	message, err := convertItemToMessage(&ResponsesItem{
+		Type:    "reasoning",
+		Summary: []ResponsesReasoningSummary{{Type: "summary_text", Text: "summary-only"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if message == nil || len(message.ReasoningBlocks) != 1 || message.ReasoningBlocks[0].Text != "summary-only" {
+		t.Fatalf("summary-only reasoning block was lost: %+v", message)
+	}
+}
+
+func TestConvertToolChoicePreservesMissingNameForCapabilityPlanning(t *testing.T) {
+	typeFunction := "function"
+	choice := convertToolChoiceToInternal(&ResponsesToolChoice{Type: &typeFunction})
+	if choice == nil || choice.NamedToolChoice == nil {
+		t.Fatalf("missing-name tool choice was discarded: %#v", choice)
+	}
+	if choice.NamedToolChoice.Type != typeFunction || choice.NamedToolChoice.ResolvedFunctionName() != "" {
+		t.Fatalf("unexpected preserved tool choice: %#v", choice.NamedToolChoice)
 	}
 }
 

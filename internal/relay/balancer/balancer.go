@@ -4,12 +4,9 @@ import (
 	"math/rand"
 	"sort"
 	"sync"
-	"sync/atomic"
 
 	"github.com/bestruirui/octopus/internal/model"
 )
-
-var roundRobinCounter uint64
 
 // Balancer 根据负载均衡模式选择通道
 type Balancer interface {
@@ -20,34 +17,31 @@ type Balancer interface {
 
 // GetBalancer 根据模式返回对应的负载均衡器
 func GetBalancer(mode model.GroupMode) Balancer {
+	return getBalancer(mode, balanceScope{})
+}
+
+func getBalancer(mode model.GroupMode, scope balanceScope) Balancer {
 	switch mode {
 	case model.GroupModeRoundRobin:
-		return &RoundRobin{}
+		return &RoundRobin{scope: scope}
 	case model.GroupModeRandom:
 		return &Random{}
 	case model.GroupModeFailover:
 		return &Failover{}
 	case model.GroupModeWeighted:
-		return &Weighted{}
+		return &Weighted{scope: scope}
 	default:
-		return &RoundRobin{}
+		return &RoundRobin{scope: scope}
 	}
 }
 
 // RoundRobin 轮询：从上次位置开始轮转排列
-type RoundRobin struct{}
+type RoundRobin struct {
+	scope balanceScope
+}
 
 func (b *RoundRobin) Candidates(items []model.GroupItem) []model.GroupItem {
-	n := len(items)
-	if n == 0 {
-		return nil
-	}
-	idx := int(atomic.AddUint64(&roundRobinCounter, 1) % uint64(n))
-	result := make([]model.GroupItem, n)
-	for i := 0; i < n; i++ {
-		result[i] = items[(idx+i)%n]
-	}
-	return result
+	return globalStrategyState.roundRobin(b.scope, items)
 }
 
 // Random 随机：随机打乱所有 items
@@ -76,67 +70,36 @@ func (b *Failover) Candidates(items []model.GroupItem) []model.GroupItem {
 	return sortByPriority(items)
 }
 
-// Weighted 加权分配：按权重概率排序
-type Weighted struct{}
+// Weighted 加权分配：优先选择历史使用量与权重之比最低的候选
+type Weighted struct {
+	scope balanceScope
+}
 
 func (b *Weighted) Candidates(items []model.GroupItem) []model.GroupItem {
-	n := len(items)
-	if n == 0 {
-		return nil
-	}
-
-	// 构建加权随机排序
-	type weightedItem struct {
-		item  model.GroupItem
-		score float64
-	}
-
-	totalWeight := 0
-	for _, item := range items {
-		w := item.Weight
-		if w <= 0 {
-			w = 1
-		}
-		totalWeight += w
-	}
-
-	scored := make([]weightedItem, n)
-	for i, item := range items {
-		w := item.Weight
-		if w <= 0 {
-			w = 1
-		}
-		// 给每个 item 一个加权随机分数：weight/totalWeight 作为概率基础，加上随机扰动
-		scored[i] = weightedItem{
-			item:  item,
-			score: rand.Float64() * float64(w) / float64(totalWeight),
-		}
-	}
-
-	// 按分数降序排列（分数越高优先级越高）
-	sort.Slice(scored, func(i, j int) bool {
-		return scored[i].score > scored[j].score
-	})
-
-	result := make([]model.GroupItem, n)
-	for i := range scored {
-		result[i] = scored[i].item
-	}
-	return result
+	return globalStrategyState.weighted(b.scope, items)
 }
 
 func sortByPriority(items []model.GroupItem) []model.GroupItem {
 	sorted := make([]model.GroupItem, len(items))
 	copy(sorted, items)
 	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].Priority < sorted[j].Priority
+		if sorted[i].Priority != sorted[j].Priority {
+			return sorted[i].Priority < sorted[j].Priority
+		}
+		if sorted[i].ID != sorted[j].ID {
+			return sorted[i].ID < sorted[j].ID
+		}
+		if sorted[i].ChannelID != sorted[j].ChannelID {
+			return sorted[i].ChannelID < sorted[j].ChannelID
+		}
+		return sorted[i].ModelName < sorted[j].ModelName
 	})
 	return sorted
 }
 
 // Reset clears in-memory balancer state for tests.
 func Reset() {
-	roundRobinCounter = 0
+	globalStrategyState.reset()
 	globalBreaker = sync.Map{}
 	globalSession = sync.Map{}
 	channelAffinity = sync.Map{}

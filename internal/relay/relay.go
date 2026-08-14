@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/bestruirui/octopus/internal/relay/balancer"
 	"github.com/bestruirui/octopus/internal/relay/stream"
 	"github.com/bestruirui/octopus/internal/server/resp"
+	"github.com/bestruirui/octopus/internal/transformer/compat"
 	"github.com/bestruirui/octopus/internal/transformer/httpio"
 	"github.com/bestruirui/octopus/internal/transformer/inbound"
 	"github.com/bestruirui/octopus/internal/transformer/model"
@@ -131,7 +133,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 	}
 	capabilityPolicy := getCapabilityDegradationPolicy()
 	iter := balancer.NewIteratorWithPreferenceAndQuality(group, apiKeyID, requestModel, preferredSticky, func(item dbmodel.GroupItem) int {
-		return relayItemCapabilityRank(c.Request.Context(), internalRequest, rawBody, item)
+		return relayItemCapabilityRank(c.Request.Context(), internalRequest, rawBody, false, item)
 	})
 	if iter.Len() == 0 {
 		writeInboundProtocolError(c, nil, inAdapter, relayProtocolError(http.StatusServiceUnavailable, CodeRelayNoAvailableChannel, "no available channel"))
@@ -156,23 +158,27 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 	}
 	// 请求级上下文
 	req := &relayRequest{
-		c:               c,
-		inAdapter:       inAdapter,
-		inboundType:     inboundType,
-		internalRequest: internalRequest,
-		metrics:         metrics,
-		apiKeyID:        apiKeyID,
-		requestModel:    requestModel,
-		groupID:         group.ID,
-		groupSessionTTL: group.SessionKeepTime,
-		iter:            iter,
-		rawBody:         rawBody,
-		heartbeat:       hb,
+		c:                c,
+		inAdapter:        inAdapter,
+		inboundType:      inboundType,
+		internalRequest:  internalRequest,
+		metrics:          metrics,
+		apiKeyID:         apiKeyID,
+		requestModel:     requestModel,
+		groupID:          group.ID,
+		groupSessionTTL:  group.SessionKeepTime,
+		iter:             iter,
+		capabilityPolicy: capabilityPolicy,
+		rawBody:          rawBody,
+		heartbeat:        hb,
 	}
 
 	var lastErr error
 	var lastResult attemptResult
 	var lastAttempt *relayRequest
+	var capabilityErr error
+	var capabilityResult attemptResult
+	var sawSupportedCapability bool
 
 	// 同通道重试次数：启用时使用配置值，否则 1 次（不重试）
 	maxSameChannelRetries := 1
@@ -216,17 +222,19 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 
 		decision := planRelayCapability(req, channel, candidateAdapter, item.ModelName)
 		logRelayCapability(channel, item.ModelName, decision, capabilityPolicy)
-		if decision.Rejected() {
-			message := decision.Summary()
-			iter.SkipWithCapability(channel.ID, 0, channel.Name, message, string(decision.Status), decision.ConversionPath, decision.RequiredFeatures, decision.DegradedFields, decision.Lossiness, decision.Reasons)
-			lastErr = fmt.Errorf("capability rejected: %s", message)
-			lastResult = attemptResult{
-				Err:           lastErr,
+		if reject, errorCode := evaluateCapabilityPolicy(decision, capabilityPolicy); reject {
+			message := capabilityRejectionMessage(decision, channel.Type.String())
+			iter.SkipWithCapability(channel.ID, 0, channel.Name, message, capabilityTrace(decision, capabilityPolicy, channel.Type.String()))
+			candidateErr := fmt.Errorf("capability rejected: %s", message)
+			candidateResult := attemptResult{
+				Err:           candidateErr,
 				StatusCode:    http.StatusBadRequest,
-				ProtocolError: relayProtocolError(http.StatusBadRequest, CodeRelayModelNotSupported, message),
+				ProtocolError: relayProtocolError(http.StatusBadRequest, errorCode, message),
 			}
+			capabilityErr, capabilityResult = preferCapabilityRejection(capabilityErr, capabilityResult, candidateErr, candidateResult)
 			continue
 		}
+		sawSupportedCapability = true
 
 		log.Debugf("request model %s, mode: %d, forwarding to channel: %s model: %s (attempt %d/%d, sticky=%t)",
 			requestModel, group.Mode, channel.Name, item.ModelName,
@@ -385,7 +393,15 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 		lastResult = result
 	}
 
-	// 所有候选通道均失败
+	// 所有候选通道均失败。Capability 拒绝只有在不存在任何可接受候选时
+	// 才成为最终错误，避免覆盖已经发生的真实上游失败。
+	lastErr, lastResult = resolveFinalAttemptResult(
+		sawSupportedCapability,
+		lastErr,
+		lastResult,
+		capabilityErr,
+		capabilityResult,
+	)
 	metrics.SaveWithChannelStats(c.Request.Context(), false, lastErr, iter.Attempts(), false)
 	errorAdapter := req.inAdapter
 	if lastAttempt != nil {
@@ -431,24 +447,37 @@ func planRelayCapability(req *relayRequest, channel *dbmodel.Channel, adapter mo
 	if channel == nil {
 		return outbound.PlanRequest(plannedRequest, outbound.OutboundType(-1), false)
 	}
-	canRawPassthrough := false
-	if capable, ok := adapter.(model.PassthroughCapable); ok && len(req.rawBody) > 0 {
-		canRawPassthrough = capable.CanPassthrough(plannedRequest.RawAPIFormat)
-	}
-	passthrough := canRawPassthrough && channel.AllowsPassthrough()
-	if plannedRequest.HasOpenAIResponsesPassthrough() && req.c != nil {
-		passthrough = canRawPassthrough
-	}
-	if plannedRequest.RawAPIFormat == model.APIFormatOpenAIResponse {
-		switch {
-		case plannedRequest.IsOpenAIExactReplayRequest(), requiresUpstreamWSContinuation(plannedRequest):
-			passthrough = false
-		case req.c == nil:
-			passthrough = canRawPassthrough && channel.Type == outbound.OutboundTypeOpenAIResponse &&
-				shouldEnableResponsesWS(channel) && effectiveResponsesWSMode(channel) == responsesWSModePassthrough
-		}
-	}
+	passthrough := planRelayPassthrough(plannedRequest, req.rawBody, channel, adapter, req.c == nil)
 	return outbound.PlanRequest(plannedRequest, channel.Type, passthrough)
+}
+
+func planRelayPassthrough(request *model.InternalLLMRequest, rawBody []byte, channel *dbmodel.Channel, adapter model.Outbound, websocketIngress bool) bool {
+	if request == nil || channel == nil || adapter == nil || len(rawBody) == 0 {
+		return false
+	}
+	capable, ok := adapter.(model.PassthroughCapable)
+	if !ok || !capable.CanPassthrough(request.RawAPIFormat) {
+		return false
+	}
+
+	passthrough := channel.AllowsPassthrough()
+	if request.HasOpenAIResponsesPassthrough() && !websocketIngress {
+		passthrough = true
+	}
+	if request.RawAPIFormat != model.APIFormatOpenAIResponse {
+		return passthrough
+	}
+	if request.IsOpenAIExactReplayRequest() {
+		return false
+	}
+	if websocketIngress {
+		return channel.Type == outbound.OutboundTypeOpenAIResponse &&
+			shouldEnableResponsesWS(channel) && effectiveResponsesWSMode(channel) == responsesWSModePassthrough
+	}
+	if requiresUpstreamWSContinuation(request) {
+		return false
+	}
+	return passthrough
 }
 
 type capabilityDegradationPolicy string
@@ -486,7 +515,7 @@ func capabilityRank(decision outbound.CapabilityDecision) int {
 	return 1
 }
 
-func relayItemCapabilityRank(ctx context.Context, request *model.InternalLLMRequest, rawBody []byte, item dbmodel.GroupItem) int {
+func relayItemCapabilityRank(ctx context.Context, request *model.InternalLLMRequest, rawBody []byte, websocketIngress bool, item dbmodel.GroupItem) int {
 	channel, err := op.ChannelGet(item.ChannelID, ctx)
 	if err != nil || channel == nil || !channel.Enabled {
 		return 3
@@ -499,10 +528,7 @@ func relayItemCapabilityRank(ctx context.Context, request *model.InternalLLMRequ
 	if strings.TrimSpace(item.ModelName) != "" {
 		planned.Model = item.ModelName
 	}
-	passthrough := false
-	if capable, ok := adapter.(model.PassthroughCapable); ok && len(rawBody) > 0 {
-		passthrough = capable.CanPassthrough(planned.RawAPIFormat) && channel.AllowsPassthrough()
-	}
+	passthrough := planRelayPassthrough(planned, rawBody, channel, adapter, websocketIngress)
 	return capabilityRank(outbound.PlanRequest(planned, channel.Type, passthrough))
 }
 
@@ -519,13 +545,14 @@ func logRelayCapability(channel *dbmodel.Channel, modelName string, decision out
 		"conversion_path", decision.ConversionPath,
 		"required_features", decision.RequiredFeatures,
 		"degraded_fields", decision.DegradedFields,
+		"losses", decision.Losses,
 		"lossiness", decision.Lossiness,
 		"static_quality", decision.StaticQuality,
 		"reasons", decision.Reasons,
 	)
 	if decision.Status == outbound.CapabilityDegraded {
 		if policy == capabilityPolicyWarn {
-			log.Warnw("relay.capability_degraded", "channel_id", channel.ID, "channel", channel.Name, "model", modelName, "fields", decision.DegradedFields, "reasons", decision.Reasons)
+			log.Warnw("relay.capability_degraded", "channel_id", channel.ID, "channel", channel.Name, "model", modelName, "fields", decision.DegradedFields, "losses", decision.Losses, "reasons", decision.Reasons)
 		} else if policy == capabilityPolicyAllow {
 			log.Debugw("relay.capability_degraded_allowed", "channel_id", channel.ID, "channel", channel.Name, "model", modelName, "fields", decision.DegradedFields)
 		}
@@ -543,7 +570,7 @@ func circuitFailureKind(retryEnabled bool, statusCode int) balancer.FailureKind 
 func (ra *relayAttempt) attempt() attemptResult {
 	span := ra.iter.StartAttempt(ra.channel.ID, ra.usedKey.ID, ra.channel.Name)
 	span.SetAdapterType(ra.channel.Type.String())
-	span.SetCapability(string(ra.capabilityDecision.Status), ra.capabilityDecision.ConversionPath, ra.capabilityDecision.RequiredFeatures, ra.capabilityDecision.DegradedFields, ra.capabilityDecision.Lossiness, ra.capabilityDecision.Reasons)
+	span.SetCapability(capabilityTrace(ra.capabilityDecision, ra.capabilityPolicy, ra.channel.Type.String()))
 
 	// 转发请求
 	statusCode, fwdErr := ra.forward()
@@ -655,7 +682,14 @@ func parseRequest(inboundType inbound.InboundType, c *gin.Context) ([]byte, *mod
 	}
 
 	inAdapter := inbound.Get(inboundType)
-	internalRequest, err := inAdapter.TransformRequest(c.Request.Context(), body)
+	transformCtx := c.Request.Context()
+	signatureScope := compat.GeminiSignatureScopeFromContext(transformCtx)
+	if apiKeyID := c.GetInt("api_key_id"); apiKeyID > 0 {
+		signatureScope.APIKeyID = strconv.Itoa(apiKeyID)
+		transformCtx = compat.WithGeminiSignatureScope(transformCtx, signatureScope)
+		c.Request = c.Request.WithContext(transformCtx)
+	}
+	internalRequest, err := inAdapter.TransformRequest(transformCtx, body)
 	if err != nil {
 		writeInboundProtocolError(c, nil, inAdapter, relayProtocolError(http.StatusBadRequest, "invalid_request", err.Error()))
 		return nil, nil, nil, err
@@ -701,6 +735,9 @@ func (ra *relayAttempt) forward() (int, error) {
 			if requiresUpstreamWSContinuation(ra.internalRequest) {
 				balancer.DeleteRoutingAffinity(ra.apiKeyID, ra.requestModel)
 				return http.StatusConflict, fmt.Errorf("upstream continuation transport unavailable; please restart the conversation")
+			}
+			if ra.internalRequest.HasOpenAIResponsesPassthrough() {
+				return http.StatusBadGateway, fmt.Errorf("upstream WS passthrough unavailable for native-only Responses semantics")
 			}
 			ra.metrics.SetWSRecovery(dbmodel.RelayLogWSRecoveryDowngrade)
 			// statusCode == -1 means WS not available, fall through to HTTP

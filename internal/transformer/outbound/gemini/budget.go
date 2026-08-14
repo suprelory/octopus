@@ -70,6 +70,102 @@ type thinkingDecision struct {
 	IncludeThoughts bool
 }
 
+// ThinkingConfigChange describes a request-level thinking value that the
+// Gemini wire builder cannot preserve exactly. It is intentionally independent
+// from the relay planner's LossAction type so the provider adapter remains
+// usable on its own.
+type ThinkingConfigChange struct {
+	Field      string
+	Reason     string
+	Translated bool
+	Dropped    bool
+}
+
+// DescribeThinkingConfigChanges mirrors resolveThinkingConfig without
+// emitting logs. The relay capability planner uses it to reject requests
+// before a silently clamped budget or level reaches Gemini.
+func DescribeThinkingConfigChanges(modelID string, reasoningBudget *int64, reasoningEffort string, adaptive bool) []ThinkingConfigChange {
+	fam := classifyGeminiFamily(modelID)
+	changes := make([]ThinkingConfigChange, 0, 2)
+	add := func(field, reason string, translated bool) {
+		changes = append(changes, ThinkingConfigChange{Field: field, Reason: reason, Translated: translated})
+	}
+	effort := strings.ToLower(strings.TrimSpace(reasoningEffort))
+	if fam == geminiFamilyNoThinking {
+		if reasoningBudget != nil || effort != "" || adaptive {
+			add("reasoning", "Gemini model family does not expose a thinking configuration", false)
+			changes[len(changes)-1].Dropped = true
+		}
+		return changes
+	}
+	if adaptive {
+		if reasoningBudget != nil {
+			add("reasoning_budget", "adaptive thinking replaces the explicit reasoning budget with dynamic allocation", false)
+		}
+		if effort != "" {
+			add("reasoning_effort", "adaptive thinking replaces the explicit reasoning effort with dynamic allocation", false)
+		}
+		return changes
+	}
+	if reasoningBudget != nil {
+		budget := *reasoningBudget
+		if budget < -1 {
+			add("reasoning_budget", "Gemini accepts only -1 as the dynamic budget sentinel; the value is repaired", false)
+		} else if isGemini3Family(fam) {
+			if budget == 0 {
+				add("reasoning_budget", "Gemini 3 cannot disable thinking; the budget is repaired to the lowest supported level", false)
+			} else if budget > 0 {
+				add("reasoning_budget", "Gemini 3 translates an integer reasoning budget to a coarse thinking level", true)
+			}
+		} else {
+			clamped := clampGeminiBudget(fam, saturatingThinkingBudget(budget))
+			if int64(clamped) != budget {
+				add("reasoning_budget", "Gemini clamps the reasoning budget to the model family's accepted range", false)
+			}
+		}
+		return changes
+	}
+	if effort == "" {
+		return changes
+	}
+	if isGemini3Family(fam) {
+		level := map3EffortToLevel(effort)
+		switch level {
+		case "":
+			add("reasoning_effort", "unknown reasoning effort is replaced by Gemini's dynamic default", false)
+		case "off":
+			add("reasoning_effort", "Gemini 3 cannot fully disable thinking; the effort is repaired", false)
+		default:
+			if clamped := clampLevelToFamily(fam, level); clamped != level {
+				add("reasoning_effort", "Gemini clamps the reasoning effort to the model family's supported levels", false)
+			}
+		}
+	} else {
+		budget := map25EffortToBudget(effort)
+		if budget < 0 {
+			add("reasoning_effort", "unknown reasoning effort is replaced by Gemini's dynamic default", false)
+		} else if fam == geminiFamily25Pro && budget == 0 {
+			add("reasoning_effort", "Gemini 2.5 Pro cannot disable thinking and repairs the effort to its minimum budget", false)
+		}
+	}
+	return changes
+}
+
+const (
+	minThinkingBudgetInt32 = int64(-1 << 31)
+	maxThinkingBudgetInt32 = int64(1<<31 - 1)
+)
+
+func saturatingThinkingBudget(value int64) int32 {
+	if value < minThinkingBudgetInt32 {
+		return int32(minThinkingBudgetInt32)
+	}
+	if value > maxThinkingBudgetInt32 {
+		return int32(maxThinkingBudgetInt32)
+	}
+	return int32(value)
+}
+
 // resolveThinkingConfig computes the thinking decision for a given model plus
 // the request's reasoning intent. modelID is matched case-insensitively.
 func resolveThinkingConfig(modelID string, reasoningBudget *int64, reasoningEffort string, adaptive bool) thinkingDecision {
@@ -220,11 +316,11 @@ func decisionFromBudget(fam geminiFamily, budget int64) thinkingDecision {
 			// Gemini 3 rejects thinkingBudget; approximate the caller's
 			// intent with a thinkingLevel tier, then coerce to the
 			// sub-family's supported set.
-			level := budgetToLevel(int32(budget))
+			level := budgetToLevel(saturatingThinkingBudget(budget))
 			level = clampLevelToFamily(fam, level)
 			return thinkingDecision{Supported: true, UseLevel: true, Level: level, IncludeThoughts: true}
 		}
-		b := clampGeminiBudget(fam, int32(budget))
+		b := clampGeminiBudget(fam, saturatingThinkingBudget(budget))
 		return thinkingDecision{Supported: true, Budget: b, IncludeThoughts: true}
 	}
 }

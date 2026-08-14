@@ -62,6 +62,7 @@ type OpenAIResponsesOptions struct {
 	ReasoningSummary         *string         `json:"reasoning_summary,omitempty"`
 	ReasoningGenerateSummary *string         `json:"reasoning_generate_summary,omitempty"`
 	RawInputItems            json.RawMessage `json:"raw_input_items,omitempty"`
+	RawTools                 json.RawMessage `json:"raw_tools,omitempty"`
 }
 
 type VolcengineExtension struct {
@@ -411,8 +412,8 @@ func mergeGeminiExtension(dst *GeminiExtension, src *GeminiExtension) {
 	if dst == nil || src == nil {
 		return
 	}
-	if sig := strings.TrimSpace(src.ThoughtSignature); sig != "" {
-		dst.ThoughtSignature = sig
+	if strings.TrimSpace(src.ThoughtSignature) != "" {
+		dst.ThoughtSignature = src.ThoughtSignature
 	}
 	if src.CachedContentRef != nil {
 		dst.CachedContentRef = src.CachedContentRef
@@ -515,5 +516,8 @@ func mergeOpenAIResponsesOptions(dst *OpenAIResponsesOptions, src *OpenAIRespons
 	}
 	if len(src.RawInputItems) > 0 {
 		dst.RawInputItems = cloneRawMessage(src.RawInputItems)
+	}
+	if len(src.RawTools) > 0 {
+		dst.RawTools = cloneRawMessage(src.RawTools)
 	}
 }

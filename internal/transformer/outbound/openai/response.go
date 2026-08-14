@@ -344,6 +344,23 @@ func (o *ResponseOutbound) TransformStreamEvent(ctx context.Context, eventData [
 			events = append(events, o.ensureToolCallStarted(base, streamEvent.OutputIndex)...)
 		}
 
+	case "response.output_item.done":
+		o.mergeOutputItemAdded(streamEvent)
+		if streamEvent.Item != nil && streamEvent.Item.Type == "reasoning" && streamEvent.Item.EncryptedContent != nil && *streamEvent.Item.EncryptedContent != "" {
+			signature := model.OpaqueSignature{
+				Provider: model.SignatureProviderOpenAI,
+				Kind:     model.OpaqueSignatureKindOpenAIReasoning,
+				Value:    *streamEvent.Item.EncryptedContent,
+			}
+			events = append(events, model.StreamEvent{
+				Kind:  model.StreamEventKindSignatureDelta,
+				ID:    base.ID,
+				Model: base.Model,
+				Index: base.Index,
+				Delta: &model.StreamDelta{Signature: signature.Value, SignatureSource: &signature},
+			})
+		}
+
 	case "response.reasoning_summary_text.delta":
 		o.mergeReasoningDelta(streamEvent)
 		if streamEvent.Delta != "" {
@@ -569,16 +586,40 @@ type ResponsesAnnotation struct {
 }
 
 type ResponsesTool struct {
-	Type              string         `json:"type,omitempty"`
-	Name              string         `json:"name,omitempty"`
-	Description       string         `json:"description,omitempty"`
-	Parameters        map[string]any `json:"parameters,omitempty"`
-	Strict            *bool          `json:"strict,omitempty"`
-	Background        string         `json:"background,omitempty"`
-	OutputFormat      string         `json:"output_format,omitempty"`
-	Quality           string         `json:"quality,omitempty"`
-	Size              string         `json:"size,omitempty"`
-	OutputCompression *int64         `json:"output_compression,omitempty"`
+	Type              string          `json:"type,omitempty"`
+	Name              string          `json:"name,omitempty"`
+	Description       string          `json:"description,omitempty"`
+	Parameters        map[string]any  `json:"parameters,omitempty"`
+	Strict            *bool           `json:"strict,omitempty"`
+	Background        string          `json:"background,omitempty"`
+	OutputFormat      string          `json:"output_format,omitempty"`
+	Quality           string          `json:"quality,omitempty"`
+	Size              string          `json:"size,omitempty"`
+	OutputCompression *int64          `json:"output_compression,omitempty"`
+	Raw               json.RawMessage `json:"-"`
+}
+
+func (t ResponsesTool) MarshalJSON() ([]byte, error) {
+	if len(t.Raw) > 0 {
+		return json.Marshal(json.RawMessage(t.Raw))
+	}
+	type alias ResponsesTool
+	return json.Marshal(alias(t))
+}
+
+func responsesToolsFromRaw(raw json.RawMessage) ([]ResponsesTool, bool) {
+	if len(raw) == 0 {
+		return nil, false
+	}
+	var rawTools []json.RawMessage
+	if err := json.Unmarshal(raw, &rawTools); err != nil || rawTools == nil {
+		return nil, false
+	}
+	tools := make([]ResponsesTool, 0, len(rawTools))
+	for _, rawTool := range rawTools {
+		tools = append(tools, ResponsesTool{Raw: cloneRawJSON(rawTool)})
+	}
+	return tools, true
 }
 
 type ResponsesToolChoice struct {
@@ -992,6 +1033,9 @@ func ConvertToResponsesRequest(req *model.InternalLLMRequest) *ResponsesRequest 
 		PromptCacheKey:       promptCacheKey,
 		PromptCacheRetention: promptCacheRetention,
 	}
+	if result.MaxOutputTokens == nil {
+		result.MaxOutputTokens = req.MaxTokens
+	}
 
 	// Convert instructions from system messages
 	result.Instructions = convertInstructionsFromMessages(req.Messages)
@@ -999,8 +1043,10 @@ func ConvertToResponsesRequest(req *model.InternalLLMRequest) *ResponsesRequest 
 	// Convert input from messages or preserve original array items when available.
 	result.Input = buildResponsesInput(req)
 
-	// Convert tools
-	if len(req.Tools) > 0 {
+	// Preserve native Responses tools during canonical replay/continuation.
+	if rawTools, ok := responsesToolsFromRaw(responsesOptions.RawTools); ok {
+		result.Tools = rawTools
+	} else if len(req.Tools) > 0 {
 		result.Tools = convertToolsToResponses(req.Tools)
 	}
 
@@ -1248,20 +1294,7 @@ func convertUserMessageToResponses(msg model.Message) ResponsesItem {
 func convertAssistantMessageToResponses(msg model.Message) []ResponsesItem {
 	var items []ResponsesItem
 
-	// Handle reasoning content
-	if msg.ReasoningContent != nil && *msg.ReasoningContent != "" {
-		reasoningItem := ResponsesItem{
-			Type: "reasoning",
-			Summary: []ResponsesReasoningSummary{{
-				Type: "summary_text",
-				Text: *msg.ReasoningContent,
-			}},
-		}
-		if msg.ReasoningSignature != nil && *msg.ReasoningSignature != "" {
-			reasoningItem.EncryptedContent = msg.ReasoningSignature
-		}
-		items = append(items, reasoningItem)
-	}
+	items = append(items, openAIReasoningItems(msg)...)
 
 	// Handle tool calls
 	for _, tc := range msg.ToolCalls {
@@ -1303,6 +1336,96 @@ func convertAssistantMessageToResponses(msg model.Message) []ResponsesItem {
 	}
 
 	return sanitizeResponsesItems(items)
+}
+
+func openAIReasoningItems(message model.Message) []ResponsesItem {
+	items := make([]ResponsesItem, 0, len(message.ReasoningBlocks)+1)
+	hasBlockSummary := false
+	for _, block := range message.ReasoningBlocks {
+		text := ""
+		if block.Kind == model.ReasoningBlockKindThinking {
+			text = block.Text
+			hasBlockSummary = hasBlockSummary || text != ""
+		}
+		signature, hasSignature := openAIReasoningBlockSignature(block)
+		if text == "" && !hasSignature {
+			continue
+		}
+		if block.Kind == model.ReasoningBlockKindSignature && hasSignature && len(items) > 0 && items[len(items)-1].EncryptedContent == nil {
+			value := signature.Value
+			items[len(items)-1].EncryptedContent = &value
+			continue
+		}
+		item := ResponsesItem{Type: "reasoning"}
+		if text != "" {
+			item.Summary = []ResponsesReasoningSummary{{Type: "summary_text", Text: text}}
+		}
+		if hasSignature {
+			value := signature.Value
+			item.EncryptedContent = &value
+		}
+		items = append(items, item)
+	}
+	if message.ReasoningContent != nil && *message.ReasoningContent != "" && !hasBlockSummary {
+		if len(items) == 0 {
+			items = append(items, ResponsesItem{Type: "reasoning"})
+		}
+		items[0].Summary = []ResponsesReasoningSummary{{Type: "summary_text", Text: *message.ReasoningContent}}
+	}
+	if signature, ok := openAIFlatReasoningSignature(message); ok && !openAIReasoningBlocksContainSignature(message.ReasoningBlocks, signature) {
+		for index := range items {
+			if items[index].EncryptedContent == nil {
+				value := signature.Value
+				items[index].EncryptedContent = &value
+				return items
+			}
+		}
+		value := signature.Value
+		items = append(items, ResponsesItem{Type: "reasoning", EncryptedContent: &value})
+	}
+	return items
+}
+
+func openAIReasoningBlockSignature(block model.ReasoningBlock) (model.OpaqueSignature, bool) {
+	if block.SignatureSource == nil && strings.TrimSpace(block.Provider) == "" {
+		if strings.TrimSpace(block.Signature) == "" {
+			return model.OpaqueSignature{}, false
+		}
+		return model.OpaqueSignature{Provider: model.SignatureProviderOpenAI, Kind: model.OpaqueSignatureKindOpenAIReasoning, Value: block.Signature}, true
+	}
+	signature, ok := block.OpaqueSignature()
+	return signature, ok && signature.ValidForKind(model.SignatureProviderOpenAI, model.OpaqueSignatureKindOpenAIReasoning)
+}
+
+func openAIFlatReasoningSignature(message model.Message) (model.OpaqueSignature, bool) {
+	if message.ReasoningSignatureSource != nil {
+		signature := *message.ReasoningSignatureSource
+		return signature, signature.ValidForKind(model.SignatureProviderOpenAI, model.OpaqueSignatureKindOpenAIReasoning)
+	}
+	if message.ReasoningSignature == nil || strings.TrimSpace(*message.ReasoningSignature) == "" {
+		return model.OpaqueSignature{}, false
+	}
+	return model.OpaqueSignature{Provider: model.SignatureProviderOpenAI, Kind: model.OpaqueSignatureKindOpenAIReasoning, Value: *message.ReasoningSignature}, true
+}
+
+func openAIReasoningBlocksContainSignature(blocks []model.ReasoningBlock, target model.OpaqueSignature) bool {
+	for _, block := range blocks {
+		signature, ok := openAIReasoningBlockSignature(block)
+		if ok && sameOpenAIOpaqueSignature(signature, target) {
+			return true
+		}
+	}
+	return false
+}
+
+func sameOpenAIOpaqueSignature(first, second model.OpaqueSignature) bool {
+	if first.Provider != second.Provider || first.Kind != second.Kind || first.Value != second.Value {
+		return false
+	}
+	if first.ToolCallScope == nil || second.ToolCallScope == nil {
+		return first.ToolCallScope == nil && second.ToolCallScope == nil
+	}
+	return first.ToolCallScope.ID == second.ToolCallScope.ID && first.ToolCallScope.Name == second.ToolCallScope.Name
 }
 
 func convertToolMessageToResponses(msg model.Message, callIDToItemID map[string]string) ResponsesItem {
@@ -1435,6 +1558,7 @@ func convertToLLMResponseFromResponses(resp *ResponsesResponse) *model.InternalL
 		textContent      strings.Builder
 		refusalContent   strings.Builder
 		reasoningContent strings.Builder
+		reasoningBlocks  []model.ReasoningBlock
 		toolCalls        []model.ToolCall
 	)
 
@@ -1472,8 +1596,25 @@ func convertToLLMResponseFromResponses(resp *ResponsesResponse) *model.InternalL
 				},
 			})
 		case "reasoning":
-			if text := reasoningTextFromResponsesItem(outputItem); text != "" {
+			text := reasoningTextFromResponsesItem(outputItem)
+			if text != "" {
 				reasoningContent.WriteString(text)
+			}
+			blockKind := model.ReasoningBlockKindSignature
+			if text != "" {
+				blockKind = model.ReasoningBlockKindThinking
+			}
+			block := model.ReasoningBlock{Kind: blockKind, Index: len(reasoningBlocks), Text: text}
+			if outputItem.EncryptedContent != nil && *outputItem.EncryptedContent != "" {
+				signature := model.OpaqueSignature{
+					Provider: model.SignatureProviderOpenAI,
+					Kind:     model.OpaqueSignatureKindOpenAIReasoning,
+					Value:    *outputItem.EncryptedContent,
+				}
+				block.SetOpaqueSignature(signature)
+			}
+			if text != "" || block.SignatureSource != nil {
+				reasoningBlocks = append(reasoningBlocks, block)
 			}
 		case "image_generation_call":
 			if outputItem.Result != nil && *outputItem.Result != "" {
@@ -1494,14 +1635,20 @@ func convertToLLMResponseFromResponses(resp *ResponsesResponse) *model.InternalL
 	choice := model.Choice{
 		Index: 0,
 		Message: &model.Message{
-			Role:      "assistant",
-			ToolCalls: toolCalls,
+			Role:            "assistant",
+			ToolCalls:       toolCalls,
+			ReasoningBlocks: reasoningBlocks,
 		},
 	}
 
 	// Set reasoning content if present
 	if reasoningContent.Len() > 0 {
 		choice.Message.ReasoningContent = lo.ToPtr(reasoningContent.String())
+	}
+	if len(reasoningBlocks) > 0 {
+		if signature, ok := reasoningBlocks[len(reasoningBlocks)-1].OpaqueSignature(); ok {
+			choice.Message.SetOpaqueReasoningSignature(signature)
+		}
 	}
 	if refusalContent.Len() > 0 {
 		choice.Message.Refusal = refusalContent.String()

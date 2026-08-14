@@ -10,25 +10,33 @@ const (
 	AttemptSkipped      AttemptStatus = "skipped"       // 其他原因跳过（禁用、无Key、类型不兼容等）
 )
 
+type CapabilityLoss struct {
+	Field  string `json:"field"`
+	Action string `json:"action"`
+	Reason string `json:"reason"`
+}
+
 // ChannelAttempt 记录单次渠道尝试的决策和结果
 type ChannelAttempt struct {
-	ChannelID         int           `json:"channel_id"`
-	ChannelKeyID      int           `json:"channel_key_id,omitempty"`
-	ChannelName       string        `json:"channel_name"`
-	ModelName         string        `json:"model_name"`
-	AdapterType       string        `json:"adapter_type,omitempty"` // response, chat, anthropic, gemini, embedding, etc.
-	AttemptNum        int           `json:"attempt_num"`
-	Status            AttemptStatus `json:"status"`
-	Duration          int           `json:"duration"`
-	Sticky            bool          `json:"sticky,omitempty"`
-	Msg               string        `json:"msg,omitempty"`
-	CapabilityStatus  string        `json:"capability_status,omitempty"`
-	ConversionPath    []string      `json:"conversion_path,omitempty"`
-	RequiredFeatures  []string      `json:"required_features,omitempty"`
-	DegradedFields    []string      `json:"degraded_fields,omitempty"`
-	Lossiness         string        `json:"lossiness,omitempty"`
-	CapabilityReasons []string      `json:"capability_reasons,omitempty"`
-	FallbackReason    string        `json:"fallback_reason,omitempty"`
+	ChannelID         int              `json:"channel_id"`
+	ChannelKeyID      int              `json:"channel_key_id,omitempty"`
+	ChannelName       string           `json:"channel_name"`
+	ModelName         string           `json:"model_name"`
+	AdapterType       string           `json:"adapter_type,omitempty"` // response, chat, anthropic, gemini, embedding, etc.
+	AttemptNum        int              `json:"attempt_num"`
+	Status            AttemptStatus    `json:"status"`
+	Duration          int              `json:"duration"`
+	Sticky            bool             `json:"sticky,omitempty"`
+	Msg               string           `json:"msg,omitempty"`
+	CapabilityStatus  string           `json:"capability_status,omitempty"`
+	CapabilityPolicy  string           `json:"capability_policy,omitempty"`
+	ConversionPath    []string         `json:"conversion_path,omitempty"`
+	RequiredFeatures  []string         `json:"required_features,omitempty"`
+	DegradedFields    []string         `json:"degraded_fields,omitempty"`
+	CapabilityLosses  []CapabilityLoss `json:"capability_losses,omitempty"`
+	Lossiness         string           `json:"lossiness,omitempty"`
+	CapabilityReasons []string         `json:"capability_reasons,omitempty"`
+	FallbackReason    string           `json:"fallback_reason,omitempty"`
 }
 
 // RelayLogWSMode 表示本次上游 WebSocket 的会话/恢复模式。

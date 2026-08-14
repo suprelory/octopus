@@ -65,6 +65,9 @@ func TestProtocolDescriptorsHaveCompleteFactories(t *testing.T) {
 	if !SupportsRelayOperation(OutboundTypeOpenAIResponse, "responses/compact") {
 		t.Fatal("OpenAI Responses descriptor must declare compact relay operation")
 	}
+	if !SupportsRelayOperation(OutboundTypeOpenAIResponse, RelayOperationResponsesWebSocket) {
+		t.Fatal("OpenAI Responses descriptor must declare responses websocket relay operation")
+	}
 	if SupportsRelayOperation(OutboundTypeAnthropic, "images") {
 		t.Fatal("Anthropic descriptor must not declare OpenAI images relay operation")
 	}

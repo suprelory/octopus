@@ -161,30 +161,16 @@ func presetIsActiveTx(tx *gorm.DB, presetID int) (bool, error) {
 	return count > 0, nil
 }
 
-// mirrorPresetToActiveGroupTx 若该预设是某 Group 的 active，把预设字段+items 写回 Group
-// 返回受影响的 channel ID 列表（旧 items 的 + 新 items 的），供事务外做熔断/粘性重置
-// 未绑定时返回 0, nil, nil
-func mirrorPresetToActiveGroupTx(tx *gorm.DB, preset *model.GroupPreset) (groupID int, channelIDs []int, err error) {
+// mirrorPresetToActiveGroupTx 若该预设是某 Group 的 active，把预设字段+items 写回 Group。
+// 未绑定时返回 0, nil。
+func mirrorPresetToActiveGroupTx(tx *gorm.DB, preset *model.GroupPreset) (groupID int, err error) {
 	var group model.Group
 	err = tx.Where("active_preset_id = ?", preset.ID).First(&group).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return 0, nil, nil
+			return 0, nil
 		}
-		return 0, nil, fmt.Errorf("failed to find owning group: %w", err)
-	}
-
-	// 收集旧 items 的 channel IDs
-	var oldItems []model.GroupItem
-	if err = tx.Where("group_id = ?", group.ID).Find(&oldItems).Error; err != nil {
-		return group.ID, nil, fmt.Errorf("failed to load old items: %w", err)
-	}
-	ids := make([]int, 0, len(oldItems)+len(preset.Items))
-	for _, it := range oldItems {
-		ids = append(ids, it.ChannelID)
-	}
-	for _, it := range preset.Items {
-		ids = append(ids, it.ChannelID)
+		return 0, fmt.Errorf("failed to find owning group: %w", err)
 	}
 
 	// 镜像字段
@@ -202,12 +188,12 @@ func mirrorPresetToActiveGroupTx(tx *gorm.DB, preset *model.GroupPreset) (groupI
 			"retry_enabled":        preset.RetryEnabled,
 			"max_retries":          maxRetries,
 		}).Error; err != nil {
-		return group.ID, ids, fmt.Errorf("failed to mirror preset to group: %w", err)
+		return group.ID, fmt.Errorf("failed to mirror preset to group: %w", err)
 	}
 
 	// 替换 items：清空再插入
 	if err = tx.Where("group_id = ?", group.ID).Delete(&model.GroupItem{}).Error; err != nil {
-		return group.ID, ids, fmt.Errorf("failed to clear old items: %w", err)
+		return group.ID, fmt.Errorf("failed to clear old items: %w", err)
 	}
 	if len(preset.Items) > 0 {
 		newItems := make([]model.GroupItem, 0, len(preset.Items))
@@ -221,11 +207,11 @@ func mirrorPresetToActiveGroupTx(tx *gorm.DB, preset *model.GroupPreset) (groupI
 			})
 		}
 		if err = tx.Create(&newItems).Error; err != nil {
-			return group.ID, ids, fmt.Errorf("failed to insert new items: %w", err)
+			return group.ID, fmt.Errorf("failed to insert new items: %w", err)
 		}
 	}
 
-	return group.ID, ids, nil
+	return group.ID, nil
 }
 
 // syncActivePresetTx 用 Group 当前实时状态（tx 内读取）回写 active preset
@@ -285,7 +271,6 @@ func syncActivePresetTx(tx *gorm.DB, groupID int) error {
 func GroupPresetUpdate(presetID int, req *model.GroupPresetUpdateRequest, ctx context.Context) (*model.GroupPreset, error) {
 	var preset model.GroupPreset
 	var mirrorGroupID int
-	var affectedChannels []int
 
 	err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.First(&preset, presetID).Error; err != nil {
@@ -323,12 +308,11 @@ func GroupPresetUpdate(presetID int, req *model.GroupPresetUpdateRequest, ctx co
 			return fmt.Errorf("failed to update preset: %w", err)
 		}
 
-		gID, chIDs, err := mirrorPresetToActiveGroupTx(tx, &preset)
+		gID, err := mirrorPresetToActiveGroupTx(tx, &preset)
 		if err != nil {
 			return err
 		}
 		mirrorGroupID = gID
-		affectedChannels = chIDs
 		return nil
 	})
 	if err != nil {
@@ -339,7 +323,7 @@ func GroupPresetUpdate(presetID int, req *model.GroupPresetUpdateRequest, ctx co
 		if err := groupRefreshCacheByID(mirrorGroupID, ctx); err != nil {
 			return nil, fmt.Errorf("failed to refresh cache: %w", err)
 		}
-		resetBalancerStateForChannels(affectedChannels...)
+		resetBalancerStateForGroup(mirrorGroupID)
 	}
 	return &preset, nil
 }
@@ -372,8 +356,7 @@ func GroupPresetActivate(presetID int, ctx context.Context) error {
 	if err := db.GetDB().WithContext(ctx).First(&preset, presetID).Error; err != nil {
 		return fmt.Errorf("preset not found")
 	}
-	oldGroup, ok := groupCache.Get(preset.GroupID)
-	if !ok {
+	if _, ok := groupCache.Get(preset.GroupID); !ok {
 		return fmt.Errorf("group not found")
 	}
 
@@ -391,15 +374,6 @@ func GroupPresetActivate(presetID int, ctx context.Context) error {
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("preset references missing channels: %v", missing)
-	}
-
-	// 收集新旧 channel IDs（供熔断/粘性重置）
-	channelIDs := make([]int, 0, len(oldGroup.Items)+len(preset.Items))
-	for _, it := range oldGroup.Items {
-		channelIDs = append(channelIDs, it.ChannelID)
-	}
-	for _, it := range preset.Items {
-		channelIDs = append(channelIDs, it.ChannelID)
 	}
 
 	tx := db.GetDB().WithContext(ctx).Begin()
@@ -460,7 +434,7 @@ func GroupPresetActivate(presetID int, ctx context.Context) error {
 	if err := groupRefreshCacheByID(preset.GroupID, ctx); err != nil {
 		return fmt.Errorf("failed to refresh cache: %w", err)
 	}
-	resetBalancerStateForChannels(channelIDs...)
+	resetBalancerStateForGroup(preset.GroupID)
 	return nil
 }
 

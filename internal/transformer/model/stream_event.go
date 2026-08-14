@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"sort"
+	"strings"
 )
 
 type StreamEventKind string
@@ -81,7 +82,7 @@ func HasSemanticStreamEvents(events []StreamEvent) bool {
 				return true
 			}
 		case StreamEventKindThinkingDelta, StreamEventKindSignatureDelta:
-			if event.Delta != nil && (event.Delta.Thinking != "" || event.Delta.Signature != "") {
+			if event.Delta != nil && (event.Delta.Thinking != "" || event.Delta.SignatureValue() != "") {
 				return true
 			}
 		case StreamEventKindToolCallStart, StreamEventKindToolCallDelta:
@@ -112,7 +113,25 @@ type StreamDelta struct {
 	Arguments string `json:"arguments,omitempty"`
 	Refusal   string `json:"refusal,omitempty"`
 
+	SignatureSource *OpaqueSignature `json:"signature_source,omitempty"`
+
 	ProviderExtensions *ProviderExtensions `json:"provider_extensions,omitempty"`
+}
+
+// SignatureValue returns the authoritative opaque value when provenance is
+// present. Signature is only a compatibility fallback for legacy producers.
+func (d *StreamDelta) SignatureValue() string {
+	if d == nil {
+		return ""
+	}
+	if d.SignatureSource != nil {
+		return d.SignatureSource.Value
+	}
+	return d.Signature
+}
+
+func (d *StreamDelta) hasSignatureCarrier() bool {
+	return d != nil && (d.SignatureSource != nil || d.Signature != "")
 }
 
 func StreamEventsFromInternalResponse(response *InternalLLMResponse) []StreamEvent {
@@ -143,16 +162,30 @@ func StreamEventsFromInternalResponse(response *InternalLLMResponse) []StreamEve
 				events = append(events, StreamEvent{Kind: StreamEventKindMessageStart, ID: response.ID, Model: response.Model, Index: choice.Index, Role: delta.Role})
 			}
 			for _, block := range delta.ReasoningBlocks {
+				var signatureSource *OpaqueSignature
+				if block.SignatureSource != nil {
+					signatureSource = CloneOpaqueSignature(block.SignatureSource)
+				} else if strings.TrimSpace(block.Provider) != "" {
+					if signature, ok := block.OpaqueSignature(); ok {
+						signatureSource = CloneOpaqueSignature(&signature)
+					}
+				}
+				signature := block.Signature
+				hasSignature := signature != ""
+				if signatureSource != nil {
+					signature = signatureSource.Value
+					hasSignature = true
+				}
 				switch block.Kind {
 				case ReasoningBlockKindThinking:
 					if block.Text != "" {
-						events = append(events, StreamEvent{Kind: StreamEventKindThinkingDelta, ID: response.ID, Model: response.Model, Index: choice.Index, Delta: &StreamDelta{Thinking: block.Text, Signature: block.Signature}})
-					} else if block.Signature != "" {
-						events = append(events, StreamEvent{Kind: StreamEventKindSignatureDelta, ID: response.ID, Model: response.Model, Index: choice.Index, Delta: &StreamDelta{Signature: block.Signature}})
+						events = append(events, StreamEvent{Kind: StreamEventKindThinkingDelta, ID: response.ID, Model: response.Model, Index: choice.Index, Delta: &StreamDelta{Thinking: block.Text, Signature: signature, SignatureSource: signatureSource}})
+					} else if hasSignature {
+						events = append(events, StreamEvent{Kind: StreamEventKindSignatureDelta, ID: response.ID, Model: response.Model, Index: choice.Index, Delta: &StreamDelta{Signature: signature, SignatureSource: signatureSource}})
 					}
 				case ReasoningBlockKindSignature:
-					if block.Signature != "" {
-						events = append(events, StreamEvent{Kind: StreamEventKindSignatureDelta, ID: response.ID, Model: response.Model, Index: choice.Index, Delta: &StreamDelta{Signature: block.Signature}})
+					if hasSignature {
+						events = append(events, StreamEvent{Kind: StreamEventKindSignatureDelta, ID: response.ID, Model: response.Model, Index: choice.Index, Delta: &StreamDelta{Signature: signature, SignatureSource: signatureSource}})
 					}
 				case ReasoningBlockKindRedacted:
 					if block.Data != "" {
@@ -165,7 +198,10 @@ func StreamEventsFromInternalResponse(response *InternalLLMResponse) []StreamEve
 				if reasoning := delta.GetReasoningContent(); reasoning != "" {
 					events = append(events, StreamEvent{Kind: StreamEventKindThinkingDelta, ID: response.ID, Model: response.Model, Index: choice.Index, Delta: &StreamDelta{Thinking: reasoning}})
 				}
-				if delta.ReasoningSignature != nil && *delta.ReasoningSignature != "" {
+				if delta.ReasoningSignatureSource != nil {
+					source := CloneOpaqueSignature(delta.ReasoningSignatureSource)
+					events = append(events, StreamEvent{Kind: StreamEventKindSignatureDelta, ID: response.ID, Model: response.Model, Index: choice.Index, Delta: &StreamDelta{Signature: source.Value, SignatureSource: source}})
+				} else if delta.ReasoningSignature != nil && *delta.ReasoningSignature != "" {
 					events = append(events, StreamEvent{Kind: StreamEventKindSignatureDelta, ID: response.ID, Model: response.Model, Index: choice.Index, Delta: &StreamDelta{Signature: *delta.ReasoningSignature}})
 				}
 				for _, data := range delta.RedactedThinkingBlocks {
@@ -279,18 +315,30 @@ func InternalResponseFromStreamEvents(events []StreamEvent) *InternalLLMResponse
 				}
 			}
 		case StreamEventKindThinkingDelta:
-			if event.Delta != nil && (event.Delta.Thinking != "" || event.Delta.Signature != "") {
+			if event.Delta != nil && (event.Delta.Thinking != "" || event.Delta.hasSignatureCarrier()) {
 				if event.Delta.Thinking != "" {
 					thinking := event.Delta.Thinking
 					choice.Delta.ReasoningContent = &thinking
 				}
-				choice.Delta.AppendReasoningBlock(ReasoningBlock{Kind: ReasoningBlockKindThinking, Index: -1, Text: event.Delta.Thinking, Signature: event.Delta.Signature})
+				block := ReasoningBlock{Kind: ReasoningBlockKindThinking, Index: -1, Text: event.Delta.Thinking, Signature: event.Delta.SignatureValue()}
+				if event.Delta.SignatureSource != nil {
+					block.SetOpaqueSignature(*event.Delta.SignatureSource)
+				}
+				choice.Delta.AppendReasoningBlock(block)
 			}
 		case StreamEventKindSignatureDelta:
-			if event.Delta != nil && event.Delta.Signature != "" {
-				signature := event.Delta.Signature
-				choice.Delta.ReasoningSignature = &signature
-				choice.Delta.AppendReasoningBlock(ReasoningBlock{Kind: ReasoningBlockKindSignature, Index: -1, Signature: signature})
+			if event.Delta != nil && event.Delta.hasSignatureCarrier() {
+				if event.Delta.SignatureSource != nil {
+					choice.Delta.SetOpaqueReasoningSignature(*event.Delta.SignatureSource)
+				} else {
+					value := event.Delta.SignatureValue()
+					choice.Delta.ReasoningSignature = &value
+				}
+				block := ReasoningBlock{Kind: ReasoningBlockKindSignature, Index: -1, Signature: event.Delta.SignatureValue()}
+				if event.Delta.SignatureSource != nil {
+					block.SetOpaqueSignature(*event.Delta.SignatureSource)
+				}
+				choice.Delta.AppendReasoningBlock(block)
 			}
 		case StreamEventKindToolCallStart, StreamEventKindToolCallDelta:
 			if event.ToolCall != nil {

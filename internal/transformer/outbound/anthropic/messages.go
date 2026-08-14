@@ -285,7 +285,14 @@ func (o *MessageOutbound) TransformStreamEvent(ctx context.Context, eventData []
 			}
 		case "signature_delta":
 			if streamEvent.Delta.Signature != nil {
-				events = append(events, model.StreamEvent{Kind: model.StreamEventKindSignatureDelta, ID: o.streamID, Model: o.streamModel, Index: 0, Delta: &model.StreamDelta{Signature: *streamEvent.Delta.Signature}})
+				events = append(events, model.StreamEvent{Kind: model.StreamEventKindSignatureDelta, ID: o.streamID, Model: o.streamModel, Index: 0, Delta: &model.StreamDelta{
+					Signature: *streamEvent.Delta.Signature,
+					SignatureSource: &model.OpaqueSignature{
+						Provider: model.SignatureProviderAnthropic,
+						Kind:     model.OpaqueSignatureKindAnthropicThinking,
+						Value:    *streamEvent.Delta.Signature,
+					},
+				}})
 			}
 		default:
 			return nil, nil
@@ -494,15 +501,17 @@ func (o *MessageOutbound) TransformStream(ctx context.Context, eventData []byte)
 				}
 			case "signature_delta":
 				if streamEvent.Delta.Signature != nil {
-					choice.Delta.ReasoningSignature = streamEvent.Delta.Signature
+					signature := model.OpaqueSignature{
+						Provider: model.SignatureProviderAnthropic,
+						Kind:     model.OpaqueSignatureKindAnthropicThinking,
+						Value:    *streamEvent.Delta.Signature,
+					}
+					choice.Delta.SetOpaqueReasoningSignature(signature)
 					// Emit a standalone signature block so downstream aggregators can attach it
 					// to the correct thinking block even when multiple thinking blocks exist.
-					choice.Delta.ReasoningBlocks = []model.ReasoningBlock{{
-						Kind:      model.ReasoningBlockKindSignature,
-						Index:     -1,
-						Signature: *streamEvent.Delta.Signature,
-						Provider:  "anthropic",
-					}}
+					block := model.ReasoningBlock{Kind: model.ReasoningBlockKindSignature, Index: -1}
+					block.SetOpaqueSignature(signature)
+					choice.Delta.ReasoningBlocks = []model.ReasoningBlock{block}
 				}
 			default:
 				return nil, nil
@@ -1044,7 +1053,7 @@ func hasThinkingContent(msg model.Message) bool {
 		return true
 	}
 	for _, rb := range msg.ReasoningBlocks {
-		if rb.Kind == model.ReasoningBlockKindThinking && (rb.Text != "" || rb.Signature != "") {
+		if rb.Kind == model.ReasoningBlockKindThinking && (rb.Text != "" || anthropicReasoningSignature(rb) != "") {
 			return true
 		}
 	}
@@ -1056,14 +1065,17 @@ func hasThinkingContent(msg model.Message) bool {
 // per-block ReasoningBlocks representation; when absent (e.g. the upstream was OpenRouter or
 // the turn predates this refactor), it falls back to the flat ReasoningContent/Signature pair.
 func emitThinkingBlocks(msg model.Message) []anthropicModel.MessageContentBlock {
-	anthropicBlocks := msg.ReasoningBlocksByProvider("anthropic")
-	if len(anthropicBlocks) == 0 {
-		// Some callers (e.g. Anthropic inbound parsed v1) may have populated ReasoningBlocks
-		// without tagging Provider. Treat untagged blocks as Anthropic as a safety net.
-		for _, rb := range msg.ReasoningBlocks {
-			if rb.Provider == "" {
-				anthropicBlocks = append(anthropicBlocks, rb)
+	anthropicBlocks := make([]model.ReasoningBlock, 0, len(msg.ReasoningBlocks))
+	for _, block := range msg.ReasoningBlocks {
+		if block.SignatureSource == nil {
+			provider := strings.TrimSpace(block.Provider)
+			if provider == "" || provider == string(model.SignatureProviderAnthropic) {
+				anthropicBlocks = append(anthropicBlocks, block)
 			}
+			continue
+		}
+		if block.SignatureSource.ValidForKind(model.SignatureProviderAnthropic, model.OpaqueSignatureKindAnthropicThinking) {
+			anthropicBlocks = append(anthropicBlocks, block)
 		}
 	}
 
@@ -1082,8 +1094,8 @@ func emitThinkingBlocks(msg model.Message) []anthropicModel.MessageContentBlock 
 				t := rb.Text
 				block.Thinking = &t
 			}
-			if rb.Signature != "" {
-				s := rb.Signature
+			if signature := anthropicReasoningSignature(rb); signature != "" {
+				s := signature
 				block.Signature = &s
 			}
 			out = append(out, block)
@@ -1097,8 +1109,8 @@ func emitThinkingBlocks(msg model.Message) []anthropicModel.MessageContentBlock 
 				lastThinking = nil
 			}
 		case model.ReasoningBlockKindSignature:
-			if rb.Signature != "" && lastThinking != nil && lastThinking.Signature == nil {
-				s := rb.Signature
+			if signature := anthropicReasoningSignature(rb); signature != "" && lastThinking != nil && lastThinking.Signature == nil {
+				s := signature
 				lastThinking.Signature = &s
 			}
 		}
@@ -1120,14 +1132,14 @@ func logAnthropicSignatureAudit(direction string, blocks []model.ReasoningBlock)
 		switch rb.Kind {
 		case model.ReasoningBlockKindThinking:
 			thinking++
-			if rb.Signature != "" {
+			if anthropicReasoningSignature(rb) != "" {
 				sigCount++
 			}
 		case model.ReasoningBlockKindRedacted:
 			redacted++
 			sigCount++
 		case model.ReasoningBlockKindSignature:
-			if rb.Signature != "" {
+			if anthropicReasoningSignature(rb) != "" {
 				sigCount++
 			}
 		}
@@ -1157,10 +1169,18 @@ func truncateForAudit(s string, n int) string {
 func emitThinkingBlocksLegacy(msg model.Message) []anthropicModel.MessageContentBlock {
 	var out []anthropicModel.MessageContentBlock
 	if msg.ReasoningContent != nil && *msg.ReasoningContent != "" {
+		var signature *string
+		if msg.ReasoningSignatureSource == nil && msg.ReasoningSignature != nil && *msg.ReasoningSignature != "" {
+			value := *msg.ReasoningSignature
+			signature = &value
+		} else if msg.ReasoningSignatureSource != nil && msg.ReasoningSignatureSource.ValidForKind(model.SignatureProviderAnthropic, model.OpaqueSignatureKindAnthropicThinking) {
+			value := msg.ReasoningSignatureSource.Value
+			signature = &value
+		}
 		out = append(out, anthropicModel.MessageContentBlock{
 			Type:      "thinking",
 			Thinking:  msg.ReasoningContent,
-			Signature: msg.ReasoningSignature,
+			Signature: signature,
 		})
 	}
 	for _, data := range msg.RedactedThinkingBlocks {
@@ -1170,6 +1190,19 @@ func emitThinkingBlocksLegacy(msg model.Message) []anthropicModel.MessageContent
 		})
 	}
 	return out
+}
+
+func anthropicReasoningSignature(block model.ReasoningBlock) string {
+	if block.SignatureSource == nil && strings.TrimSpace(block.Provider) == "" {
+		if strings.TrimSpace(block.Signature) == "" {
+			return ""
+		}
+		return block.Signature
+	}
+	if signature, ok := block.OpaqueSignature(); ok && signature.ValidForKind(model.SignatureProviderAnthropic, model.OpaqueSignatureKindAnthropicThinking) {
+		return signature.Value
+	}
+	return ""
 }
 
 func buildMultipleContentWithThinking(msg model.Message) anthropicModel.MessageContent {
@@ -1394,13 +1427,18 @@ func convertTools(tools []model.Tool) []anthropicModel.Tool {
 	return result
 }
 
+// MaxStopSequences is the documented/observed Anthropic limit for the
+// stop_sequences array. The outbound capability planner consumes the same
+// constant so static loss reports cannot drift from wire behavior.
+const MaxStopSequences = 4
+
 // anthropicMaxStopSequences caps the stop_sequences array sent to
 // Anthropic. The API documents a limit but only surfaces it as an
 // opaque "stop_sequences: too many items" 400 when exceeded; 4 is the
 // empirically-observed ceiling as of 2026-04. Declared as a var so
 // tests can tighten the threshold without allocating fixture entries.
 // A-L5. Ref: https://docs.anthropic.com/en/api/messages
-var anthropicMaxStopSequences = 4
+var anthropicMaxStopSequences = MaxStopSequences
 
 func convertStopSequences(stop *model.Stop) []string {
 	if stop == nil {
@@ -1760,13 +1798,17 @@ func convertToLLMResponse(resp *anthropicModel.Message) *model.InternalLLMRespon
 			rb := model.ReasoningBlock{
 				Kind:     model.ReasoningBlockKindThinking,
 				Index:    len(reasoningBlocks),
-				Provider: "anthropic",
+				Provider: string(model.SignatureProviderAnthropic),
 			}
 			if block.Thinking != nil {
 				rb.Text = *block.Thinking
 			}
 			if block.Signature != nil {
-				rb.Signature = *block.Signature
+				rb.SetOpaqueSignature(model.OpaqueSignature{
+					Provider: model.SignatureProviderAnthropic,
+					Kind:     model.OpaqueSignatureKindAnthropicThinking,
+					Value:    *block.Signature,
+				})
 			}
 			reasoningBlocks = append(reasoningBlocks, rb)
 		case "redacted_thinking":
@@ -1821,9 +1863,15 @@ func convertToLLMResponse(resp *anthropicModel.Message) *model.InternalLLMRespon
 		Content:                content,
 		ToolCalls:              toolCalls,
 		ReasoningContent:       thinkingText,
-		ReasoningSignature:     thinkingSignature,
 		RedactedThinkingBlocks: redactedBlocks,
 		ReasoningBlocks:        reasoningBlocks,
+	}
+	if thinkingSignature != nil && *thinkingSignature != "" {
+		message.SetOpaqueReasoningSignature(model.OpaqueSignature{
+			Provider: model.SignatureProviderAnthropic,
+			Kind:     model.OpaqueSignatureKindAnthropicThinking,
+			Value:    *thinkingSignature,
+		})
 	}
 
 	choice := model.Choice{

@@ -117,7 +117,7 @@ func TestStreamReasoningBlocksSingleSignature(t *testing.T) {
 			ReasoningBlocks: []model.ReasoningBlock{{
 				Kind:      model.ReasoningBlockKindSignature,
 				Signature: "sigA",
-				Provider:  "anthropic",
+				Provider:  string(model.SignatureProviderOpenAI),
 			}},
 		}),
 		chunkWithFinish("claude", "stop"),
@@ -147,7 +147,7 @@ func TestStreamReasoningBlocksMultipleSignatures(t *testing.T) {
 		}),
 		chunkWithDelta("claude", &model.Message{
 			ReasoningBlocks: []model.ReasoningBlock{{
-				Kind: model.ReasoningBlockKindSignature, Signature: "sig1", Provider: "anthropic",
+				Kind: model.ReasoningBlockKindSignature, Signature: "sig1", Provider: string(model.SignatureProviderOpenAI),
 			}},
 		}),
 		chunkWithDelta("claude", &model.Message{
@@ -155,7 +155,7 @@ func TestStreamReasoningBlocksMultipleSignatures(t *testing.T) {
 		}),
 		chunkWithDelta("claude", &model.Message{
 			ReasoningBlocks: []model.ReasoningBlock{{
-				Kind: model.ReasoningBlockKindSignature, Signature: "sig2", Provider: "anthropic",
+				Kind: model.ReasoningBlockKindSignature, Signature: "sig2", Provider: string(model.SignatureProviderOpenAI),
 			}},
 		}),
 		chunkWithFinish("claude", "stop"),
@@ -163,16 +163,14 @@ func TestStreamReasoningBlocksMultipleSignatures(t *testing.T) {
 
 	events := feedStream(t, chunks)
 
-	item := findItemDone(events, "reasoning")
-	if item == nil || item.EncryptedContent == nil {
-		t.Fatalf("reasoning item with encrypted_content missing")
+	var signatures []string
+	for _, event := range events {
+		if event.Type == "response.output_item.done" && event.Item != nil && event.Item.Type == "reasoning" && event.Item.EncryptedContent != nil {
+			signatures = append(signatures, *event.Item.EncryptedContent)
+		}
 	}
-	var decoded []string
-	if err := json.Unmarshal([]byte(*item.EncryptedContent), &decoded); err != nil {
-		t.Fatalf("multi-sig encrypted_content should be JSON array, got %q: %v", *item.EncryptedContent, err)
-	}
-	if len(decoded) != 2 || decoded[0] != "sig1" || decoded[1] != "sig2" {
-		t.Fatalf("unexpected signatures: %v", decoded)
+	if len(signatures) != 2 || signatures[0] != "sig1" || signatures[1] != "sig2" {
+		t.Fatalf("opaque signatures were not emitted separately: %v", signatures)
 	}
 }
 
@@ -369,6 +367,63 @@ func TestTransformStreamEventsSignatureOnlyStillOpensReasoningItem(t *testing.T)
 	}
 }
 
+func TestTransformStreamEventsDropsForeignSignatureSource(t *testing.T) {
+	i := &ResponseInbound{}
+	out, err := i.TransformStreamEvents(context.Background(), []model.StreamEvent{
+		{Kind: model.StreamEventKindMessageStart, ID: "resp_foreign", Model: "claude", Role: "assistant"},
+		{
+			Kind:  model.StreamEventKindThinkingDelta,
+			ID:    "resp_foreign",
+			Model: "claude",
+			Delta: &model.StreamDelta{
+				Thinking:  "summary",
+				Signature: "anthropic-signature",
+				SignatureSource: &model.OpaqueSignature{
+					Provider: model.SignatureProviderAnthropic,
+					Kind:     model.OpaqueSignatureKindAnthropicThinking,
+					Value:    "anthropic-signature",
+				},
+			},
+		},
+		{Kind: model.StreamEventKindMessageStop, ID: "resp_foreign", Model: "claude", StopReason: model.FinishReasonStop},
+		{Kind: model.StreamEventKindUsageDelta, ID: "resp_foreign", Model: "claude", Usage: &model.Usage{PromptTokens: 1, CompletionTokens: 1, TotalTokens: 2}},
+	})
+	if err != nil {
+		t.Fatalf("TransformStreamEvents failed: %v", err)
+	}
+	item := findItemDone(parseSSEEvents(t, out), "reasoning")
+	if item == nil {
+		t.Fatal("reasoning item.done not found")
+	}
+	if item.EncryptedContent != nil {
+		t.Fatalf("foreign signature leaked into encrypted_content: %q", *item.EncryptedContent)
+	}
+}
+
+func TestTransformStreamEventsUsesSourceOnlyOpenAISignature(t *testing.T) {
+	i := &ResponseInbound{}
+	out, err := i.TransformStreamEvents(context.Background(), []model.StreamEvent{
+		{Kind: model.StreamEventKindMessageStart, ID: "resp_source_only", Model: "gpt-test", Role: "assistant"},
+		{
+			Kind:  model.StreamEventKindSignatureDelta,
+			ID:    "resp_source_only",
+			Model: "gpt-test",
+			Delta: &model.StreamDelta{SignatureSource: &model.OpaqueSignature{
+				Provider: model.SignatureProviderOpenAI,
+				Kind:     model.OpaqueSignatureKindOpenAIReasoning,
+				Value:    "source-only-signature",
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("TransformStreamEvents failed: %v", err)
+	}
+	item := findItemDone(parseSSEEvents(t, out), "reasoning")
+	if item == nil || item.EncryptedContent == nil || *item.EncryptedContent != "source-only-signature" {
+		t.Fatalf("source-only signature was not emitted authoritatively: %+v", item)
+	}
+}
+
 func TestTransformStreamMatchesStreamEventsProjection(t *testing.T) {
 	chunks := []*model.InternalLLMResponse{
 		chunkWithDelta("claude", &model.Message{
@@ -379,7 +434,7 @@ func TestTransformStreamMatchesStreamEventsProjection(t *testing.T) {
 			ReasoningBlocks: []model.ReasoningBlock{{
 				Kind:      model.ReasoningBlockKindSignature,
 				Signature: "sigA",
-				Provider:  "anthropic",
+				Provider:  string(model.SignatureProviderOpenAI),
 			}},
 		}),
 		chunkWithDelta("claude", &model.Message{

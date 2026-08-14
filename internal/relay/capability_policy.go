@@ -1,0 +1,116 @@
+package relay
+
+import (
+	"fmt"
+	"strings"
+
+	dbmodel "github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/relay/balancer"
+	"github.com/bestruirui/octopus/internal/transformer/outbound"
+)
+
+// evaluateCapabilityPolicy applies the relay-wide degradation policy to a
+// planner decision. Hard capability rejections are always rejected. Known
+// degradation is rejected only when strict mode is enabled. The returned code
+// preserves the existing protocol error semantics for each case.
+func evaluateCapabilityPolicy(decision outbound.CapabilityDecision, policy capabilityDegradationPolicy) (reject bool, code string) {
+	if decision.Rejected() {
+		return true, CodeRelayModelNotSupported
+	}
+	if decision.Status == outbound.CapabilityDegraded && policy == capabilityPolicyStrict {
+		return true, CodeRelayCapabilityRejected
+	}
+	return false, ""
+}
+
+// shouldRejectCapability is the boolean form used by callers that only need
+// to decide whether an attempt may proceed.
+func shouldRejectCapability(decision outbound.CapabilityDecision, policy capabilityDegradationPolicy) bool {
+	reject, _ := evaluateCapabilityPolicy(decision, policy)
+	return reject
+}
+
+func capabilityTrace(decision outbound.CapabilityDecision, policy capabilityDegradationPolicy, adapterType string) balancer.CapabilityTrace {
+	losses := make([]dbmodel.CapabilityLoss, 0, len(decision.Losses))
+	for _, loss := range decision.Losses {
+		losses = append(losses, dbmodel.CapabilityLoss{
+			Field:  loss.Field,
+			Action: string(loss.Action),
+			Reason: loss.Reason,
+		})
+	}
+	return balancer.CapabilityTrace{
+		AdapterType:      adapterType,
+		Status:           string(decision.Status),
+		Policy:           string(policy),
+		ConversionPath:   decision.ConversionPath,
+		RequiredFeatures: decision.RequiredFeatures,
+		DegradedFields:   decision.DegradedFields,
+		Losses:           losses,
+		Lossiness:        decision.Lossiness,
+		Reasons:          decision.Reasons,
+	}
+}
+
+func capabilityRejectionMessage(decision outbound.CapabilityDecision, adapterType string) string {
+	details := make([]string, 0, 3)
+	if len(decision.DegradedFields) > 0 {
+		details = append(details, "fields="+strings.Join(decision.DegradedFields, ","))
+	}
+	target := string(decision.OutboundFormat)
+	if target == "" {
+		target = adapterType
+	}
+	if target != "" {
+		details = append(details, "target="+target)
+	}
+	if len(decision.ConversionPath) > 0 {
+		details = append(details, "path="+strings.Join(decision.ConversionPath, " -> "))
+	}
+	if len(details) == 0 {
+		return decision.Summary()
+	}
+	return fmt.Sprintf("%s [%s]", decision.Summary(), strings.Join(details, "; "))
+}
+
+func resolveFinalAttemptResult(
+	sawSupportedCapability bool,
+	lastErr error,
+	lastResult attemptResult,
+	capabilityErr error,
+	capabilityResult attemptResult,
+) (error, attemptResult) {
+	if !sawSupportedCapability && capabilityErr != nil {
+		return capabilityErr, capabilityResult
+	}
+	return lastErr, lastResult
+}
+
+func preferCapabilityRejection(
+	currentErr error,
+	currentResult attemptResult,
+	candidateErr error,
+	candidateResult attemptResult,
+) (error, attemptResult) {
+	if candidateErr == nil {
+		return currentErr, currentResult
+	}
+	if currentErr == nil || capabilityRejectionPriority(candidateResult) > capabilityRejectionPriority(currentResult) {
+		return candidateErr, candidateResult
+	}
+	return currentErr, currentResult
+}
+
+func capabilityRejectionPriority(result attemptResult) int {
+	if result.ProtocolError == nil {
+		return 0
+	}
+	switch result.ProtocolError.Detail.Code {
+	case CodeRelayModelNotSupported:
+		return 2
+	case CodeRelayCapabilityRejected:
+		return 1
+	default:
+		return 0
+	}
+}

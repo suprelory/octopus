@@ -125,7 +125,9 @@ func mergeChoiceDelta(existingChoice *Choice, choice Choice) {
 			}
 			*existingChoice.Message.ReasoningContent += reasoning
 		}
-		if delta.ReasoningSignature != nil && *delta.ReasoningSignature != "" {
+		if delta.ReasoningSignatureSource != nil {
+			existingChoice.Message.SetOpaqueReasoningSignature(*delta.ReasoningSignatureSource)
+		} else if delta.ReasoningSignature != nil && *delta.ReasoningSignature != "" {
 			signature := *delta.ReasoningSignature
 			existingChoice.Message.ReasoningSignature = &signature
 		}

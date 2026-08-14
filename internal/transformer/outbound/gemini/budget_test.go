@@ -167,6 +167,19 @@ func TestResolveThinkingConfigProEffortMinimal(t *testing.T) {
 	}
 }
 
+func TestDescribeThinkingConfigChangesBudgetTakesPrecedenceOverEffort(t *testing.T) {
+	validBudget := int64(4096)
+	if changes := DescribeThinkingConfigChanges("gemini-2.5-pro", &validBudget, "minimal", false); len(changes) != 0 {
+		t.Fatalf("valid explicit budget should ignore effort diagnostics, got %#v", changes)
+	}
+
+	invalidBudget := int64(0)
+	changes := DescribeThinkingConfigChanges("gemini-2.5-pro", &invalidBudget, "minimal", false)
+	if len(changes) != 1 || changes[0].Field != "reasoning_budget" {
+		t.Fatalf("budget repair should be the only reported change, got %#v", changes)
+	}
+}
+
 // TestClassifyGeminiFamilyVariants pins the model-id → family table.
 // Order-sensitive matches (flash-lite, 3.1 vs 3.x, flash vs pro) are the
 // main failure modes, so this list covers each one explicitly.

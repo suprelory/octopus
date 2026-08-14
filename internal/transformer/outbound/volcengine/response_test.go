@@ -66,3 +66,43 @@ func TestResponseOutboundHandlesNormalizedEmptyMessages(t *testing.T) {
 		t.Fatalf("input = %s, want []", payload["input"])
 	}
 }
+
+func TestResponseOutboundPreservesRawInputItems(t *testing.T) {
+	request := &model.InternalLLMRequest{
+		Model:        "doubao-test",
+		RequestType:  model.RequestTypeResponses,
+		RawAPIFormat: model.APIFormatOpenAIResponse,
+	}
+	request.SetOpenAIRawInputItems(json.RawMessage(`[
+		{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}],"native_meta":{"keep":true}},
+		{"type":"message","role":"assistant","content":[{"type":"output_text","text":"draft"}],"native_meta":{"keep":true}}
+	]`))
+
+	httpRequest, err := (&ResponseOutbound{}).TransformRequest(context.Background(), request, "https://ark.cn-beijing.volces.com/api/v3", "key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer httpRequest.Body.Close()
+	body, err := io.ReadAll(httpRequest.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Input []map[string]any `json:"input"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Input) != 2 {
+		t.Fatalf("input = %#v, want two raw items", payload.Input)
+	}
+	if _, ok := payload.Input[0]["native_meta"]; !ok {
+		t.Fatalf("first raw item lost unknown fields: %#v", payload.Input[0])
+	}
+	if _, ok := payload.Input[1]["native_meta"]; !ok {
+		t.Fatalf("last raw item lost unknown fields: %#v", payload.Input[1])
+	}
+	if partial, ok := payload.Input[1]["partial"].(bool); !ok || !partial {
+		t.Fatalf("last assistant item partial = %#v, want true", payload.Input[1]["partial"])
+	}
+}

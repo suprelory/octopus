@@ -19,6 +19,12 @@ const (
 	OutboundTypeOpenAIEmbedding
 )
 
+const (
+	RelayOperationImages             = "images"
+	RelayOperationResponsesCompact   = "responses/compact"
+	RelayOperationResponsesWebSocket = "responses/websocket"
+)
+
 // ProtocolDescriptor is the single registry entry for an outbound protocol.
 // It combines wire format, semantic operations, native passthrough support,
 // relay-only auxiliary endpoints, transport metadata, and the transformer
@@ -52,7 +58,7 @@ var protocolDescriptors = map[OutboundType]ProtocolDescriptor{
 		Name:            "openai_chat",
 		APIFormat:       model.APIFormatOpenAIChatCompletion,
 		RequestTypes:    requestTypes(model.RequestTypeChat, model.RequestTypeResponses),
-		RelayOperations: relayOperations("images"),
+		RelayOperations: relayOperations(RelayOperationImages),
 		Transport:       "http",
 		Factory:         func() model.Outbound { return &openai.ChatOutbound{} },
 	},
@@ -61,9 +67,13 @@ var protocolDescriptors = map[OutboundType]ProtocolDescriptor{
 		APIFormat:          model.APIFormatOpenAIResponse,
 		RequestTypes:       requestTypes(model.RequestTypeChat, model.RequestTypeResponses),
 		NativeInputFormats: apiFormats(model.APIFormatOpenAIResponse),
-		RelayOperations:    relayOperations("images", "responses/compact"),
-		Transport:          "http+websocket",
-		Factory:            func() model.Outbound { return &openai.ResponseOutbound{} },
+		RelayOperations: relayOperations(
+			RelayOperationImages,
+			RelayOperationResponsesCompact,
+			RelayOperationResponsesWebSocket,
+		),
+		Transport: "http+websocket",
+		Factory:   func() model.Outbound { return &openai.ResponseOutbound{} },
 	},
 	OutboundTypeAnthropic: {
 		Name:               "anthropic_messages",

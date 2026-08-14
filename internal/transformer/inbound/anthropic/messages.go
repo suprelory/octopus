@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/bestruirui/octopus/internal/transformer/compat"
@@ -24,6 +25,7 @@ type MessagesInbound struct {
 	messageStopped            bool
 	messageID                 string
 	modelName                 string
+	requestModel              string
 	contentIndex              int64
 	stopReason                *string
 	stopSequence              *string
@@ -36,11 +38,85 @@ type MessagesInbound struct {
 	storedResponse *model.InternalLLMResponse
 }
 
+func (i *MessagesInbound) geminiSignatureScope(ctx context.Context, fallbackModel string) compat.GeminiSignatureScope {
+	scope := compat.GeminiSignatureScopeFromContext(ctx)
+	if strings.TrimSpace(scope.Model) == "" {
+		scope.Model = strings.TrimSpace(i.requestModel)
+	}
+	if strings.TrimSpace(scope.Model) == "" {
+		scope.Model = strings.TrimSpace(fallbackModel)
+	}
+	if strings.TrimSpace(scope.Format) == "" {
+		scope.Format = string(model.APIFormatAnthropicMessage)
+	}
+	return scope
+}
+
+func signatureValueForProvider(signature *model.OpaqueSignature, provider model.SignatureProvider, kind model.OpaqueSignatureKind) string {
+	if signature == nil || signature.Kind != kind || !signature.ValidFor(provider) {
+		return ""
+	}
+	return signature.Value
+}
+
+func reasoningBlockSignatureForProvider(block model.ReasoningBlock, provider model.SignatureProvider, kind model.OpaqueSignatureKind) string {
+	if block.SignatureSource == nil && strings.TrimSpace(block.Provider) == "" {
+		return block.Signature
+	}
+	signature, ok := block.OpaqueSignature()
+	if !ok {
+		return ""
+	}
+	return signatureValueForProvider(&signature, provider, kind)
+}
+
+func messageReasoningSignatureForProvider(message *model.Message, provider model.SignatureProvider, kind model.OpaqueSignatureKind) string {
+	if message == nil {
+		return ""
+	}
+	if message.ReasoningSignatureSource == nil {
+		if message.ReasoningSignature == nil {
+			return ""
+		}
+		return *message.ReasoningSignature
+	}
+	return signatureValueForProvider(message.ReasoningSignatureSource, provider, kind)
+}
+
+func geminiToolCallShimSignature(block model.ReasoningBlock) string {
+	signature, ok := block.OpaqueSignature()
+	if !ok || signature.ToolCallScope == nil ||
+		(strings.TrimSpace(signature.ToolCallScope.ID) == "" && strings.TrimSpace(signature.ToolCallScope.Name) == "") {
+		return ""
+	}
+	return signatureValueForProvider(&signature, model.SignatureProviderGemini, model.OpaqueSignatureKindGeminiThought)
+}
+
+func anthropicWireStreamSignature(delta *model.StreamDelta) string {
+	if delta == nil {
+		return ""
+	}
+	if delta.SignatureSource == nil {
+		return delta.Signature
+	}
+	if signature := signatureValueForProvider(delta.SignatureSource, model.SignatureProviderAnthropic, model.OpaqueSignatureKindAnthropicThinking); signature != "" {
+		return signature
+	}
+	if delta.SignatureSource.ToolCallScope == nil ||
+		(strings.TrimSpace(delta.SignatureSource.ToolCallScope.ID) == "" && strings.TrimSpace(delta.SignatureSource.ToolCallScope.Name) == "") {
+		return ""
+	}
+	return signatureValueForProvider(delta.SignatureSource, model.SignatureProviderGemini, model.OpaqueSignatureKindGeminiThought)
+}
+
 func geminiThoughtSignatureShim(block MessageContentBlock) string {
 	if block.Type != "thinking" || block.Thinking == nil || *block.Thinking != "" || block.Signature == nil {
 		return ""
 	}
-	return strings.TrimSpace(*block.Signature)
+	if strings.TrimSpace(*block.Signature) == "" {
+		return ""
+	}
+	return *block.Signature
 }
 
 func countGeminiSignatureShims(blocks []MessageContentBlock) int {
@@ -58,9 +134,11 @@ func (i *MessagesInbound) TransformRequest(ctx context.Context, body []byte) (*m
 	if err := json.Unmarshal(body, &anthropicReq); err != nil {
 		return nil, err
 	}
+	originalMaxTokens := anthropicReq.MaxTokens
 	if anthropicReq.MaxTokens < 1 {
 		anthropicReq.MaxTokens = 1
 	}
+	i.requestModel = strings.TrimSpace(anthropicReq.Model)
 	chatReq := &model.InternalLLMRequest{
 		RequestType:         model.RequestTypeChat,
 		Model:               anthropicReq.Model,
@@ -75,6 +153,9 @@ func (i *MessagesInbound) TransformRequest(ctx context.Context, body []byte) (*m
 	}
 	if err := chatReq.CaptureFieldPresence(body); err != nil {
 		return nil, err
+	}
+	if originalMaxTokens < 1 {
+		chatReq.SetTransformerMetadataValue(model.TransformerMetadataAnthropicMaxTokensRepairFrom, strconv.FormatInt(originalMaxTokens, 10))
 	}
 	if tier := strings.TrimSpace(anthropicReq.ServiceTier); tier != "" {
 		chatReq.ServiceTier = &tier
@@ -282,7 +363,7 @@ func (i *MessagesInbound) TransformRequest(ctx context.Context, body []byte) (*m
 					if len(pendingGeminiThoughtSignatures) > 0 {
 						toolCall.ThoughtSignature = pendingGeminiThoughtSignatures[0]
 						pendingGeminiThoughtSignatures = pendingGeminiThoughtSignatures[1:]
-					} else if sig := compat.RestoreGeminiThoughtSignature(toolCall.ID, toolCall.Function.Name); sig != "" {
+					} else if sig := compat.RestoreGeminiThoughtSignatureScoped(i.geminiSignatureScope(ctx, chatReq.Model), toolCall.ID, toolCall.Function.Name); sig != "" {
 						toolCall.ThoughtSignature = sig
 					}
 					chatMsg.ToolCalls = append(chatMsg.ToolCalls, toolCall)
@@ -357,7 +438,11 @@ func (i *MessagesInbound) TransformRequest(ctx context.Context, body []byte) (*m
 			}
 
 			if reasoningSignature != "" {
-				chatMsg.ReasoningSignature = &reasoningSignature
+				chatMsg.SetOpaqueReasoningSignature(model.OpaqueSignature{
+					Provider: model.SignatureProviderAnthropic,
+					Kind:     model.OpaqueSignatureKindAnthropicThinking,
+					Value:    reasoningSignature,
+				})
 			}
 		}
 
@@ -569,14 +654,14 @@ func (i *MessagesInbound) TransformResponse(ctx context.Context, response *model
 				for _, rb := range message.ReasoningBlocks {
 					switch rb.Kind {
 					case model.ReasoningBlockKindThinking:
-						block := MessageContentBlock{Type: "thinking"}
-						if rb.Text != "" {
-							t := rb.Text
-							block.Thinking = &t
+						signature := reasoningBlockSignatureForProvider(rb, model.SignatureProviderAnthropic, model.OpaqueSignatureKindAnthropicThinking)
+						if rb.Text == "" && signature == "" {
+							continue
 						}
-						if rb.Signature != "" {
-							s := rb.Signature
-							block.Signature = &s
+						thinking := rb.Text
+						block := MessageContentBlock{Type: "thinking", Thinking: &thinking}
+						if signature != "" {
+							block.Signature = &signature
 						}
 						contentBlocks = append(contentBlocks, block)
 					case model.ReasoningBlockKindRedacted:
@@ -587,9 +672,15 @@ func (i *MessagesInbound) TransformResponse(ctx context.Context, response *model
 							})
 						}
 					case model.ReasoningBlockKindSignature:
-						if rb.Provider == "gemini" && rb.Signature != "" {
+						if signature := reasoningBlockSignatureForProvider(rb, model.SignatureProviderAnthropic, model.OpaqueSignatureKindAnthropicThinking); signature != "" {
+							for index := len(contentBlocks) - 1; index >= 0; index-- {
+								if contentBlocks[index].Type == "thinking" && contentBlocks[index].Signature == nil {
+									contentBlocks[index].Signature = &signature
+									break
+								}
+							}
+						} else if signature := geminiToolCallShimSignature(rb); signature != "" {
 							thinking := ""
-							signature := rb.Signature
 							contentBlocks = append(contentBlocks, MessageContentBlock{
 								Type:      "thinking",
 								Thinking:  &thinking,
@@ -605,8 +696,8 @@ func (i *MessagesInbound) TransformResponse(ctx context.Context, response *model
 						Type:     "thinking",
 						Thinking: message.ReasoningContent,
 					}
-					if message.ReasoningSignature != nil && *message.ReasoningSignature != "" {
-						thinkingBlock.Signature = message.ReasoningSignature
+					if signature := messageReasoningSignatureForProvider(message, model.SignatureProviderAnthropic, model.OpaqueSignatureKindAnthropicThinking); signature != "" {
+						thinkingBlock.Signature = &signature
 					}
 					// No fallback magic string — if signature is absent (non-Anthropic upstream),
 					// Signature remains nil and is omitted via omitempty.
@@ -688,8 +779,8 @@ func (i *MessagesInbound) TransformResponse(ctx context.Context, response *model
 						Name:  &toolCall.Function.Name,
 						Input: input,
 					}
-					if sig := strings.TrimSpace(toolCall.GetGeminiExtensions().ThoughtSignature); sig != "" {
-						compat.SaveGeminiThoughtSignature(toolCall.ID, toolCall.Function.Name, sig)
+					if sig := toolCall.GetGeminiExtensions().ThoughtSignature; strings.TrimSpace(sig) != "" {
+						compat.SaveGeminiThoughtSignatureScoped(i.geminiSignatureScope(ctx, response.Model), toolCall.ID, toolCall.Function.Name, sig)
 						if emittedSignatureShims >= len(message.ToolCalls) {
 							contentBlocks = append(contentBlocks, block)
 							continue
@@ -831,6 +922,7 @@ func (i *MessagesInbound) TransformStream(ctx context.Context, stream *model.Int
 	// Process the current chunk
 	if len(stream.Choices) > 0 {
 		choice := stream.Choices[0]
+		wireReasoningSignature := ""
 
 		if choice.Delta != nil && len(choice.Delta.ReasoningBlocks) > 0 {
 			for _, rb := range choice.Delta.ReasoningBlocks {
@@ -839,12 +931,14 @@ func (i *MessagesInbound) TransformStream(ctx context.Context, stream *model.Int
 					if rb.Text != "" {
 						choice.Delta.ReasoningContent = &rb.Text
 					}
-					if rb.Signature != "" {
-						choice.Delta.ReasoningSignature = &rb.Signature
+					if signature := reasoningBlockSignatureForProvider(rb, model.SignatureProviderAnthropic, model.OpaqueSignatureKindAnthropicThinking); signature != "" {
+						wireReasoningSignature = signature
 					}
 				case model.ReasoningBlockKindSignature:
-					if rb.Provider == "gemini" && rb.Signature != "" {
-						choice.Delta.ReasoningSignature = &rb.Signature
+					if signature := reasoningBlockSignatureForProvider(rb, model.SignatureProviderAnthropic, model.OpaqueSignatureKindAnthropicThinking); signature != "" {
+						wireReasoningSignature = signature
+					} else if signature := geminiToolCallShimSignature(rb); signature != "" {
+						wireReasoningSignature = signature
 					}
 				case model.ReasoningBlockKindRedacted:
 					if rb.Data != "" {
@@ -852,6 +946,9 @@ func (i *MessagesInbound) TransformStream(ctx context.Context, stream *model.Int
 					}
 				}
 			}
+		}
+		if wireReasoningSignature == "" {
+			wireReasoningSignature = messageReasoningSignatureForProvider(choice.Delta, model.SignatureProviderAnthropic, model.OpaqueSignatureKindAnthropicThinking)
 		}
 
 		// Handle reasoning content (thinking) delta
@@ -910,7 +1007,7 @@ func (i *MessagesInbound) TransformStream(ctx context.Context, stream *model.Int
 		}
 
 		// Add signature delta if signature is available
-		if choice.Delta != nil && choice.Delta.ReasoningSignature != nil && *choice.Delta.ReasoningSignature != "" {
+		if wireReasoningSignature != "" {
 			if !i.hasThinkingContentStarted {
 				i.hasThinkingContentStarted = true
 				startEvent := StreamEvent{
@@ -933,7 +1030,7 @@ func (i *MessagesInbound) TransformStream(ctx context.Context, stream *model.Int
 				Index: &i.contentIndex,
 				Delta: &StreamDelta{
 					Type:      lo.ToPtr("signature_delta"),
-					Signature: choice.Delta.ReasoningSignature,
+					Signature: &wireReasoningSignature,
 				},
 			}
 			data, err := json.Marshal(sigEvent)
@@ -1134,8 +1231,8 @@ func (i *MessagesInbound) TransformStream(ctx context.Context, stream *model.Int
 						Name:  &deltaToolCall.Function.Name,
 						Input: json.RawMessage("{}"),
 					}
-					if sig := strings.TrimSpace(deltaToolCall.GetGeminiExtensions().ThoughtSignature); sig != "" {
-						compat.SaveGeminiThoughtSignature(deltaToolCall.ID, deltaToolCall.Function.Name, sig)
+					if sig := deltaToolCall.GetGeminiExtensions().ThoughtSignature; strings.TrimSpace(sig) != "" {
+						compat.SaveGeminiThoughtSignatureScoped(i.geminiSignatureScope(ctx, i.modelName), deltaToolCall.ID, deltaToolCall.Function.Name, sig)
 					}
 					startEvent := StreamEvent{
 						Type:         "content_block_start",
@@ -1342,8 +1439,8 @@ func (i *MessagesInbound) TransformStreamEvents(ctx context.Context, events []mo
 		i.toolCallIndices[toolCall.Index] = true
 		i.hasToolContentStarted = true
 		startBlock := &MessageContentBlock{Type: "tool_use", ID: toolCall.ID, Name: &toolCall.Function.Name, Input: json.RawMessage("{}")}
-		if sig := strings.TrimSpace(toolCall.GetGeminiExtensions().ThoughtSignature); sig != "" {
-			compat.SaveGeminiThoughtSignature(toolCall.ID, toolCall.Function.Name, sig)
+		if sig := toolCall.GetGeminiExtensions().ThoughtSignature; strings.TrimSpace(sig) != "" {
+			compat.SaveGeminiThoughtSignatureScoped(i.geminiSignatureScope(ctx, i.modelName), toolCall.ID, toolCall.Function.Name, sig)
 		}
 		startEvent := StreamEvent{Type: "content_block_start", Index: &i.contentIndex, ContentBlock: startBlock}
 		data, err := json.Marshal(startEvent)
@@ -1402,11 +1499,10 @@ func (i *MessagesInbound) TransformStreamEvents(ctx context.Context, events []mo
 				}
 				out = append(out, formatSSEEvent("content_block_delta", data))
 			}
-			if event.Delta.Signature != "" {
+			if signature := anthropicWireStreamSignature(event.Delta); signature != "" {
 				if err := startThinking(); err != nil {
 					return nil, err
 				}
-				signature := event.Delta.Signature
 				deltaEvent := StreamEvent{Type: "content_block_delta", Index: &i.contentIndex, Delta: &StreamDelta{Type: lo.ToPtr("signature_delta"), Signature: &signature}}
 				data, err := json.Marshal(deltaEvent)
 				if err != nil {
@@ -1418,13 +1514,16 @@ func (i *MessagesInbound) TransformStreamEvents(ctx context.Context, events []mo
 			if err := ensureStarted(event); err != nil {
 				return nil, err
 			}
-			if event.Delta == nil || event.Delta.Signature == "" {
+			if event.Delta == nil {
+				continue
+			}
+			signature := anthropicWireStreamSignature(event.Delta)
+			if signature == "" {
 				continue
 			}
 			if err := startThinking(); err != nil {
 				return nil, err
 			}
-			signature := event.Delta.Signature
 			deltaEvent := StreamEvent{Type: "content_block_delta", Index: &i.contentIndex, Delta: &StreamDelta{Type: lo.ToPtr("signature_delta"), Signature: &signature}}
 			data, err := json.Marshal(deltaEvent)
 			if err != nil {

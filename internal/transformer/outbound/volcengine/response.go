@@ -109,9 +109,13 @@ type Thinking struct {
 type ResponsesInput struct {
 	Text  *string
 	Items []ResponsesItem
+	Raw   json.RawMessage
 }
 
 func (i ResponsesInput) MarshalJSON() ([]byte, error) {
+	if len(i.Raw) > 0 {
+		return json.Marshal(json.RawMessage(i.Raw))
+	}
 	if i.Text != nil {
 		return json.Marshal(i.Text)
 	}
@@ -138,6 +142,9 @@ type ResponsesItem struct {
 }
 
 func convertToResponsesInput(input openai.ResponsesInput) ResponsesInput {
+	if len(input.Raw) > 0 {
+		return ResponsesInput{Raw: markLastAssistantPartial(input.Raw)}
+	}
 	result := ResponsesInput{Items: make([]ResponsesItem, 0, len(input.Items))}
 	if input.Text != nil {
 		result.Text = input.Text
@@ -156,4 +163,23 @@ func convertToResponsesInput(input openai.ResponsesInput) ResponsesInput {
 		result.Items[idx].Partial = true
 	}
 	return result
+}
+
+func markLastAssistantPartial(raw json.RawMessage) json.RawMessage {
+	result := append(json.RawMessage(nil), raw...)
+	var items []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil || len(items) == 0 {
+		return result
+	}
+	last := items[len(items)-1]
+	var role string
+	if err := json.Unmarshal(last["role"], &role); err != nil || role != "assistant" {
+		return result
+	}
+	last["partial"] = json.RawMessage("true")
+	encoded, err := json.Marshal(items)
+	if err != nil {
+		return result
+	}
+	return encoded
 }

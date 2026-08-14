@@ -344,6 +344,9 @@ func bestEffortWarmupUpstreamWS(
 	}
 
 	var lastErr error
+	var lastCapabilityErr error
+	var sawSupportedCapability bool
+	capabilityPolicy := getCapabilityDegradationPolicy()
 	for iter.Next() {
 		item := iter.Item()
 
@@ -352,10 +355,19 @@ func bestEffortWarmupUpstreamWS(
 			lastErr = err
 			continue
 		}
-		if !channel.Enabled || channel.Type != outbound.OutboundTypeOpenAIResponse {
+		if !channel.Enabled {
 			continue
 		}
 
+		decision := outbound.PlanRelayOperation(channel.Type, outbound.RelayOperationResponsesWebSocket)
+		logRelayCapability(channel, item.ModelName, decision, capabilityPolicy)
+		if reject, _ := evaluateCapabilityPolicy(decision, capabilityPolicy); reject {
+			message := capabilityRejectionMessage(decision, channel.Type.String())
+			iter.SkipWithCapability(channel.ID, 0, channel.Name, message, capabilityTrace(decision, capabilityPolicy, channel.Type.String()))
+			lastCapabilityErr = fmt.Errorf("capability rejected: %s", message)
+			continue
+		}
+		sawSupportedCapability = true
 		selectOpts := dbmodel.ChannelKeySelectOptions{
 			ExcludeKeyIDs:  make(map[int]struct{}),
 			PreferredKeyID: iter.StickyKeyID(),
@@ -384,6 +396,9 @@ func bestEffortWarmupUpstreamWS(
 
 	if lastErr != nil {
 		return lastErr
+	}
+	if !sawSupportedCapability && lastCapabilityErr != nil {
+		return lastCapabilityErr
 	}
 	return fmt.Errorf("no ws-capable channel available for warmup")
 }
@@ -434,7 +449,7 @@ func newWSRelayRequest(
 	}
 
 	iter := balancer.NewIteratorWithPreferenceAndQuality(group, apiKeyID, requestModel, preferredSticky, func(item dbmodel.GroupItem) int {
-		return relayItemCapabilityRank(ctx, executionRequest, rawBody, item)
+		return relayItemCapabilityRank(ctx, executionRequest, rawBody, true, item)
 	})
 	if iter.Len() == 0 {
 		return nil, nil, fmt.Errorf("no available channel")
@@ -479,10 +494,15 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group, em
 			maxSameChannelRetries = 3
 		}
 	}
+	capabilityPolicy := getCapabilityDegradationPolicy()
+	req.capabilityPolicy = capabilityPolicy
 
 	var lastErr error
 	var lastResult attemptResult
 	var lastAttempt *relayRequest
+	var capabilityErr error
+	var capabilityResult attemptResult
+	var sawSupportedCapability bool
 	maxChannelAttempts := req.iter.Len()
 	if replayExact && maxChannelAttempts > 3 {
 		maxChannelAttempts = 3
@@ -526,29 +546,20 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group, em
 		}
 
 		decision := planRelayCapability(req, channel, candidateAdapter, item.ModelName)
-		logRelayCapability(channel, item.ModelName, decision, getCapabilityDegradationPolicy())
-		if decision.Rejected() {
-			message := decision.Summary()
-			req.iter.SkipWithCapability(channel.ID, 0, channel.Name, message, string(decision.Status), decision.ConversionPath, decision.RequiredFeatures, decision.DegradedFields, decision.Lossiness, decision.Reasons)
-			lastErr = fmt.Errorf("capability rejected: %s", message)
-			lastResult = attemptResult{
-				Err:           lastErr,
+		logRelayCapability(channel, item.ModelName, decision, capabilityPolicy)
+		if reject, errorCode := evaluateCapabilityPolicy(decision, capabilityPolicy); reject {
+			message := capabilityRejectionMessage(decision, channel.Type.String())
+			req.iter.SkipWithCapability(channel.ID, 0, channel.Name, message, capabilityTrace(decision, capabilityPolicy, channel.Type.String()))
+			candidateErr := fmt.Errorf("capability rejected: %s", message)
+			candidateResult := attemptResult{
+				Err:           candidateErr,
 				StatusCode:    http.StatusBadRequest,
-				ProtocolError: relayProtocolError(http.StatusBadRequest, CodeRelayModelNotSupported, message),
+				ProtocolError: relayProtocolError(http.StatusBadRequest, errorCode, message),
 			}
+			capabilityErr, capabilityResult = preferCapabilityRejection(capabilityErr, capabilityResult, candidateErr, candidateResult)
 			continue
 		}
-		if decision.Status == outbound.CapabilityDegraded && getCapabilityDegradationPolicy() == capabilityPolicyStrict {
-			message := decision.Summary()
-			req.iter.SkipWithCapability(channel.ID, 0, channel.Name, message, string(decision.Status), decision.ConversionPath, decision.RequiredFeatures, decision.DegradedFields, decision.Lossiness, decision.Reasons)
-			lastErr = fmt.Errorf("capability degradation rejected: %s", message)
-			lastResult = attemptResult{
-				Err:           lastErr,
-				StatusCode:    http.StatusBadRequest,
-				ProtocolError: relayProtocolError(http.StatusBadRequest, CodeRelayCapabilityRejected, message),
-			}
-			continue
-		}
+		sawSupportedCapability = true
 
 		selectOpts := dbmodel.ChannelKeySelectOptions{
 			ExcludeKeyIDs:  make(map[int]struct{}),
@@ -648,12 +659,22 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group, em
 		lastResult = result
 	}
 
+	lastErr, lastResult = resolveFinalAttemptResult(
+		sawSupportedCapability,
+		lastErr,
+		lastResult,
+		capabilityErr,
+		capabilityResult,
+	)
+	if lastResult.StatusCode == http.StatusBadRequest && lastResult.ProtocolError != nil {
+		code := lastResult.ProtocolError.Detail.Code
+		if code == CodeRelayModelNotSupported || code == CodeRelayCapabilityRejected {
+			publicErr := wsPublicError{Status: http.StatusBadRequest, Code: code, Message: lastResult.ProtocolError.Detail.Message}
+			return wsRelayResult{Err: lastErr, PublicError: &publicErr, Attempt: lastAttempt}
+		}
+	}
 	if publicErr, ok := classifyWSPublicError(lastErr, lastResult.StatusCode); ok {
 		return wsRelayResult{ResetConversation: publicErr.ResetConversation, Err: lastErr, PublicError: &publicErr, Attempt: lastAttempt}
-	}
-	if lastResult.StatusCode == http.StatusBadRequest && lastResult.ProtocolError != nil {
-		publicErr := wsPublicError{Status: http.StatusBadRequest, Code: CodeRelayModelNotSupported, Message: lastResult.ProtocolError.Detail.Message}
-		return wsRelayResult{Err: lastErr, PublicError: &publicErr, Attempt: lastAttempt}
 	}
 	return wsRelayResult{Err: lastErr, Attempt: lastAttempt}
 }

@@ -49,6 +49,23 @@ func TestConvertToResponsesRequestForwardsVerbosity(t *testing.T) {
 	}
 }
 
+func TestConvertToResponsesRequestMapsLegacyMaxTokens(t *testing.T) {
+	legacyMaxTokens := int64(128)
+	request := &model.InternalLLMRequest{Model: "gpt-5", MaxTokens: &legacyMaxTokens}
+
+	converted := ConvertToResponsesRequest(request)
+	if converted.MaxOutputTokens == nil || *converted.MaxOutputTokens != legacyMaxTokens {
+		t.Fatalf("max_output_tokens = %v, want %d", converted.MaxOutputTokens, legacyMaxTokens)
+	}
+
+	maxCompletionTokens := int64(256)
+	request.MaxCompletionTokens = &maxCompletionTokens
+	converted = ConvertToResponsesRequest(request)
+	if converted.MaxOutputTokens == nil || *converted.MaxOutputTokens != maxCompletionTokens {
+		t.Fatalf("max_output_tokens = %v, want max_completion_tokens value %d", converted.MaxOutputTokens, maxCompletionTokens)
+	}
+}
+
 func TestConvertToResponsesRequestPreservesRawInputItems(t *testing.T) {
 	req := &model.InternalLLMRequest{
 		Model: "gpt-4o",
@@ -84,6 +101,30 @@ func TestConvertToResponsesRequestPreservesRawInputItems(t *testing.T) {
 	}
 	if payload.Input[0]["text"] == "normalized" {
 		t.Fatalf("expected raw input items to take precedence over normalized messages")
+	}
+}
+
+func TestConvertToResponsesRequestPreservesRawNativeTools(t *testing.T) {
+	request := &model.InternalLLMRequest{Model: "gpt-5"}
+	request.SetOpenAIResponsesOptions(model.OpenAIResponsesOptions{
+		RawTools: json.RawMessage(`[{"type":"web_search","search_context_size":"high","native_config":{"keep":true}}]`),
+	})
+
+	body, err := json.Marshal(ConvertToResponsesRequest(request))
+	if err != nil {
+		t.Fatalf("marshal Responses request: %v", err)
+	}
+	var payload struct {
+		Tools []map[string]any `json:"tools"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("decode Responses request: %v", err)
+	}
+	if len(payload.Tools) != 1 || payload.Tools[0]["type"] != "web_search" || payload.Tools[0]["search_context_size"] != "high" {
+		t.Fatalf("raw native tool was not preserved: %#v", payload.Tools)
+	}
+	if _, ok := payload.Tools[0]["native_config"]; !ok {
+		t.Fatalf("raw native tool extension was dropped: %#v", payload.Tools[0])
 	}
 }
 

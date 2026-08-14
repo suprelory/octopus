@@ -251,6 +251,48 @@ func TestConvertGeminiResponseFallsBackToSafeToolCallIDWhenMissing(t *testing.T)
 	}
 }
 
+func TestGeminiFallbackToolCallIDIsConversationScoped(t *testing.T) {
+	functionCall := &model.GeminiFunctionCall{Name: "lookup"}
+	first := geminiFunctionCallID(functionCall, 0, "resp_a", "signature-a")
+	second := geminiFunctionCallID(functionCall, 0, "resp_b", "signature-b")
+
+	if first == second {
+		t.Fatalf("fallback IDs collided across responses: %q", first)
+	}
+	for _, id := range []string{first, second} {
+		if strings.ContainsAny(id, ":/+=") || len(id) > 64 {
+			t.Fatalf("fallback ID is not Anthropic-safe: %q", id)
+		}
+	}
+}
+
+func TestConvertGeminiResponseMarksSignatureProvenance(t *testing.T) {
+	response := &model.GeminiGenerateContentResponse{
+		ResponseId: "resp_provenance",
+		Candidates: []*model.GeminiCandidate{{
+			Content: &model.GeminiContent{Parts: []*model.GeminiPart{{
+				FunctionCall:     &model.GeminiFunctionCall{Name: "lookup"},
+				ThoughtSignature: "opaque-signature",
+			}}},
+		}},
+	}
+
+	converted := convertGeminiToLLMResponse(response, false, nil)
+	if len(converted.Choices) != 1 || converted.Choices[0].Message == nil {
+		t.Fatalf("missing converted message: %#v", converted)
+	}
+	blocks := converted.Choices[0].Message.ReasoningBlocks
+	if len(blocks) != 1 || blocks[0].SignatureSource == nil {
+		t.Fatalf("missing Gemini signature provenance: %#v", blocks)
+	}
+	if !blocks[0].SignatureSource.ValidForKind(model.SignatureProviderGemini, model.OpaqueSignatureKindGeminiThought) {
+		t.Fatalf("invalid Gemini signature provenance: %#v", blocks[0].SignatureSource)
+	}
+	if blocks[0].SignatureSource.ToolCallScope == nil || blocks[0].SignatureSource.ToolCallScope.Name != "lookup" {
+		t.Fatalf("missing Gemini tool-call scope: %#v", blocks[0].SignatureSource)
+	}
+}
+
 func TestDecodeGeminiToolResponseAcceptsScalarJSON(t *testing.T) {
 	decoded, ok := decodeGeminiToolResponse(`true`)
 	if !ok {

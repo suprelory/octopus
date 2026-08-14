@@ -163,7 +163,7 @@ func (o *MessagesOutbound) TransformStreamEvent(ctx context.Context, eventData [
 				if part.Thought {
 					if part.Text != "" || part.ThoughtSignature != "" {
 						o.nextReasoningIndex(candidate.Index)
-						events = append(events, model.StreamEvent{Kind: model.StreamEventKindThinkingDelta, ID: base.ID, Model: base.Model, Index: base.Index, Delta: &model.StreamDelta{Thinking: part.Text, Signature: part.ThoughtSignature, ProviderExtensions: geminiThoughtSignatureProviderExtension(part.ThoughtSignature)}})
+						events = append(events, model.StreamEvent{Kind: model.StreamEventKindThinkingDelta, ID: base.ID, Model: base.Model, Index: base.Index, Delta: &model.StreamDelta{Thinking: part.Text, Signature: part.ThoughtSignature, SignatureSource: geminiOpaqueSignature(part.ThoughtSignature, "", ""), ProviderExtensions: geminiThoughtSignatureProviderExtension(part.ThoughtSignature)}})
 					}
 					continue
 				}
@@ -171,7 +171,7 @@ func (o *MessagesOutbound) TransformStreamEvent(ctx context.Context, eventData [
 					events = append(events, model.StreamEvent{Kind: model.StreamEventKindTextDelta, ID: base.ID, Model: base.Model, Index: base.Index, Delta: &model.StreamDelta{Text: part.Text}})
 					if part.ThoughtSignature != "" {
 						o.nextReasoningIndex(candidate.Index)
-						events = append(events, model.StreamEvent{Kind: model.StreamEventKindSignatureDelta, ID: base.ID, Model: base.Model, Index: base.Index, Delta: &model.StreamDelta{Signature: part.ThoughtSignature, ProviderExtensions: geminiThoughtSignatureProviderExtension(part.ThoughtSignature)}})
+						events = append(events, model.StreamEvent{Kind: model.StreamEventKindSignatureDelta, ID: base.ID, Model: base.Model, Index: base.Index, Delta: &model.StreamDelta{Signature: part.ThoughtSignature, SignatureSource: geminiOpaqueSignature(part.ThoughtSignature, "", ""), ProviderExtensions: geminiThoughtSignatureProviderExtension(part.ThoughtSignature)}})
 					}
 				}
 				if part.FunctionCall != nil {
@@ -179,7 +179,7 @@ func (o *MessagesOutbound) TransformStreamEvent(ctx context.Context, eventData [
 					argsJSON, _ := json.Marshal(part.FunctionCall.Args)
 					toolCall := model.ToolCall{
 						Index: toolIndex,
-						ID:    geminiFunctionCallID(part.FunctionCall, toolIndex),
+						ID:    geminiFunctionCallID(part.FunctionCall, toolIndex, base.ID, part.ThoughtSignature),
 						Type:  "function",
 						Function: model.FunctionCall{
 							Name: part.FunctionCall.Name,
@@ -189,7 +189,7 @@ func (o *MessagesOutbound) TransformStreamEvent(ctx context.Context, eventData [
 					}
 					if part.ThoughtSignature != "" {
 						o.nextReasoningIndex(candidate.Index)
-						events = append(events, model.StreamEvent{Kind: model.StreamEventKindSignatureDelta, ID: base.ID, Model: base.Model, Index: base.Index, Delta: &model.StreamDelta{Signature: part.ThoughtSignature, ProviderExtensions: geminiThoughtSignatureProviderExtension(part.ThoughtSignature)}})
+						events = append(events, model.StreamEvent{Kind: model.StreamEventKindSignatureDelta, ID: base.ID, Model: base.Model, Index: base.Index, Delta: &model.StreamDelta{Signature: part.ThoughtSignature, SignatureSource: geminiOpaqueSignature(part.ThoughtSignature, toolCall.ID, toolCall.Function.Name), ProviderExtensions: geminiThoughtSignatureProviderExtension(part.ThoughtSignature)}})
 					}
 					events = append(events, model.StreamEvent{Kind: model.StreamEventKindToolCallStart, ID: base.ID, Model: base.Model, Index: base.Index, ToolCall: &toolCall})
 					toolDelta := toolCall
@@ -225,18 +225,50 @@ func geminiThoughtSignatureProviderExtension(signature string) *model.ProviderEx
 	return &model.ProviderExtensions{Gemini: &model.GeminiExtension{ThoughtSignature: signature}}
 }
 
-func geminiFunctionCallID(functionCall *model.GeminiFunctionCall, index int) string {
+func geminiOpaqueSignature(signature, toolCallID, toolCallName string) *model.OpaqueSignature {
+	if strings.TrimSpace(signature) == "" {
+		return nil
+	}
+	result := &model.OpaqueSignature{
+		Provider: model.SignatureProviderGemini,
+		Kind:     model.OpaqueSignatureKindGeminiThought,
+		Value:    signature,
+	}
+	if toolCallID != "" || toolCallName != "" {
+		result.ToolCallScope = &model.SignatureToolCallScope{ID: toolCallID, Name: toolCallName}
+	}
+	return result
+}
+
+func geminiReasoningBlock(kind model.ReasoningBlockKind, index int, text, signature, toolCallID, toolCallName string) model.ReasoningBlock {
+	block := model.ReasoningBlock{
+		Kind:     kind,
+		Index:    index,
+		Text:     text,
+		Provider: string(model.SignatureProviderGemini),
+	}
+	if source := geminiOpaqueSignature(signature, toolCallID, toolCallName); source != nil {
+		block.SetOpaqueSignature(*source)
+	}
+	return block
+}
+
+func geminiFunctionCallID(functionCall *model.GeminiFunctionCall, index int, discriminator ...string) string {
 	if functionCall != nil {
 		if id := strings.TrimSpace(functionCall.ID); id != "" {
 			return id
 		}
-		return anthropicSafeFallbackToolCallID(functionCall.Name, index)
+		return anthropicSafeFallbackToolCallID(functionCall.Name, index, discriminator...)
 	}
-	return anthropicSafeFallbackToolCallID("", index)
+	return anthropicSafeFallbackToolCallID("", index, discriminator...)
 }
 
-func anthropicSafeFallbackToolCallID(functionName string, index int) string {
+func anthropicSafeFallbackToolCallID(functionName string, index int, discriminator ...string) string {
 	raw := fmt.Sprintf("call_%s_%d", functionName, index)
+	if joined := strings.Join(discriminator, "\x00"); joined != "" {
+		sum := sha256.Sum256([]byte(joined))
+		raw += "_" + hex.EncodeToString(sum[:6])
+	}
 	var b strings.Builder
 	b.Grow(len(raw))
 	for _, r := range raw {
@@ -337,6 +369,12 @@ func canonicalGeminiModality(m string) string {
 	default:
 		return ""
 	}
+}
+
+// SupportsResponseModality reports whether a client output modality can be
+// represented by Gemini's responseModalities field.
+func SupportsResponseModality(m string) bool {
+	return canonicalGeminiModality(m) != ""
 }
 
 // geminiInlineDataMaxBytes is the decoded-size ceiling Gemini enforces
@@ -479,12 +517,11 @@ func audioTypeToMimeType(format string) string {
 func collectGeminiSignatures(blocks []model.ReasoningBlock) []string {
 	out := make([]string, 0, len(blocks))
 	for _, b := range blocks {
-		if b.Signature == "" {
-			continue
-		}
 		switch b.Kind {
 		case model.ReasoningBlockKindSignature:
-			out = append(out, b.Signature)
+			if signature, ok := geminiReasoningSignature(b); ok {
+				out = append(out, signature.Value)
+			}
 		}
 	}
 	return out
@@ -496,17 +533,21 @@ func collectGeminiSignatures(blocks []model.ReasoningBlock) []string {
 func collectGeminiSignaturesByToolCallID(blocks []model.ReasoningBlock) map[string]string {
 	out := make(map[string]string, len(blocks))
 	for _, b := range blocks {
-		if b.Kind != model.ReasoningBlockKindSignature || b.Signature == "" {
+		if b.Kind != model.ReasoningBlockKindSignature {
 			continue
 		}
-		id := strings.TrimSpace(b.ToolCallID)
+		signature, ok := geminiReasoningSignature(b)
+		if !ok || signature.ToolCallScope == nil {
+			continue
+		}
+		id := strings.TrimSpace(signature.ToolCallScope.ID)
 		if id == "" {
 			continue
 		}
 		if _, exists := out[id]; exists {
 			continue
 		}
-		out[id] = b.Signature
+		out[id] = signature.Value
 	}
 	return out
 }
@@ -518,20 +559,21 @@ func collectGeminiSignaturesByToolCallID(blocks []model.ReasoningBlock) map[stri
 func collectGeminiSignaturesByName(blocks []model.ReasoningBlock) map[string]string {
 	out := make(map[string]string, len(blocks))
 	for _, b := range blocks {
-		if b.Kind != model.ReasoningBlockKindSignature || b.Signature == "" {
+		if b.Kind != model.ReasoningBlockKindSignature {
 			continue
 		}
-		if strings.TrimSpace(b.ToolCallID) != "" {
+		signature, ok := geminiReasoningSignature(b)
+		if !ok || signature.ToolCallScope == nil || strings.TrimSpace(signature.ToolCallScope.ID) != "" {
 			continue
 		}
-		name := strings.TrimSpace(b.ToolCallName)
+		name := strings.TrimSpace(signature.ToolCallScope.Name)
 		if name == "" {
 			continue
 		}
 		if _, exists := out[name]; exists {
 			continue
 		}
-		out[name] = b.Signature
+		out[name] = signature.Value
 	}
 	return out
 }
@@ -539,13 +581,17 @@ func collectGeminiSignaturesByName(blocks []model.ReasoningBlock) map[string]str
 func collectGeminiLooseSignatures(blocks []model.ReasoningBlock) []string {
 	out := make([]string, 0, len(blocks))
 	for _, b := range blocks {
-		if b.Kind != model.ReasoningBlockKindSignature || b.Signature == "" {
+		if b.Kind != model.ReasoningBlockKindSignature {
 			continue
 		}
-		if strings.TrimSpace(b.ToolCallID) != "" || strings.TrimSpace(b.ToolCallName) != "" {
+		signature, ok := geminiReasoningSignature(b)
+		if !ok {
 			continue
 		}
-		out = append(out, b.Signature)
+		if signature.ToolCallScope != nil && (strings.TrimSpace(signature.ToolCallScope.ID) != "" || strings.TrimSpace(signature.ToolCallScope.Name) != "") {
+			continue
+		}
+		out = append(out, signature.Value)
 	}
 	return out
 }
@@ -560,12 +606,29 @@ func buildGeminiThoughtParts(blocks []model.ReasoningBlock) []*model.GeminiPart 
 		if b.Text != "" {
 			part.Text = b.Text
 		}
-		if b.Signature != "" {
-			part.ThoughtSignature = b.Signature
+		if signature, ok := geminiReasoningSignature(b); ok {
+			part.ThoughtSignature = signature.Value
 		}
 		parts = append(parts, part)
 	}
 	return parts
+}
+
+func geminiReasoningSignature(block model.ReasoningBlock) (model.OpaqueSignature, bool) {
+	signature, ok := block.OpaqueSignature()
+	if !ok {
+		return model.OpaqueSignature{}, false
+	}
+	if block.SignatureSource == nil && strings.TrimSpace(block.Provider) == "" {
+		signature.Provider = model.SignatureProviderGemini
+		signature.Kind = model.OpaqueSignatureKindGeminiThought
+	}
+	if strings.TrimSpace(signature.Value) == "" ||
+		signature.Provider != model.SignatureProviderGemini ||
+		signature.Kind != model.OpaqueSignatureKindGeminiThought {
+		return model.OpaqueSignature{}, false
+	}
+	return signature, true
 }
 
 // nextGeminiSignature pops the next signature string, advancing the caller-managed cursor.
@@ -747,7 +810,10 @@ func convertLLMToGeminiRequest(request *model.InternalLLMRequest) *model.GeminiG
 					}
 
 					ext := toolCall.GetGeminiExtensions()
-					sig := strings.TrimSpace(ext.ThoughtSignature)
+					sig := ext.ThoughtSignature
+					if strings.TrimSpace(sig) == "" {
+						sig = ""
+					}
 					if sig == "" {
 						// Prefer the strongest anchor first: explicit tool-call ID,
 						// then function name, then legacy ordinal fallback.
@@ -1390,13 +1456,14 @@ func convertGeminiToLLMResponse(geminiResp *model.GeminiGenerateContentResponse,
 					// Thought Parts in Gemini 3 may carry a thoughtSignature that must be
 					// replayed verbatim on the next turn.
 					if part.Text != "" || part.ThoughtSignature != "" {
-						reasoningBlocks = append(reasoningBlocks, model.ReasoningBlock{
-							Kind:      model.ReasoningBlockKindThinking,
-							Index:     assignIndex(),
-							Text:      part.Text,
-							Signature: part.ThoughtSignature,
-							Provider:  "gemini",
-						})
+						reasoningBlocks = append(reasoningBlocks, geminiReasoningBlock(
+							model.ReasoningBlockKindThinking,
+							assignIndex(),
+							part.Text,
+							part.ThoughtSignature,
+							"",
+							"",
+						))
 					}
 				} else if part.Text != "" {
 					textParts = append(textParts, part.Text)
@@ -1407,12 +1474,14 @@ func convertGeminiToLLMResponse(geminiResp *model.GeminiGenerateContentResponse,
 						Text: &text,
 					})
 					if part.ThoughtSignature != "" {
-						reasoningBlocks = append(reasoningBlocks, model.ReasoningBlock{
-							Kind:      model.ReasoningBlockKindSignature,
-							Index:     assignIndex(),
-							Signature: part.ThoughtSignature,
-							Provider:  "gemini",
-						})
+						reasoningBlocks = append(reasoningBlocks, geminiReasoningBlock(
+							model.ReasoningBlockKindSignature,
+							assignIndex(),
+							"",
+							part.ThoughtSignature,
+							"",
+							"",
+						))
 					}
 				}
 				// Handle inline data (images, audio, etc.)
@@ -1429,7 +1498,7 @@ func convertGeminiToLLMResponse(geminiResp *model.GeminiGenerateContentResponse,
 				}
 				if part.FunctionCall != nil {
 					argsJSON, _ := json.Marshal(part.FunctionCall.Args)
-					toolCallID := geminiFunctionCallID(part.FunctionCall, idx)
+					toolCallID := geminiFunctionCallID(part.FunctionCall, idx, geminiResp.ResponseId, part.ThoughtSignature)
 					toolCall := model.ToolCall{
 						Index: idx,
 						ID:    toolCallID,
@@ -1448,14 +1517,14 @@ func convertGeminiToLLMResponse(geminiResp *model.GeminiGenerateContentResponse,
 						// name (G-H7) instead of relying on ordinal position —
 						// multi-tool turns otherwise swap signatures and Gemini
 						// rejects the request with 400.
-						reasoningBlocks = append(reasoningBlocks, model.ReasoningBlock{
-							Kind:         model.ReasoningBlockKindSignature,
-							Index:        assignIndex(),
-							Signature:    part.ThoughtSignature,
-							Provider:     "gemini",
-							ToolCallID:   toolCallID,
-							ToolCallName: part.FunctionCall.Name,
-						})
+						reasoningBlocks = append(reasoningBlocks, geminiReasoningBlock(
+							model.ReasoningBlockKindSignature,
+							assignIndex(),
+							"",
+							part.ThoughtSignature,
+							toolCallID,
+							part.FunctionCall.Name,
+						))
 					}
 				}
 
