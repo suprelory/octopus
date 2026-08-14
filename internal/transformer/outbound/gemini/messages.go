@@ -265,9 +265,13 @@ func geminiFunctionCallID(functionCall *model.GeminiFunctionCall, index int, dis
 
 func anthropicSafeFallbackToolCallID(functionName string, index int, discriminator ...string) string {
 	raw := fmt.Sprintf("call_%s_%d", functionName, index)
-	if joined := strings.Join(discriminator, "\x00"); joined != "" {
-		sum := sha256.Sum256([]byte(joined))
-		raw += "_" + hex.EncodeToString(sum[:6])
+	for _, value := range discriminator {
+		if value != "" {
+			joined := strings.Join(discriminator, "\x00")
+			sum := sha256.Sum256([]byte(joined))
+			raw += "_" + hex.EncodeToString(sum[:6])
+			break
+		}
 	}
 	var b strings.Builder
 	b.Grow(len(raw))

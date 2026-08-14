@@ -1,6 +1,7 @@
 {
   "input": "Hello",
   "instructions": "Be concise.",
+  "max_output_tokens": 64,
   "model": "upstream-model",
   "stream": false,
   "temperature": 0.3

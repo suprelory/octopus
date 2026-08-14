@@ -182,10 +182,14 @@ func TestTransformStreamEventAssignsMonotonicToolIndexesAcrossChunks(t *testing.
 
 	first := firstToolStart(t, eventsFor("Read"))
 	second := firstToolStart(t, eventsFor("Read"))
-	if first.Index != 0 || first.ID != "call_Read_0" {
+	if first.Index != 0 || !strings.HasPrefix(first.ID, "call_Read_0_") {
 		t.Fatalf("unexpected first tool call: %+v", first)
 	}
-	if second.Index != 1 || second.ID != "call_Read_1" {
+	scopeSuffix := strings.TrimPrefix(first.ID, "call_Read_0_")
+	if scopeSuffix == "" {
+		t.Fatalf("first tool call ID is missing its response scope: %q", first.ID)
+	}
+	if second.Index != 1 || second.ID != "call_Read_1_"+scopeSuffix {
 		t.Fatalf("expected second chunk to use a fresh tool index/id, got %+v", second)
 	}
 }

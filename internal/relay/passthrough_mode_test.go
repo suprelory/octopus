@@ -32,7 +32,10 @@ func TestShouldUseHTTPPassthroughHonorsChannelMode(t *testing.T) {
 }
 
 func TestShouldUseHTTPPassthroughKeepsResponsesNativeOnlySafety(t *testing.T) {
-	request := &transformerModel.InternalLLMRequest{RawAPIFormat: transformerModel.APIFormatOpenAIResponse}
+	request := &transformerModel.InternalLLMRequest{
+		RequestType:  transformerModel.RequestTypeResponses,
+		RawAPIFormat: transformerModel.APIFormatOpenAIResponse,
+	}
 	request.MarkOpenAIResponsesPassthroughRequired("tool:custom")
 	attempt := &relayAttempt{
 		relayRequest: &relayRequest{rawBody: []byte(`{"model":"m"}`), internalRequest: request},
@@ -46,7 +49,10 @@ func TestShouldUseHTTPPassthroughKeepsResponsesNativeOnlySafety(t *testing.T) {
 }
 
 func TestPlanRelayPassthroughMatchesResponsesExecutionGuards(t *testing.T) {
-	request := &transformerModel.InternalLLMRequest{RawAPIFormat: transformerModel.APIFormatOpenAIResponse}
+	request := &transformerModel.InternalLLMRequest{
+		RequestType:  transformerModel.RequestTypeResponses,
+		RawAPIFormat: transformerModel.APIFormatOpenAIResponse,
+	}
 	request.SetOpenAIResponsesOptions(transformerModel.OpenAIResponsesOptions{
 		RawTools: json.RawMessage(`[{"type":"custom","name":"shell"}]`),
 	})
@@ -72,7 +78,10 @@ func TestPlanRelayPassthroughMatchesResponsesExecutionGuards(t *testing.T) {
 }
 
 func TestPlanRelayPassthroughRejectsNativeOnlyWSTransform(t *testing.T) {
-	request := &transformerModel.InternalLLMRequest{RawAPIFormat: transformerModel.APIFormatOpenAIResponse}
+	request := &transformerModel.InternalLLMRequest{
+		RequestType:  transformerModel.RequestTypeResponses,
+		RawAPIFormat: transformerModel.APIFormatOpenAIResponse,
+	}
 	request.MarkOpenAIResponsesPassthroughRequired("tool:custom")
 	channel := &dbmodel.Channel{
 		Type:   outbound.OutboundTypeOpenAIResponse,
@@ -98,6 +107,7 @@ func TestPlanRelayPassthroughKeepsWSContinuationOnPassthroughTransport(t *testin
 
 	previousResponseID := "resp_previous"
 	request := &transformerModel.InternalLLMRequest{
+		RequestType:        transformerModel.RequestTypeResponses,
 		RawAPIFormat:       transformerModel.APIFormatOpenAIResponse,
 		PreviousResponseID: &previousResponseID,
 	}
