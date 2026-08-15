@@ -23,13 +23,22 @@ type ParamOverrideOperation struct {
 // operation-array form. Invalid override syntax is ignored for compatibility;
 // valid operations return an error when they cannot be applied safely.
 func ApplyParamOverride(request *http.Request, paramOverride *string) error {
+	_, _, err := ApplyParamOverrideWithPayload(request, paramOverride)
+	return err
+}
+
+// ApplyParamOverrideWithPayload applies the configured override and returns the
+// request payload already read while doing so. captured is false when no
+// override work was needed and the request body was left untouched. The
+// returned payload also backs request.Body and must be treated as read-only.
+func ApplyParamOverrideWithPayload(request *http.Request, paramOverride *string) (payload []byte, captured bool, err error) {
 	if request == nil || request.Body == nil || paramOverride == nil || strings.TrimSpace(*paramOverride) == "" {
-		return nil
+		return nil, false, nil
 	}
 
 	body, err := io.ReadAll(request.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read request body: %w", err)
+		return nil, false, fmt.Errorf("failed to read request body: %w", err)
 	}
 	restoreBody := func(payload []byte) {
 		request.Body = io.NopCloser(bytes.NewReader(payload))
@@ -42,42 +51,42 @@ func ApplyParamOverride(request *http.Request, paramOverride *string) error {
 	var operations []ParamOverrideOperation
 	if len(raw) > 0 && raw[0] == '[' {
 		if err := json.Unmarshal(raw, &operations); err != nil {
-			return nil
+			return body, true, nil
 		}
 		var document any
 		if err := json.Unmarshal(body, &document); err != nil {
-			return nil
+			return body, true, nil
 		}
 		for _, operation := range operations {
 			if err := applyParamOperation(&document, operation); err != nil {
-				return err
+				return body, true, err
 			}
 		}
 		modified, err := json.Marshal(document)
 		if err != nil {
-			return fmt.Errorf("failed to marshal request body with param operations: %w", err)
+			return body, true, fmt.Errorf("failed to marshal request body with param operations: %w", err)
 		}
 		restoreBody(modified)
-		return nil
+		return modified, true, nil
 	}
 
 	var override map[string]any
 	if err := json.Unmarshal(raw, &override); err != nil {
-		return nil
+		return body, true, nil
 	}
 	var bodyMap map[string]any
 	if err := json.Unmarshal(body, &bodyMap); err != nil {
-		return nil
+		return body, true, nil
 	}
 	for key, value := range override {
 		bodyMap[key] = value
 	}
 	modified, err := json.Marshal(bodyMap)
 	if err != nil {
-		return fmt.Errorf("failed to marshal request body with param override: %w", err)
+		return body, true, fmt.Errorf("failed to marshal request body with param override: %w", err)
 	}
 	restoreBody(modified)
-	return nil
+	return modified, true, nil
 }
 
 func applyParamOperation(document *any, operation ParamOverrideOperation) error {

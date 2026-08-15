@@ -66,7 +66,7 @@ func (m *RelayMetrics) SetTransportRequestPayload(payload []byte, modelName stri
 	if len(payload) == 0 {
 		return
 	}
-	count := tokenizer.CountTokens(string(payload), modelName)
+	count := tokenizer.CountTokensBytes(payload, modelName)
 	m.TransportInputTokens = intPtr(count)
 }
 

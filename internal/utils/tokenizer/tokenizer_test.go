@@ -27,18 +27,34 @@ func TestCountTokensBasic(t *testing.T) {
 	}
 }
 
+func TestCountTokensBytesMatchesString(t *testing.T) {
+	tests := []string{
+		"",
+		"hello world",
+		"你好，世界",
+		`{"model":"gpt-4o-mini","input":"hello world"}`,
+		string([]byte{0xff, 'a', 0xfe}),
+	}
+	for _, content := range tests {
+		if got, want := CountTokensBytes([]byte(content), "test"), CountTokens(content, "test"); got != want {
+			t.Fatalf("CountTokensBytes(%q) = %d, want %d", content, got, want)
+		}
+	}
+}
+
 // CountTokens 现在共享一个包级 codec（regexp2.Regexp 并发安全），
 // 用 -race 验证多 goroutine 调用无数据竞争。
 func TestCountTokensConcurrent(t *testing.T) {
 	text := strings.Repeat("Analyze the following system prompt and tool definitions. ", 20)
+	payload := []byte(text)
 	var wg sync.WaitGroup
 	for i := 0; i < 16; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 50; j++ {
-				if CountTokens(text, "test") <= 0 {
-					t.Error("CountTokens returned non-positive count for non-empty text")
+				if CountTokens(text, "test") <= 0 || CountTokensBytes(payload, "test") <= 0 {
+					t.Error("token counter returned non-positive count for non-empty text")
 					return
 				}
 			}

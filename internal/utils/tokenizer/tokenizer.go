@@ -1,6 +1,9 @@
 package tokenizer
 
 import (
+	"runtime"
+	"unsafe"
+
 	"github.com/tiktoken-go/tokenizer/codec"
 )
 
@@ -14,6 +17,23 @@ import (
 var enc = codec.NewO200kBase()
 
 func CountTokens(content, model string) int {
+	return countTokens(content, model)
+}
+
+// CountTokensBytes counts a read-only payload without allocating a temporary
+// string copy. codec.Count consumes the string synchronously and does not retain
+// it; callers must not mutate content concurrently with this call.
+func CountTokensBytes(content []byte, model string) int {
+	if len(content) == 0 {
+		return 0
+	}
+	view := unsafe.String(unsafe.SliceData(content), len(content))
+	count := countTokens(view, model)
+	runtime.KeepAlive(content)
+	return count
+}
+
+func countTokens(content, model string) int {
 	// TODO 更多模型
 	tc, err := enc.Count(content)
 	if err != nil {

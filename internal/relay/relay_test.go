@@ -1001,7 +1001,7 @@ func TestRelayMetricsCapturesOpenAICompatibleInputBreakdown(t *testing.T) {
 		},
 	}, "gpt-4o-mini")
 
-	if metrics.TransportInputTokens == nil || *metrics.TransportInputTokens != tokenizer.CountTokens(string(payload), "gpt-4o-mini") {
+	if metrics.TransportInputTokens == nil || *metrics.TransportInputTokens != tokenizer.CountTokensBytes(payload, "gpt-4o-mini") {
 		t.Fatalf("expected transport input tokens to be estimated from payload, got %#v", metrics.TransportInputTokens)
 	}
 	if metrics.BillInputTokens == nil || *metrics.BillInputTokens != 300 {
