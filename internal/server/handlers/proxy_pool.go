@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/bestruirui/octopus/internal/client"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/server/middleware"
@@ -86,10 +87,20 @@ func updateProxyConfiguration(c *gin.Context) {
 		resp.InvalidJSON(c)
 		return
 	}
+	existing, err := op.ProxyConfigurationGet(req.ID, c.Request.Context())
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
 	item, err := op.ProxyConfigurationUpdate(&req, c.Request.Context())
 	if err != nil {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
+	}
+	// Drop the cached client for a URL that is no longer configured so its
+	// idle connections close instead of lingering on the old proxy.
+	if existing != nil && existing.URL != item.URL {
+		client.InvalidateProxyClient(existing.URL)
 	}
 	resp.Success(c, item)
 }
@@ -100,10 +111,16 @@ func deleteProxyConfiguration(c *gin.Context) {
 		resp.InvalidParam(c)
 		return
 	}
+	existing, err := op.ProxyConfigurationGet(idNum, c.Request.Context())
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err := op.ProxyConfigurationDelete(idNum, c.Request.Context()); err != nil {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	client.InvalidateProxyClient(existing.URL)
 	resp.Success(c, nil)
 }
 
