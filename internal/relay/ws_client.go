@@ -449,27 +449,29 @@ func newWSRelayRequest(
 		return nil, nil, fmt.Errorf("model not found")
 	}
 
+	capabilityPlanner := newRelayCapabilityPlanner(executionRequest, rawBody, true)
 	iter := balancer.NewIteratorWithPreferenceAndQuality(group, apiKeyID, requestModel, preferredSticky, func(item dbmodel.GroupItem) int {
-		return relayItemCapabilityRank(ctx, executionRequest, rawBody, true, item)
+		return capabilityPlanner.rank(ctx, item)
 	})
 	if iter.Len() == 0 {
 		return nil, nil, fmt.Errorf("no available channel")
 	}
 
 	return &relayRequest{
-		c:               nil,
-		ctx:             ctx,
-		inAdapter:       inAdapter,
-		inboundType:     inbound.InboundTypeOpenAIResponse,
-		internalRequest: executionRequest,
-		metrics:         NewRelayMetrics(apiKeyID, requestModel, "responses", clientIP, rawBody, metricsRequest),
-		apiKeyID:        apiKeyID,
-		requestModel:    requestModel,
-		groupID:         group.ID,
-		groupSessionTTL: group.SessionKeepTime,
-		iter:            iter,
-		rawBody:         rawBody,
-		streamWriter:    NewWSStreamWriter(ctx, conn),
+		c:                 nil,
+		ctx:               ctx,
+		inAdapter:         inAdapter,
+		inboundType:       inbound.InboundTypeOpenAIResponse,
+		internalRequest:   executionRequest,
+		metrics:           NewRelayMetrics(apiKeyID, requestModel, "responses", clientIP, rawBody, metricsRequest),
+		apiKeyID:          apiKeyID,
+		requestModel:      requestModel,
+		groupID:           group.ID,
+		groupSessionTTL:   group.SessionKeepTime,
+		iter:              iter,
+		capabilityPlanner: capabilityPlanner,
+		rawBody:           rawBody,
+		streamWriter:      NewWSStreamWriter(ctx, conn),
 	}, &group, nil
 }
 

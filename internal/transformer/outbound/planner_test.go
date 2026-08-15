@@ -2,11 +2,51 @@ package outbound
 
 import (
 	"encoding/json"
+	"reflect"
 	"slices"
 	"testing"
 
 	"github.com/bestruirui/octopus/internal/transformer/model"
 )
+
+func TestPlanRequestForModelMatchesLegacyPlannerWithoutMutatingRequest(t *testing.T) {
+	request := &model.InternalLLMRequest{
+		RequestType:     model.RequestTypeChat,
+		RawAPIFormat:    model.APIFormatOpenAIChatCompletion,
+		Model:           "request-model",
+		ReasoningEffort: "medium",
+	}
+	before := request.Clone()
+
+	legacy := PlanRequest(request, OutboundTypeGemini, false)
+	parameterized := PlanRequestForModel(request, request.Model, OutboundTypeGemini, false)
+	if !reflect.DeepEqual(parameterized, legacy) {
+		t.Fatalf("parameterized planner differs from legacy planner:\nlegacy=%#v\nparameterized=%#v", legacy, parameterized)
+	}
+
+	for _, test := range []struct {
+		name         string
+		model        string
+		outboundType OutboundType
+	}{
+		{name: "gemini family", model: "gemini-3-pro", outboundType: OutboundTypeGemini},
+		{name: "volcengine reasoning", model: "doubao-seed-1-8-251228", outboundType: OutboundTypeVolcengine},
+		{name: "volcengine unsupported reasoning", model: "unsupported-doubao", outboundType: OutboundTypeVolcengine},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			modelOverridden := request.Clone()
+			modelOverridden.Model = test.model
+			want := PlanRequest(modelOverridden, test.outboundType, false)
+			got := PlanRequestForModel(request, test.model, test.outboundType, false)
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("parameterized planner differs from cloned request:\nwant=%#v\ngot=%#v", want, got)
+			}
+		})
+	}
+	if !reflect.DeepEqual(request, before) {
+		t.Fatalf("parameterized planner mutated the canonical request: before=%#v after=%#v", before, request)
+	}
+}
 
 func TestPlanRequestCoversRequestedSemantics(t *testing.T) {
 	stream := true

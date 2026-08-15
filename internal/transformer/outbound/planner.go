@@ -211,7 +211,22 @@ func (d CapabilityDecision) Summary() string {
 // selected or request bytes are sent upstream. Model-family capability remains
 // the provider's responsibility; this planner covers transformations Octopus
 // itself can prove to be native, lossy, or impossible.
+//
+// The legacy entry point plans against req.Model. Callers that route one
+// canonical request to multiple upstream model names should use
+// PlanRequestForModel so they do not need to deep-copy the request merely to
+// replace that one field.
 func PlanRequest(req *model.InternalLLMRequest, outboundType OutboundType, passthrough bool) CapabilityDecision {
+	if req == nil {
+		return PlanRequestForModel(nil, "", outboundType, passthrough)
+	}
+	return PlanRequestForModel(req, req.Model, outboundType, passthrough)
+}
+
+// PlanRequestForModel is the model-parameterized form of PlanRequest. The
+// planner treats req as read-only; effectiveModel is used for the small set of
+// provider-family checks whose result depends on the selected upstream model.
+func PlanRequestForModel(req *model.InternalLLMRequest, effectiveModel string, outboundType OutboundType, passthrough bool) CapabilityDecision {
 	decision := CapabilityDecision{Status: CapabilitySupported, Lossiness: "none"}
 	if req == nil {
 		return rejectDecision(decision, "request is nil")
@@ -244,7 +259,7 @@ func PlanRequest(req *model.InternalLLMRequest, outboundType OutboundType, passt
 	}
 
 	for _, feature := range decision.RequiredFeatures {
-		evaluateFeature(req, outboundType, SemanticFeature(feature), &decision)
+		evaluateFeature(req, effectiveModel, outboundType, SemanticFeature(feature), &decision)
 	}
 	evaluateAdapterFieldLosses(req, outboundType, &decision)
 	evaluateProviderSpecificSemantics(req, outboundType, &decision)
@@ -554,7 +569,7 @@ func requestedFeatures(req *model.InternalLLMRequest) []string {
 	return features
 }
 
-func evaluateFeature(req *model.InternalLLMRequest, outboundType OutboundType, feature SemanticFeature, decision *CapabilityDecision) {
+func evaluateFeature(req *model.InternalLLMRequest, effectiveModel string, outboundType OutboundType, feature SemanticFeature, decision *CapabilityDecision) {
 	switch feature {
 	case FeatureStructuredOutput:
 		switch outboundType {
@@ -582,7 +597,7 @@ func evaluateFeature(req *model.InternalLLMRequest, outboundType OutboundType, f
 	case FeatureReasoning:
 		evaluateReasoning(req, outboundType, decision)
 		if outboundType == OutboundTypeGemini {
-			for _, change := range geminiOutbound.DescribeThinkingConfigChanges(req.Model, req.ReasoningBudget, req.ReasoningEffort, req.AdaptiveThinking) {
+			for _, change := range geminiOutbound.DescribeThinkingConfigChanges(effectiveModel, req.ReasoningBudget, req.ReasoningEffort, req.AdaptiveThinking) {
 				action := LossActionRepair
 				if change.Dropped {
 					action = LossActionDrop
@@ -593,7 +608,7 @@ func evaluateFeature(req *model.InternalLLMRequest, outboundType OutboundType, f
 			}
 		}
 		if outboundType == OutboundTypeVolcengine {
-			if _, ok := supportedVolcengineReasoningModels[req.Model]; !ok {
+			if _, ok := supportedVolcengineReasoningModels[effectiveModel]; !ok {
 				degrade(decision, "reasoning", "Volcengine endpoint drops reasoning configuration for this model")
 			}
 		}

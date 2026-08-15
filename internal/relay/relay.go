@@ -133,8 +133,9 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 		}
 	}
 	capabilityPolicy := getCapabilityDegradationPolicy()
+	capabilityPlanner := newRelayCapabilityPlanner(internalRequest, rawBody, false)
 	iter := balancer.NewIteratorWithPreferenceAndQuality(group, apiKeyID, requestModel, preferredSticky, func(item dbmodel.GroupItem) int {
-		return relayItemCapabilityRank(c.Request.Context(), internalRequest, rawBody, false, item)
+		return capabilityPlanner.rank(c.Request.Context(), item)
 	})
 	if iter.Len() == 0 {
 		writeInboundProtocolError(c, nil, inAdapter, relayProtocolError(http.StatusServiceUnavailable, CodeRelayNoAvailableChannel, "no available channel"))
@@ -159,19 +160,20 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 	}
 	// 请求级上下文
 	req := &relayRequest{
-		c:                c,
-		inAdapter:        inAdapter,
-		inboundType:      inboundType,
-		internalRequest:  internalRequest,
-		metrics:          metrics,
-		apiKeyID:         apiKeyID,
-		requestModel:     requestModel,
-		groupID:          group.ID,
-		groupSessionTTL:  group.SessionKeepTime,
-		iter:             iter,
-		capabilityPolicy: capabilityPolicy,
-		rawBody:          rawBody,
-		heartbeat:        hb,
+		c:                 c,
+		inAdapter:         inAdapter,
+		inboundType:       inboundType,
+		internalRequest:   internalRequest,
+		metrics:           metrics,
+		apiKeyID:          apiKeyID,
+		requestModel:      requestModel,
+		groupID:           group.ID,
+		groupSessionTTL:   group.SessionKeepTime,
+		iter:              iter,
+		capabilityPolicy:  capabilityPolicy,
+		capabilityPlanner: capabilityPlanner,
+		rawBody:           rawBody,
+		heartbeat:         hb,
 	}
 
 	var lastErr error
@@ -442,17 +444,14 @@ func newAttemptInboundAdapter(inboundType inbound.InboundType, seed *model.Inter
 
 func planRelayCapability(req *relayRequest, channel *dbmodel.Channel, adapter model.Outbound, modelName string) outbound.CapabilityDecision {
 	if req == nil || req.internalRequest == nil {
-		return outbound.PlanRequest(nil, outbound.OutboundType(0), false)
+		return outbound.PlanRequestForModel(nil, "", outbound.OutboundType(0), false)
 	}
-	plannedRequest := req.internalRequest.Clone()
-	if strings.TrimSpace(modelName) != "" {
-		plannedRequest.Model = modelName
+	if req.capabilityPlanner == nil {
+		// Direct/unit callers may construct relayRequest themselves. Lazily
+		// attach the same request-scoped cache used by the main handlers.
+		req.capabilityPlanner = newRelayCapabilityPlanner(req.internalRequest, req.rawBody, req.c == nil)
 	}
-	if channel == nil {
-		return outbound.PlanRequest(plannedRequest, outbound.OutboundType(-1), false)
-	}
-	passthrough := planRelayPassthrough(plannedRequest, req.rawBody, channel, adapter, req.c == nil)
-	return outbound.PlanRequest(plannedRequest, channel.Type, passthrough)
+	return req.capabilityPlanner.plan(channel, adapter, modelName)
 }
 
 func planRelayPassthrough(request *model.InternalLLMRequest, rawBody []byte, channel *dbmodel.Channel, adapter model.Outbound, websocketIngress bool) bool {
@@ -519,21 +518,12 @@ func capabilityRank(decision outbound.CapabilityDecision) int {
 	return 1
 }
 
+// relayItemCapabilityRank remains a stateless compatibility helper for callers
+// that do not own a relayRequest. Main HTTP/WS handlers use a shared
+// relayCapabilityPlanner so ranking and execution reuse the same decision.
 func relayItemCapabilityRank(ctx context.Context, request *model.InternalLLMRequest, rawBody []byte, websocketIngress bool, item dbmodel.GroupItem) int {
-	channel, err := op.ChannelGet(item.ChannelID, ctx)
-	if err != nil || channel == nil || !channel.Enabled {
-		return 3
-	}
-	adapter := outbound.Get(channel.Type)
-	if adapter == nil || request == nil {
-		return 3
-	}
-	planned := request.Clone()
-	if strings.TrimSpace(item.ModelName) != "" {
-		planned.Model = item.ModelName
-	}
-	passthrough := planRelayPassthrough(planned, rawBody, channel, adapter, websocketIngress)
-	return capabilityRank(outbound.PlanRequest(planned, channel.Type, passthrough))
+	planner := newRelayCapabilityPlanner(request, rawBody, websocketIngress)
+	return planner.rank(ctx, item)
 }
 
 func logRelayCapability(channel *dbmodel.Channel, modelName string, decision outbound.CapabilityDecision, policy capabilityDegradationPolicy) {

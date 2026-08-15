@@ -99,6 +99,8 @@ type relayRequest struct {
 	groupSessionTTL  int
 	iter             *balancer.Iterator
 	capabilityPolicy capabilityDegradationPolicy
+	// Shared by iterator ranking and final candidate evaluation for this request.
+	capabilityPlanner *relayCapabilityPlanner
 
 	// rawBody 保存客户端原始请求 body，用于同格式（如 Anthropic→Anthropic）直通转发时
 	// 绕过内部模型来回转换，以保证 beta 字段、内容块顺序、thinking 签名等完全透传。
@@ -136,21 +138,22 @@ func newAttemptRelayRequest(base *relayRequest, ctx context.Context, modelName s
 	}
 
 	return &relayRequest{
-		c:                base.c,
-		ctx:              ctx,
-		inAdapter:        inAdapter,
-		inboundType:      base.inboundType,
-		internalRequest:  internalRequest,
-		metrics:          base.metrics,
-		apiKeyID:         base.apiKeyID,
-		requestModel:     base.requestModel,
-		groupID:          base.groupID,
-		groupSessionTTL:  base.groupSessionTTL,
-		iter:             base.iter,
-		capabilityPolicy: base.capabilityPolicy,
-		rawBody:          base.rawBody,
-		streamWriter:     base.streamWriter,
-		heartbeat:        base.heartbeat,
+		c:                 base.c,
+		ctx:               ctx,
+		inAdapter:         inAdapter,
+		inboundType:       base.inboundType,
+		internalRequest:   internalRequest,
+		metrics:           base.metrics,
+		apiKeyID:          base.apiKeyID,
+		requestModel:      base.requestModel,
+		groupID:           base.groupID,
+		groupSessionTTL:   base.groupSessionTTL,
+		iter:              base.iter,
+		capabilityPolicy:  base.capabilityPolicy,
+		capabilityPlanner: base.capabilityPlanner,
+		rawBody:           base.rawBody,
+		streamWriter:      base.streamWriter,
+		heartbeat:         base.heartbeat,
 	}, nil
 }
 
