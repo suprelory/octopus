@@ -105,3 +105,45 @@ func TestTruncationRoundTripStream(t *testing.T) {
 		t.Fatalf("expected truncation=disabled to be echoed in a stream event; events=%v", eventTypes(events))
 	}
 }
+
+// TestSeedRequestStateRestoresTruncation verifies that a retry attempt's
+// fresh adapter echoes the client's truncation strategy after being seeded
+// from the canonical request, without re-parsing the raw body.
+func TestSeedRequestStateRestoresTruncation(t *testing.T) {
+	parsed := &ResponseInbound{}
+	req := ResponsesRequest{
+		Model:      "gpt-4o",
+		Input:      ResponsesInput{Text: lo.ToPtr("hi")},
+		Truncation: lo.ToPtr("disabled"),
+	}
+	body, _ := json.Marshal(req)
+	internal, err := parsed.TransformRequest(context.Background(), body)
+	if err != nil {
+		t.Fatalf("TransformRequest error: %v", err)
+	}
+
+	seeded := &ResponseInbound{}
+	seeded.SeedRequestState(internal)
+
+	internalResp := &model.InternalLLMResponse{
+		ID:     "resp_1",
+		Model:  "gpt-4o",
+		Object: "chat.completion",
+		Choices: []model.Choice{{
+			Index:        0,
+			Message:      &model.Message{Role: "assistant", Content: model.MessageContent{Content: lo.ToPtr("done")}},
+			FinishReason: lo.ToPtr("stop"),
+		}},
+	}
+	out, err := seeded.TransformResponse(context.Background(), internalResp)
+	if err != nil {
+		t.Fatalf("TransformResponse error: %v", err)
+	}
+	var got ResponsesResponse
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Truncation == nil || *got.Truncation != "disabled" {
+		t.Fatalf("seeded response Truncation = %v, want disabled", got.Truncation)
+	}
+}

@@ -424,15 +424,18 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 	writeInboundProtocolError(c, hb, errorAdapter, protocolErrorFromError(http.StatusBadGateway, lastErr))
 }
 
-func newAttemptInboundAdapter(inboundType inbound.InboundType, ctx context.Context, rawBody []byte) (model.Inbound, error) {
+// newAttemptInboundAdapter builds the fresh inbound adapter owned by one
+// upstream attempt. Response-side state must stay isolated per attempt, but
+// request-derived state is seeded from the canonical parsed request instead
+// of re-running TransformRequest (JSON parse, protocol conversion, and
+// token counting) on the unchanged body for every retry.
+func newAttemptInboundAdapter(inboundType inbound.InboundType, seed *model.InternalLLMRequest) (model.Inbound, error) {
 	adapter := inbound.Get(inboundType)
 	if adapter == nil {
 		return nil, fmt.Errorf("unsupported inbound type: %d", inboundType)
 	}
-	if len(rawBody) > 0 {
-		if _, err := adapter.TransformRequest(ctx, rawBody); err != nil {
-			return nil, fmt.Errorf("failed to initialize inbound adapter: %w", err)
-		}
+	if seedable, ok := adapter.(model.RequestStateSeedable); ok {
+		seedable.SeedRequestState(seed)
 	}
 	return adapter, nil
 }

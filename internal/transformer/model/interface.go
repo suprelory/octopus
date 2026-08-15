@@ -115,3 +115,17 @@ type PassthroughConfig struct {
 	// (Anthropic), false for protocols with different metrics semantics (OpenAI Responses).
 	CollectMetrics bool
 }
+
+// RequestStateSeedable is an optional capability for Inbound transformers
+// that derive internal state from the parsed request. Relay creates a fresh
+// inbound adapter per upstream attempt for response-state isolation; instead
+// of re-running TransformRequest (JSON parse + protocol conversion + token
+// counting) on the unchanged body, the relay seeds the new adapter directly
+// from the canonical InternalLLMRequest. Implementations must reproduce
+// exactly the adapter state TransformRequest would have produced.
+type RequestStateSeedable interface {
+	// SeedRequestState initializes request-derived adapter state from the
+	// original client request. The request carries the client's original
+	// model name, not the channel-mapped one.
+	SeedRequestState(request *InternalLLMRequest)
+}

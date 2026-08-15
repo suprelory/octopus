@@ -546,7 +546,19 @@ func (i *MessagesInbound) TransformRequest(ctx context.Context, body []byte) (*m
 	if err := chatReq.NormalizeOperation(); err != nil {
 		return nil, err
 	}
+	chatReq.EstimatedInputTokens = i.inputToken
 	return chatReq, nil
+}
+
+// SeedRequestState re-initializes the request-derived state that
+// TransformRequest would have produced, so a retry attempt can reuse the
+// already-parsed request instead of re-parsing and re-counting the body.
+func (i *MessagesInbound) SeedRequestState(request *model.InternalLLMRequest) {
+	if i == nil || request == nil {
+		return
+	}
+	i.requestModel = strings.TrimSpace(request.Model)
+	i.inputToken = request.EstimatedInputTokens
 }
 
 // convertToolChoiceFromAnthropic converts the wire-level Anthropic

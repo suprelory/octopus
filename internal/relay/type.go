@@ -127,7 +127,10 @@ func newAttemptRelayRequest(base *relayRequest, ctx context.Context, modelName s
 
 	internalRequest := base.internalRequest.Clone()
 	internalRequest.Model = modelName
-	inAdapter, err := newAttemptInboundAdapter(base.inboundType, ctx, base.rawBody)
+	// Seed request-derived adapter state from the ORIGINAL request: it must
+	// carry the client's model name, not the channel-mapped one written to
+	// the attempt clone above.
+	inAdapter, err := newAttemptInboundAdapter(base.inboundType, base.internalRequest)
 	if err != nil {
 		return nil, err
 	}

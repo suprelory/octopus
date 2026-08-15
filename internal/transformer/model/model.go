@@ -397,6 +397,13 @@ type InternalLLMRequest struct {
 	// canonical field types or serializing runtime metadata upstream.
 	Presence map[string]FieldPresence `json:"-"`
 
+	// EstimatedInputTokens is the input token count the inbound transformer
+	// computed while parsing the client request (system blocks, messages,
+	// content blocks, tool schemas). Runtime-only help field: it is not sent
+	// upstream, but lets retry attempts re-seed inbound adapter state without
+	// re-parsing (and re-counting) the unchanged request body.
+	EstimatedInputTokens int64 `json:"-"`
+
 	// Query stores the original query parameters from the inbound request.
 	// This is a help field and will not be sent to the llm service.
 	Query url.Values `json:"-"`

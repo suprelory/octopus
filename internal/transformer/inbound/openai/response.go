@@ -109,6 +109,17 @@ func (i *ResponseInbound) TransformRequest(ctx context.Context, body []byte) (*m
 	return internalRequest, nil
 }
 
+// SeedRequestState restores the request-derived truncation strategy that
+// TransformRequest captured from the client body, so retry attempts echo the
+// same value in response.created / response.completed (O-H5) without
+// re-parsing the body.
+func (i *ResponseInbound) SeedRequestState(request *model.InternalLLMRequest) {
+	if i == nil || request == nil {
+		return
+	}
+	i.truncation = request.Truncation
+}
+
 func (i *ResponseInbound) TransformResponse(ctx context.Context, response *model.InternalLLMResponse) ([]byte, error) {
 	if response == nil {
 		return nil, fmt.Errorf("response is nil")

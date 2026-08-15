@@ -3,6 +3,7 @@ package anthropic
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -878,5 +879,67 @@ func TestTransformRequestRecordsMaxTokensRepair(t *testing.T) {
 	}
 	if got := req.TransformerMetadataValue(model.TransformerMetadataAnthropicMaxTokensRepairFrom); got != "0" {
 		t.Fatalf("repair provenance = %q, want 0", got)
+	}
+}
+
+// TestSeedRequestStateMatchesParseResult verifies that seeding a fresh
+// adapter from the canonical request reproduces exactly the request-derived
+// state TransformRequest produced, so retry attempts need neither the raw
+// body nor a re-parse.
+func TestSeedRequestStateMatchesParseResult(t *testing.T) {
+	parsed := &MessagesInbound{}
+	body := []byte(`{
+		"model":"claude-opus-4",
+		"max_tokens":16,
+		"system":[{"type":"text","text":"You are helpful."}],
+		"messages":[
+			{"role":"user","content":"hello"},
+			{"role":"assistant","content":[{"type":"text","text":"hi there"}]}
+		],
+		"tools":[{"name":"lookup","description":"look things up","input_schema":{"type":"object"}}]
+	}`)
+	req, err := parsed.TransformRequest(context.Background(), body)
+	if err != nil {
+		t.Fatalf("TransformRequest() error = %v", err)
+	}
+	if req.EstimatedInputTokens != parsed.inputToken {
+		t.Fatalf("EstimatedInputTokens = %d, want adapter inputToken %d", req.EstimatedInputTokens, parsed.inputToken)
+	}
+	if parsed.inputToken == 0 {
+		t.Fatal("expected a non-zero token estimate for a non-trivial request")
+	}
+
+	seeded := &MessagesInbound{}
+	seeded.SeedRequestState(req)
+	if seeded.requestModel != parsed.requestModel {
+		t.Fatalf("seeded requestModel = %q, want %q", seeded.requestModel, parsed.requestModel)
+	}
+	if seeded.inputToken != parsed.inputToken {
+		t.Fatalf("seeded inputToken = %d, want %d", seeded.inputToken, parsed.inputToken)
+	}
+
+	// The seeded adapter must synthesize the same message_start usage the
+	// parsed adapter would.
+	events := []model.StreamEvent{
+		{Kind: model.StreamEventKindMessageStart, ID: "msg_1", Model: "claude-opus-4", Role: "assistant"},
+		{Kind: model.StreamEventKindMessageStop, ID: "msg_1", Model: "claude-opus-4", StopReason: model.FinishReasonStop},
+	}
+	out, err := seeded.TransformStreamEvents(context.Background(), events)
+	if err != nil {
+		t.Fatalf("TransformStreamEvents() error = %v", err)
+	}
+	want := `"input_tokens":` + strconv.FormatInt(seeded.inputToken, 10)
+	if !strings.Contains(string(out), want) {
+		t.Fatalf("expected %q in message_start SSE, got %s", want, out)
+	}
+}
+
+// TestSeedRequestStateNilGuards keeps the optional-interface contract safe
+// for zero-value callers.
+func TestSeedRequestStateNilGuards(t *testing.T) {
+	seeded := &MessagesInbound{}
+	seeded.SeedRequestState(nil)
+	if seeded.requestModel != "" || seeded.inputToken != 0 {
+		t.Fatalf("nil seed mutated state: requestModel=%q inputToken=%d", seeded.requestModel, seeded.inputToken)
 	}
 }
