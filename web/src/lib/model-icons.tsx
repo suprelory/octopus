@@ -39,9 +39,10 @@ import {
     Gemma,
     Microsoft,
     KwaiKAT,
+    ModelIcon as GenericModelAvatar,
 } from '@lobehub/icons';
 
-type AvatarComponent = typeof OpenAI.Avatar;
+type AvatarComponent = typeof OpenAI.Avatar | typeof GenericModelAvatar;
 
 export type ModelIcon = {
     Avatar: AvatarComponent;
@@ -74,7 +75,7 @@ const MODEL_ICON_PATTERNS: ModelIconConfig[] = [
     // Alibaba - Qwen series
     { prefixes: ['qwen', 'qwq', 'alibaba'], Avatar: Qwen.Avatar, color: '#6B4EFF' },
     // Zhipu - GLM series
-    { prefixes: ['glm', 'chatglm', 'zhipu', 'z-ai'], Avatar: Zhipu.Avatar, color: '#3C5BFC' },
+    { prefixes: ['glm', 'chatglm', 'zhipu', 'z-ai', 'zai-'], Avatar: Zhipu.Avatar, color: '#3C5BFC' },
     // MiniMax series
     { prefixes: ['minimax', 'abab'], Avatar: Minimax.Avatar, color: '#1A1A2E' },
     // Moonshot/Kimi series
@@ -123,7 +124,7 @@ const MODEL_ICON_PATTERNS: ModelIconConfig[] = [
 ];
 
 // Default configuration
-const DEFAULT_CONFIG = { Avatar: OpenAI.Avatar, color: '#10A37F' };
+const DEFAULT_CONFIG = { Avatar: GenericModelAvatar, color: '#64748B' };
 
 function findModelIcon(modelName: string): ModelIcon | undefined {
     // Extract the part after the first '/' if it exists

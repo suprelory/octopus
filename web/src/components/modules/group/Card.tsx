@@ -366,7 +366,7 @@ export function GroupCard({ group }: { group: Group }) {
             >
                 <div className="flex min-w-0 flex-1 items-center gap-3">
                     <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/40 bg-muted/30">
-                        {GroupAvatar ? <GroupAvatar size={18} shape="circle" /> : <Waves className="size-4 text-muted-foreground" />}
+                        {GroupAvatar ? <GroupAvatar size={34} shape="circle" /> : <Waves className="size-4 text-muted-foreground" />}
                     </span>
                     <div className="min-w-0 flex-1">
                         <div className="flex min-w-0 items-center gap-1.5">
