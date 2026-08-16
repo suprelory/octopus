@@ -531,14 +531,6 @@ func capabilityRank(decision outbound.CapabilityDecision) int {
 	return 1
 }
 
-// relayItemCapabilityRank remains a stateless compatibility helper for callers
-// that do not own a relayRequest. Main HTTP/WS handlers use a shared
-// relayCapabilityPlanner so ranking and execution reuse the same decision.
-func relayItemCapabilityRank(ctx context.Context, request *model.InternalLLMRequest, rawBody []byte, websocketIngress bool, item dbmodel.GroupItem) int {
-	planner := newRelayCapabilityPlanner(request, rawBody, websocketIngress)
-	return planner.rank(ctx, item)
-}
-
 func logRelayCapability(channel *dbmodel.Channel, modelName string, decision outbound.CapabilityDecision, policy capabilityDegradationPolicy) {
 	outbound.RecordCapabilityDecision(decision)
 	if channel == nil {
@@ -564,16 +556,6 @@ func logRelayCapability(channel *dbmodel.Channel, modelName string, decision out
 			log.Debugw("relay.capability_degraded_allowed", "channel_id", channel.ID, "channel", channel.Name, "model", modelName, "fields", decision.DegradedFields)
 		}
 	}
-}
-
-func circuitFailureKind(retryEnabled bool, statusCode int) balancer.FailureKind {
-	classification := classifyRelayFailure(statusCode, nil, time.Time{})
-	if !retryEnabled && classification.Class == FailureRateLimit {
-		// Retain the old call site's retry-disabled distinction while still
-		// treating the provider response as an immediate cooldown.
-		classification.Retryable = false
-	}
-	return failureCircuitKind(classification)
 }
 
 // attempt 统一管理一次通道尝试的完整生命周期

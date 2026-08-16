@@ -1791,32 +1791,6 @@ func (i *MessagesInbound) GetInternalResponse(ctx context.Context) (*model.Inter
 	return i.streamAggregator.BuildAndReset(), nil
 }
 
-// mergeToolCall merges a tool call delta into the existing tool calls slice
-func mergeToolCall(toolCalls []model.ToolCall, delta model.ToolCall) []model.ToolCall {
-	// Find existing tool call by index
-	for i, tc := range toolCalls {
-		if tc.Index == delta.Index {
-			// Merge the delta into existing tool call
-			if delta.ID != "" {
-				toolCalls[i].ID = delta.ID
-			}
-			if delta.Type != "" {
-				toolCalls[i].Type = delta.Type
-			}
-			if delta.Function.Name != "" {
-				toolCalls[i].Function.Name += delta.Function.Name
-			}
-			if delta.Function.Arguments != "" {
-				toolCalls[i].Function.Arguments += delta.Function.Arguments
-			}
-			return toolCalls
-		}
-	}
-
-	// New tool call, add it
-	return append(toolCalls, delta)
-}
-
 // formatSSEEvent 格式化为完整的 SSE 事件格式
 func formatSSEEvent(eventType string, data []byte) []byte {
 	return []byte(fmt.Sprintf("event:%s\ndata:%s\n\n", eventType, string(data)))

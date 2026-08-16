@@ -374,24 +374,6 @@ func forwardResponsesCompactWithRetryAt(c *gin.Context, metrics *RelayMetrics, i
 	return response.StatusCode, time.Time{}, nil
 }
 
-// forwardResponsesCompact keeps the former duration-returning helper for
-// internal callers while the relay itself preserves the absolute deadline.
-func forwardResponsesCompact(c *gin.Context, metrics *RelayMetrics, iter *balancer.Iterator, channel *dbmodel.Channel, usedKey dbmodel.ChannelKey, requestBody []byte, trace balancer.CapabilityTrace) (int, time.Duration, error) {
-	mappedModel, modelErr := requiredJSONModel(requestBody)
-	if modelErr != nil {
-		return 0, 0, classifyLocalRelayError(FailureConfiguration, modelErr)
-	}
-	statusCode, retryAt, err := forwardResponsesCompactWithRetryAt(c, metrics, iter, channel, usedKey, mappedModel, requestBody, trace)
-	if retryAt.IsZero() {
-		return statusCode, 0, err
-	}
-	retryAfter := time.Until(retryAt)
-	if retryAfter < 0 {
-		retryAfter = 0
-	}
-	return statusCode, retryAfter, err
-}
-
 func buildResponsesCompactRequest(ctx context.Context, channel *dbmodel.Channel, key string, requestBody []byte) (*http.Request, error) {
 	parsedURL, err := url.Parse(strings.TrimSuffix(channel.GetBaseUrl(), "/"))
 	if err != nil {

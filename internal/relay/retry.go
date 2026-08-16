@@ -14,13 +14,6 @@ import (
 // for the response sent to the client.
 const maxRelayRetryWait = 10 * time.Minute
 
-// isRetryableStatus 判断 HTTP 状态码是否可重试
-// 429(限流)、503(服务不可用)、>=500(服务端错误)、0(连接错误) 可重试
-// 400/401/403/404 等客户端错误不可重试
-func isRetryableStatus(code int) bool {
-	return code == 0 || code == 429 || code >= 500
-}
-
 // isPassthroughStatus 判断是否应透传给下游客户端
 // 429 和 503 透传，让客户端 SDK 的重试机制接管
 func isPassthroughStatus(code int) bool {
@@ -57,20 +50,6 @@ func parseRetryAtAt(header string, now time.Time) time.Time {
 		return parsed
 	}
 	return time.Time{}
-}
-
-// parseRetryAfter is retained as a duration compatibility helper. New code
-// should preserve parseRetryAt so the deadline is not repeatedly rounded.
-func parseRetryAfter(header string) time.Duration {
-	retryAt := parseRetryAt(header)
-	if retryAt.IsZero() {
-		return 0
-	}
-	delay := time.Until(retryAt)
-	if delay <= 0 {
-		return 0
-	}
-	return delay
 }
 
 // computeBackoff 计算退避时间

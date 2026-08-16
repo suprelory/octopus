@@ -320,22 +320,6 @@ func (o *MessagesOutbound) TransformStream(ctx context.Context, eventData []byte
 
 // Helper functions
 
-// reasoningToThinkingBudget maps reasoning effort levels to thinking budget in tokens
-// https://ai.google.dev/gemini-api/docs/thinking
-func reasoningToThinkingBudget(effort string) int32 {
-	switch strings.ToLower(effort) {
-	case "low":
-		return 1024
-	case "medium":
-		return 4096
-	case "high":
-		return 24576
-	default:
-		// 防御性：未知值走动态
-		return -1
-	}
-}
-
 // pathHasGeminiVersion reports whether the configured base-URL path already
 // contains a Gemini API version segment (`/v1`, `/v1beta`, etc.). Used by
 // G-H5 to decide whether to prepend `/v1beta` as a fallback when channels
@@ -513,22 +497,6 @@ func audioTypeToMimeType(format string) string {
 	default:
 		return "audio/wav"
 	}
-}
-
-// collectGeminiSignatures flattens blocks that carry a Gemini thoughtSignature into the order
-// they were produced upstream. It accepts both dedicated signature blocks and thinking blocks
-// that happened to carry one (some SDK variants record them that way).
-func collectGeminiSignatures(blocks []model.ReasoningBlock) []string {
-	out := make([]string, 0, len(blocks))
-	for _, b := range blocks {
-		switch b.Kind {
-		case model.ReasoningBlockKindSignature:
-			if signature, ok := geminiReasoningSignature(b); ok {
-				out = append(out, signature.Value)
-			}
-		}
-	}
-	return out
 }
 
 // collectGeminiSignaturesByToolCallID indexes Signature-kind blocks by the tool
@@ -1256,21 +1224,6 @@ func decodeGeminiToolResponse(raw string) (map[string]any, bool) {
 		return value, true
 	default:
 		return map[string]any{"result": value}, true
-	}
-}
-
-func formatGeminiToolCallFallback(toolCall model.ToolCall) string {
-	name := strings.TrimSpace(toolCall.Function.Name)
-	args := strings.TrimSpace(toolCall.Function.Arguments)
-	switch {
-	case name == "" && args == "":
-		return ""
-	case args == "":
-		return fmt.Sprintf("Tool call: %s", name)
-	case name == "":
-		return fmt.Sprintf("Tool call arguments: %s", args)
-	default:
-		return fmt.Sprintf("Tool call %s arguments: %s", name, args)
 	}
 }
 

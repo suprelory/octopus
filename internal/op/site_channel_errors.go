@@ -22,15 +22,3 @@ const (
 func newSiteChannelAccountNotFoundError() *apperror.Error {
 	return apperror.New(CodeSiteChannelAccountNotFound, "site account not found").WithStatus(http.StatusNotFound)
 }
-
-func wrapSiteChannelRouteUpdateFailed(err error) *apperror.Error {
-	return apperror.Wrap(CodeSiteChannelRouteUpdateFailed, "site channel route update failed", err).WithStatus(http.StatusInternalServerError)
-}
-
-func wrapSiteChannelModelDisableFailed(err error) *apperror.Error {
-	return apperror.Wrap(CodeSiteChannelModelDisableFailed, "site channel model disable failed", err).WithStatus(http.StatusInternalServerError)
-}
-
-func wrapSiteChannelSourceKeyUpdateFailed(err error) *apperror.Error {
-	return apperror.Wrap(CodeSiteChannelSourceKeyUpdateFailed, "site channel source key update failed", err).WithStatus(http.StatusInternalServerError)
-}

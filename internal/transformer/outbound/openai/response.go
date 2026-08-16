@@ -728,14 +728,6 @@ func derivedAnthropicCacheMetadata(req *model.InternalLLMRequest) (*string, *str
 	return &key, projection.retention
 }
 
-func buildAnthropicCacheKeyPayload(req *model.InternalLLMRequest) []byte {
-	projection := buildAnthropicCacheProjection(req)
-	if !projection.ok {
-		return nil
-	}
-	return projection.payload
-}
-
 type anthropicCacheProjection struct {
 	payload     []byte
 	retention   *string
@@ -977,33 +969,6 @@ func messageCacheTTL(msg model.Message) string {
 		}
 	}
 	return ""
-}
-
-func anthropicCacheTTLPresent(req *model.InternalLLMRequest, ttl string) bool {
-	if req == nil || ttl == "" {
-		return false
-	}
-	for _, msg := range req.Messages {
-		if msg.CacheControl != nil && msg.CacheControl.TTL == ttl {
-			return true
-		}
-		for _, part := range msg.Content.MultipleContent {
-			if part.CacheControl != nil && part.CacheControl.TTL == ttl {
-				return true
-			}
-		}
-		for _, toolCall := range msg.ToolCalls {
-			if toolCall.CacheControl != nil && toolCall.CacheControl.TTL == ttl {
-				return true
-			}
-		}
-	}
-	for _, tool := range req.Tools {
-		if tool.CacheControl != nil && tool.CacheControl.TTL == ttl {
-			return true
-		}
-	}
-	return false
 }
 
 func cloneRawJSON(raw json.RawMessage) json.RawMessage {

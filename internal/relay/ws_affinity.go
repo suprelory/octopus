@@ -195,8 +195,4 @@ func resetWSAffinityStoreForTest() {
 	defaultWSAffinityStore = newDBWSAffinityStore()
 }
 
-func setWSAffinityStoreForTest(store wsAffinityStore) {
-	defaultWSAffinityStore = store
-}
-
 var _ wsAffinityStore = (*dbWSAffinityStore)(nil)

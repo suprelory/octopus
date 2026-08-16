@@ -248,22 +248,6 @@ func cloneMessage(message transformerModel.Message) transformerModel.Message {
 	return message.Clone()
 }
 
-func cloneStringPointer(value *string) *string {
-	if value == nil {
-		return nil
-	}
-	cloned := *value
-	return &cloned
-}
-
-func cloneBoolPointer(value *bool) *bool {
-	if value == nil {
-		return nil
-	}
-	cloned := *value
-	return &cloned
-}
-
 func boolPtr(value bool) *bool {
 	return &value
 }

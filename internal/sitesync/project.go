@@ -545,36 +545,6 @@ func shouldSplitByOutboundType(site *model.Site) bool {
 	return model.ShouldSplitSiteChannelRoutes(site.Platform)
 }
 
-// classifyModelOutboundType 根据模型名称判断应使用的端点格式
-func classifyModelOutboundType(modelName string) outbound.OutboundType {
-	lower := strings.ToLower(modelName)
-	if strings.HasPrefix(lower, "claude") {
-		return outbound.OutboundTypeAnthropic
-	}
-	if strings.HasPrefix(lower, "gemini") {
-		return outbound.OutboundTypeGemini
-	}
-	return outbound.OutboundTypeOpenAIChat
-}
-
-func classifyModelRouteType(modelName string) model.SiteModelRouteType {
-	return model.InferSiteModelRouteType(modelName)
-}
-
-// partitionModelsByOutboundType 将模型列表按端点格式分桶
-func partitionModelsByOutboundType(modelNames []string, split bool, site *model.Site) map[outbound.OutboundType][]string {
-	if !split {
-		obType := platformOutboundType(site)
-		return map[outbound.OutboundType][]string{obType: modelNames}
-	}
-	buckets := make(map[outbound.OutboundType][]string)
-	for _, name := range modelNames {
-		obType := classifyModelOutboundType(name)
-		buckets[obType] = append(buckets[obType], name)
-	}
-	return buckets
-}
-
 func partitionSiteModelsByRouteType(items []model.SiteModel, split bool, site *model.Site) map[model.SiteModelRouteType][]model.SiteModel {
 	if !split {
 		routeType := model.SiteModelRouteTypeFromOutboundType(platformOutboundType(site))

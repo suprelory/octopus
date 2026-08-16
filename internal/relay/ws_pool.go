@@ -220,16 +220,6 @@ func (p *wsPool) RemoveConn(pc *pooledConn) {
 	_ = pc.conn.Close(websocket.StatusNormalClosure, "")
 }
 
-func (p *wsPool) pooledConnCount(key wsPoolKey) int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	count := 0
-	if entry := p.conns[key]; entry != nil {
-		count = len(entry.conns)
-	}
-	return count + p.inFlight[key]
-}
-
 // reserveDial atomically checks the per-key cap and increments the in-flight
 // counter. Returns true when a dial is allowed; the caller must invoke
 // releaseDial exactly once after the dial completes (success or failure).
@@ -383,7 +373,7 @@ func wsFailureBackoff(failures int) time.Duration {
 // Dial creates a new WebSocket connection to the upstream. The caller must
 // hold an in-flight reservation from reserveDial. On success the reservation
 // is converted into a pooled entry atomically so concurrent dials see the new
-// connection in pooledConnCount. On failure the reservation is released.
+// connection in pool accounting. On failure the reservation is released.
 func (p *wsPool) Dial(ctx context.Context, key wsPoolKey, channel *dbmodel.Channel, baseUrl string, headers http.Header) (*pooledConn, bool, error) {
 	// Build WS URL
 	wsURL, err := buildWSURL(baseUrl)
@@ -428,7 +418,7 @@ func (p *wsPool) Dial(ctx context.Context, key wsPoolKey, channel *dbmodel.Chann
 	}
 
 	// Atomically convert the in-flight reservation into a pooled entry so
-	// pooledConnCount stays consistent across concurrent dials. The pc is
+	// pool accounting stays consistent across concurrent dials. The pc is
 	// busy=true so GetPreferred won't return it until Put toggles it.
 	p.mu.Lock()
 	if c := p.inFlight[key]; c > 1 {
@@ -539,15 +529,6 @@ func cloneHTTPClientForWSDial(httpClient *http.Client) *http.Client {
 		}
 	}
 	return &clonedClient
-}
-
-// SendResponseCreate sends a response.create message on a WS connection.
-func (p *wsPool) SendResponseCreate(ctx context.Context, pc *pooledConn, requestBody json.RawMessage) error {
-	merged, err := buildWSResponseCreateMessage(requestBody)
-	if err != nil {
-		return err
-	}
-	return p.SendRaw(ctx, pc, merged)
 }
 
 func (p *wsPool) SendRaw(ctx context.Context, pc *pooledConn, payload []byte) error {

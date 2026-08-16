@@ -356,8 +356,8 @@ func decisionFromEffort(fam geminiFamily, effort string) thinkingDecision {
 	return thinkingDecision{Supported: true, Budget: clampGeminiBudget(fam, b), IncludeThoughts: true}
 }
 
-// map25EffortToBudget keeps the historical effort-to-budget table used by
-// reasoningToThinkingBudget. "minimal" maps to 0 (disabled).
+// map25EffortToBudget keeps the historical effort-to-budget table.
+// "minimal" maps to 0 (disabled).
 func map25EffortToBudget(effort string) int32 {
 	switch effort {
 	case "none", "off":

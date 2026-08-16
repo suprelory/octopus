@@ -524,17 +524,12 @@ func (r *InternalLLMRequest) Validate() error {
 	return nil
 }
 
-func isRawJSONArray(raw json.RawMessage) bool {
-	_, ok := parseRawJSONArray(raw)
-	return ok
-}
-
 func parseRawJSONArray(raw json.RawMessage) ([]json.RawMessage, bool) {
 	var items []json.RawMessage
 	if err := json.Unmarshal(raw, &items); err != nil {
 		return nil, false
 	}
-	if items == nil || len(items) == 0 {
+	if len(items) == 0 {
 		return nil, false
 	}
 	return items, true
@@ -2050,8 +2045,6 @@ func (c *CacheControl) Validate() error {
 	}
 	return nil
 }
-
-type toolJSONMarshaller Tool
 
 // Function represents a function definition.
 type Function struct {
