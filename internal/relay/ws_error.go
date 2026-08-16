@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/bestruirui/octopus/internal/relay/stream"
 	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
@@ -33,6 +34,7 @@ func classifyWSPublicError(err error, statusCode int) (wsPublicError, bool) {
 			message += " " + strings.ToLower(wsErr.Type)
 		}
 	}
+	classification := classifyRelayFailure(statusCode, err, time.Time{})
 	switch {
 	case needsConversationRestart(message):
 		return wsPublicError{
@@ -64,6 +66,30 @@ func classifyWSPublicError(err error, statusCode int) (wsPublicError, bool) {
 			Status:  http.StatusServiceUnavailable,
 			Code:    "upstream_quota_exceeded",
 			Message: "上游额度不足或不可用，请稍后重试",
+		}, true
+	case classification.Class == FailureModelUnsupported:
+		return wsPublicError{
+			Status:  http.StatusBadRequest,
+			Code:    CodeRelayModelNotSupported,
+			Message: "上游不支持当前模型",
+		}, true
+	case classification.Class == FailureAuthentication:
+		return wsPublicError{
+			Status:  http.StatusUnauthorized,
+			Code:    CodeRelayAuthentication,
+			Message: "上游鉴权失败，请检查渠道凭据",
+		}, true
+	case classification.Class == FailurePermission:
+		return wsPublicError{
+			Status:  http.StatusForbidden,
+			Code:    CodeRelayPermission,
+			Message: "上游拒绝了当前凭据的访问权限",
+		}, true
+	case classification.Class == FailureConfiguration:
+		return wsPublicError{
+			Status:  http.StatusInternalServerError,
+			Code:    CodeRelayConfiguration,
+			Message: "relay 配置无效",
 		}, true
 	case isBlockedInvalidRequestError(message):
 		return wsPublicError{

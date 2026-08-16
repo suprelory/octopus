@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/bestruirui/octopus/internal/helper"
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/transformer/model"
@@ -18,6 +19,7 @@ type relayCapabilityCacheKey struct {
 	effectiveModel string
 	outboundType   outbound.OutboundType
 	passthrough    bool
+	overrideHash   string
 }
 
 // relayCapabilityPlanner is request-scoped. It is intentionally a regular map:
@@ -65,18 +67,22 @@ func (p *relayCapabilityPlanner) plan(channel *dbmodel.Channel, adapter model.Ou
 		return outbound.PlanRequestForModel(p.request, effectiveModel, channel.Type, false)
 	}
 
-	passthrough := planRelayPassthrough(p.request, p.rawBody, channel, adapter, p.websocketIngress)
+	override := helper.InspectParamOverride(channel.ParamOverride)
+	overrideConfigured := channelParamOverrideActive(channel)
+	passthrough := planRelayPassthrough(p.request, p.rawBody, channel, adapter, p.websocketIngress, overrideConfigured)
 	key := relayCapabilityCacheKey{
 		channelID:      channel.ID,
 		effectiveModel: effectiveModel,
 		outboundType:   channel.Type,
 		passthrough:    passthrough,
+		overrideHash:   override.Fingerprint,
 	}
 	if decision, ok := p.decisions[key]; ok {
 		return decision
 	}
 
 	decision := outbound.PlanRequestForModel(p.request, effectiveModel, channel.Type, passthrough)
+	decorateParamOverrideDecision(&decision, override, overrideConfigured)
 	p.decisions[key] = decision
 	return decision
 }
@@ -91,4 +97,45 @@ func (p *relayCapabilityPlanner) rank(ctx context.Context, item dbmodel.GroupIte
 		return 3
 	}
 	return capabilityRank(p.plan(channel, adapter, item.ModelName))
+}
+
+func channelParamOverrideConfigured(channel *dbmodel.Channel) bool {
+	return channel != nil && channel.ParamOverride != nil && strings.TrimSpace(*channel.ParamOverride) != ""
+}
+
+// channelParamOverrideActive is narrower than configured: malformed, empty, or
+// otherwise no-op documents are ignored by the helper for compatibility and do
+// not justify disabling a byte-stable passthrough route.
+func channelParamOverrideActive(channel *dbmodel.Channel) bool {
+	if !channelParamOverrideConfigured(channel) {
+		return false
+	}
+	inspection := helper.InspectParamOverride(channel.ParamOverride)
+	return inspection.Valid && inspection.Active
+}
+
+func decorateParamOverrideDecision(decision *outbound.CapabilityDecision, inspection helper.ParamOverrideInspection, configured bool) {
+	if decision == nil || !configured || !inspection.Valid || !inspection.Active {
+		return
+	}
+	if !containsString(decision.RequiredFeatures, "param_override") {
+		decision.RequiredFeatures = append(decision.RequiredFeatures, "param_override")
+	}
+	if !containsString(decision.ConversionPath, "wire_override") {
+		decision.ConversionPath = append(decision.ConversionPath, "wire_override")
+	}
+	// Once bytes are patched after the protocol builder, native byte stability
+	// can no longer be claimed even when ingress and egress formats match.
+	if decision.StaticQuality == outbound.QualityNative {
+		decision.StaticQuality = outbound.QualityConditional
+	}
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }

@@ -21,11 +21,13 @@ import (
 	"github.com/bestruirui/octopus/internal/helper"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
+	"github.com/bestruirui/octopus/internal/outlierwindow"
 	"github.com/bestruirui/octopus/internal/price"
 	"github.com/bestruirui/octopus/internal/relay/balancer"
 	"github.com/bestruirui/octopus/internal/relay/bodycache"
 	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/server/resp"
+	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
 	"github.com/bestruirui/octopus/internal/transformer/outbound"
 	"github.com/bestruirui/octopus/internal/utils/log"
 	"github.com/gin-gonic/gin"
@@ -135,6 +137,8 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 	var sawSupportedCapability bool
 	var capabilityErrorCode string
 	var capabilityErrorMessage string
+	var lastRetryAt time.Time
+	var lastFailure FailureClassification
 	capabilityPolicy := getCapabilityDegradationPolicy()
 
 	for iter.Next() {
@@ -162,6 +166,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 		}
 
 		decision := outbound.PlanRelayOperation(channel.Type, outbound.RelayOperationImages)
+		decorateParamOverrideDecision(&decision, helper.InspectParamOverride(channel.ParamOverride), channelParamOverrideActive(channel))
 		logRelayCapability(channel, item.ModelName, decision, capabilityPolicy)
 		if reject, errorCode := evaluateCapabilityPolicy(decision, capabilityPolicy); reject {
 			message := capabilityRejectionMessage(decision, channel.Type.String())
@@ -206,7 +211,8 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 		span.SetCapability(capabilityTrace(decision, capabilityPolicy, channel.Type.String()))
 
 		// 尝试一次转发
-		statusCode, written, usage, upstreamCT, fwdErr := imagesAttempt(ctx, endpoint, c, bc, isMultipart, boundary, jsonPayload, stream, channel, usedKey.ChannelKey, group.FirstTokenTimeOut, metrics, item.ModelName, hb)
+		var retryAt time.Time
+		statusCode, written, usage, upstreamCT, fwdErr := imagesAttempt(ctx, endpoint, c, bc, isMultipart, boundary, jsonPayload, stream, channel, usedKey.ChannelKey, group.FirstTokenTimeOut, metrics, item.ModelName, hb, &retryAt)
 
 		// 更新 channel key 状态
 		usedKey.StatusCode = statusCode
@@ -214,9 +220,13 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 
 		if fwdErr == nil {
 			// ====== 成功 ======
-			metrics.ActualModel = item.ModelName
+			actualModel := strings.TrimSpace(metrics.ActualModel)
+			if actualModel == "" {
+				actualModel = item.ModelName
+				metrics.ActualModel = actualModel
+			}
 			if usage != nil {
-				metrics.SetUsageFromImages(item.ModelName, *usage)
+				metrics.SetUsageFromImages(actualModel, *usage)
 			}
 			metrics.ResponseContent = buildImagesResponseContentForLog(stream, upstreamCT, usage)
 
@@ -241,7 +251,9 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 		}
 
 		// ====== 失败 ======
+		failure := classifyRelayFailureContext(ctx, statusCode, fwdErr, retryAt)
 		op.ChannelKeyUpdate(usedKey)
+		span.SetFailure(string(failure.Class), failure.Retryable, failure.RetryAt)
 		span.End(model.AttemptFailed, statusCode, fwdErr.Error())
 
 		// Channel 维度统计
@@ -250,8 +262,12 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 			RequestFailed: 1,
 		})
 
-		// 熔断器：记录失败
-		balancer.RecordFailure(channel.ID, usedKey.ID, item.ModelName, circuitFailureKind(group.RetryEnabled, statusCode))
+		// 熔断器：只记录可归因于上游的失败；请求错误和客户端取消不污染渠道状态。
+		if failure.Record {
+			retryAt = recordFailureAndResolveRetryAt(channel.ID, usedKey.ID, item.ModelName, failure, retryAt)
+			failure.RetryAt = retryAt
+			outlierwindow.Report(channel.ID, false, statusCode, time.Now())
+		}
 
 		if written {
 			metrics.SaveWithChannelStats(ctx, false, fwdErr, iter.Attempts(), false)
@@ -259,7 +275,9 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 		}
 
 		iter.InvalidateCurrentPreference()
-		lastErr = fmt.Errorf("channel %s failed: %v", channel.Name, fwdErr)
+		lastErr = fmt.Errorf("channel %s failed: %w", channel.Name, fwdErr)
+		lastRetryAt = retryAt
+		lastFailure = failure
 	}
 
 	// 所有通道都失败
@@ -276,7 +294,40 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 		}
 		return
 	}
-	hb.FlushOrError(c, http.StatusBadGateway, "all channels failed")
+	if lastFailure.Passthrough {
+		if value := retryAfterHeaderValue(lastRetryAt, time.Now()); value != "" {
+			c.Header("Retry-After", value)
+		}
+		status := lastFailure.StatusCode
+		if status < 400 {
+			status = http.StatusBadGateway
+		}
+		writeImagesFailure(c, hb, attemptResult{
+			Err:        finalErr,
+			StatusCode: status,
+			RetryAt:    lastRetryAt,
+			Failure:    lastFailure,
+		}, finalErr)
+		return
+	}
+	writeImagesFailure(c, hb, attemptResult{
+		Err:        finalErr,
+		StatusCode: lastFailure.StatusCode,
+		RetryAt:    lastRetryAt,
+		Failure:    lastFailure,
+	}, finalErr)
+}
+
+func writeImagesFailure(c *gin.Context, hb *earlyHeartbeat, result attemptResult, err error) {
+	responseError := protocolErrorForAttempt(result, err)
+	if responseError == nil {
+		responseError = relayProtocolError(http.StatusBadGateway, CodeRelayUpstreamFailed, "all channels failed")
+	}
+	if hb != nil && hb.HeaderWritten() {
+		hb.WriteSSEError(responseError.StatusCode, responseError.Detail.Message)
+		return
+	}
+	resp.ErrorWithCode(c, responseError.StatusCode, responseError.Detail.Code, responseError.Detail.Message)
 }
 
 type imagesUsage struct {
@@ -586,12 +637,13 @@ func imagesAttempt(
 	metrics *imagesRelayMetrics,
 	actualModel string,
 	hb *earlyHeartbeat,
+	retryAtOut *time.Time,
 ) (statusCode int, written bool, usage *imagesUsage, upstreamCT string, err error) {
 	// 构建 URL（baseUrl.Path 后追加 endpoint）
 	baseURL := channel.GetBaseUrl()
 	parsedURL, err := url.Parse(strings.TrimSuffix(baseURL, "/"))
 	if err != nil {
-		return 0, false, nil, "", fmt.Errorf("failed to parse base url: %w", err)
+		return 0, false, nil, "", classifyLocalRelayError(FailureConfiguration, fmt.Errorf("failed to parse base url: %w", err))
 	}
 	parsedURL.Path = parsedURL.Path + endpoint
 
@@ -627,20 +679,33 @@ func imagesAttempt(
 		// JSON：仅改写 model 字段，其余保持不变
 		// 注意：每次尝试都重新 marshal 生成 body，确保可重试重建
 		if jsonPayload == nil {
-			return 0, false, nil, "", errors.New("nil json payload")
+			return 0, false, nil, "", classifyLocalRelayError(FailureConfiguration, errors.New("nil json payload"))
 		}
 		jsonPayload["model"] = actualModel
 		b, err := json.Marshal(jsonPayload)
 		if err != nil {
-			return 0, false, nil, "", fmt.Errorf("failed to marshal json: %w", err)
+			return 0, false, nil, "", classifyLocalRelayError(FailureConfiguration, fmt.Errorf("failed to marshal json: %w", err))
+		}
+		if channelParamOverrideConfigured(channel) {
+			b, _, err = helper.ApplyParamOverridePayload(b, channel.ParamOverride)
+			if err != nil {
+				return 0, false, nil, "", classifyLocalRelayError(FailureConfiguration, fmt.Errorf("invalid channel param override: %w", err))
+			}
+		}
+		actualModel, err = requiredJSONModel(b)
+		if err != nil {
+			return 0, false, nil, "", classifyLocalRelayError(FailureConfiguration, fmt.Errorf("channel param override produced an invalid images request: %w", err))
 		}
 		bodyReader = bytes.NewReader(b)
 		contentType = "application/json"
 	}
+	if metrics != nil {
+		metrics.ActualModel = actualModel
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "", bodyReader)
 	if err != nil {
-		return 0, false, nil, "", fmt.Errorf("failed to create request: %w", err)
+		return 0, false, nil, "", classifyLocalRelayError(FailureConfiguration, fmt.Errorf("failed to create request: %w", err))
 	}
 	req.URL = parsedURL
 	req.Method = http.MethodPost
@@ -651,7 +716,7 @@ func imagesAttempt(
 	// 发送请求
 	httpClient, err := helper.ChannelHTTPClientWithContext(ctx, channel)
 	if err != nil {
-		return 0, false, nil, "", err
+		return 0, false, nil, "", classifyLocalRelayError(FailureConfiguration, err)
 	}
 
 	respUp, err := httpClient.Do(req)
@@ -665,8 +730,11 @@ func imagesAttempt(
 	// stream=true：逐行解析 event/data/空行边界透传
 	if stream {
 		if respUp.StatusCode < 200 || respUp.StatusCode >= 300 {
+			if retryAtOut != nil {
+				*retryAtOut = parseRetryAt(respUp.Header.Get("Retry-After"))
+			}
 			b, _ := io.ReadAll(io.LimitReader(respUp.Body, imagesUpstreamErrorBodyLimit))
-			return respUp.StatusCode, false, nil, upstreamCT, fmt.Errorf("upstream error: %d: %s", respUp.StatusCode, string(b))
+			return respUp.StatusCode, false, nil, upstreamCT, transformerModel.NormalizeHTTPError(respUp.StatusCode, respUp.Header, b, "api_error")
 		}
 		u, w, err := proxySSE(ctx, c, respUp, firstTokenTimeOutSec, metrics, hb)
 		return respUp.StatusCode, w, u, upstreamCT, err
@@ -674,8 +742,11 @@ func imagesAttempt(
 
 	// 非流式：2xx 透传，否则读取限长错误体用于错误信息与重试判定
 	if respUp.StatusCode < 200 || respUp.StatusCode >= 300 {
+		if retryAtOut != nil {
+			*retryAtOut = parseRetryAt(respUp.Header.Get("Retry-After"))
+		}
 		b, _ := io.ReadAll(io.LimitReader(respUp.Body, imagesUpstreamErrorBodyLimit))
-		return respUp.StatusCode, false, nil, upstreamCT, fmt.Errorf("upstream error: %d: %s", respUp.StatusCode, string(b))
+		return respUp.StatusCode, false, nil, upstreamCT, transformerModel.NormalizeHTTPError(respUp.StatusCode, respUp.Header, b, "api_error")
 	}
 
 	u, w, err := proxyNonStream(c, respUp)

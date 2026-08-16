@@ -4,16 +4,20 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 )
 
 func TestObserveWSPassthroughEventParsesErrorEnvelope(t *testing.T) {
 	stats := &wsPassthroughStats{}
-	observeWSPassthroughEvent(stats, []byte(`{"type":"error","status":429,"error":{"code":"rate_limit_exceeded","type":"requests","message":"Too many requests"}}`))
+	observeWSPassthroughEvent(stats, []byte(`{"type":"error","status":429,"error":{"code":"rate_limit_exceeded","type":"requests","message":"Too many requests","retry_after":5}}`))
 	if stats.Error == nil {
 		t.Fatalf("expected top-level error to be parsed")
 	}
 	if stats.Error.Status != http.StatusTooManyRequests || stats.Error.Code != "rate_limit_exceeded" || stats.Error.Type != "requests" || stats.Error.Message != "Too many requests" {
 		t.Fatalf("unexpected parsed error: %#v", stats.Error)
+	}
+	if remaining := time.Until(stats.Error.RetryAt); remaining < 4*time.Second || remaining > 6*time.Second {
+		t.Fatalf("retry deadline remaining = %v, want about 5s", remaining)
 	}
 	publicErr, ok := classifyWSPublicError(stats.Error, stats.Error.Status)
 	if !ok || publicErr.Status != http.StatusTooManyRequests || publicErr.Code != "upstream_rate_limited" {

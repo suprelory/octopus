@@ -1,5 +1,7 @@
 package model
 
+import "time"
+
 // AttemptStatus 尝试状态
 type AttemptStatus string
 
@@ -37,6 +39,9 @@ type ChannelAttempt struct {
 	Lossiness         string           `json:"lossiness,omitempty"`
 	CapabilityReasons []string         `json:"capability_reasons,omitempty"`
 	FallbackReason    string           `json:"fallback_reason,omitempty"`
+	FailureClass      string           `json:"failure_class,omitempty"`
+	Retryable         bool             `json:"retryable,omitempty"`
+	RetryAt           *time.Time       `json:"retry_at,omitempty"`
 }
 
 // RelayLogWSMode 表示本次上游 WebSocket 的会话/恢复模式。

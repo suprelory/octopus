@@ -273,7 +273,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 		for retryNum := 0; retryNum < maxSameChannelRetries; retryNum++ {
 			// 重试前等待退避
 			if retryNum > 0 {
-				delay := computeBackoff(retryNum, result.RetryAfter)
+				delay := computeAttemptBackoff(retryNum, result.RetryAt, result.RetryAfter)
 				log.Infof("same-channel retry %d/%d for %s, waiting %v",
 					retryNum, maxSameChannelRetries, channel.Name, delay)
 				if !waitBackoff(c.Request.Context(), delay) {
@@ -285,7 +285,13 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 
 			attemptRequest, attemptErr := newAttemptRelayRequest(req, c.Request.Context(), item.ModelName)
 			if attemptErr != nil {
-				result = attemptResult{Err: attemptErr, StatusCode: http.StatusBadRequest, ProtocolError: relayProtocolError(http.StatusBadRequest, "invalid_request", attemptErr.Error())}
+				classified := classifyLocalRelayError(FailureConfiguration, fmt.Errorf("failed to prepare relay attempt: %w", attemptErr))
+				result = attemptResult{
+					Err:           classified,
+					StatusCode:    http.StatusInternalServerError,
+					Failure:       FailureClassification{Class: FailureConfiguration, StatusCode: http.StatusInternalServerError},
+					ProtocolError: relayProtocolError(http.StatusInternalServerError, CodeRelayConfiguration, classified.Error()),
+				}
 				break
 			}
 
@@ -308,17 +314,18 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 					req.internalRequest.Stream != nil && *req.internalRequest.Stream,
 					retryNum+1, maxSameChannelRetries)
 			}
-			if result.Success || result.Written || result.Canceled || result.ResetConversation || result.FirstTokenTimeout || !isRetryableStatus(result.StatusCode) {
+			if result.Success || result.Written || result.Canceled || result.ResetConversation || result.FirstTokenTimeout || !result.Failure.Retryable {
 				break
 			}
 		}
 
 		// 同通道重试耗尽后记录熔断器失败
-		if !result.Success && !result.Written && !result.Canceled && !result.ResetConversation {
-			failureKind := circuitFailureKind(group.RetryEnabled, result.StatusCode)
-			balancer.RecordFailure(channel.ID, usedKey.ID, item.ModelName, failureKind)
+		if !result.Success && !result.Written && !result.Canceled && !result.ResetConversation && result.Failure.Record {
+			failureKind := failureCircuitKind(result.Failure)
+			result.RetryAt = recordFailureAndResolveRetryAt(channel.ID, usedKey.ID, item.ModelName, result.Failure, result.RetryAt)
+			result.Failure.RetryAt = result.RetryAt
 			outlierwindow.Report(channel.ID, false, result.StatusCode, time.Now())
-			if failureKind == balancer.FailureHard {
+			if failureKind == balancer.FailureTransient {
 				maybeLearnManagedRoute(c.Request.Context(), channel.ID, item.ModelName, inboundType, result.Err)
 			}
 		}
@@ -411,19 +418,22 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 		errorAdapter = lastAttempt.inAdapter
 	}
 
-	// 透传 429/503 状态码和 Retry-After 头，让客户端 SDK 的重试机制接管
-	if isPassthroughStatus(lastResult.StatusCode) {
-		if lastResult.RetryAfter > 0 {
-			c.Header("Retry-After", fmt.Sprintf("%d", int(lastResult.RetryAfter.Seconds())))
+	// Rate limiting and temporary provider errors are returned with the exact
+	// remaining Retry-After so downstream SDKs can make their own decision.
+	if lastResult.Failure.Passthrough || isPassthroughStatus(lastResult.StatusCode) {
+		if value := retryAfterHeaderValue(lastResult.RetryAt, time.Now()); value != "" {
+			c.Header("Retry-After", value)
+		} else if lastResult.RetryAfter > 0 {
+			c.Header("Retry-After", retryAfterDurationHeaderValue(lastResult.RetryAfter))
 		}
-		writeInboundProtocolError(c, hb, errorAdapter, lastResult.ProtocolError)
+		writeInboundProtocolError(c, hb, errorAdapter, protocolErrorForAttempt(lastResult, lastErr))
 		return
 	}
 	if lastResult.StatusCode > 0 {
-		writeInboundProtocolError(c, hb, errorAdapter, lastResult.ProtocolError)
+		writeInboundProtocolError(c, hb, errorAdapter, protocolErrorForAttempt(lastResult, lastErr))
 		return
 	}
-	writeInboundProtocolError(c, hb, errorAdapter, protocolErrorFromError(http.StatusBadGateway, lastErr))
+	writeInboundProtocolError(c, hb, errorAdapter, protocolErrorForAttempt(lastResult, lastErr))
 }
 
 // newAttemptInboundAdapter builds the fresh inbound adapter owned by one
@@ -454,8 +464,11 @@ func planRelayCapability(req *relayRequest, channel *dbmodel.Channel, adapter mo
 	return req.capabilityPlanner.plan(channel, adapter, modelName)
 }
 
-func planRelayPassthrough(request *model.InternalLLMRequest, rawBody []byte, channel *dbmodel.Channel, adapter model.Outbound, websocketIngress bool) bool {
+func planRelayPassthrough(request *model.InternalLLMRequest, rawBody []byte, channel *dbmodel.Channel, adapter model.Outbound, websocketIngress bool, overrideConfigured ...bool) bool {
 	if request == nil || channel == nil || adapter == nil || len(rawBody) == 0 {
+		return false
+	}
+	if channelParamOverrideActive(channel) || (len(overrideConfigured) > 0 && overrideConfigured[0]) {
 		return false
 	}
 	capable, ok := adapter.(model.PassthroughCapable)
@@ -554,10 +567,13 @@ func logRelayCapability(channel *dbmodel.Channel, modelName string, decision out
 }
 
 func circuitFailureKind(retryEnabled bool, statusCode int) balancer.FailureKind {
-	if retryEnabled && isPassthroughStatus(statusCode) {
-		return balancer.FailureSoftRateLimit
+	classification := classifyRelayFailure(statusCode, nil, time.Time{})
+	if !retryEnabled && classification.Class == FailureRateLimit {
+		// Retain the old call site's retry-disabled distinction while still
+		// treating the provider response as an immediate cooldown.
+		classification.Retryable = false
 	}
-	return balancer.FailureHard
+	return failureCircuitKind(classification)
 }
 
 // attempt 统一管理一次通道尝试的完整生命周期
@@ -589,7 +605,7 @@ func (ra *relayAttempt) attempt() attemptResult {
 		})
 
 		// 熔断器：记录成功
-		balancer.RecordSuccess(ra.channel.ID, ra.usedKey.ID, ra.internalRequest.Model)
+		balancer.RecordSuccess(ra.channel.ID, ra.usedKey.ID, ra.breakerModelName())
 		// Refresh model affinity only after the complete response succeeds.
 		balancer.SetRoutingAffinity(ra.apiKeyID, ra.requestModel, ra.channel.ID, ra.usedKey.ID)
 
@@ -603,6 +619,7 @@ func (ra *relayAttempt) attempt() attemptResult {
 			ra.collectResponse()
 		}
 		op.ChannelKeyUpdate(ra.usedKey)
+		span.SetFailure(string(FailureClientCanceled), false, time.Time{})
 		span.End(dbmodel.AttemptFailed, statusCode, fwdErr.Error())
 		return attemptResult{
 			Success:    false,
@@ -610,9 +627,12 @@ func (ra *relayAttempt) attempt() attemptResult {
 			Canceled:   true,
 			Err:        fwdErr,
 			StatusCode: statusCode,
+			Failure:    FailureClassification{Class: FailureClientCanceled, StatusCode: statusCode},
 		}
 	}
 
+	failure := classifyRelayFailureContext(ra.requestContext(), statusCode, fwdErr, ra.retryAt)
+	span.SetFailure(string(failure.Class), failure.Retryable, failure.RetryAt)
 	op.ChannelKeyUpdate(ra.usedKey)
 	span.End(dbmodel.AttemptFailed, statusCode, fwdErr.Error())
 
@@ -639,11 +659,25 @@ func (ra *relayAttempt) attempt() attemptResult {
 		ResetConversation: statusCode == http.StatusConflict && needsConversationRestart(relayErrorMessage(fwdErr)),
 		FirstTokenTimeout: firstTokenTimeout,
 		EmptyResponse:     errors.Is(fwdErr, stream.ErrEmptyUpstreamStream),
-		Err:               fmt.Errorf("channel %s failed: %v", ra.channel.Name, fwdErr),
+		Err:               fmt.Errorf("channel %s failed: %w", ra.channel.Name, fwdErr),
 		StatusCode:        statusCode,
 		RetryAfter:        ra.retryAfter,
+		RetryAt:           ra.retryAt,
+		Failure:           failure,
 		ProtocolError:     protocolErrorFromAttempt(ra.upstreamError, statusCode, fwdErr),
 	}
+}
+
+func (ra *relayAttempt) breakerModelName() string {
+	if ra != nil && ra.iter != nil && ra.iter.Index() >= 0 && ra.iter.Index() < ra.iter.Len() {
+		if modelName := strings.TrimSpace(ra.iter.Item().ModelName); modelName != "" {
+			return modelName
+		}
+	}
+	if ra != nil && ra.internalRequest != nil {
+		return strings.TrimSpace(ra.internalRequest.Model)
+	}
+	return ""
 }
 
 func protocolErrorFromAttempt(upstreamError *model.ResponseError, statusCode int, err error) *model.ResponseError {
@@ -744,7 +778,7 @@ func (ra *relayAttempt) forward() (int, error) {
 // forwardViaWS attempts to forward via upstream WebSocket.
 // Returns statusCode=-1 if WS is not available (caller should fall through to HTTP).
 func (ra *relayAttempt) forwardViaWS(ctx context.Context) (int, error) {
-	if ra.c == nil && effectiveResponsesWSMode(ra.channel) == responsesWSModePassthrough && !ra.internalRequest.IsOpenAIExactReplayRequest() {
+	if ra.c == nil && effectiveResponsesWSMode(ra.channel) == responsesWSModePassthrough && !ra.internalRequest.IsOpenAIExactReplayRequest() && !channelParamOverrideActive(ra.channel) {
 		return ra.forwardViaWSPassthrough(ctx)
 	}
 	continuation := requiresUpstreamWSContinuation(ra.internalRequest)
@@ -767,12 +801,25 @@ func (ra *relayAttempt) forwardViaWS(ctx context.Context) (int, error) {
 	reqBody, err := json.Marshal(responsesReq)
 	if err != nil {
 		wsUpstreamPool.Put(pc)
-		return -1, nil // fall through to HTTP
+		return 0, classifyLocalRelayError(FailureConfiguration, fmt.Errorf("failed to build websocket request: %w", err))
 	}
-	ra.metrics.SetTransportRequestPayload(reqBody, ra.internalRequest.Model)
+	reqBody, err = buildWSResponseCreateMessage(reqBody)
+	if err != nil {
+		wsUpstreamPool.Put(pc)
+		return 0, classifyLocalRelayError(FailureConfiguration, err)
+	}
+	reqBody, err = ra.applyParamOverridePayload(reqBody)
+	if err != nil {
+		wsUpstreamPool.Put(pc)
+		return 0, err
+	}
+	if err := validateWSResponseCreatePayload(reqBody); err != nil {
+		wsUpstreamPool.Put(pc)
+		return 0, classifyLocalRelayError(FailureConfiguration, err)
+	}
 
 	// Send response.create message
-	if err := wsUpstreamPool.SendResponseCreate(ctx, pc, reqBody); err != nil {
+	if err := wsUpstreamPool.SendRaw(ctx, pc, reqBody); err != nil {
 		log.Warnf("upstream WS send failed for channel %s: %v", ra.channel.Name, err)
 		log.Debugf("upstream WS send failed before stream start (channel=%s, key=%d, continuation=%t, err=%v)",
 			ra.channel.Name, ra.usedKey.ID, continuation, err)
@@ -802,6 +849,7 @@ func (ra *relayAttempt) forwardViaWS(ctx context.Context) (int, error) {
 	reader := newWSUpstreamReader(pc, ra.channel.ID, ra.usedKey.ID)
 	err = ra.handleWSStreamResponseV2(ctx, reader)
 	if err != nil {
+		ra.captureRetryAt(reader.RetryAt())
 		reader.CloseWithError()
 		log.Debugf("upstream WS stream failed (channel=%s, key=%d, continuation=%t, written=%t, status=%d, err=%v)",
 			ra.channel.Name, ra.usedKey.ID, continuation, ra.getStreamWriter().Written(), reader.StatusCode(), err)
@@ -838,7 +886,7 @@ func (ra *relayAttempt) retryViaFreshUpstreamWS(ctx context.Context, reqBody []b
 		return 0, nil, false
 	}
 
-	retryErr := wsUpstreamPool.SendResponseCreate(ctx, redialed, reqBody)
+	retryErr := wsUpstreamPool.SendRaw(ctx, redialed, reqBody)
 	if retryErr != nil {
 		log.Warnf("upstream WS redial send failed for channel %s: %v", ra.channel.Name, retryErr)
 		log.Debugf("fresh upstream WS redial send failed (channel=%s, key=%d, err=%v)", ra.channel.Name, ra.usedKey.ID, retryErr)
@@ -860,6 +908,7 @@ func (ra *relayAttempt) retryViaFreshUpstreamWS(ctx context.Context, reqBody []b
 	reader := newWSUpstreamReader(redialed, ra.channel.ID, ra.usedKey.ID)
 	streamErr := ra.handleWSStreamResponseV2(ctx, reader)
 	if streamErr != nil {
+		ra.captureRetryAt(reader.RetryAt())
 		reader.CloseWithError()
 		log.Debugf("fresh upstream WS redial stream failed (channel=%s, key=%d, status=%d, err=%v)",
 			ra.channel.Name, ra.usedKey.ID, reader.StatusCode(), streamErr)
@@ -987,6 +1036,9 @@ func (ra *relayAttempt) shouldUseHTTPPassthrough(pt model.PassthroughCapable) bo
 	if ra == nil || pt == nil || ra.channel == nil || ra.internalRequest == nil || len(ra.rawBody) == 0 {
 		return false
 	}
+	if channelParamOverrideActive(ra.channel) {
+		return false
+	}
 	if !pt.CanPassthrough(ra.internalRequest.RawAPIFormat) {
 		return false
 	}
@@ -1006,7 +1058,7 @@ func (ra *relayAttempt) forwardViaHTTPPassthrough(ctx context.Context, pt model.
 	)
 	if err != nil {
 		log.Warnf("failed to create passthrough request: %v", err)
-		return 0, fmt.Errorf("failed to create request: %w", err)
+		return 0, classifyLocalRelayError(FailureConfiguration, fmt.Errorf("failed to create request: %w", err))
 	}
 
 	// Apply param overrides
@@ -1029,10 +1081,13 @@ func (ra *relayAttempt) forwardViaHTTPPassthrough(ctx context.Context, pt model.
 
 	// Check status
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		ra.retryAfter = parseRetryAfter(response.Header.Get("Retry-After"))
+		ra.captureRetryAfter(response.Header.Get("Retry-After"))
 		body, _ := readUpstreamErrorBody(response.Body)
 		statusCode := normalizeUpstreamStatusCode(response.StatusCode, string(body))
 		ra.upstreamError = ra.outAdapter.TransformError(ctx, statusCode, response.Header, body)
+		if ra.upstreamError == nil {
+			ra.upstreamError = model.NormalizeHTTPError(statusCode, response.Header, body, "api_error")
+		}
 		log.Warnf("upstream error from channel %s: status=%d, body=%s", ra.channel.Name, response.StatusCode, string(body))
 		return statusCode, ra.upstreamError
 	}
@@ -1109,7 +1164,7 @@ func (ra *relayAttempt) forwardViaHTTPStandard(ctx context.Context) (int, error)
 	)
 	if err != nil {
 		log.Warnf("failed to create request: %v", err)
-		return 0, fmt.Errorf("failed to create request: %w", err)
+		return 0, classifyLocalRelayError(FailureConfiguration, fmt.Errorf("failed to create request: %w", err))
 	}
 	if err := ra.applyParamOverride(outboundRequest); err != nil {
 		return 0, err
@@ -1130,13 +1185,16 @@ func (ra *relayAttempt) forwardViaHTTPStandard(ctx context.Context) (int, error)
 
 	// 检查响应状态
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		ra.retryAfter = parseRetryAfter(response.Header.Get("Retry-After"))
+		ra.captureRetryAfter(response.Header.Get("Retry-After"))
 		body, err := readUpstreamErrorBody(response.Body)
 		if err != nil {
 			return response.StatusCode, fmt.Errorf("failed to read response body: %w", err)
 		}
 		statusCode := normalizeUpstreamStatusCode(response.StatusCode, string(body))
 		ra.upstreamError = ra.outAdapter.TransformError(ctx, statusCode, response.Header, body)
+		if ra.upstreamError == nil {
+			ra.upstreamError = model.NormalizeHTTPError(statusCode, response.Header, body, "api_error")
+		}
 		log.Warnf("upstream error from channel %s: status=%d, body=%s", ra.channel.Name, response.StatusCode, string(body))
 		return statusCode, ra.upstreamError
 	}
@@ -1195,18 +1253,91 @@ func (ra *relayAttempt) getStreamWriter() StreamWriter {
 
 // applyParamOverride merges channel-level JSON request overrides and records the final upstream payload.
 func (ra *relayAttempt) applyParamOverride(outboundRequest *http.Request) error {
+	originalBody, err := readOutboundRequestBody(outboundRequest)
+	if err != nil {
+		return classifyLocalRelayError(FailureConfiguration, fmt.Errorf("failed to inspect original outbound request body: %w", err))
+	}
 	requestBody, captured, err := helper.ApplyParamOverrideWithPayload(outboundRequest, ra.channel.ParamOverride)
 	if err != nil {
-		return err
+		return classifyLocalRelayError(FailureConfiguration, fmt.Errorf("invalid channel param override: %w", err))
 	}
 	if !captured {
 		requestBody, err = readOutboundRequestBody(outboundRequest)
 		if err != nil {
-			return nil
+			return classifyLocalRelayError(FailureConfiguration, fmt.Errorf("failed to inspect outbound request body: %w", err))
 		}
 	}
-	ra.metrics.SetTransportRequestPayload(requestBody, ra.internalRequest.Model)
+	return ra.recordTransportRequestPayloadWithModelRequirement(requestBody, jsonPayloadHasTopLevelModel(originalBody))
+}
+
+// applyParamOverridePayload is the transport-neutral counterpart used by
+// Responses WebSocket requests. It applies the exact same channel policy as
+// the HTTP path and records the final bytes that will be sent upstream.
+func (ra *relayAttempt) applyParamOverridePayload(payload []byte) ([]byte, error) {
+	modified, _, err := helper.ApplyParamOverridePayload(payload, ra.channel.ParamOverride)
+	if err != nil {
+		return nil, classifyLocalRelayError(FailureConfiguration, fmt.Errorf("invalid channel param override: %w", err))
+	}
+	if err := ra.recordTransportRequestPayload(modified); err != nil {
+		return nil, err
+	}
+	return modified, nil
+}
+
+func (ra *relayAttempt) recordTransportRequestPayload(payload []byte) error {
+	return ra.recordTransportRequestPayloadWithModelRequirement(payload, false)
+}
+
+func (ra *relayAttempt) recordTransportRequestPayloadWithModelRequirement(payload []byte, requireModel bool) error {
+	inspection := helper.InspectParamOverride(ra.channel.ParamOverride)
+	if inspection.Valid {
+		// A valid override may be configured on a transport with a non-JSON body
+		// (multipart images, audio, or a provider-specific binary payload). The
+		// helper deliberately leaves those bytes untouched; do not turn that
+		// compatibility path into a configuration failure.
+		if json.Valid(payload) {
+			var envelope map[string]json.RawMessage
+			if err := json.Unmarshal(payload, &envelope); err == nil && envelope != nil {
+				if rawModel, ok := envelope["model"]; ok {
+					var finalModel string
+					if err := json.Unmarshal(rawModel, &finalModel); err != nil || strings.TrimSpace(finalModel) == "" {
+						return classifyLocalRelayError(FailureConfiguration, fmt.Errorf("channel param override produced an invalid model"))
+					}
+					if ra.internalRequest != nil {
+						ra.internalRequest.Model = strings.TrimSpace(finalModel)
+					}
+				} else if requireModel || containsString(inspection.Paths, "/model") {
+					return classifyLocalRelayError(FailureConfiguration, fmt.Errorf("channel param override removed the required model"))
+				}
+			} else if requireModel {
+				return classifyLocalRelayError(FailureConfiguration, fmt.Errorf("channel param override produced a non-object request"))
+			}
+		} else if requireModel {
+			return classifyLocalRelayError(FailureConfiguration, fmt.Errorf("channel param override produced invalid JSON"))
+		}
+	}
+	if ra.metrics != nil {
+		modelName := ""
+		if ra.internalRequest != nil {
+			modelName = ra.internalRequest.Model
+		}
+		ra.metrics.SetTransportRequestPayload(payload, modelName)
+	}
 	return nil
+}
+
+func (ra *relayAttempt) captureRetryAfter(header string) {
+	ra.captureRetryAt(parseRetryAt(header))
+}
+
+func (ra *relayAttempt) captureRetryAt(retryAt time.Time) {
+	ra.retryAt = retryAt
+	ra.retryAfter = 0
+	if !ra.retryAt.IsZero() {
+		if delay := time.Until(ra.retryAt); delay > 0 {
+			ra.retryAfter = delay
+		}
+	}
 }
 
 // copyHeaders 复制请求头，过滤 hop-by-hop 头
@@ -1269,7 +1400,7 @@ func (ra *relayAttempt) sendRequest(req *http.Request) (*http.Response, error) {
 	httpClient, err := helper.ChannelHTTPClientWithContext(req.Context(), ra.channel)
 	if err != nil {
 		log.Warnf("failed to get http client: %v", err)
-		return nil, err
+		return nil, classifyLocalRelayError(FailureConfiguration, err)
 	}
 
 	req = ra.attachFirstTokenBudget(req)

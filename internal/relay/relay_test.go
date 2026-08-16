@@ -1480,7 +1480,7 @@ func TestForwardViaWSPreservesClientUserAgentHeaders(t *testing.T) {
 	wsUpstreamPool.Remove(newWSPoolKey(channel.ID, channel.Keys[0].ID, buildUpstreamWSHeaders(c.Request.Header, channel, channel.Keys[0].ChannelKey)))
 }
 
-func TestHandlerRetryEnabledDoesNotTurnRecent429IntoNoAvailableKey(t *testing.T) {
+func TestHandlerRetryEnabledHonorsRecent429Cooldown(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx := setupRelayTestDB(t)
 
@@ -1544,14 +1544,26 @@ func TestHandlerRetryEnabledDoesNotTurnRecent429IntoNoAvailableKey(t *testing.T)
 	c2.Request.Header.Set("Content-Type", "application/json")
 	Handler(inbound.InboundTypeOpenAIChat, c2)
 
-	if recorder2.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected second request to still reach upstream and return 429, got status %d body %s", recorder2.Code, recorder2.Body.String())
+	if recorder2.Code != http.StatusBadGateway {
+		t.Fatalf("expected second request to be blocked by the active cooldown, got status %d body %s", recorder2.Code, recorder2.Body.String())
+	}
+	if hits.Load() != 2 {
+		t.Fatalf("expected active cooldown to avoid upstream calls, got %d total hits", hits.Load())
+	}
+
+	// Once the absolute Retry-After deadline has elapsed, the breaker allows a
+	// half-open probe and the channel can be selected again.
+	time.Sleep(1100 * time.Millisecond)
+	recorder3 := httptest.NewRecorder()
+	c3, _ := gin.CreateTestContext(recorder3)
+	c3.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"relay-retry-429-group","messages":[{"role":"user","content":"after cooldown"}]}`))
+	c3.Request.Header.Set("Content-Type", "application/json")
+	Handler(inbound.InboundTypeOpenAIChat, c3)
+	if recorder3.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected post-cooldown probe to reach upstream and return 429, got status %d body %s", recorder3.Code, recorder3.Body.String())
 	}
 	if hits.Load() != 4 {
-		t.Fatalf("expected second request to retry upstream twice instead of no available key, got %d total hits", hits.Load())
-	}
-	if strings.Contains(recorder2.Body.String(), "no available key") {
-		t.Fatalf("expected second response body not to mention no available key, got %s", recorder2.Body.String())
+		t.Fatalf("expected post-cooldown request to retry upstream twice, got %d total hits", hits.Load())
 	}
 }
 

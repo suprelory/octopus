@@ -2,7 +2,9 @@ package relay
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/bestruirui/octopus/internal/server/resp"
 	"github.com/bestruirui/octopus/internal/transformer/model"
@@ -25,7 +27,8 @@ func relayProtocolError(status int, code, message string) *model.ResponseError {
 }
 
 func protocolErrorFromError(status int, err error) *model.ResponseError {
-	if responseError, ok := err.(*model.ResponseError); ok {
+	var responseError *model.ResponseError
+	if errors.As(err, &responseError) && responseError != nil {
 		return model.NormalizeResponseError(responseError, status, "api_error")
 	}
 	message := http.StatusText(status)
@@ -33,6 +36,68 @@ func protocolErrorFromError(status int, err error) *model.ResponseError {
 		message = err.Error()
 	}
 	return relayProtocolError(status, CodeRelayUpstreamFailed, message)
+}
+
+func protocolErrorForAttempt(result attemptResult, err error) *model.ResponseError {
+	if result.Failure.Class == FailureConfiguration {
+		message := "relay configuration is invalid"
+		if err != nil && strings.TrimSpace(err.Error()) != "" {
+			message = err.Error()
+		}
+		return relayProtocolError(http.StatusInternalServerError, CodeRelayConfiguration, message)
+	}
+	if result.ProtocolError != nil {
+		return model.NormalizeResponseError(result.ProtocolError, result.StatusCode, "api_error")
+	}
+
+	status, code := defaultFailureProtocol(result.Failure.Class, result.StatusCode)
+	if result.Failure.Class != FailureNone {
+		message := http.StatusText(status)
+		if err != nil && strings.TrimSpace(err.Error()) != "" {
+			message = err.Error()
+		}
+		return relayProtocolError(status, code, message)
+	}
+	return result.ProtocolError
+}
+
+func defaultFailureProtocol(class FailureClass, status int) (int, string) {
+	if status < 400 || status > 599 {
+		switch class {
+		case FailureRequest:
+			status = http.StatusBadRequest
+		case FailureConfiguration, FailureTransient:
+			status = http.StatusBadGateway
+		case FailureAuthentication:
+			status = http.StatusUnauthorized
+		case FailurePermission:
+			status = http.StatusForbidden
+		case FailureQuota, FailureRateLimit:
+			status = http.StatusTooManyRequests
+		case FailureModelUnsupported:
+			status = http.StatusBadRequest
+		default:
+			status = http.StatusBadGateway
+		}
+	}
+	code := CodeRelayUpstreamFailed
+	switch class {
+	case FailureConfiguration:
+		code = CodeRelayConfiguration
+	case FailureRequest:
+		code = CodeRelayInvalidRequest
+	case FailureAuthentication:
+		code = CodeRelayAuthentication
+	case FailurePermission:
+		code = CodeRelayPermission
+	case FailureQuota:
+		code = CodeRelayQuota
+	case FailureRateLimit:
+		code = CodeRelayRateLimit
+	case FailureModelUnsupported:
+		code = CodeRelayModelNotSupported
+	}
+	return status, code
 }
 
 func writeInboundProtocolError(c *gin.Context, heartbeat *earlyHeartbeat, inbound model.Inbound, responseError *model.ResponseError) {

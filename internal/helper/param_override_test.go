@@ -161,6 +161,157 @@ func TestApplyParamOverrideWithPayloadSkipsEmptyOverride(t *testing.T) {
 	}
 }
 
+func TestInspectParamOverrideReturnsStablePathsAndFingerprint(t *testing.T) {
+	override := `[{"op":"replace","path":"/model","value":"upstream"},{"op":"remove","path":"/metadata/trace"},{"op":"copy","from":"/user","path":"/metadata/user"}]`
+	inspection := InspectParamOverride(&override)
+	if !inspection.Active || !inspection.Valid {
+		t.Fatalf("inspection = %#v, want active valid override", inspection)
+	}
+	if inspection.Fingerprint == "" {
+		t.Fatal("expected override fingerprint")
+	}
+	want := []string{"/metadata/trace", "/metadata/user", "/model", "/user"}
+	if len(inspection.Paths) != len(want) {
+		t.Fatalf("paths = %#v, want %#v", inspection.Paths, want)
+	}
+	for i := range want {
+		if inspection.Paths[i] != want[i] {
+			t.Fatalf("paths = %#v, want %#v", inspection.Paths, want)
+		}
+	}
+
+	changed := `[{"op":"replace","path":"/model","value":"other"}]`
+	other := InspectParamOverride(&changed)
+	if other.Fingerprint == inspection.Fingerprint {
+		t.Fatal("different overrides must have different fingerprints")
+	}
+	canonicalA := `[{"op":"replace","path":"/model","value":"upstream"}]`
+	canonicalB := ` [ { "op" : "replace", "path" : "/model", "value" : "upstream" } ] `
+	if InspectParamOverride(&canonicalA).Fingerprint != InspectParamOverride(&canonicalB).Fingerprint {
+		t.Fatal("equivalent override documents should have the same fingerprint")
+	}
+}
+
+func TestInspectParamOverrideInvalidSyntaxIsInactive(t *testing.T) {
+	override := `{invalid`
+	inspection := InspectParamOverride(&override)
+	if inspection.Active || inspection.Valid {
+		t.Fatalf("invalid inspection = %#v, want inactive invalid", inspection)
+	}
+}
+
+func TestInspectParamOverrideEmptyDocumentsAreValidButInactive(t *testing.T) {
+	for _, raw := range []string{"{}", "[]"} {
+		raw := raw
+		inspection := InspectParamOverride(&raw)
+		if !inspection.Valid || inspection.Active {
+			t.Fatalf("inspection for %s = %#v, want valid inactive", raw, inspection)
+		}
+	}
+}
+
+func TestApplyParamOverrideEmptyDocumentsPreserveBytes(t *testing.T) {
+	body := []byte("{ \"model\" : \"alias\", \"temperature\" : 1 }\n")
+	for _, raw := range []string{"{}", "[]"} {
+		raw := raw
+		payload, captured, err := ApplyParamOverridePayload(body, &raw)
+		if err != nil {
+			t.Fatalf("ApplyParamOverridePayload(%s) error = %v", raw, err)
+		}
+		if captured {
+			t.Fatalf("ApplyParamOverridePayload(%s) captured a no-op document", raw)
+		}
+		if !bytes.Equal(payload, body) {
+			t.Fatalf("ApplyParamOverridePayload(%s) changed bytes: %q", raw, payload)
+		}
+	}
+}
+
+func TestApplyParamOverridePayloadMatchesRequestPath(t *testing.T) {
+	body := []byte(`{"model":"alias","temperature":1}`)
+	override := `{"temperature":0.2,"max_tokens":7}`
+	payload, captured, err := ApplyParamOverridePayload(body, &override)
+	if err != nil {
+		t.Fatalf("ApplyParamOverridePayload() error = %v", err)
+	}
+	if !captured {
+		t.Fatal("expected payload to be captured")
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if decoded["temperature"] != 0.2 || decoded["max_tokens"] != float64(7) {
+		t.Fatalf("payload = %#v", decoded)
+	}
+}
+
+func TestApplyParamOverrideEscapedJSONPointerPath(t *testing.T) {
+	body := []byte(`{"metadata":{"a/b":{"old":true}}}`)
+	override := `[{"op":"replace","path":"/metadata/a~1b/old","value":false}]`
+	payload, _, err := ApplyParamOverridePayload(body, &override)
+	if err != nil {
+		t.Fatalf("ApplyParamOverridePayload() error = %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	metadata := decoded["metadata"].(map[string]any)
+	entry := metadata["a/b"].(map[string]any)
+	if entry["old"] != false {
+		t.Fatalf("escaped pointer payload = %#v", decoded)
+	}
+}
+
+func TestApplyParamOverrideMoveUsesRemoveThenAddArraySemantics(t *testing.T) {
+	body := []byte(`{"items":["a","b","c"]}`)
+	override := `[{"op":"move","from":"/items/0","path":"/items/2"}]`
+	payload, _, err := ApplyParamOverridePayload(body, &override)
+	if err != nil {
+		t.Fatalf("ApplyParamOverridePayload() error = %v", err)
+	}
+	var decoded struct {
+		Items []string `json:"items"`
+	}
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	want := []string{"b", "c", "a"}
+	if len(decoded.Items) != len(want) {
+		t.Fatalf("items = %#v, want %#v", decoded.Items, want)
+	}
+	for i := range want {
+		if decoded.Items[i] != want[i] {
+			t.Fatalf("items = %#v, want %#v", decoded.Items, want)
+		}
+	}
+}
+
+func TestApplyParamOverrideLeavesMultipartBodyUntouched(t *testing.T) {
+	body := []byte("--boundary\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\nalias\r\n--boundary--\r\n")
+	override := `{"temperature":0.2}`
+	req, err := http.NewRequest(http.MethodPost, "https://example.com", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=boundary")
+	payload, captured, err := ApplyParamOverrideWithPayload(req, &override)
+	if err != nil {
+		t.Fatalf("ApplyParamOverrideWithPayload() error = %v", err)
+	}
+	if !captured || !bytes.Equal(payload, body) {
+		t.Fatalf("multipart payload changed: captured=%t payload=%q", captured, payload)
+	}
+	actual, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(actual, body) {
+		t.Fatalf("request body = %q, want original %q", actual, body)
+	}
+}
+
 func assertRequestPayload(t *testing.T, req *http.Request, want []byte) {
 	t.Helper()
 	if req.ContentLength != int64(len(want)) {

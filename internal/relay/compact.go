@@ -103,6 +103,8 @@ func HandleResponsesCompact(c *gin.Context) {
 	var sawSupportedCapability bool
 	var lastStatusCode int
 	var lastRetryAfter time.Duration
+	var lastRetryAt time.Time
+	var lastFailure FailureClassification
 	var capabilityErrorCode string
 	var capabilityErrorMessage string
 	capabilityPolicy := getCapabilityDegradationPolicy()
@@ -136,6 +138,7 @@ func HandleResponsesCompact(c *gin.Context) {
 			continue
 		}
 		decision := outbound.PlanRelayOperation(channel.Type, outbound.RelayOperationResponsesCompact)
+		decorateParamOverrideDecision(&decision, helper.InspectParamOverride(channel.ParamOverride), channelParamOverrideActive(channel))
 		logRelayCapability(channel, item.ModelName, decision, capabilityPolicy)
 		if reject, errorCode := evaluateCapabilityPolicy(decision, capabilityPolicy); reject {
 			message := capabilityRejectionMessage(decision, channel.Type.String())
@@ -175,31 +178,42 @@ func HandleResponsesCompact(c *gin.Context) {
 		var attemptErr error
 		var statusCode int
 		var retryAfter time.Duration
+		var retryAt time.Time
+		var failure FailureClassification
 		var success bool
 
 		for retryNum := 0; retryNum < maxSameChannelRetries; retryNum++ {
 			if retryNum > 0 {
-				delay := computeBackoff(retryNum, retryAfter)
+				delay := computeAttemptBackoff(retryNum, retryAt, retryAfter)
 				if !waitBackoff(c.Request.Context(), delay) {
 					metrics.SaveWithChannelStats(c.Request.Context(), false, context.Canceled, iter.Attempts(), false)
 					return
 				}
 			}
 
-			statusCode, retryAfter, attemptErr = forwardResponsesCompact(
+			statusCode, retryAt, attemptErr = forwardResponsesCompactWithRetryAt(
 				c,
 				metrics,
 				iter,
 				channel,
 				usedKey,
+				item.ModelName,
 				body,
 				capabilityTrace(decision, capabilityPolicy, channel.Type.String()),
 			)
+			retryAfter = 0
+			if !retryAt.IsZero() {
+				retryAfter = time.Until(retryAt)
+				if retryAfter < 0 {
+					retryAfter = 0
+				}
+			}
 			if attemptErr == nil {
 				success = true
 				break
 			}
-			if !isRetryableStatus(statusCode) {
+			failure = classifyRelayFailureContext(c.Request.Context(), statusCode, attemptErr, retryAt)
+			if !failure.Retryable {
 				break
 			}
 		}
@@ -210,7 +224,7 @@ func HandleResponsesCompact(c *gin.Context) {
 
 		if success {
 			op.StatsChannelUpdate(channel.ID, dbmodel.StatsMetrics{RequestSuccess: 1})
-			balancer.RecordSuccess(channel.ID, usedKey.ID, requestModel)
+			balancer.RecordSuccess(channel.ID, usedKey.ID, item.ModelName)
 			balancer.SetRoutingAffinity(apiKeyID, requestModel, channel.ID, usedKey.ID)
 			outlierwindow.Report(channel.ID, true, statusCode, time.Now())
 			metrics.SaveWithChannelStats(c.Request.Context(), true, nil, iter.Attempts(), false)
@@ -218,13 +232,17 @@ func HandleResponsesCompact(c *gin.Context) {
 		}
 
 		op.StatsChannelUpdate(channel.ID, dbmodel.StatsMetrics{RequestFailed: 1})
-		failureKind := circuitFailureKind(group.RetryEnabled, statusCode)
-		balancer.RecordFailure(channel.ID, usedKey.ID, requestModel, failureKind)
-		outlierwindow.Report(channel.ID, false, statusCode, time.Now())
+		if failure.Record {
+			retryAt = recordFailureAndResolveRetryAt(channel.ID, usedKey.ID, item.ModelName, failure, retryAt)
+			failure.RetryAt = retryAt
+			outlierwindow.Report(channel.ID, false, statusCode, time.Now())
+		}
 		iter.InvalidateCurrentPreference()
 		lastErr = attemptErr
 		lastStatusCode = statusCode
 		lastRetryAfter = retryAfter
+		lastRetryAt = retryAt
+		lastFailure = failure
 	}
 
 	finalErr := lastErr
@@ -240,49 +258,104 @@ func HandleResponsesCompact(c *gin.Context) {
 		resp.ErrorWithCode(c, http.StatusServiceUnavailable, CodeRelayNoAvailableChannel, "no available channel")
 		return
 	}
-	if isPassthroughStatus(lastStatusCode) {
-		if lastRetryAfter > 0 {
-			c.Header("Retry-After", fmt.Sprintf("%d", int(lastRetryAfter.Seconds())))
+	finalResult := attemptResult{
+		Err:        finalErr,
+		StatusCode: lastStatusCode,
+		RetryAfter: lastRetryAfter,
+		RetryAt:    lastRetryAt,
+		Failure:    lastFailure,
+	}
+	if lastFailure.Passthrough || isPassthroughStatus(lastStatusCode) {
+		if value := retryAfterHeaderValue(lastRetryAt, time.Now()); value != "" {
+			c.Header("Retry-After", value)
+		} else if lastRetryAfter > 0 {
+			c.Header("Retry-After", retryAfterDurationHeaderValue(lastRetryAfter))
 		}
-		resp.Error(c, lastStatusCode, "channel failed")
+		writeCompactFailure(c, finalResult, finalErr)
 		return
 	}
-	if lastStatusCode > 0 {
-		resp.Error(c, lastStatusCode, "channel failed")
-		return
-	}
-	resp.Error(c, http.StatusBadGateway, "channel failed")
+	writeCompactFailure(c, finalResult, finalErr)
 }
 
-func forwardResponsesCompact(c *gin.Context, metrics *RelayMetrics, iter *balancer.Iterator, channel *dbmodel.Channel, usedKey dbmodel.ChannelKey, requestBody []byte, trace balancer.CapabilityTrace) (int, time.Duration, error) {
+func writeCompactFailure(c *gin.Context, result attemptResult, err error) {
+	responseError := protocolErrorForAttempt(result, err)
+	if responseError == nil {
+		responseError = relayProtocolError(http.StatusBadGateway, CodeRelayUpstreamFailed, "channel failed")
+	}
+	resp.ErrorWithCode(c, responseError.StatusCode, responseError.Detail.Code, responseError.Detail.Message)
+}
+
+func forwardResponsesCompactWithRetryAt(c *gin.Context, metrics *RelayMetrics, iter *balancer.Iterator, channel *dbmodel.Channel, usedKey dbmodel.ChannelKey, mappedModel string, requestBody []byte, trace balancer.CapabilityTrace) (int, time.Time, error) {
 	span := iter.StartAttempt(channel.ID, usedKey.ID, channel.Name)
 	span.SetCapability(trace)
+	requestBody, err := replaceRequiredJSONModel(requestBody, mappedModel)
+	if err != nil {
+		classified := classifyLocalRelayError(FailureConfiguration, fmt.Errorf("failed to apply compact model mapping: %w", err))
+		span.SetFailure(string(FailureConfiguration), false, time.Time{})
+		span.End(dbmodel.AttemptFailed, 0, classified.Error())
+		return 0, time.Time{}, classified
+	}
 	request, err := buildResponsesCompactRequest(c.Request.Context(), channel, usedKey.ChannelKey, requestBody)
 	if err != nil {
-		span.End(dbmodel.AttemptFailed, 0, err.Error())
-		return 0, 0, fmt.Errorf("failed to create compact request: %w", err)
+		classified := classifyLocalRelayError(FailureConfiguration, fmt.Errorf("failed to create compact request: %w", err))
+		span.SetFailure(string(FailureConfiguration), false, time.Time{})
+		span.End(dbmodel.AttemptFailed, 0, classified.Error())
+		return 0, time.Time{}, classified
 	}
-	metrics.SetTransportRequestPayload(requestBody, metrics.RequestModel)
+	requestBody, captured, err := helper.ApplyParamOverrideWithPayload(request, channel.ParamOverride)
+	if err != nil {
+		classified := classifyLocalRelayError(FailureConfiguration, fmt.Errorf("invalid channel param override: %w", err))
+		span.SetFailure(string(FailureConfiguration), false, time.Time{})
+		span.End(dbmodel.AttemptFailed, 0, classified.Error())
+		return 0, time.Time{}, classified
+	}
+	if !captured {
+		requestBody, err = readOutboundRequestBody(request)
+		if err != nil {
+			classified := classifyLocalRelayError(FailureConfiguration, fmt.Errorf("failed to inspect compact request: %w", err))
+			span.SetFailure(string(FailureConfiguration), false, time.Time{})
+			span.End(dbmodel.AttemptFailed, 0, classified.Error())
+			return 0, time.Time{}, classified
+		}
+	}
+	actualModel, err := requiredJSONModel(requestBody)
+	if err != nil {
+		classified := classifyLocalRelayError(FailureConfiguration, fmt.Errorf("channel param override produced an invalid compact request: %w", err))
+		span.SetFailure(string(FailureConfiguration), false, time.Time{})
+		span.End(dbmodel.AttemptFailed, 0, classified.Error())
+		return 0, time.Time{}, classified
+	}
+	metrics.SetTransportRequestPayload(requestBody, actualModel)
+	metrics.ActualModel = actualModel
 	copyProxyHeaders(c.Request.Header, channel, request.Header)
 
 	response, err := sendCompactRequest(channel, request)
 	if err != nil {
-		span.End(dbmodel.AttemptFailed, 0, err.Error())
-		return 0, 0, fmt.Errorf("failed to send compact request: %w", err)
+		wrapped := fmt.Errorf("failed to send compact request: %w", err)
+		failure := classifyRelayFailureContext(c.Request.Context(), 0, wrapped, time.Time{})
+		span.SetFailure(string(failure.Class), failure.Retryable, failure.RetryAt)
+		span.End(dbmodel.AttemptFailed, 0, wrapped.Error())
+		return 0, time.Time{}, wrapped
 	}
 	defer response.Body.Close()
 
 	body, readErr := httpio.ReadResponseBody(response.Body)
 	if readErr != nil {
-		span.End(dbmodel.AttemptFailed, response.StatusCode, readErr.Error())
-		return responseProcessingErrorStatus(response.StatusCode), 0, fmt.Errorf("failed to read compact response body: %w", readErr)
+		wrapped := fmt.Errorf("failed to read compact response body: %w", readErr)
+		failure := classifyRelayFailureContext(c.Request.Context(), responseProcessingErrorStatus(response.StatusCode), wrapped, time.Time{})
+		span.SetFailure(string(failure.Class), failure.Retryable, failure.RetryAt)
+		span.End(dbmodel.AttemptFailed, response.StatusCode, wrapped.Error())
+		return responseProcessingErrorStatus(response.StatusCode), time.Time{}, wrapped
 	}
 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		retryAfter := parseRetryAfter(response.Header.Get("Retry-After"))
+		retryAt := parseRetryAt(response.Header.Get("Retry-After"))
 		statusCode := normalizeUpstreamStatusCode(response.StatusCode, string(body))
-		span.End(dbmodel.AttemptFailed, statusCode, string(body))
-		return statusCode, retryAfter, fmt.Errorf("upstream error: %d: %s", response.StatusCode, string(body))
+		responseErr := transformerModel.NormalizeHTTPError(statusCode, response.Header, body, "api_error")
+		failure := classifyRelayFailureContext(c.Request.Context(), statusCode, responseErr, retryAt)
+		span.SetFailure(string(failure.Class), failure.Retryable, retryAt)
+		span.End(dbmodel.AttemptFailed, statusCode, responseErr.Error())
+		return statusCode, retryAt, responseErr
 	}
 
 	copyProxyResponseHeaders(c.Writer.Header(), response.Header)
@@ -294,11 +367,29 @@ func forwardResponsesCompact(c *gin.Context, metrics *RelayMetrics, iter *balanc
 
 	var compactResp responsesCompactResponse
 	if err := json.Unmarshal(body, &compactResp); err == nil {
-		metrics.SetInternalResponse(compactResponseToInternalResponse(&compactResp), metrics.RequestModel)
+		metrics.SetInternalResponse(compactResponseToInternalResponse(&compactResp), actualModel)
 	}
 
 	span.End(dbmodel.AttemptSuccess, response.StatusCode, "")
-	return response.StatusCode, 0, nil
+	return response.StatusCode, time.Time{}, nil
+}
+
+// forwardResponsesCompact keeps the former duration-returning helper for
+// internal callers while the relay itself preserves the absolute deadline.
+func forwardResponsesCompact(c *gin.Context, metrics *RelayMetrics, iter *balancer.Iterator, channel *dbmodel.Channel, usedKey dbmodel.ChannelKey, requestBody []byte, trace balancer.CapabilityTrace) (int, time.Duration, error) {
+	mappedModel, modelErr := requiredJSONModel(requestBody)
+	if modelErr != nil {
+		return 0, 0, classifyLocalRelayError(FailureConfiguration, modelErr)
+	}
+	statusCode, retryAt, err := forwardResponsesCompactWithRetryAt(c, metrics, iter, channel, usedKey, mappedModel, requestBody, trace)
+	if retryAt.IsZero() {
+		return statusCode, 0, err
+	}
+	retryAfter := time.Until(retryAt)
+	if retryAfter < 0 {
+		retryAfter = 0
+	}
+	return statusCode, retryAfter, err
 }
 
 func buildResponsesCompactRequest(ctx context.Context, channel *dbmodel.Channel, key string, requestBody []byte) (*http.Request, error) {
@@ -355,7 +446,7 @@ func copyProxyResponseHeaders(dst http.Header, src http.Header) {
 func sendCompactRequest(channel *dbmodel.Channel, req *http.Request) (*http.Response, error) {
 	httpClient, err := helper.ChannelHTTPClientWithContext(req.Context(), channel)
 	if err != nil {
-		return nil, err
+		return nil, classifyLocalRelayError(FailureConfiguration, err)
 	}
 	return httpClient.Do(req)
 }

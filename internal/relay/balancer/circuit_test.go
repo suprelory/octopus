@@ -86,3 +86,70 @@ func TestHalfOpenDoesNotRemainTrippedForeverWithoutResult(t *testing.T) {
 		t.Fatalf("expected half-open timestamp to be cleared, got %v", entry.HalfOpenSince)
 	}
 }
+
+func TestRateLimitFailureSetsAbsoluteRetryAtWhileClosed(t *testing.T) {
+	Reset()
+	key := circuitKey(20, 30, "model")
+	deadline := time.Now().Add(1500 * time.Millisecond)
+	RecordFailureAt(20, 30, "model", FailureRateLimit, deadline)
+
+	tripped, remaining := IsTripped(20, 30, "model")
+	if !tripped || remaining <= time.Second {
+		t.Fatalf("rate limit circuit = tripped %t remaining %v", tripped, remaining)
+	}
+	got, ok := RetryAt(20, 30, "model")
+	if !ok || got.Before(deadline.Add(-10*time.Millisecond)) || got.After(deadline.Add(10*time.Millisecond)) {
+		t.Fatalf("retry-at = %v (ok=%t), want near %v", got, ok, deadline)
+	}
+	if _, ok := globalBreaker.Load(key); !ok {
+		t.Fatal("expected rate-limit failure to create a breaker entry")
+	}
+}
+
+func TestIgnoredFailureDoesNotCreateCircuitEntry(t *testing.T) {
+	Reset()
+	RecordFailure(21, 31, "model", FailureIgnored)
+	if _, ok := globalBreaker.Load(circuitKey(21, 31, "model")); ok {
+		t.Fatal("ignored failure must not create a breaker entry")
+	}
+}
+
+func TestPermanentFailureUsesLongerAbsoluteCooldown(t *testing.T) {
+	Reset()
+	RecordFailureAt(22, 32, "model", FailureModelUnsupported, time.Time{})
+	deadline, ok := RetryAt(22, 32, "model")
+	if !ok {
+		t.Fatal("expected model failure to open the breaker")
+	}
+	remaining := time.Until(deadline)
+	if remaining < 11*time.Hour || remaining > 12*time.Hour+time.Second {
+		t.Fatalf("model unsupported cooldown = %v, want about 12h", remaining)
+	}
+
+	Reset()
+	RecordFailureAt(23, 33, "model", FailureAuthentication, time.Time{})
+	deadline, ok = RetryAt(23, 33, "model")
+	if !ok {
+		t.Fatal("expected authentication failure to open the breaker")
+	}
+	remaining = time.Until(deadline)
+	if remaining < 29*time.Minute || remaining > 30*time.Minute+time.Second {
+		t.Fatalf("authentication cooldown = %v, want about 30m", remaining)
+	}
+}
+
+func TestOpenCircuitConcurrentFailureDoesNotShortenRetryAt(t *testing.T) {
+	Reset()
+	deadline := time.Now().Add(5 * time.Minute)
+	RecordFailureAt(24, 34, "model", FailureRateLimit, deadline)
+
+	// A request that was already in flight may report a later failure after the
+	// circuit opened. Missing or shorter hints must not erase the exact deadline.
+	RecordFailureAt(24, 34, "model", FailureTransient, time.Time{})
+	RecordFailureAt(24, 34, "model", FailureRateLimit, deadline.Add(-time.Minute))
+
+	got, ok := RetryAt(24, 34, "model")
+	if !ok || !got.Equal(deadline) {
+		t.Fatalf("retry-at = %v (ok=%t), want %v", got, ok, deadline)
+	}
+}

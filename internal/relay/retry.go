@@ -3,9 +3,16 @@ package relay
 import (
 	"context"
 	"math/rand/v2"
+	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
+
+// maxRelayRetryWait limits how long one request may remain blocked by an
+// upstream hint. The absolute deadline is still retained for the breaker and
+// for the response sent to the client.
+const maxRelayRetryWait = 10 * time.Minute
 
 // isRetryableStatus 判断 HTTP 状态码是否可重试
 // 429(限流)、503(服务不可用)、>=500(服务端错误)、0(连接错误) 可重试
@@ -17,23 +24,53 @@ func isRetryableStatus(code int) bool {
 // isPassthroughStatus 判断是否应透传给下游客户端
 // 429 和 503 透传，让客户端 SDK 的重试机制接管
 func isPassthroughStatus(code int) bool {
-	return code == 429 || code == 503
+	return code == 429 || code == 503 || code == 529
 }
 
-// parseRetryAfter 解析 Retry-After 响应头（仅支持秒数格式），上限 60s
-func parseRetryAfter(header string) time.Duration {
+// parseRetryAt parses both Retry-After forms (delta-seconds and HTTP-date) and
+// returns an absolute deadline. Invalid values return the zero time.
+func parseRetryAt(header string) time.Time {
+	return parseRetryAtAt(header, time.Now())
+}
+
+// ParseRetryAt is the public diagnostic form of parseRetryAt.
+func ParseRetryAt(header string) time.Time {
+	return parseRetryAt(header)
+}
+
+func parseRetryAtAt(header string, now time.Time) time.Time {
+	header = strings.TrimSpace(header)
 	if header == "" {
+		return time.Time{}
+	}
+	if secs, err := strconv.ParseInt(header, 10, 64); err == nil {
+		if secs < 0 {
+			return time.Time{}
+		}
+		maxSeconds := int64((time.Duration(1<<63 - 1)) / time.Second)
+		if secs > maxSeconds {
+			return time.Time{}
+		}
+		return now.Add(time.Duration(secs) * time.Second)
+	}
+	if parsed, err := http.ParseTime(header); err == nil {
+		return parsed
+	}
+	return time.Time{}
+}
+
+// parseRetryAfter is retained as a duration compatibility helper. New code
+// should preserve parseRetryAt so the deadline is not repeatedly rounded.
+func parseRetryAfter(header string) time.Duration {
+	retryAt := parseRetryAt(header)
+	if retryAt.IsZero() {
 		return 0
 	}
-	secs, err := strconv.Atoi(header)
-	if err != nil || secs <= 0 {
+	delay := time.Until(retryAt)
+	if delay <= 0 {
 		return 0
 	}
-	d := time.Duration(secs) * time.Second
-	if d > 60*time.Second {
-		d = 60 * time.Second
-	}
-	return d
+	return delay
 }
 
 // computeBackoff 计算退避时间
@@ -59,6 +96,66 @@ func computeBackoff(retryNum int, retryAfter time.Duration) time.Duration {
 	// 添加 10%-50% 的 jitter 防止惊群
 	jitter := time.Duration(float64(delay) * (0.1 + rand.Float64()*0.4))
 	return delay + jitter
+}
+
+// computeBackoffUntil uses the absolute deadline supplied by an upstream. A
+// deadline in the past is ignored and falls back to local exponential backoff.
+func computeBackoffUntil(retryNum int, retryAt time.Time) time.Duration {
+	if !retryAt.IsZero() {
+		delay := time.Until(retryAt)
+		if delay > 0 {
+			if delay > maxRelayRetryWait {
+				return maxRelayRetryWait
+			}
+			return delay
+		}
+		// An explicit Retry-After: 0 (or an already elapsed HTTP date)
+		// means the provider permits an immediate retry. Do not replace that
+		// signal with a one-second local backoff.
+		return 0
+	}
+	return computeBackoff(retryNum, 0)
+}
+
+func computeAttemptBackoff(retryNum int, retryAt time.Time, retryAfter time.Duration) time.Duration {
+	if !retryAt.IsZero() {
+		return computeBackoffUntil(retryNum, retryAt)
+	}
+	return computeBackoff(retryNum, retryAfter)
+}
+
+// retryAfterHeaderValue returns the client-facing delta in whole seconds,
+// rounded up so the advertised deadline is never earlier than retryAt.
+func retryAfterHeaderValue(retryAt time.Time, now time.Time) string {
+	if retryAt.IsZero() {
+		return ""
+	}
+	delay := retryAt.Sub(now)
+	if delay <= 0 {
+		return ""
+	}
+	seconds := int64(delay / time.Second)
+	if delay%time.Second != 0 {
+		seconds++
+	}
+	if seconds < 1 {
+		seconds = 1
+	}
+	return strconv.FormatInt(seconds, 10)
+}
+
+func retryAfterDurationHeaderValue(delay time.Duration) string {
+	if delay <= 0 {
+		return ""
+	}
+	seconds := int64(delay / time.Second)
+	if delay%time.Second != 0 {
+		seconds++
+	}
+	if seconds < 1 {
+		seconds = 1
+	}
+	return strconv.FormatInt(seconds, 10)
 }
 
 // waitBackoff 等待 delay 或 ctx 取消，返回 false 表示 ctx 已取消。

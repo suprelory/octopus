@@ -20,9 +20,32 @@ const (
 	StateClosed   CircuitState = iota // 正常通行
 	StateOpen                         // 熔断中，拒绝所有请求
 	StateHalfOpen                     // 半开，仅允许单个试探请求
+)
 
-	FailureHard FailureKind = iota
-	FailureSoftRateLimit
+const (
+	// FailureIgnored does not affect breaker state. Request validation and
+	// client cancellation use this kind because retrying another credential
+	// cannot repair the caller's request.
+	FailureIgnored FailureKind = iota
+	FailureTransient
+	FailureRateLimit
+	FailureQuota
+	FailureModelUnsupported
+	FailureAuthentication
+	FailurePermission
+
+	// Compatibility names retained for callers that used the old two-value
+	// taxonomy. They intentionally map to the richer categories.
+	FailureHard          = FailureTransient
+	FailureSoftRateLimit = FailureRateLimit
+)
+
+const (
+	// Permanent credential/model faults should not be retried on the normal
+	// one-minute transient cadence. They remain model/key scoped and can still
+	// be cleared by a successful probe or an explicit channel reset.
+	modelUnsupportedCooldown = 12 * time.Hour
+	authenticationCooldown   = 30 * time.Minute
 )
 
 // circuitEntry 单个熔断器条目
@@ -30,9 +53,13 @@ type circuitEntry struct {
 	State               CircuitState
 	ConsecutiveFailures int64
 	LastFailureTime     time.Time
-	TripCount           int // 累计熔断触发次数（用于指数退避）
-	HalfOpenSince       time.Time
-	mu                  sync.Mutex
+	// RetryAt is the absolute time at which a tripped entry may be probed.
+	// Keeping the deadline avoids losing provider Retry-After precision when a
+	// request waits in a retry queue.
+	RetryAt       time.Time
+	TripCount     int // 累计熔断触发次数（用于指数退避）
+	HalfOpenSince time.Time
+	mu            sync.Mutex
 }
 
 // 全局熔断器存储
@@ -117,17 +144,20 @@ func IsTripped(channelID, keyID int, modelName string) (tripped bool, remaining 
 		return false, 0
 
 	case StateOpen:
-		cooldown := GetCooldown(entry.TripCount)
-		elapsed := time.Since(entry.LastFailureTime)
-		if elapsed >= cooldown {
-			now := time.Now()
+		now := time.Now()
+		retryAt := entry.RetryAt
+		if retryAt.IsZero() {
+			retryAt = entry.LastFailureTime.Add(GetCooldown(entry.TripCount))
+		}
+		if !now.Before(retryAt) {
 			entry.State = StateHalfOpen
 			entry.HalfOpenSince = now
-			log.Infof("circuit breaker [%s] Open -> HalfOpen (cooldown %v elapsed)", key, cooldown)
+			entry.RetryAt = time.Time{}
+			log.Infof("circuit breaker [%s] Open -> HalfOpen (retry_at=%v elapsed)", key, retryAt)
 			return false, 0
 		}
 		// 仍在冷却中
-		return true, cooldown - elapsed
+		return true, retryAt.Sub(now)
 
 	case StateHalfOpen:
 		cooldown := GetCooldown(entry.TripCount)
@@ -169,25 +199,61 @@ func RecordSuccess(channelID, keyID int, modelName string) {
 	entry.State = StateClosed
 	entry.ConsecutiveFailures = 0
 	entry.TripCount = 0
+	entry.RetryAt = time.Time{}
 	entry.HalfOpenSince = time.Time{}
 }
 
-// RecordFailure 记录失败，可能触发熔断。
-// FailureSoftRateLimit 用于 429/503 这类软失败：Closed 状态下不累计阈值，
-// HalfOpen 状态下重新进入 Open，但不放大 TripCount。
+// RetryAt returns the currently stored absolute breaker deadline. It is useful
+// for diagnostics and for callers that need to forward an exact cooldown.
+func RetryAt(channelID, keyID int, modelName string) (time.Time, bool) {
+	key := circuitKey(channelID, keyID, modelName)
+	v, ok := globalBreaker.Load(key)
+	if !ok {
+		return time.Time{}, false
+	}
+	entry := v.(*circuitEntry)
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if entry.State != StateOpen || entry.RetryAt.IsZero() {
+		return time.Time{}, false
+	}
+	return entry.RetryAt, true
+}
+
+// RecordFailure records a failure without an externally supplied deadline.
+// New relay code should prefer RecordFailureAt when Retry-After was present.
 func RecordFailure(channelID, keyID int, modelName string, kind FailureKind) {
+	RecordFailureAt(channelID, keyID, modelName, kind, time.Time{})
+}
+
+// RecordFailureAt records a failure and, for rate/quota/provider errors, the
+// exact absolute deadline supplied by the upstream. Request and cancellation
+// failures are ignored before an entry is allocated.
+func RecordFailureAt(channelID, keyID int, modelName string, kind FailureKind, retryAt time.Time) {
+	if kind == FailureIgnored {
+		return
+	}
 	key := circuitKey(channelID, keyID, modelName)
 	entry := getOrCreateEntry(key)
 
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
 
-	entry.LastFailureTime = time.Now()
+	now := time.Now()
+	entry.LastFailureTime = now
 	entry.HalfOpenSince = time.Time{}
 
 	switch entry.State {
 	case StateClosed:
-		if kind == FailureSoftRateLimit {
+		entry.RetryAt = time.Time{}
+		if immediateFailureKind(kind) {
+			entry.State = StateOpen
+			entry.ConsecutiveFailures = 0
+			if entry.TripCount <= 0 {
+				entry.TripCount = 1
+			}
+			entry.RetryAt = retryDeadline(now, retryAt, entry.TripCount, kind)
+			log.Warnf("circuit breaker [%s] Closed -> Open (%s, retry_at=%v)", key, failureKindName(kind), entry.RetryAt)
 			return
 		}
 		entry.ConsecutiveFailures++
@@ -195,26 +261,77 @@ func RecordFailure(channelID, keyID int, modelName string, kind FailureKind) {
 		if entry.ConsecutiveFailures >= threshold {
 			entry.State = StateOpen
 			entry.TripCount++
+			entry.RetryAt = retryDeadline(now, retryAt, entry.TripCount, kind)
 			log.Warnf("circuit breaker [%s] Closed -> Open (failures=%d >= threshold=%d, tripCount=%d, cooldown=%v)",
 				key, entry.ConsecutiveFailures, threshold, entry.TripCount, GetCooldown(entry.TripCount))
 		}
 
 	case StateHalfOpen:
-		if kind == FailureSoftRateLimit {
+		entry.RetryAt = time.Time{}
+		if immediateFailureKind(kind) {
 			entry.State = StateOpen
-			log.Warnf("circuit breaker [%s] HalfOpen -> Open (soft rate limit, tripCount=%d, cooldown=%v)",
-				key, entry.TripCount, GetCooldown(entry.TripCount))
+			if entry.TripCount <= 0 {
+				entry.TripCount = 1
+			}
+			entry.RetryAt = retryDeadline(now, retryAt, entry.TripCount, kind)
+			log.Warnf("circuit breaker [%s] HalfOpen -> Open (%s, tripCount=%d, retry_at=%v)",
+				key, failureKindName(kind), entry.TripCount, entry.RetryAt)
 			return
 		}
 		// 试探失败，重新进入 Open 状态，TripCount 递增（冷却时间翻倍）
 		entry.State = StateOpen
 		entry.TripCount++
 		entry.ConsecutiveFailures = 0 // 重新开始计数
+		entry.RetryAt = retryDeadline(now, retryAt, entry.TripCount, kind)
 		log.Warnf("circuit breaker [%s] HalfOpen -> Open (probe failed, tripCount=%d, cooldown=%v)",
 			key, entry.TripCount, GetCooldown(entry.TripCount))
 
 	case StateOpen:
 		// 理论上不应该在 Open 状态下接收到失败记录（请求应被拒绝），
-		// 但为安全起见仍更新失败时间
+		// 但为安全起见只延长 deadline，不能把已有精确 Retry-After 清掉。
+		if retryAt.After(entry.RetryAt) {
+			entry.RetryAt = retryAt
+		}
+	}
+}
+
+func immediateFailureKind(kind FailureKind) bool {
+	switch kind {
+	case FailureRateLimit, FailureQuota, FailureModelUnsupported, FailureAuthentication, FailurePermission:
+		return true
+	default:
+		return false
+	}
+}
+
+func retryDeadline(now, requested time.Time, tripCount int, kind FailureKind) time.Time {
+	if !requested.IsZero() && requested.After(now) {
+		return requested
+	}
+	switch kind {
+	case FailureModelUnsupported:
+		return now.Add(modelUnsupportedCooldown)
+	case FailureAuthentication, FailurePermission:
+		return now.Add(authenticationCooldown)
+	}
+	return now.Add(GetCooldown(tripCount))
+}
+
+func failureKindName(kind FailureKind) string {
+	switch kind {
+	case FailureTransient:
+		return "transient"
+	case FailureRateLimit:
+		return "rate_limit"
+	case FailureQuota:
+		return "quota"
+	case FailureModelUnsupported:
+		return "model_unsupported"
+	case FailureAuthentication:
+		return "authentication"
+	case FailurePermission:
+		return "permission"
+	default:
+		return "ignored"
 	}
 }

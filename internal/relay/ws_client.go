@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +33,8 @@ type wsRelayResult struct {
 	Written           bool
 	Canceled          bool
 	Err               error
+	Failure           FailureClassification
+	RetryAt           time.Time
 	PublicError       *wsPublicError
 	Attempt           *relayRequest
 }
@@ -596,7 +599,7 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group, em
 		var result attemptResult
 		for retryNum := 0; retryNum < maxSameChannelRetries; retryNum++ {
 			if retryNum > 0 {
-				delay := computeBackoff(retryNum, result.RetryAfter)
+				delay := computeAttemptBackoff(retryNum, result.RetryAt, result.RetryAfter)
 				if !waitBackoff(relayCtx, delay) {
 					if isLocalRelayBudgetExceeded(relayCtx, contextError(relayCtx)) {
 						publicErr := wsPublicError{
@@ -612,7 +615,13 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group, em
 
 			attemptRequest, attemptErr := newAttemptRelayRequest(req, relayCtx, item.ModelName)
 			if attemptErr != nil {
-				result = attemptResult{Err: attemptErr, StatusCode: http.StatusBadRequest, ProtocolError: relayProtocolError(http.StatusBadRequest, "invalid_request", attemptErr.Error())}
+				classified := classifyLocalRelayError(FailureConfiguration, fmt.Errorf("failed to prepare relay attempt: %w", attemptErr))
+				result = attemptResult{
+					Err:           classified,
+					StatusCode:    http.StatusInternalServerError,
+					Failure:       FailureClassification{Class: FailureConfiguration, StatusCode: http.StatusInternalServerError},
+					ProtocolError: relayProtocolError(http.StatusInternalServerError, CodeRelayConfiguration, classified.Error()),
+				}
 				break
 			}
 
@@ -628,18 +637,17 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group, em
 
 			result = ra.attempt()
 			lastAttempt = attemptRequest
-			if result.Success || result.Written || result.Canceled || result.ResetConversation || !isRetryableStatus(result.StatusCode) {
+			if result.Success || result.Written || result.Canceled || result.ResetConversation || !result.Failure.Retryable {
 				break
 			}
 		}
 
-		if !result.Success && !result.Written && !result.Canceled && !result.ResetConversation {
-			failureKind := circuitFailureKind(group.RetryEnabled, result.StatusCode)
-			if replayExact && result.StatusCode == http.StatusServiceUnavailable && isNoAvailableAccountError(relayErrorMessage(result.Err)) {
-				failureKind = balancer.FailureHard
+		if !result.Success && !result.Canceled && !result.ResetConversation && result.Failure.Record {
+			result.RetryAt = recordFailureAndResolveRetryAt(channel.ID, usedKey.ID, item.ModelName, result.Failure, result.RetryAt)
+			result.Failure.RetryAt = result.RetryAt
+			if !result.Written {
+				req.iter.InvalidateCurrentPreference()
 			}
-			balancer.RecordFailure(channel.ID, usedKey.ID, item.ModelName, failureKind)
-			req.iter.InvalidateCurrentPreference()
 		}
 
 		if result.Success {
@@ -651,12 +659,12 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group, em
 		}
 		if result.ResetConversation {
 			if publicErr, ok := classifyWSPublicError(result.Err, result.StatusCode); ok {
-				return wsRelayResult{ResetConversation: publicErr.ResetConversation, Err: result.Err, PublicError: &publicErr, Attempt: lastAttempt}
+				return wsRelayResult{ResetConversation: publicErr.ResetConversation, Err: result.Err, Failure: result.Failure, RetryAt: result.RetryAt, PublicError: &publicErr, Attempt: lastAttempt}
 			}
-			return wsRelayResult{ResetConversation: true, Err: result.Err, Attempt: lastAttempt}
+			return wsRelayResult{ResetConversation: true, Err: result.Err, Failure: result.Failure, RetryAt: result.RetryAt, Attempt: lastAttempt}
 		}
 		if result.Canceled || result.Written {
-			return wsRelayResult{Written: result.Written, Canceled: result.Canceled, Err: result.Err, Attempt: lastAttempt}
+			return wsRelayResult{Written: result.Written, Canceled: result.Canceled, Err: result.Err, Failure: result.Failure, RetryAt: result.RetryAt, Attempt: lastAttempt}
 		}
 		lastErr = result.Err
 		lastResult = result
@@ -673,13 +681,13 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group, em
 		code := lastResult.ProtocolError.Detail.Code
 		if code == CodeRelayModelNotSupported || code == CodeRelayCapabilityRejected {
 			publicErr := wsPublicError{Status: http.StatusBadRequest, Code: code, Message: lastResult.ProtocolError.Detail.Message}
-			return wsRelayResult{Err: lastErr, PublicError: &publicErr, Attempt: lastAttempt}
+			return wsRelayResult{Err: lastErr, Failure: lastResult.Failure, RetryAt: lastResult.RetryAt, PublicError: &publicErr, Attempt: lastAttempt}
 		}
 	}
 	if publicErr, ok := classifyWSPublicError(lastErr, lastResult.StatusCode); ok {
-		return wsRelayResult{ResetConversation: publicErr.ResetConversation, Err: lastErr, PublicError: &publicErr, Attempt: lastAttempt}
+		return wsRelayResult{ResetConversation: publicErr.ResetConversation, Err: lastErr, Failure: lastResult.Failure, RetryAt: lastResult.RetryAt, PublicError: &publicErr, Attempt: lastAttempt}
 	}
-	return wsRelayResult{Err: lastErr, Attempt: lastAttempt}
+	return wsRelayResult{Err: lastErr, Failure: lastResult.Failure, RetryAt: lastResult.RetryAt, Attempt: lastAttempt}
 }
 
 func finalizeWSRelay(ctx context.Context, conn *websocket.Conn, req *relayRequest, result wsRelayResult) wsRelayResult {
@@ -696,7 +704,16 @@ func finalizeWSRelay(ctx context.Context, conn *websocket.Conn, req *relayReques
 		if result.PublicError.ResetConversation {
 			balancer.DeleteRoutingAffinity(req.apiKeyID, req.requestModel)
 		}
-		writeWSError(ctx, conn, result.PublicError.Status, result.PublicError.Code, result.PublicError.Message)
+		writeWSError(ctx, conn, result.PublicError.Status, result.PublicError.Code, result.PublicError.Message, result.RetryAt)
+		return result
+	}
+	if result.Failure.Class != FailureNone {
+		status, code := defaultFailureProtocol(result.Failure.Class, result.Failure.StatusCode)
+		message := "All channels failed"
+		if result.Err != nil && strings.TrimSpace(result.Err.Error()) != "" {
+			message = result.Err.Error()
+		}
+		writeWSError(ctx, conn, status, code, message, result.RetryAt)
 		return result
 	}
 	writeWSError(ctx, conn, 502, "all_channels_failed", "All channels failed")
@@ -746,7 +763,18 @@ func wsRequestExplicitlyRequestsContinuation(reqBody map[string]json.RawMessage)
 	return false
 }
 
-func writeWSError(ctx context.Context, conn *websocket.Conn, status int, code, message string) {
+func writeWSError(ctx context.Context, conn *websocket.Conn, status int, code, message string, retryAt ...time.Time) {
+	deadline := time.Time{}
+	if len(retryAt) > 0 {
+		deadline = retryAt[0]
+	}
+	errEvent := buildWSErrorEvent(status, code, message, deadline, time.Now())
+	if err := writeWSEvent(ctx, conn, errEvent); err != nil {
+		log.Debugf("ws error event write failed: %v", err)
+	}
+}
+
+func buildWSErrorEvent(status int, code, message string, retryAt, now time.Time) map[string]interface{} {
 	errEvent := map[string]interface{}{
 		"type":   "error",
 		"status": status,
@@ -756,9 +784,12 @@ func writeWSError(ctx context.Context, conn *websocket.Conn, status int, code, m
 			"message": message,
 		},
 	}
-	if err := writeWSEvent(ctx, conn, errEvent); err != nil {
-		log.Debugf("ws error event write failed: %v", err)
+	if value := retryAfterHeaderValue(retryAt, now); value != "" {
+		if seconds, err := strconv.Atoi(value); err == nil {
+			errEvent["retry_after"] = seconds
+		}
 	}
+	return errEvent
 }
 
 func finalChannelKey(attempts []dbmodel.ChannelAttempt) (int, int) {

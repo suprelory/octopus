@@ -175,7 +175,8 @@ type relayAttempt struct {
 	firstTokenTimeOutSec   int
 	firstTokenBudget       *firstTokenBudget
 	emptyResponseDetection bool          // 空回检测开关（来自全局设置）
-	retryAfter             time.Duration // forward() 提取后暂存
+	retryAfter             time.Duration // compatibility duration derived from retryAt
+	retryAt                time.Time     // absolute upstream Retry-After deadline
 	upstreamError          *model.ResponseError
 	capabilityDecision     outbound.CapabilityDecision
 	streamFinalizer        *model.StreamFinalizer
@@ -192,5 +193,7 @@ type attemptResult struct {
 	Err               error         // 失败时的错误
 	StatusCode        int           // 上游 HTTP 状态码（0 = 连接错误）
 	RetryAfter        time.Duration // 解析的 Retry-After 值
+	RetryAt           time.Time     // absolute Retry-After deadline
+	Failure           FailureClassification
 	ProtocolError     *model.ResponseError
 }

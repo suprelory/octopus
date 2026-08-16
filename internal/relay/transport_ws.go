@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/bestruirui/octopus/internal/utils/log"
 	"github.com/coder/websocket"
@@ -20,6 +21,7 @@ type wsUpstreamReader struct {
 	closed     bool
 	done       bool // true after a terminal event has been returned
 	statusCode int
+	retryAt    time.Time
 }
 
 func newWSUpstreamReader(pc *pooledConn, channelID, keyID int) *wsUpstreamReader {
@@ -63,19 +65,27 @@ func (r *wsUpstreamReader) ReadEvent(ctx context.Context) ([]byte, error) {
 
 	// Check for error and terminal events.
 	var event struct {
-		Type   string `json:"type"`
-		Status int    `json:"status"`
-		Error  *struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-			Type    string `json:"type"`
+		Type       string          `json:"type"`
+		Status     int             `json:"status"`
+		RetryAfter json.RawMessage `json:"retry_after"`
+		RetryAt    json.RawMessage `json:"retry_at"`
+		Error      *struct {
+			Code       string          `json:"code"`
+			Message    string          `json:"message"`
+			Type       string          `json:"type"`
+			RetryAfter json.RawMessage `json:"retry_after"`
+			RetryAt    json.RawMessage `json:"retry_at"`
 		} `json:"error"`
 		Response *struct {
-			Status string `json:"status"`
-			Error  *struct {
-				Code    string `json:"code"`
-				Message string `json:"message"`
-				Type    string `json:"type"`
+			Status     string          `json:"status"`
+			RetryAfter json.RawMessage `json:"retry_after"`
+			RetryAt    json.RawMessage `json:"retry_at"`
+			Error      *struct {
+				Code       string          `json:"code"`
+				Message    string          `json:"message"`
+				Type       string          `json:"type"`
+				RetryAfter json.RawMessage `json:"retry_after"`
+				RetryAt    json.RawMessage `json:"retry_at"`
 			} `json:"error"`
 		} `json:"response"`
 	}
@@ -87,6 +97,8 @@ func (r *wsUpstreamReader) ReadEvent(ctx context.Context) ([]byte, error) {
 			r.done = true
 		}
 		if isWSStreamErrorEvent(event.Type) || event.Error != nil || (event.Response != nil && event.Response.Error != nil) {
+			now := time.Now()
+			r.retryAt = parseWSRetryDeadline(now, event.RetryAfter, event.RetryAt)
 			if event.Status > 0 {
 				r.statusCode = event.Status
 			} else if r.statusCode < 400 {
@@ -97,10 +109,16 @@ func (r *wsUpstreamReader) ReadEvent(ctx context.Context) ([]byte, error) {
 			if event.Error != nil {
 				errMsg = event.Error.Message
 				errCode = event.Error.Code
+				r.retryAt = firstRetryDeadline(parseWSRetryDeadline(now, event.Error.RetryAfter, event.Error.RetryAt), r.retryAt)
 			}
 			if event.Response != nil && event.Response.Error != nil {
 				errMsg = event.Response.Error.Message
 				errCode = event.Response.Error.Code
+				r.retryAt = firstRetryDeadline(
+					parseWSRetryDeadline(now, event.Response.Error.RetryAfter, event.Response.Error.RetryAt),
+					parseWSRetryDeadline(now, event.Response.RetryAfter, event.Response.RetryAt),
+					r.retryAt,
+				)
 			}
 			return nil, fmt.Errorf("%s (code=%s, status=%d)", errMsg, errCode, r.statusCode)
 		}
@@ -111,6 +129,10 @@ func (r *wsUpstreamReader) ReadEvent(ctx context.Context) ([]byte, error) {
 
 func (r *wsUpstreamReader) StatusCode() int {
 	return r.statusCode
+}
+
+func (r *wsUpstreamReader) RetryAt() time.Time {
+	return r.retryAt
 }
 
 func (r *wsUpstreamReader) Headers() http.Header {

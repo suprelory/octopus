@@ -31,6 +31,45 @@ func TestShouldUseHTTPPassthroughHonorsChannelMode(t *testing.T) {
 	}
 }
 
+func TestParamOverrideForcesValidatedTransformerPath(t *testing.T) {
+	override := `{"temperature":0.2}`
+	channel := &dbmodel.Channel{
+		Type:            outbound.OutboundTypeAnthropic,
+		PassthroughMode: dbmodel.ChannelPassthroughModeAuto,
+		ParamOverride:   &override,
+	}
+	request := &transformerModel.InternalLLMRequest{RawAPIFormat: transformerModel.APIFormatAnthropicMessage}
+	adapter := outbound.Get(channel.Type)
+	rawBody := []byte(`{"model":"m"}`)
+	if planRelayPassthrough(request, rawBody, channel, adapter, false) {
+		t.Fatal("param override must disable byte-stable passthrough")
+	}
+	decision := newRelayCapabilityPlanner(request, rawBody, false).plan(channel, adapter, "m")
+	if decision.StaticQuality == outbound.QualityNative || !containsString(decision.RequiredFeatures, "param_override") || !containsString(decision.ConversionPath, "wire_override") {
+		t.Fatalf("override capability decision = %#v", decision)
+	}
+}
+
+func TestWSPassthroughPayloadAppliesParamOverrideAndPreservesEnvelope(t *testing.T) {
+	override := `{"temperature":0.2}`
+	request := &transformerModel.InternalLLMRequest{Model: "upstream-model"}
+	attempt := &relayAttempt{
+		relayRequest: &relayRequest{rawBody: []byte(`{"model":"client-model","input":"hello"}`), internalRequest: request},
+		channel:      &dbmodel.Channel{ParamOverride: &override},
+	}
+	payload, err := attempt.buildWSPassthroughRequestPayload()
+	if err != nil {
+		t.Fatalf("build websocket payload: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("decode websocket payload: %v", err)
+	}
+	if decoded["type"] != "response.create" || decoded["stream"] != true || decoded["temperature"] != 0.2 {
+		t.Fatalf("websocket payload = %#v", decoded)
+	}
+}
+
 func TestShouldUseHTTPPassthroughKeepsResponsesNativeOnlySafety(t *testing.T) {
 	request := &transformerModel.InternalLLMRequest{
 		RequestType:  transformerModel.RequestTypeResponses,

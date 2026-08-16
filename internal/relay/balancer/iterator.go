@@ -339,7 +339,11 @@ func (it *Iterator) SkipCircuitBreak(channelID, channelKeyID int, channelName st
 	}
 	msg := "circuit breaker tripped"
 	if remaining > 0 {
-		msg = fmt.Sprintf("circuit breaker tripped, remaining cooldown: %ds", int(remaining.Seconds()))
+		seconds := int((remaining + time.Second - 1) / time.Second)
+		if seconds < 1 {
+			seconds = 1
+		}
+		msg = fmt.Sprintf("circuit breaker tripped, remaining cooldown: %ds", seconds)
 	}
 	it.count++
 	it.attempts = append(it.attempts, model.ChannelAttempt{
@@ -352,7 +356,12 @@ func (it *Iterator) SkipCircuitBreak(channelID, channelKeyID int, channelName st
 		Sticky:         it.IsSticky(),
 		Msg:            msg,
 		FallbackReason: msg,
+		FailureClass:   "circuit_open",
 	})
+	if retryAt, ok := RetryAt(channelID, channelKeyID, modelName); ok {
+		attempt := &it.attempts[len(it.attempts)-1]
+		attempt.RetryAt = &retryAt
+	}
 	return true
 }
 
@@ -419,6 +428,18 @@ func (s *AttemptSpan) SetCapability(trace CapabilityTrace) {
 	s.attempt.CapabilityLosses = append([]model.CapabilityLoss(nil), trace.Losses...)
 	s.attempt.Lossiness = trace.Lossiness
 	s.attempt.CapabilityReasons = append([]string(nil), trace.Reasons...)
+}
+
+// SetFailure records the structured relay failure without importing relay
+// (which would create a package cycle). RetryAt is copied so later mutation of
+// the caller's time value cannot alter the persisted attempt.
+func (s *AttemptSpan) SetFailure(class string, retryable bool, retryAt time.Time) {
+	s.attempt.FailureClass = class
+	s.attempt.Retryable = retryable
+	if !retryAt.IsZero() {
+		deadline := retryAt
+		s.attempt.RetryAt = &deadline
+	}
 }
 
 // Duration 返回从开始到现在的耗时
