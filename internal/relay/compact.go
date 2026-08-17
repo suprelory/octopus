@@ -16,7 +16,6 @@ import (
 	"github.com/bestruirui/octopus/internal/helper"
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
-	"github.com/bestruirui/octopus/internal/outlierwindow"
 	"github.com/bestruirui/octopus/internal/relay/balancer"
 	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/server/resp"
@@ -226,7 +225,6 @@ func HandleResponsesCompact(c *gin.Context) {
 			op.StatsChannelUpdate(channel.ID, dbmodel.StatsMetrics{RequestSuccess: 1})
 			balancer.RecordSuccess(channel.ID, usedKey.ID, item.ModelName)
 			balancer.SetRoutingAffinity(apiKeyID, requestModel, channel.ID, usedKey.ID)
-			outlierwindow.Report(channel.ID, true, statusCode, time.Now())
 			metrics.SaveWithChannelStats(c.Request.Context(), true, nil, iter.Attempts(), false)
 			return
 		}
@@ -235,7 +233,6 @@ func HandleResponsesCompact(c *gin.Context) {
 		if failure.Record {
 			retryAt = recordFailureAndResolveRetryAt(channel.ID, usedKey.ID, item.ModelName, failure, retryAt)
 			failure.RetryAt = retryAt
-			outlierwindow.Report(channel.ID, false, statusCode, time.Now())
 		}
 		iter.InvalidateCurrentPreference()
 		lastErr = attemptErr

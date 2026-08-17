@@ -141,7 +141,6 @@ func formatSiteHTTPError(statusCode int, header http.Header, bodyBytes []byte) e
 }
 
 // IsCloudflareProtectionResponse 判断一次上游响应是否为 Cloudflare 防护拦截（403 + CF 指纹）。
-// 供 sitesync 内部与被动离群退役（POR）门3 复用。
 func IsCloudflareProtectionResponse(statusCode int, header http.Header, bodyBytes []byte) bool {
 	if statusCode != http.StatusForbidden {
 		return false

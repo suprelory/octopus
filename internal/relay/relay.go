@@ -16,7 +16,6 @@ import (
 	"github.com/bestruirui/octopus/internal/helper"
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
-	"github.com/bestruirui/octopus/internal/outlierwindow"
 	"github.com/bestruirui/octopus/internal/relay/balancer"
 	"github.com/bestruirui/octopus/internal/relay/stream"
 	"github.com/bestruirui/octopus/internal/server/middleware"
@@ -324,15 +323,12 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 			failureKind := failureCircuitKind(result.Failure)
 			result.RetryAt = recordFailureAndResolveRetryAt(channel.ID, usedKey.ID, item.ModelName, result.Failure, result.RetryAt)
 			result.Failure.RetryAt = result.RetryAt
-			outlierwindow.Report(channel.ID, false, result.StatusCode, time.Now())
 			if failureKind == balancer.FailureTransient {
 				maybeLearnManagedRoute(c.Request.Context(), channel.ID, item.ModelName, inboundType, result.Err)
 			}
 		}
 
 		if result.Success {
-			outlierwindow.Report(channel.ID, true, result.StatusCode, time.Now())
-
 			// === HTTP Replay 状态保存 ===
 			// 成功后，如果是 OpenAI Responses HTTP 请求，保存 replay 状态供后续续接
 			// 注意：exact replay 请求成功后也需要保存新状态，否则只能续接一轮

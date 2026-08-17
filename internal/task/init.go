@@ -89,13 +89,6 @@ func Init() {
 		}
 	})
 
-	// 注册被动离群退役(POR)任务（默认间隔 2 分钟，总开关在任务内判断）
-	outlierIntervalMinutes, err := op.SettingGetInt(model.SettingKeyOutlierRetireInterval)
-	if err != nil || outlierIntervalMinutes <= 0 {
-		outlierIntervalMinutes = 2
-	}
-	Register(string(model.SettingKeyOutlierRetireInterval), time.Duration(outlierIntervalMinutes)*time.Minute, false, SiteOutlierRetireTask)
-
 	// 注册 WebDAV 自动备份任务（间隔为 0 时不运行）
 	webdavIntervalHours, err := op.SettingGetInt(model.SettingKeyWebDAVBackupInterval)
 	if err != nil {

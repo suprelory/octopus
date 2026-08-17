@@ -21,7 +21,6 @@ import (
 	"github.com/bestruirui/octopus/internal/helper"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
-	"github.com/bestruirui/octopus/internal/outlierwindow"
 	"github.com/bestruirui/octopus/internal/price"
 	"github.com/bestruirui/octopus/internal/relay/balancer"
 	"github.com/bestruirui/octopus/internal/relay/bodycache"
@@ -266,7 +265,6 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 		if failure.Record {
 			retryAt = recordFailureAndResolveRetryAt(channel.ID, usedKey.ID, item.ModelName, failure, retryAt)
 			failure.RetryAt = retryAt
-			outlierwindow.Report(channel.ID, false, statusCode, time.Now())
 		}
 
 		if written {

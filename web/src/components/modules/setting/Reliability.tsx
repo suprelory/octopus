@@ -7,19 +7,6 @@ import { Switch } from '@/components/ui/switch';
 import { SettingKey } from '@/api/endpoints/setting';
 import { SettingCard, SettingRow, SettingSection, useSettingField, useSettingToggle } from './shared';
 
-// min/max 与后端 model.Setting.Validate() 的边界保持一致，前端先行约束整数范围。
-const OUTLIER_FIELDS: { key: string; labelKey: string; min: number; max?: number }[] = [
-    { key: SettingKey.OutlierRetireInterval, labelKey: 'interval', min: 1 },
-    { key: SettingKey.OutlierFailRatePct, labelKey: 'failRate', min: 1, max: 100 },
-    { key: SettingKey.OutlierMinSamples, labelKey: 'minSamples', min: 1 },
-    { key: SettingKey.OutlierConsecFails, labelKey: 'consecFails', min: 1 },
-    { key: SettingKey.OutlierWindowMinutes, labelKey: 'windowMinutes', min: 1 },
-    { key: SettingKey.OutlierWindowCapacity, labelKey: 'windowCapacity', min: 1, max: 20 },
-    { key: SettingKey.OutlierRecoverStreak, labelKey: 'recoverStreak', min: 1 },
-    { key: SettingKey.OutlierReapMinutes, labelKey: 'reapMinutes', min: 1 },
-    { key: SettingKey.OutlierCFRecoverMinutes, labelKey: 'cfRecoverMinutes', min: 1 },
-];
-
 function NumberFieldRow({ settingKey, label, placeholder, tooltip, icon, min, max }: {
     settingKey: string;
     label: string;
@@ -49,7 +36,6 @@ function NumberFieldRow({ settingKey, label, placeholder, tooltip, icon, min, ma
 
 export function SettingReliability() {
     const t = useTranslations('setting');
-    const outlier = useSettingToggle(SettingKey.OutlierRetireEnabled);
     const groupHealth = useSettingToggle(SettingKey.GroupHealthEnabled);
     const channelAffinity = useSettingToggle(SettingKey.ChannelAffinityEnabled);
     const emptyResponseDetection = useSettingToggle(SettingKey.EmptyResponseDetectionEnabled);
@@ -102,23 +88,6 @@ export function SettingReliability() {
                 placeholder={t('circuitBreaker.maxCooldown.placeholder')}
                 icon={TimerOff}
             />
-
-            {/* 被动离群退役 */}
-            <SettingSection title={t('outlierRetirement.title')} tooltip={t('outlierRetirement.hint')} />
-            <SettingRow label={t('outlierRetirement.enabled.label')}>
-                <Switch checked={outlier.enabled} onCheckedChange={outlier.toggle} />
-            </SettingRow>
-            {outlier.enabled && OUTLIER_FIELDS.map((f) => (
-                <NumberFieldRow
-                    key={f.key}
-                    settingKey={f.key}
-                    label={t(`outlierRetirement.${f.labelKey}.label`)}
-                    placeholder={t(`outlierRetirement.${f.labelKey}.placeholder`)}
-                    tooltip={t(`outlierRetirement.${f.labelKey}.description`)}
-                    min={f.min}
-                    max={f.max}
-                />
-            ))}
         </SettingCard>
     );
 }
