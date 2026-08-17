@@ -32,7 +32,6 @@ export const SettingKey = {
     ResponsesWSDefaultMode: 'responses_ws_default_mode',
     SSEHeartbeatInterval: 'sse_heartbeat_interval',
     SSEPreStreamHeartbeatDelay: 'sse_pre_stream_heartbeat_delay',
-    GroupHealthEnabled: 'group_health_enabled',
     ProjectedChannelAutoGroupEnabled: 'projected_channel_auto_group_enabled',
     ApiBaseUrl: 'api_base_url',
     WebDAVURL: 'webdav_url',
@@ -70,14 +69,6 @@ export function useSettingValue(key: string, defaultValue = '') {
     return {
         ...query,
         value: settings?.find((setting) => setting.key === key)?.value ?? defaultValue,
-    };
-}
-
-export function useGroupHealthEnabled() {
-    const { value, ...query } = useSettingValue(SettingKey.GroupHealthEnabled, 'false');
-    return {
-        ...query,
-        enabled: value === 'true',
     };
 }
 

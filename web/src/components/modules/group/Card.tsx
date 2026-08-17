@@ -29,7 +29,6 @@ import {
 import { cn } from '@/lib/utils';
 import { getGroupIcon } from '@/lib/model-icons';
 import { GroupEditor, type GroupEditorValues } from './Editor';
-import { GroupHealthBadge } from './health';
 import { MemberList, type SelectedMember } from './ItemList';
 import { PresetPopover } from './PresetPopover';
 import { MODE_LABELS, modelChannelKey } from './utils';
@@ -382,13 +381,6 @@ export function GroupCard({ group }: { group: Group }) {
                     </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
-                    <span
-                        className="inline-flex"
-                        onClick={(event) => event.stopPropagation()}
-                        onKeyDown={(event) => event.stopPropagation()}
-                    >
-                        <GroupHealthBadge groupId={group.id} minimal />
-                    </span>
                     <motion.span
                         aria-hidden="true"
                         animate={{ rotate: expanded ? 180 : 0 }}
