@@ -50,7 +50,7 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
     return (
         <MorphingDialog>
             <MorphingDialogTrigger className="w-full">
-                <article className="flex flex-col gap-4 rounded-3xl border border-border bg-card text-card-foreground p-4 transition-all duration-300">
+                <article className="page-card flex flex-col gap-4 p-4 transition-all duration-300">
                     <header className="relative flex items-center justify-between gap-2">
                         <div className="min-w-0 flex-1">
                             <Tooltip side="top" sideOffset={10} align="center">

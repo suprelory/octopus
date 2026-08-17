@@ -109,7 +109,7 @@ export function Channel() {
         <div
             ref={(node) => setChannelCardRef(item.raw.id, node)}
             className={cn(
-                'rounded-[1.75rem] transition-all',
+                'rounded-xl transition-all',
                 highlightedChannelId === item.raw.id && 'ring-2 ring-primary/35 ring-offset-2 ring-offset-background',
             )}
         >
@@ -140,15 +140,15 @@ export function Channel() {
     const manualFooter = isLoading ? (
         <div className={cn('grid gap-4', layout === 'list' ? 'grid-cols-1' : 'md:grid-cols-2 lg:grid-cols-3')}>
             {Array.from({ length: layout === 'list' ? 2 : 3 }).map((_, index) => (
-                <div key={index} className="h-56 animate-pulse rounded-3xl border border-border/70 bg-muted/40" />
+                <div key={index} className="page-card h-56 animate-pulse bg-muted/40" />
             ))}
         </div>
     ) : error ? (
-        <div className="rounded-3xl border border-destructive/30 bg-destructive/10 px-4 py-6 text-sm text-destructive">
+        <div className="page-card border-destructive/30 bg-destructive/10 px-4 py-6 text-sm text-destructive">
             普通渠道加载失败：{error.message}
         </div>
     ) : visibleManualChannels.length === 0 && !targetedManagedChannel ? (
-        <div className="rounded-3xl border border-border/70 bg-card/70 px-4 py-8 text-center text-sm text-muted-foreground">
+        <div className="page-empty-state bg-card/70 px-4 py-8 text-sm">
             当前筛选下没有普通渠道
         </div>
     ) : null;

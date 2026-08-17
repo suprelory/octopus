@@ -45,7 +45,7 @@ export function Group() {
 
     if (isLoading) {
         return (
-            <div className="flex h-full min-h-0 items-center justify-center rounded-t-xl">
+            <div className="flex h-full min-h-0 items-center justify-center">
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <span className="size-2 animate-pulse rounded-full bg-primary" />
                     {t('state.loading')}
@@ -56,8 +56,8 @@ export function Group() {
 
     if (isError) {
         return (
-            <div className="flex h-full min-h-0 items-center justify-center rounded-t-xl px-3">
-                <div className="w-full max-w-md rounded-xl border border-border bg-card p-5 text-center text-card-foreground">
+            <div className="flex h-full min-h-0 items-center justify-center px-3">
+                <div className="page-card w-full max-w-md p-5 text-center">
                     <p className="text-sm font-semibold">{t('state.errorTitle')}</p>
                     <p className="mt-1 text-sm text-muted-foreground">{t('state.errorDescription')}</p>
                     <button
@@ -74,8 +74,8 @@ export function Group() {
 
     if (groups && groups.length === 0) {
         return (
-            <div className="h-full min-h-0 overflow-y-auto overscroll-contain rounded-t-xl px-3 py-4 md:px-4 md:py-6">
-                <section className="mx-auto flex w-full max-w-3xl flex-col items-center rounded-xl border border-dashed border-border bg-card px-6 py-12 text-center text-card-foreground">
+            <div className="page-scroll-area px-3 pt-4 md:px-4 md:pt-6">
+                <section className="page-empty-state mx-auto flex w-full max-w-3xl flex-col items-center py-12 text-card-foreground">
                     <div className="grid size-16 place-items-center rounded-full border border-border/50 bg-muted/30 text-primary">
                         <Layers3 className="size-7" />
                     </div>
@@ -87,7 +87,7 @@ export function Group() {
     }
 
     return (
-        <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-t-xl pb-3 md:pb-4">
+        <div className="flex h-full min-h-0 flex-col overflow-hidden">
             <section className="relative min-h-0 flex-1">
                 {visibleGroups.length > 0 ? (
                     <VirtualizedGrid
@@ -100,7 +100,7 @@ export function Group() {
                     />
                 ) : (
                     <div className="flex h-full items-center justify-center px-3">
-                        <div className="rounded-xl border border-dashed border-border bg-card px-6 py-8 text-center text-sm text-muted-foreground">
+                        <div className="page-empty-state py-8 text-sm">
                             {t('state.noResults')}
                         </div>
                     </div>

@@ -1397,7 +1397,7 @@ export function Site() {
       <section
         key={site.id}
         className={cn(
-          "rounded-[28px] border bg-card p-5 shadow-[0_20px_60px_-42px_rgba(15,23,42,0.45)] transition-colors",
+          "page-card p-5 transition-colors",
           cardToneClass(summary.healthTone),
           highlightedSiteId === site.id &&
             "ring-2 ring-primary/35 ring-offset-2 ring-offset-background",
@@ -1945,9 +1945,9 @@ export function Site() {
   };
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto overscroll-contain rounded-t-3xl">
+    <div className="page-scroll-area">
       <PageWrapper
-        className="space-y-4 pb-24 md:pb-4"
+        className="space-y-4"
         childLayout={false}
         animateChildren={false}
       >
@@ -1968,7 +1968,7 @@ export function Site() {
         />
 
         {selectedSiteIds.length > 0 ? (
-          <section className="sticky top-0 z-30 rounded-3xl border border-border/70 bg-card/95 p-4 shadow-[0_20px_60px_-42px_rgba(15,23,42,0.45)] backdrop-blur supports-[backdrop-filter]:bg-card/90">
+          <section className="page-card sticky top-0 z-30 border-border/70 bg-card/95 p-4 backdrop-blur supports-[backdrop-filter]:bg-card/90">
             <div className="flex flex-wrap items-center gap-3">
               {(() => {
                 const visibleIds = visibleSites.map((item) => item.site.id);
@@ -2060,19 +2060,19 @@ export function Site() {
         ) : null}
 
         {error ? (
-          <section className="rounded-3xl border border-destructive/30 bg-destructive/5 p-6 text-sm text-destructive">
+          <section className="page-card border-destructive/30 bg-destructive/5 p-6 text-sm text-destructive">
             站点列表加载失败：{getSiteErrorMessage(locale, error, t)}
           </section>
         ) : null}
 
         {isLoading ? (
-          <section className="rounded-3xl border border-border bg-card p-6 text-sm text-muted-foreground">
+          <section className="page-card p-6 text-sm text-muted-foreground">
             正在加载站点信息...
           </section>
         ) : null}
 
         {!isLoading && !error && (!sites || sites.length === 0) ? (
-          <section className="rounded-3xl border border-dashed border-border bg-card p-10 text-center">
+          <section className="page-empty-state p-10 text-foreground">
             <CircleAlert className="mx-auto size-8 text-muted-foreground" />
             <div className="mt-4 text-lg font-semibold">还没有站点</div>
             <p className="mt-2 text-sm text-muted-foreground">
@@ -2090,7 +2090,7 @@ export function Site() {
         sites &&
         sites.length > 0 &&
         visibleSites.length === 0 ? (
-          <section className="rounded-3xl border border-dashed border-border bg-card p-10 text-center">
+          <section className="page-empty-state p-10 text-foreground">
             <CircleAlert className="mx-auto size-8 text-muted-foreground" />
             <div className="mt-4 text-lg font-semibold">没有匹配的站点</div>
             <p className="mt-2 text-sm text-muted-foreground">

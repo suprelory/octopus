@@ -195,7 +195,7 @@ export function VirtualizedGrid<T>({
                         clientHeight: target.clientHeight,
                     });
                 } : undefined}
-                className="relative h-full w-full overflow-y-auto overscroll-contain rounded-t-3xl"
+                className="page-scroll-area relative w-full"
             >
                 {rowCount === 0 ? null : (
                     <div className="relative w-full" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>

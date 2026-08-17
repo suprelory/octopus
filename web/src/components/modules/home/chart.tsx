@@ -172,7 +172,7 @@ export function StatsChart() {
     }, [hero.unit]);
 
     return (
-        <section className="rounded-3xl bg-card border-card-border border text-card-foreground custom-shadow">
+        <section className="page-card">
             {/* Header: hero + tabs */}
             <header className="px-5 pt-5 pb-4 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div>

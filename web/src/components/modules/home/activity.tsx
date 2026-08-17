@@ -87,7 +87,7 @@ export function Activity() {
     }, [days, isLoading, checkScroll]);
 
     return (
-        <div className="rounded-3xl bg-card border-card-border border text-card-foreground custom-shadow">
+        <div className="page-card">
             <div
                 ref={scrollRef}
                 onScroll={checkScroll}

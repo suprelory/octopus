@@ -670,6 +670,14 @@
         }
     },
     "model": {
+        "state": {
+            "loading": "Loading models...",
+            "errorTitle": "Failed to load models",
+            "errorDescription": "Model data is temporarily unavailable. Please try again.",
+            "retry": "Retry",
+            "emptyTitle": "No matching models",
+            "emptyDescription": "There are no models to display, or none match the current search."
+        },
         "create": {
             "title": "Create Model",
             "name": "Model Name",

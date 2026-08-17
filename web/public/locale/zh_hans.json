@@ -670,6 +670,14 @@
         }
     },
     "model": {
+        "state": {
+            "loading": "正在加载模型...",
+            "errorTitle": "模型加载失败",
+            "errorDescription": "暂时无法获取模型数据，请稍后重试。",
+            "retry": "重试",
+            "emptyTitle": "没有匹配的模型",
+            "emptyDescription": "当前没有可显示的模型，或搜索条件未匹配到任何结果。"
+        },
         "create": {
             "title": "创建模型",
             "name": "模型名称",

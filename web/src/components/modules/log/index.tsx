@@ -304,11 +304,11 @@ export function Log() {
                 )}
             >
                 {showSkeleton ? (
-                    <div className="h-full overflow-hidden rounded-t-3xl">
+                    <div className="h-full overflow-hidden rounded-t-xl">
                         <LogListSkeleton count={Math.min(pageSize, 6)} />
                     </div>
                 ) : showEmpty ? (
-                    <div className="flex h-full flex-col items-center justify-center gap-2 rounded-3xl border border-dashed border-border/60 px-6 text-center">
+                    <div className="page-empty-state flex h-full flex-col items-center justify-center gap-2 border-border/60">
                         <Inbox className="size-8 text-muted-foreground/40" />
                         <p className="text-sm font-medium text-muted-foreground">
                             {hasFilters ? tList('emptyFiltered') : tList('empty')}

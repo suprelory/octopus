@@ -158,7 +158,7 @@ export function CheckinPanel({
   }, [manualCheckinUrls]);
 
   return (
-    <section className="overflow-hidden rounded-[28px] border border-border/70 bg-card shadow-[0_18px_60px_-40px_rgba(15,23,42,0.45)]">
+    <section className="page-card overflow-hidden border-border/70">
       <div className="border-b border-border/60 bg-gradient-to-br from-background via-card to-muted/10 px-5 py-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-2 text-base font-semibold">

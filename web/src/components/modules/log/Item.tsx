@@ -761,7 +761,7 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
                         }
                     }}
                     className={cn(
-                        'rounded-3xl border bg-card w-full text-left',
+                        'page-card w-full text-left',
                         hasError ? 'border-destructive/40' : 'border-border',
                     )}
                 >

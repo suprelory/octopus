@@ -347,7 +347,7 @@ export function GroupCard({ group }: { group: Group }) {
     }, [group.id, group.pinned, t, togglePin]);
 
     return (
-        <article className="group/card relative overflow-hidden rounded-xl border border-border bg-card text-card-foreground transition-shadow hover:shadow-sm">
+        <article className="page-card group/card relative overflow-hidden transition-shadow hover:shadow-md">
             <div
                 role="button"
                 tabIndex={0}

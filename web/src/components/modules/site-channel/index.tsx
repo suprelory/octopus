@@ -336,7 +336,7 @@ function UnifiedCompletionDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-[min(92vw,72rem)] rounded-[2rem] p-0 sm:max-w-[min(92vw,72rem)]">
+            <DialogContent className="max-w-[min(92vw,72rem)] rounded-xl p-0 sm:max-w-[min(92vw,72rem)]">
                 <div className="flex max-h-[88vh] flex-col overflow-hidden">
                     <DialogHeader className="gap-3 border-b border-border/70 px-5 py-4 text-left sm:px-6">
                         <DialogTitle className="flex items-center gap-2 text-xl">
@@ -2579,11 +2579,11 @@ function SiteAccountPanel({
             </Dialog>
 
             {visibleModels.length === 0 ? (
-                <div className="flex min-h-[18rem] flex-1 items-center justify-center rounded-3xl border border-dashed border-border/70 bg-muted/20 px-6 text-center text-sm text-muted-foreground">
+                <div className="page-empty-state flex min-h-[18rem] flex-1 items-center justify-center bg-muted/20 text-sm">
                     当前筛选和搜索条件下没有匹配模型
                 </div>
             ) : (
-                <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-border/70 bg-card/70">
+                <div className="page-card flex min-h-0 flex-1 flex-col overflow-hidden border-border/70 bg-card/70">
                     <SiteChannelTableView
                         ref={tableHandleRef}
                         models={visibleModels}
@@ -2906,13 +2906,13 @@ function SiteCardImpl({
             <div
                 ref={(node) => registerCardRef(card.site_id, node)}
                 className={cn(
-                    'h-full rounded-[1.75rem] transition-all',
+                    'h-full rounded-xl transition-all',
                     highlighted && 'ring-2 ring-primary/35 ring-offset-2 ring-offset-background',
                 )}
             >
                 <MorphingDialogTrigger className="h-full w-full">
                     <article
-                        className="flex h-full w-full flex-col gap-4 rounded-3xl border border-border/70 bg-card p-4 text-left transition hover:border-primary/20 hover:bg-card/90"
+                        className="page-card flex h-full w-full flex-col gap-4 border-border/70 p-4 text-left transition hover:border-primary/20 hover:bg-card/90"
                     >
                         <header className="flex items-center justify-between gap-3">
                             <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -3018,7 +3018,7 @@ function SiteCardImpl({
             </div>
 
             <MorphingDialogContainer>
-                <MorphingDialogContent className="max-w-[min(96vw,92rem)] w-[min(96vw,92rem)] overflow-hidden rounded-[2rem] bg-background max-h-[90vh]">
+                <MorphingDialogContent className="max-h-[90vh] w-[min(96vw,92rem)] max-w-[min(96vw,92rem)] overflow-hidden rounded-xl bg-background">
                     <SiteChannelDialog
                         card={card}
                         jumpRequest={jumpRequest?.target.siteId === card.site_id ? jumpRequest : null}

@@ -59,7 +59,7 @@ export function APIKeyDashboard() {
     if (error || !data) {
         return (
             <div className="min-h-screen flex items-center justify-center">
-                <div className="text-center space-y-4">
+                <div className="page-card space-y-4 p-6 text-center">
                     <p className="text-destructive font-medium">{t('error')}</p>
                     <Button onClick={logout} variant="outline" className="rounded-xl">
                         {t('logout')}
@@ -130,7 +130,7 @@ export function APIKeyDashboard() {
             <main className="mb-10">
                 <PageWrapper className="space-y-6">
                     {/* Hero: Identity + Limits */}
-                    <div className="overflow-hidden rounded-3xl border bg-card">
+                    <div className="page-card overflow-hidden">
                         <div className="grid grid-cols-1 md:grid-cols-2">
                             {/* Left: Key Info */}
                             <div className="p-6 md:p-8 flex flex-col relative">
@@ -186,7 +186,7 @@ export function APIKeyDashboard() {
 
                     {/* Row 2: Request Health */}
                     <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-                        <div className="rounded-2xl border bg-card p-5">
+                        <div className="page-card p-5">
                             <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
                                 <CheckCircle className="size-4 text-chart-2" />
                                 {t('successRequests')}
@@ -197,7 +197,7 @@ export function APIKeyDashboard() {
                             </div>
                         </div>
 
-                        <div className="rounded-2xl border bg-card p-5">
+                        <div className="page-card p-5">
                             <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
                                 <XCircle className="size-4 text-destructive" />
                                 {t('failedRequests')}
@@ -208,7 +208,7 @@ export function APIKeyDashboard() {
                             </div>
                         </div>
 
-                        <div className="rounded-2xl border bg-card p-5">
+                        <div className="page-card p-5">
                             <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
                                 <Zap className="size-4 text-chart-4" />
                                 {t('requestCount')}
@@ -219,7 +219,7 @@ export function APIKeyDashboard() {
                             </div>
                         </div>
 
-                        <div className="rounded-2xl border bg-card p-5">
+                        <div className="page-card p-5">
                             <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
                                 <Clock className="size-4 text-chart-5" />
                                 {t('timeConsumed')}
@@ -234,7 +234,7 @@ export function APIKeyDashboard() {
                     {/* Row 3: Token & Cost breakdown */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {/* Token breakdown */}
-                        <div className="rounded-2xl border bg-card p-6">
+                        <div className="page-card p-6">
                             <div className="flex items-center gap-2 mb-4">
                                 <Zap className="w-5 h-5 text-chart-4" />
                                 <span className="font-semibold">{t('totalToken')}</span>
@@ -252,7 +252,7 @@ export function APIKeyDashboard() {
                             </div>
                         </div>
                         {/* Cost breakdown */}
-                        <div className="rounded-2xl border bg-card p-6">
+                        <div className="page-card p-6">
                             <div className="flex items-center gap-2 mb-4">
                                 <DollarSign className="w-5 h-5 text-chart-1" />
                                 <span className="font-semibold">{t('totalCost')}</span>
@@ -273,7 +273,7 @@ export function APIKeyDashboard() {
 
                     {/* Supported Models */}
                     {info.supported_models && info.supported_models.trim().length > 0 && (
-                        <div className="rounded-2xl border bg-card p-6">
+                        <div className="page-card p-6">
                             <div className="flex items-center gap-2 mb-4">
                                 <Layers className="w-5 h-5 text-chart-3" />
                                 <span className="font-semibold">{t('supportedModels')}</span>

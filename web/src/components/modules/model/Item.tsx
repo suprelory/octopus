@@ -145,7 +145,7 @@ export const ModelItem = memo(function ModelItem({ model, layout = 'grid' }: Mod
         <article
             ref={cardRef}
             className={cn(
-                'group relative rounded-3xl border border-border bg-card transition-all duration-300 flex items-center gap-3 p-4',
+                'page-card group relative flex items-center gap-3 p-4 transition-all duration-300',
                 (isEditOpen || confirmDelete) && 'z-50'
             )}
         >

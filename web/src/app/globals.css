@@ -143,7 +143,9 @@ html.dark,
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-xl: var(--radius);
+  --radius-2xl: var(--radius);
+  --radius-3xl: var(--radius);
 
   --shadow-2xs: var(--shadow-2xs);
   --shadow-xs: var(--shadow-xs);
@@ -153,6 +155,20 @@ html.dark,
   --shadow-lg: var(--shadow-lg);
   --shadow-xl: var(--shadow-xl);
   --shadow-2xl: var(--shadow-2xl);
+}
+
+@layer components {
+  .page-scroll-area {
+    @apply h-full min-h-0 overflow-y-auto overscroll-contain rounded-t-xl pb-4;
+  }
+
+  .page-card {
+    @apply rounded-xl border border-border bg-card text-card-foreground shadow-sm;
+  }
+
+  .page-empty-state {
+    @apply rounded-xl border border-dashed border-border bg-card px-6 py-10 text-center text-muted-foreground shadow-sm;
+  }
 }
 
 @layer base {

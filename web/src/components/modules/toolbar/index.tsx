@@ -576,7 +576,7 @@ export function Toolbar({ activeItem }: { activeItem: NavItem }) {
                                 'max-w-full bg-card text-card-foreground flex flex-col overflow-hidden',
                                 toolbarItem === 'group'
                                     ? 'h-[calc(100dvh-2rem)] w-[min(100vw-2rem,92rem)] rounded-xl border border-border/35 px-4 py-4 shadow-md md:h-[calc(100dvh-3rem)] md:px-6'
-                                    : 'w-fit rounded-3xl px-6 py-4 custom-shadow max-h-[calc(100vh-2rem)]'
+                                    : 'max-h-[calc(100vh-2rem)] w-fit rounded-xl px-6 py-4 shadow-sm'
                             )}>
                                 {createDialogOpen ? (
                                     <Suspense fallback={<div className="grid min-h-32 min-w-64 place-items-center"><LoaderCircle className="size-5 animate-spin text-muted-foreground" /></div>}>

@@ -19,7 +19,7 @@ export function NavBar() {
                     "fixed bottom-[calc(1.5rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 flex items-center gap-1 p-3",
                     "md:sticky md:top-30 md:left-auto md:bottom-auto md:translate-x-0 md:flex-col md:gap-3",
                     "bg-sidebar text-sidebar-foreground border border-sidebar-border rounded-3xl",
-                    "custom-shadow"
+                    "shadow-sm"
                 )}
                 variants={ENTRANCE_VARIANTS.navbar}
                 initial="initial"
