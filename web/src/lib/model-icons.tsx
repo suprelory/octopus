@@ -1,134 +1,168 @@
-import {
-    OpenAI,
-    Claude,
-    Gemini,
-    DeepSeek,
-    Mistral,
-    Qwen,
-    Meta,
-    Ollama,
-    Groq,
-    Cohere,
-    Perplexity,
-    Zhipu,
-    Yi,
-    Kimi,
-    Minimax,
-    Doubao,
-    Hunyuan,
-    Spark,
-    Wenxin,
-    Nvidia,
-    Azure,
-    Aws,
-    Together,
-    Fireworks,
-    Replicate,
-    HuggingFace,
-    Grok,
-    Google,
-    Cerebras,
-    SambaNova,
-    Cloudflare,
-    OpenRouter,
-    Volcengine,
-    SiliconCloud,
-    Novita,
-    InternLM,
-    Stepfun,
-    Gemma,
-    Microsoft,
-    KwaiKAT,
-    ModelIcon as GenericModelAvatar,
-} from '@lobehub/icons';
+import { memo, type ComponentType, type CSSProperties } from 'react';
+import { Bot } from 'lucide-react';
+import OpenAIIcon from '@lobehub/icons/es/OpenAI/components/Mono';
+import ClaudeIcon from '@lobehub/icons/es/Claude/components/Mono';
+import GeminiIcon from '@lobehub/icons/es/Gemini/components/Mono';
+import DeepSeekIcon from '@lobehub/icons/es/DeepSeek/components/Mono';
+import MistralIcon from '@lobehub/icons/es/Mistral/components/Mono';
+import QwenIcon from '@lobehub/icons/es/Qwen/components/Mono';
+import MetaIcon from '@lobehub/icons/es/Meta/components/Mono';
+import OllamaIcon from '@lobehub/icons/es/Ollama/components/Mono';
+import GroqIcon from '@lobehub/icons/es/Groq/components/Mono';
+import CohereIcon from '@lobehub/icons/es/Cohere/components/Mono';
+import PerplexityIcon from '@lobehub/icons/es/Perplexity/components/Mono';
+import ZhipuIcon from '@lobehub/icons/es/Zhipu/components/Mono';
+import YiIcon from '@lobehub/icons/es/Yi/components/Mono';
+import KimiIcon from '@lobehub/icons/es/Kimi/components/Mono';
+import MinimaxIcon from '@lobehub/icons/es/Minimax/components/Mono';
+import DoubaoIcon from '@lobehub/icons/es/Doubao/components/Mono';
+import HunyuanIcon from '@lobehub/icons/es/Hunyuan/components/Mono';
+import SparkIcon from '@lobehub/icons/es/Spark/components/Mono';
+import WenxinIcon from '@lobehub/icons/es/Wenxin/components/Mono';
+import NvidiaIcon from '@lobehub/icons/es/Nvidia/components/Mono';
+import AzureIcon from '@lobehub/icons/es/Azure/components/Mono';
+import AwsIcon from '@lobehub/icons/es/Aws/components/Mono';
+import TogetherIcon from '@lobehub/icons/es/Together/components/Mono';
+import FireworksIcon from '@lobehub/icons/es/Fireworks/components/Mono';
+import ReplicateIcon from '@lobehub/icons/es/Replicate/components/Mono';
+import HuggingFaceIcon from '@lobehub/icons/es/HuggingFace/components/Mono';
+import GrokIcon from '@lobehub/icons/es/Grok/components/Mono';
+import GoogleIcon from '@lobehub/icons/es/Google/components/Mono';
+import CerebrasIcon from '@lobehub/icons/es/Cerebras/components/Mono';
+import SambaNovaIcon from '@lobehub/icons/es/SambaNova/components/Mono';
+import CloudflareIcon from '@lobehub/icons/es/Cloudflare/components/Mono';
+import OpenRouterIcon from '@lobehub/icons/es/OpenRouter/components/Mono';
+import VolcengineIcon from '@lobehub/icons/es/Volcengine/components/Mono';
+import SiliconCloudIcon from '@lobehub/icons/es/SiliconCloud/components/Mono';
+import NovitaIcon from '@lobehub/icons/es/Novita/components/Mono';
+import InternLMIcon from '@lobehub/icons/es/InternLM/components/Mono';
+import StepfunIcon from '@lobehub/icons/es/Stepfun/components/Mono';
+import GemmaIcon from '@lobehub/icons/es/Gemma/components/Mono';
+import MicrosoftIcon from '@lobehub/icons/es/Microsoft/components/Mono';
+import KwaiKATIcon from '@lobehub/icons/es/KwaiKAT/components/Mono';
 
-type AvatarComponent = typeof OpenAI.Avatar | typeof GenericModelAvatar;
+type BrandIcon = ComponentType<{
+    size?: number | string;
+    className?: string;
+    color?: string;
+    style?: CSSProperties;
+}>;
+
+type AvatarProps = {
+    size?: number | string;
+    shape?: 'circle' | 'square';
+    className?: string;
+    style?: CSSProperties;
+};
+
+type AvatarComponent = ComponentType<AvatarProps>;
 
 export type ModelIcon = {
     Avatar: AvatarComponent;
     color: string;
 };
 
-type ModelIconConfig = {
+type ModelIconConfig = ModelIcon & {
     prefixes: string[];
-    Avatar: AvatarComponent;
-    color: string;
 };
 
-/**
- * Provider configurations with prefixes, Avatar components, and brand colors
- * Similar to Go's Provider array in internal/price/price.go
- */
+function foregroundFor(background: string) {
+    const hex = background.replace('#', '');
+    if (!/^[0-9a-f]{6}$/i.test(hex)) return '#FFFFFF';
+
+    const red = Number.parseInt(hex.slice(0, 2), 16);
+    const green = Number.parseInt(hex.slice(2, 4), 16);
+    const blue = Number.parseInt(hex.slice(4, 6), 16);
+    const luminance = (red * 0.299 + green * 0.587 + blue * 0.114) / 255;
+    return luminance > 0.62 ? '#111827' : '#FFFFFF';
+}
+
+function createAvatar(Icon: BrandIcon, background: string): AvatarComponent {
+    const foreground = foregroundFor(background);
+
+    const BrandAvatar = memo(function BrandAvatar({ size = 24, shape = 'circle', className, style }: AvatarProps) {
+        const dimension = typeof size === 'number' ? `${size}px` : size;
+        const iconSize = typeof size === 'number' ? Math.max(12, Math.round(size * 0.58)) : 14;
+
+        return (
+            <span
+                className={className}
+                style={{
+                    alignItems: 'center',
+                    backgroundColor: background,
+                    borderRadius: shape === 'square' ? '25%' : '9999px',
+                    color: foreground,
+                    display: 'inline-flex',
+                    flex: 'none',
+                    height: dimension,
+                    justifyContent: 'center',
+                    width: dimension,
+                    ...style,
+                }}
+            >
+                <Icon color={foreground} size={iconSize} />
+            </span>
+        );
+    });
+
+    BrandAvatar.displayName = 'ModelBrandAvatar';
+    return BrandAvatar;
+}
+
+function modelIcon(prefixes: string[], Icon: BrandIcon, color: string): ModelIconConfig {
+    return { prefixes, Avatar: createAvatar(Icon, color), color };
+}
+
+/** Provider/model prefix mappings, aligned with internal/price/price.go. */
 const MODEL_ICON_PATTERNS: ModelIconConfig[] = [
-    // OpenAI - GPT series
-    { prefixes: ['gpt-', 'o1', 'o3', 'o4', 'chatgpt', 'text-embedding', 'dall-e', 'openai'], Avatar: OpenAI.Avatar, color: '#10A37F' },
-    // Anthropic - Claude series
-    { prefixes: ['claude', 'anthropic'], Avatar: Claude.Avatar, color: '#D7765A' },
-    // Google - Gemini series
-    { prefixes: ['gemini'], Avatar: Gemini.Avatar, color: '#4285F4' },
-    { prefixes: ['gemma'], Avatar: Gemma.Avatar, color: '#4285F4' },
-    { prefixes: ['palm', 'google'], Avatar: Google.Avatar, color: '#4285F4' },
-    // DeepSeek series
-    { prefixes: ['deepseek'], Avatar: DeepSeek.Avatar, color: '#4D6BFE' },
-    // xAI - Grok series
-    { prefixes: ['grok', 'xai'], Avatar: Grok.Avatar, color: '#000000' },
-    // Alibaba - Qwen series
-    { prefixes: ['qwen', 'qwq', 'alibaba'], Avatar: Qwen.Avatar, color: '#6B4EFF' },
-    // Zhipu - GLM series
-    { prefixes: ['glm', 'chatglm', 'zhipu', 'z-ai', 'zai-'], Avatar: Zhipu.Avatar, color: '#3C5BFC' },
-    // MiniMax series
-    { prefixes: ['minimax', 'abab'], Avatar: Minimax.Avatar, color: '#1A1A2E' },
-    // Moonshot/Kimi series
-    { prefixes: ['moonshot', 'kimi'], Avatar: Kimi.Avatar, color: '#000000' },
-    // Mistral series
-    { prefixes: ['mistral', 'mixtral', 'codestral', 'pixtral'], Avatar: Mistral.Avatar, color: '#F7D046' },
-    // Meta - Llama series
-    { prefixes: ['llama', 'meta-llama', 'meta'], Avatar: Meta.Avatar, color: '#0668E1' },
-    // ByteDance - Doubao series
-    { prefixes: ['doubao', 'skylark', 'bytedance'], Avatar: Doubao.Avatar, color: '#00D6C2' },
-    // Yi series
-    { prefixes: ['yi-', '01-ai'], Avatar: Yi.Avatar, color: '#1B1464' },
-    // Tencent - Hunyuan
-    { prefixes: ['hunyuan'], Avatar: Hunyuan.Avatar, color: '#0052D9' },
-    // iFlytek - Spark
-    { prefixes: ['spark'], Avatar: Spark.Avatar, color: '#0078FF' },
-    // Baidu - ERNIE/Wenxin
-    { prefixes: ['ernie', 'wenxin', 'baidu'], Avatar: Wenxin.Avatar, color: '#2932E1' },
-    // InternLM
-    { prefixes: ['internlm'], Avatar: InternLM.Avatar, color: '#2F54EB' },
-    // Stepfun
-    { prefixes: ['stepfun', 'step-'], Avatar: Stepfun.Avatar, color: '#5B5CFF' },
-    // Cloud providers
-    { prefixes: ['nvidia', 'nemotron'], Avatar: Nvidia.Avatar, color: '#76B900' },
-    { prefixes: ['azure'], Avatar: Azure.Avatar, color: '#0078D4' },
-    { prefixes: ['aws', 'amazon', 'bedrock'], Avatar: Aws.Avatar, color: '#FF9900' },
-    { prefixes: ['volcengine'], Avatar: Volcengine.Avatar, color: '#3370FF' },
-    { prefixes: ['siliconflow'], Avatar: SiliconCloud.Avatar, color: '#7C3AED' },
-    // Inference providers
-    { prefixes: ['groq'], Avatar: Groq.Avatar, color: '#F55036' },
-    { prefixes: ['together'], Avatar: Together.Avatar, color: '#0F6FFF' },
-    { prefixes: ['fireworks'], Avatar: Fireworks.Avatar, color: '#FF6B00' },
-    { prefixes: ['replicate'], Avatar: Replicate.Avatar, color: '#000000' },
-    { prefixes: ['ollama'], Avatar: Ollama.Avatar, color: '#FFFFFF' },
-    { prefixes: ['openrouter'], Avatar: OpenRouter.Avatar, color: '#6366F1' },
-    { prefixes: ['cloudflare'], Avatar: Cloudflare.Avatar, color: '#F38020' },
-    { prefixes: ['cerebras'], Avatar: Cerebras.Avatar, color: '#FF5722' },
-    { prefixes: ['sambanova'], Avatar: SambaNova.Avatar, color: '#FF6B00' },
-    { prefixes: ['novita'], Avatar: Novita.Avatar, color: '#7C3AED' },
-    { prefixes: ['huggingface', 'hf'], Avatar: HuggingFace.Avatar, color: '#FFD21E' },
-    // Other models
-    { prefixes: ['cohere', 'command'], Avatar: Cohere.Avatar, color: '#39594D' },
-    { prefixes: ['perplexity'], Avatar: Perplexity.Avatar, color: '#20B8CD' },
-    { prefixes: ['phi-'], Avatar: Microsoft.Avatar, color: '#00BCF2' },
-    { prefixes: ['kat'], Avatar: KwaiKAT.Avatar, color: '#1969FC' },
+    modelIcon(['gpt-', 'o1', 'o3', 'o4', 'chatgpt', 'text-embedding', 'dall-e', 'openai'], OpenAIIcon, '#10A37F'),
+    modelIcon(['claude', 'anthropic'], ClaudeIcon, '#D7765A'),
+    modelIcon(['gemini'], GeminiIcon, '#4285F4'),
+    modelIcon(['gemma'], GemmaIcon, '#4285F4'),
+    modelIcon(['palm', 'google'], GoogleIcon, '#4285F4'),
+    modelIcon(['deepseek'], DeepSeekIcon, '#4D6BFE'),
+    modelIcon(['grok', 'xai'], GrokIcon, '#000000'),
+    modelIcon(['qwen', 'qwq', 'alibaba'], QwenIcon, '#6B4EFF'),
+    modelIcon(['glm', 'chatglm', 'zhipu', 'z-ai', 'zai-'], ZhipuIcon, '#3C5BFC'),
+    modelIcon(['minimax', 'abab'], MinimaxIcon, '#1A1A2E'),
+    modelIcon(['moonshot', 'kimi'], KimiIcon, '#000000'),
+    modelIcon(['mistral', 'mixtral', 'codestral', 'pixtral'], MistralIcon, '#F7D046'),
+    modelIcon(['llama', 'meta-llama', 'meta'], MetaIcon, '#0668E1'),
+    modelIcon(['doubao', 'skylark', 'bytedance'], DoubaoIcon, '#00D6C2'),
+    modelIcon(['yi-', '01-ai'], YiIcon, '#1B1464'),
+    modelIcon(['hunyuan'], HunyuanIcon, '#0052D9'),
+    modelIcon(['spark'], SparkIcon, '#0078FF'),
+    modelIcon(['ernie', 'wenxin', 'baidu'], WenxinIcon, '#2932E1'),
+    modelIcon(['internlm'], InternLMIcon, '#2F54EB'),
+    modelIcon(['stepfun', 'step-'], StepfunIcon, '#5B5CFF'),
+    modelIcon(['nvidia', 'nemotron'], NvidiaIcon, '#76B900'),
+    modelIcon(['azure'], AzureIcon, '#0078D4'),
+    modelIcon(['aws', 'amazon', 'bedrock'], AwsIcon, '#FF9900'),
+    modelIcon(['volcengine'], VolcengineIcon, '#3370FF'),
+    modelIcon(['siliconflow'], SiliconCloudIcon, '#7C3AED'),
+    modelIcon(['groq'], GroqIcon, '#F55036'),
+    modelIcon(['together'], TogetherIcon, '#0F6FFF'),
+    modelIcon(['fireworks'], FireworksIcon, '#FF6B00'),
+    modelIcon(['replicate'], ReplicateIcon, '#000000'),
+    modelIcon(['ollama'], OllamaIcon, '#FFFFFF'),
+    modelIcon(['openrouter'], OpenRouterIcon, '#6366F1'),
+    modelIcon(['cloudflare'], CloudflareIcon, '#F38020'),
+    modelIcon(['cerebras'], CerebrasIcon, '#FF5722'),
+    modelIcon(['sambanova'], SambaNovaIcon, '#FF6B00'),
+    modelIcon(['novita'], NovitaIcon, '#7C3AED'),
+    modelIcon(['huggingface', 'hf'], HuggingFaceIcon, '#FFD21E'),
+    modelIcon(['cohere', 'command'], CohereIcon, '#39594D'),
+    modelIcon(['perplexity'], PerplexityIcon, '#20B8CD'),
+    modelIcon(['phi-'], MicrosoftIcon, '#00BCF2'),
+    modelIcon(['kat'], KwaiKATIcon, '#1969FC'),
 ];
 
-// Default configuration
-const DEFAULT_CONFIG = { Avatar: GenericModelAvatar, color: '#64748B' };
+const DEFAULT_CONFIG: ModelIcon = {
+    Avatar: createAvatar(Bot, '#64748B'),
+    color: '#64748B',
+};
 
 function findModelIcon(modelName: string): ModelIcon | undefined {
-    // Extract the part after the first '/' if it exists
-    // e.g., "qwen/gpt-5.2" -> "gpt-5.2"
     const nameToMatch = modelName.includes('/') ? modelName.split('/')[1] : modelName;
     const lowerName = nameToMatch.toLowerCase();
     return MODEL_ICON_PATTERNS.find(({ prefixes }) =>
@@ -144,7 +178,6 @@ function findGroupNameIcon(groupName: string): ModelIcon | undefined {
         const keyword = prefix.replace(/[-_]$/, '');
         if (!keyword) return false;
 
-        // Long provider/model names also match compact group names such as "ClaudeCode".
         if (keyword.length >= 5 && lowerName.includes(keyword)) return true;
 
         const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -152,26 +185,17 @@ function findGroupNameIcon(groupName: string): ModelIcon | undefined {
     }));
 }
 
-/**
- * Get the Avatar component and color for a given model name
- * @param modelName - The name of the model
- * @returns Object containing Avatar component and brand color
- */
 export function getModelIcon(modelName: string): ModelIcon {
     return findModelIcon(modelName) ?? DEFAULT_CONFIG;
 }
 
-/**
- * Match a group icon by group name first, then fall back to its member models.
- * Unlike getModelIcon, an unknown group returns undefined so callers can show a neutral icon.
- */
 export function getGroupIcon(groupName: string, modelNames: string[] = []): ModelIcon | undefined {
     const groupNameIcon = findGroupNameIcon(groupName);
     if (groupNameIcon) return groupNameIcon;
 
     for (const modelName of modelNames) {
-        const modelIcon = findModelIcon(modelName);
-        if (modelIcon) return modelIcon;
+        const modelIconConfig = findModelIcon(modelName);
+        if (modelIconConfig) return modelIconConfig;
     }
 
     return undefined;

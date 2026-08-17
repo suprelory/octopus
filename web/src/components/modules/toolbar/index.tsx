@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import {
     ArrowDownWideNarrow,
     ArrowDownZA,
@@ -10,6 +10,7 @@ import {
     KeyRound,
     LayoutGrid,
     List,
+    LoaderCircle,
     Network,
     Plus,
     RefreshCw,
@@ -29,17 +30,13 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useNavStore, type NavItem } from '@/components/modules/navbar';
-import { CreateDialogContent as ChannelCreateContent } from '@/components/modules/channel/Create';
-import { CreateDialogContent as GroupCreateContent } from '@/components/modules/group/Create';
-import { GroupAutoGroupDialogContent } from '@/components/modules/group/AutoGroupDialog';
-import { CreateDialogContent as ModelCreateContent } from '@/components/modules/model/Create';
 import { useSiteUIStore } from '@/components/modules/site/ui-store';
 import { useLogUIStore } from '@/components/modules/log/ui-store';
-import { LogFilterPopover } from '@/components/modules/log/FilterPopover';
 import { useProxyPoolDialogStore } from '@/components/modules/proxy-pool/dialog-store';
 import { useCompletionStore } from '@/components/modules/site-channel/completion-store';
 import { useChannelTabStore } from '@/components/modules/channel/tab-store';
 import { useTranslations } from 'next-intl';
+import { lazyWithPreload } from '@/route/lazy-with-preload';
 import { useSearchStore } from './search-store';
 import { ToolbarMenu, type ToolbarAction } from './ToolbarMenu';
 import {
@@ -49,6 +46,22 @@ import {
     type ToolbarSortField,
     type ToolbarSortOrder,
 } from './view-options-store';
+
+const ChannelCreateContent = lazyWithPreload(() =>
+    import('@/components/modules/channel/Create').then((module) => ({ default: module.CreateDialogContent }))
+);
+const GroupCreateContent = lazyWithPreload(() =>
+    import('@/components/modules/group/Create').then((module) => ({ default: module.CreateDialogContent }))
+);
+const GroupAutoGroupDialogContent = lazyWithPreload(() =>
+    import('@/components/modules/group/AutoGroupDialog').then((module) => ({ default: module.GroupAutoGroupDialogContent }))
+);
+const ModelCreateContent = lazyWithPreload(() =>
+    import('@/components/modules/model/Create').then((module) => ({ default: module.CreateDialogContent }))
+);
+const LogFilterPopover = lazyWithPreload(() =>
+    import('@/components/modules/log/FilterPopover').then((module) => ({ default: module.LogFilterPopover }))
+);
 
 type CombinedSortOption = {
     value: `${ToolbarSortField}-${ToolbarSortOrder}`;
@@ -137,6 +150,25 @@ export function Toolbar() {
     const showSiteSortOptions = toolbarItem === 'site';
     const showCombinedSortOptions = toolbarItem === 'channel' || toolbarItem === 'group';
     const showSortOptions = !isLogToolbar;
+
+    useEffect(() => {
+        switch (toolbarItem) {
+            case 'channel':
+                void ChannelCreateContent.preload();
+                break;
+            case 'group':
+                void Promise.all([GroupCreateContent.preload(), GroupAutoGroupDialogContent.preload()]);
+                break;
+            case 'model':
+                void ModelCreateContent.preload();
+                break;
+            case 'log':
+                void LogFilterPopover.preload();
+                break;
+            default:
+                break;
+        }
+    }, [toolbarItem]);
 
     // 构建工具栏按钮配置
     const actions = useMemo((): ToolbarAction[] => {
@@ -301,7 +333,11 @@ export function Toolbar() {
                 </div>
 
                 {/* 日志页面的筛选按钮 */}
-                {isLogToolbar && <LogFilterPopover />}
+                {isLogToolbar && (
+                    <Suspense fallback={<div className="size-9" />}>
+                        <LogFilterPopover />
+                    </Suspense>
+                )}
 
                 {/* 设置按钮 - 始终可见（除了日志页面） */}
                 {!isLogToolbar && (
@@ -543,7 +579,11 @@ export function Toolbar() {
                                     ? 'h-[calc(100dvh-2rem)] w-[min(100vw-2rem,92rem)] rounded-xl border border-border/35 px-4 py-4 shadow-md md:h-[calc(100dvh-3rem)] md:px-6'
                                     : 'w-fit rounded-3xl px-6 py-4 custom-shadow max-h-[calc(100vh-2rem)]'
                             )}>
-                                <CreateDialogContent activeItem={toolbarItem} />
+                                {createDialogOpen ? (
+                                    <Suspense fallback={<div className="grid min-h-32 min-w-64 place-items-center"><LoaderCircle className="size-5 animate-spin text-muted-foreground" /></div>}>
+                                        <CreateDialogContent activeItem={toolbarItem} />
+                                    </Suspense>
+                                ) : null}
                             </MorphingDialogContent>
                         </MorphingDialogContainer>
                     </MorphingDialog>
@@ -559,7 +599,11 @@ export function Toolbar() {
                         </MorphingDialogTrigger>
                         <MorphingDialogContainer>
                             <MorphingDialogContent className="flex h-[calc(100dvh-2rem)] w-[min(100vw-2rem,52rem)] max-w-full flex-col overflow-hidden rounded-xl border border-border/35 bg-card px-4 py-4 text-card-foreground shadow-md md:h-[calc(100dvh-3rem)] md:px-6">
-                                <GroupAutoGroupDialogContent />
+                                {autoGroupDialogOpen ? (
+                                    <Suspense fallback={<div className="grid min-h-32 place-items-center"><LoaderCircle className="size-5 animate-spin text-muted-foreground" /></div>}>
+                                        <GroupAutoGroupDialogContent />
+                                    </Suspense>
+                                ) : null}
                             </MorphingDialogContent>
                         </MorphingDialogContainer>
                     </MorphingDialog>
