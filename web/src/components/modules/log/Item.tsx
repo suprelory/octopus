@@ -765,7 +765,7 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
                         hasError ? 'border-destructive/40' : 'border-border',
                     )}
                 >
-                    <div className={cn('grid grid-cols-[auto_1fr] gap-2.5 p-2.5 sm:gap-4 sm:p-4', hasError ? 'items-start' : 'items-center')}>
+                    <div className="grid grid-cols-[auto_1fr] items-center gap-2.5 p-2.5 sm:gap-4 sm:p-4">
                         <div className="sm:hidden"><ModelAvatar size={36} /></div>
                         <div className="hidden sm:block"><ModelAvatar size={40} /></div>
                         <div className="min-w-0 flex flex-col gap-2">
