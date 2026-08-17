@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useDeferredValue, useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from "motion/react"
 import { getBootstrapStatus, useAuth } from '@/api/endpoints/user';
 import { LoginForm } from '@/components/modules/login';
@@ -26,6 +26,7 @@ const RETURNING_LOGO_MS = 300;
 export function AppContainer() {
     const { isAuthenticated, isAPIKeyAuth, isLoading: authLoading } = useAuth();
     const { activeItem, direction } = useNavStore();
+    const visibleItem = useDeferredValue(activeItem);
     const t = useTranslations('navbar');
     const queryClient = useQueryClient();
 
@@ -250,7 +251,7 @@ export function AppContainer() {
                     <div className="flex-1 overflow-hidden pb-2 sm:pb-0">
                         <AnimatePresence mode="wait" custom={direction}>
                             <motion.div
-                                key={activeItem}
+                                key={visibleItem}
                                 custom={direction}
                                 variants={{
                                     initial: (direction: number) => ({
@@ -272,19 +273,19 @@ export function AppContainer() {
                                 transition={{ duration: 0.3 }}
                                 className="flex flex-col sm:flex-row sm:items-baseline gap-2 sm:gap-6"
                             >
-                                <span className="text-3xl font-bold mt-1">{t(activeItem)}</span>
-                                {activeItem === 'channel' && <ChannelTabSwitcher />}
+                                <span className="text-3xl font-bold mt-1">{t(visibleItem)}</span>
+                                {visibleItem === 'channel' && <ChannelTabSwitcher />}
                             </motion.div>
                         </AnimatePresence>
                     </div>
                     <div className="ml-auto flex items-center gap-3 relative min-h-[36px]">
-                        <Toolbar />
+                        <Toolbar activeItem={visibleItem} />
                     </div>
                     <ProxyPoolDialog />
                 </header>
                 <AnimatePresence mode="wait" initial={false}>
                     <motion.div
-                        key={activeItem}
+                        key={visibleItem}
                         variants={ENTRANCE_VARIANTS.content}
                         initial="initial"
                         animate="animate"
@@ -295,7 +296,7 @@ export function AppContainer() {
                         transition={{ duration: 0.25 }}
                         className="h-full min-h-0 flex-1"
                     >
-                        <ContentLoader activeRoute={activeItem} />
+                        <ContentLoader activeRoute={visibleItem} />
                     </motion.div>
                 </AnimatePresence>
             </main>

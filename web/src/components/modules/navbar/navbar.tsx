@@ -31,8 +31,13 @@ export function NavBar() {
                         <motion.button
                             key={route.id}
                             type="button"
-                            onClick={() => setActiveItem(route.id as NavItem)}
                             onMouseEnter={() => preload(route.id)}
+                            onFocus={() => preload(route.id)}
+                            onPointerDown={() => preload(route.id)}
+                            onClick={() => {
+                                preload(route.id)
+                                setActiveItem(route.id as NavItem)
+                            }}
                             className={cn(
                                 "relative p-2 md:p-3 rounded-2xl z-20",
                                 isActive ? "text-sidebar-primary-foreground" : "text-sidebar-foreground/60 hover:bg-sidebar-accent"

@@ -29,7 +29,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { useNavStore, type NavItem } from '@/components/modules/navbar';
+import type { NavItem } from '@/components/modules/navbar';
 import { useSiteUIStore } from '@/components/modules/site/ui-store';
 import { useLogUIStore } from '@/components/modules/log/ui-store';
 import { useProxyPoolDialogStore } from '@/components/modules/proxy-pool/dialog-store';
@@ -103,10 +103,9 @@ function CreateDialogContent({ activeItem }: { activeItem: ToolbarPage }) {
     }
 }
 
-export function Toolbar() {
+export function Toolbar({ activeItem }: { activeItem: NavItem }) {
     const t = useTranslations('toolbar');
     const tProxyPool = useTranslations('proxyPool');
-    const { activeItem } = useNavStore();
     const toolbarItem = isToolbarPage(activeItem) ? activeItem : null;
     const searchTerm = useSearchStore((s) => (toolbarItem ? s.searchTerms[toolbarItem] || '' : ''));
     const setSearchTerm = useSearchStore((s) => s.setSearchTerm);
