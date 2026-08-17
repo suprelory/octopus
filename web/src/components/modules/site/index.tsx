@@ -1907,8 +1907,7 @@ export function Site() {
                                         text="当前平台不支持签到"
                                       />
                                     )}
-                                    {account.auto_checkin &&
-                                    account.random_checkin ? (
+                                    {account.auto_checkin ? (
                                       <div className="pl-4 text-xs text-muted-foreground">
                                         下次自动签到{" "}
                                         {account.next_auto_checkin_at
@@ -1916,9 +1915,16 @@ export function Site() {
                                               account.next_auto_checkin_at,
                                             )
                                           : "待调度"}{" "}
-                                        · 最小间隔 {account.checkin_interval_hours} 小时 ·
-                                        随机延迟 0-
-                                        {account.checkin_random_window_minutes} 分钟
+                                        · 间隔 {account.checkin_interval_hours} 小时
+                                        {account.random_checkin
+                                          ? ` · 随机延迟 0-${account.checkin_random_window_minutes} 分钟`
+                                          : ""}
+                                        {account.last_checkin_success_at
+                                          ? ` · 上次成功 ${formatDateTime(account.last_checkin_success_at)}`
+                                          : ""}
+                                        {account.checkin_failure_count > 0
+                                          ? ` · 连续失败 ${account.checkin_failure_count} 次`
+                                          : ""}
                                       </div>
                                     ) : null}
                                 </div>

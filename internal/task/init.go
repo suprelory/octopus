@@ -11,16 +11,17 @@ import (
 )
 
 const (
-	TaskPriceUpdate       = "price_update"
-	TaskStatsSave         = "stats_save"
-	TaskRelayLogSave      = "relay_log_save"
-	TaskSyncLLM           = "sync_llm"
-	TaskCleanLLM          = "clean_llm"
-	TaskBaseUrlDelay      = "base_url_delay"
-	TaskSiteSync          = "site_sync"
-	TaskSiteCheckin       = "site_checkin"
-	TaskWSAffinityCleanup = "ws_affinity_cleanup"
-	TaskWebDAVBackup      = "webdav_backup"
+	TaskPriceUpdate         = "price_update"
+	TaskStatsSave           = "stats_save"
+	TaskRelayLogSave        = "relay_log_save"
+	TaskSyncLLM             = "sync_llm"
+	TaskCleanLLM            = "clean_llm"
+	TaskBaseUrlDelay        = "base_url_delay"
+	TaskSiteSync            = "site_sync"
+	TaskSiteCheckin         = "site_checkin"
+	TaskWSAffinityCleanup   = "ws_affinity_cleanup"
+	TaskWebDAVBackup        = "webdav_backup"
+	SiteCheckinScanInterval = 10 * time.Minute
 )
 
 func Init() {
@@ -57,13 +58,8 @@ func Init() {
 	siteSyncInterval := time.Duration(siteSyncIntervalHours) * time.Hour
 	Register(string(model.SettingKeySiteSyncInterval), siteSyncInterval, true, SiteSyncTask)
 
-	siteCheckinIntervalHours, err := op.SettingGetInt(model.SettingKeySiteCheckinInterval)
-	if err != nil {
-		log.Warnf("failed to get site checkin interval: %v", err)
-		return
-	}
-	siteCheckinInterval := time.Duration(siteCheckinIntervalHours) * time.Hour
-	Register(string(model.SettingKeySiteCheckinInterval), siteCheckinInterval, true, SiteCheckinTask)
+	// 签到任务只负责高频扫描；每个账号的实际执行时间由 next_auto_checkin_at 控制。
+	Register(TaskSiteCheckin, SiteCheckinScanInterval, true, SiteCheckinTask)
 
 	// 注册统计保存任务
 	statsSaveIntervalMinutes, err := op.SettingGetInt(model.SettingKeyStatsSaveInterval)

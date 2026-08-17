@@ -658,9 +658,9 @@ func updateAccountSyncState(ctx context.Context, accountID int, status model.Sit
 	return db.GetDB().WithContext(ctx).Model(&model.SiteAccount{}).Where("id = ?", accountID).Updates(updatePayload).Error
 }
 
-func updateAccountCheckinState(ctx context.Context, account *model.SiteAccount, status model.SiteExecutionStatus, message string, success bool, accessToken string) error {
-	if account == nil {
-		return fmt.Errorf("site account is nil")
+func updateAccountCheckinState(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, status model.SiteExecutionStatus, message string, accessToken string) error {
+	if siteRecord == nil || account == nil {
+		return fmt.Errorf("site or account is nil")
 	}
 	now := time.Now()
 	updatePayload := map[string]any{
@@ -670,13 +670,23 @@ func updateAccountCheckinState(ctx context.Context, account *model.SiteAccount, 
 	}
 	account.LastCheckinAt = &now
 	account.LastCheckinStatus = status
-	if success {
-		nextAt := buildNextRandomCheckinAt(account, now)
+	if status == model.SiteExecutionStatusSuccess {
+		account.LastCheckinSuccessAt = &now
+		account.CheckinFailureCount = 0
+		updatePayload["last_checkin_success_at"] = &now
+		updatePayload["checkin_failure_count"] = 0
+		nextAt := buildNextAutoCheckinAt(siteRecord, account, now)
 		account.NextAutoCheckinAt = nextAt
 		updatePayload["next_auto_checkin_at"] = nextAt
-	} else if !account.Enabled || !account.AutoCheckin || !account.RandomCheckin {
-		account.NextAutoCheckinAt = nil
-		updatePayload["next_auto_checkin_at"] = nil
+	} else {
+		account.CheckinFailureCount++
+		updatePayload["checkin_failure_count"] = account.CheckinFailureCount
+		var nextAt *time.Time
+		if siteRecord.Enabled && account.Enabled && account.AutoCheckin {
+			nextAt = buildNextCheckinRetryAt(siteRecord, now, status, message, account.CheckinFailureCount)
+		}
+		account.NextAutoCheckinAt = nextAt
+		updatePayload["next_auto_checkin_at"] = nextAt
 	}
 	if strings.TrimSpace(accessToken) != "" {
 		updatePayload["access_token"] = strings.TrimSpace(accessToken)

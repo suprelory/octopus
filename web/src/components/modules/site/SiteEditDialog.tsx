@@ -52,6 +52,9 @@ type SiteFormState = {
     proxy_mode: Exclude<ProxyMode, 'inherit'>;
     proxy_config_id: number | null;
     external_checkin_url: string;
+    checkin_timezone: string;
+    checkin_window_start: string;
+    checkin_window_end: string;
     is_pinned: boolean;
     sort_order: number;
     global_weight: number;
@@ -97,6 +100,9 @@ function createEmptySiteForm(): SiteFormState {
         proxy_mode: 'direct',
         proxy_config_id: null,
         external_checkin_url: '',
+        checkin_timezone: 'Asia/Shanghai',
+        checkin_window_start: '00:00',
+        checkin_window_end: '23:59',
         is_pinned: false,
         sort_order: 0,
         global_weight: 1,
@@ -116,6 +122,9 @@ function createSiteForm(site: SiteRecord): SiteFormState {
         proxy_mode: site.proxy_mode ?? 'direct',
         proxy_config_id: site.proxy_config_id ?? null,
         external_checkin_url: site.external_checkin_url ?? '',
+        checkin_timezone: site.checkin_timezone || 'Asia/Shanghai',
+        checkin_window_start: site.checkin_window_start || '00:00',
+        checkin_window_end: site.checkin_window_end || '23:59',
         is_pinned: site.is_pinned,
         sort_order: site.sort_order,
         global_weight: site.global_weight,
@@ -137,6 +146,9 @@ function normalizeSiteRecord(site: SiteRecord): SiteRecord {
         proxy_mode: site.proxy_mode ?? 'direct',
         proxy_config_id: site.proxy_config_id ?? null,
         external_checkin_url: site.external_checkin_url ?? null,
+        checkin_timezone: site.checkin_timezone || 'Asia/Shanghai',
+        checkin_window_start: site.checkin_window_start || '00:00',
+        checkin_window_end: site.checkin_window_end || '23:59',
         is_pinned: site.is_pinned ?? false,
         sort_order: typeof site.sort_order === 'number' ? site.sort_order : 0,
         global_weight:
@@ -214,6 +226,18 @@ export function SiteEditDialog({ open, onOpenChange, site, onCreated, allTags }:
                 toast.error('请输入站点地址');
                 return;
             }
+            if (!siteForm.checkin_timezone.trim()) {
+                toast.error('请输入签到时区');
+                return;
+            }
+            if (!siteForm.checkin_window_start || !siteForm.checkin_window_end) {
+                toast.error('请输入完整的签到时间窗口');
+                return;
+            }
+            if (siteForm.checkin_window_end < siteForm.checkin_window_start) {
+                toast.error('签到结束时间不能早于开始时间');
+                return;
+            }
 
             let platform = siteForm.platform;
             let defaultRouteType = siteForm.default_route_type;
@@ -285,6 +309,9 @@ export function SiteEditDialog({ open, onOpenChange, site, onCreated, allTags }:
                 proxy_config_id:
                     siteForm.proxy_mode === 'pool' ? siteForm.proxy_config_id : null,
                 external_checkin_url: siteForm.external_checkin_url.trim() || null,
+                checkin_timezone: siteForm.checkin_timezone.trim(),
+                checkin_window_start: siteForm.checkin_window_start,
+                checkin_window_end: siteForm.checkin_window_end,
                 is_pinned: siteForm.is_pinned,
                 sort_order: siteForm.sort_order,
                 global_weight: siteForm.global_weight,
@@ -477,6 +504,63 @@ export function SiteEditDialog({ open, onOpenChange, site, onCreated, allTags }:
                                 配置后可在站点总览中一键打开此页面进行手动签到。
                             </span>
                         </label>
+
+                        <div className="grid gap-4 rounded-xl border border-border/60 bg-muted/20 p-4 md:grid-cols-2">
+                            <label className="grid gap-2 text-sm md:col-span-2">
+                                <span className="font-medium">自动签到时区</span>
+                                <Input
+                                    value={siteForm.checkin_timezone}
+                                    onChange={(event) =>
+                                        setSiteForm((current) => ({
+                                            ...current,
+                                            checkin_timezone: event.target.value,
+                                        }))
+                                    }
+                                    list="site-checkin-timezones"
+                                    placeholder="Asia/Shanghai"
+                                    className="rounded-xl"
+                                />
+                                <datalist id="site-checkin-timezones">
+                                    <option value="Asia/Shanghai" />
+                                    <option value="Asia/Hong_Kong" />
+                                    <option value="Asia/Tokyo" />
+                                    <option value="Europe/London" />
+                                    <option value="America/New_York" />
+                                    <option value="UTC" />
+                                </datalist>
+                            </label>
+                            <label className="grid gap-2 text-sm">
+                                <span className="font-medium">开始时间</span>
+                                <Input
+                                    type="time"
+                                    value={siteForm.checkin_window_start}
+                                    onChange={(event) =>
+                                        setSiteForm((current) => ({
+                                            ...current,
+                                            checkin_window_start: event.target.value,
+                                        }))
+                                    }
+                                    className="rounded-xl"
+                                />
+                            </label>
+                            <label className="grid gap-2 text-sm">
+                                <span className="font-medium">结束时间</span>
+                                <Input
+                                    type="time"
+                                    value={siteForm.checkin_window_end}
+                                    onChange={(event) =>
+                                        setSiteForm((current) => ({
+                                            ...current,
+                                            checkin_window_end: event.target.value,
+                                        }))
+                                    }
+                                    className="rounded-xl"
+                                />
+                            </label>
+                            <p className="text-xs text-muted-foreground md:col-span-2">
+                                自动签到只会在该站点当地时间窗口内执行；例如仅允许 8 点后签到时，将开始时间设为 08:00。
+                            </p>
+                        </div>
 
                         <label className="grid gap-2 text-sm">
                             <span className="font-medium">标签</span>

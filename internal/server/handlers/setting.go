@@ -88,7 +88,7 @@ func setSetting(c *gin.Context) {
 			return
 		}
 		task.Update(string(setting.Key), time.Duration(hours)*time.Hour)
-	case model.SettingKeySiteSyncInterval, model.SettingKeySiteCheckinInterval:
+	case model.SettingKeySiteSyncInterval:
 		hours, err := strconv.Atoi(setting.Value)
 		if err != nil {
 			resp.Error(c, http.StatusBadRequest, err.Error())

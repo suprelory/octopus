@@ -166,6 +166,18 @@ func SiteUpdate(req *model.SiteUpdateRequest, ctx context.Context) (*model.Site,
 		merged.ExternalCheckinURL = req.ExternalCheckinURL
 		selectFields = append(selectFields, "external_checkin_url")
 	}
+	if req.CheckinTimezone != nil {
+		merged.CheckinTimezone = *req.CheckinTimezone
+		selectFields = append(selectFields, "checkin_timezone")
+	}
+	if req.CheckinWindowStart != nil {
+		merged.CheckinWindowStart = *req.CheckinWindowStart
+		selectFields = append(selectFields, "checkin_window_start")
+	}
+	if req.CheckinWindowEnd != nil {
+		merged.CheckinWindowEnd = *req.CheckinWindowEnd
+		selectFields = append(selectFields, "checkin_window_end")
+	}
 	if req.IsPinned != nil {
 		merged.IsPinned = *req.IsPinned
 		selectFields = append(selectFields, "is_pinned")
@@ -220,6 +232,15 @@ func SiteUpdate(req *model.SiteUpdateRequest, ctx context.Context) (*model.Site,
 	}
 	if req.ExternalCheckinSet {
 		updates.ExternalCheckinURL = merged.ExternalCheckinURL
+	}
+	if req.CheckinTimezone != nil {
+		updates.CheckinTimezone = merged.CheckinTimezone
+	}
+	if req.CheckinWindowStart != nil {
+		updates.CheckinWindowStart = merged.CheckinWindowStart
+	}
+	if req.CheckinWindowEnd != nil {
+		updates.CheckinWindowEnd = merged.CheckinWindowEnd
 	}
 	if req.IsPinned != nil {
 		updates.IsPinned = merged.IsPinned

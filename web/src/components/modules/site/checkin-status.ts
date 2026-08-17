@@ -61,25 +61,39 @@ export function accountIsDisabled(
   return !site.enabled || !account.enabled;
 }
 
-function happenedToday(value?: string | null, now = new Date()) {
+function localDateKey(value: Date, timeZone: string) {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(value);
+  } catch {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Shanghai",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(value);
+  }
+}
+
+function happenedToday(value: string | null | undefined, now: Date, timeZone: string) {
   if (!value) return false;
   const date = new Date(value);
   if (Number.isNaN(date.getTime()) || date.getFullYear() <= 1) {
     return false;
   }
 
-  return (
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate()
-  );
+  return localDateKey(date, timeZone) === localDateKey(now, timeZone);
 }
 
 export function deriveCheckinStatus(
-  site: Pick<Site, "enabled" | "platform">,
+  site: Pick<Site, "enabled" | "platform" | "checkin_timezone">,
   account: Pick<
     SiteAccount,
-    "enabled" | "auto_checkin" | "last_checkin_at" | "last_checkin_status"
+    "enabled" | "auto_checkin" | "last_checkin_at" | "last_checkin_success_at" | "last_checkin_status"
   >,
   now = new Date(),
 ): DerivedCheckinStatus | null {
@@ -91,7 +105,11 @@ export function deriveCheckinStatus(
     return null;
   }
 
-  if (!happenedToday(account.last_checkin_at, now)) {
+  if (happenedToday(account.last_checkin_success_at, now, site.checkin_timezone)) {
+    return "success";
+  }
+
+  if (!happenedToday(account.last_checkin_at, now, site.checkin_timezone)) {
     return "idle";
   }
 
@@ -107,10 +125,10 @@ export function deriveCheckinStatus(
 }
 
 export function accountMatchesCheckinFilters(
-  site: Pick<Site, "enabled" | "platform">,
+  site: Pick<Site, "enabled" | "platform" | "checkin_timezone">,
   account: Pick<
     SiteAccount,
-    "enabled" | "auto_checkin" | "last_checkin_at" | "last_checkin_status"
+    "enabled" | "auto_checkin" | "last_checkin_at" | "last_checkin_success_at" | "last_checkin_status"
   >,
   filterStatuses: CheckinActiveFilterStatus[],
   now = new Date(),

@@ -71,6 +71,41 @@ function TaskRow({ icon: Icon, label, settingKey, last, running, runLabel, pendi
     );
 }
 
+function TaskActionRow({ icon: Icon, label, cadence, last, running, runLabel, pendingLabel, onRun }: {
+    icon: LucideIcon;
+    label: string;
+    cadence: string;
+    last?: string;
+    running: boolean;
+    runLabel: string;
+    pendingLabel: string;
+    onRun: () => void;
+}) {
+    const t = useTranslations('setting');
+
+    return (
+        <div className="flex items-center justify-between gap-4">
+            <div className="flex min-w-0 flex-col gap-1">
+                <div className="flex items-center gap-3">
+                    <Icon className="h-5 w-5 shrink-0 text-muted-foreground" />
+                    <span className="text-sm font-medium">{label}</span>
+                </div>
+                {last !== undefined && (
+                    <span className="ml-8 text-xs text-muted-foreground">
+                        {t('syncTasks.last')}: {last}
+                    </span>
+                )}
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+                <span className="text-xs text-muted-foreground">{cadence}</span>
+                <Button variant="outline" size="sm" onClick={onRun} disabled={running} className="rounded-xl">
+                    {running ? pendingLabel : runLabel}
+                </Button>
+            </div>
+        </div>
+    );
+}
+
 export function SettingSyncTasks() {
     const t = useTranslations('setting');
     const tAll = useTranslations();
@@ -141,10 +176,10 @@ export function SettingSyncTasks() {
             />
 
             {/* 站点全量签到 */}
-            <TaskRow
+            <TaskActionRow
                 icon={CalendarCheck2}
                 label={t('syncTasks.siteCheckin.label')}
-                settingKey={SettingKey.SiteCheckinInterval}
+                cadence={t('syncTasks.siteCheckin.cadence')}
                 last={formatTime(lastSiteCheckinTime)}
                 running={checkinAllSites.isPending}
                 runLabel={t('syncTasks.siteCheckin.button')}

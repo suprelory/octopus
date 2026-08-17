@@ -514,6 +514,7 @@
                 "label": "Site check-in",
                 "button": "Check In",
                 "pending": "Checking in...",
+                "cadence": "Checks every 10 minutes",
                 "success": "Background site check-in triggered",
                 "failed": "Failed to trigger site check-in"
             }

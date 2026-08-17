@@ -17,7 +17,7 @@ const (
 	SettingKeyModelInfoUpdateInterval          SettingKey = "model_info_update_interval"           // 模型信息更新间隔(小时)
 	SettingKeySyncLLMInterval                  SettingKey = "sync_llm_interval"                    // LLM 同步间隔(小时)
 	SettingKeySiteSyncInterval                 SettingKey = "site_sync_interval"                   // 站点账号同步间隔(小时)
-	SettingKeySiteCheckinInterval              SettingKey = "site_checkin_interval"                // 站点自动签到间隔(小时)
+	SettingKeySiteCheckinInterval              SettingKey = "site_checkin_interval"                // 已弃用：保留用于兼容旧配置
 	SettingKeyRelayLogKeepPeriod               SettingKey = "relay_log_keep_period"                // 日志保存时间范围(天)
 	SettingKeyRelayLogKeepEnabled              SettingKey = "relay_log_keep_enabled"               // 是否保留历史日志
 	SettingKeyCORSAllowOrigins                 SettingKey = "cors_allow_origins"                   // 跨域白名单(逗号分隔的完整 origin, 如 "https://example.com,https://example2.com"). 为空不允许跨域, "*"允许所有来源但不下发凭证
@@ -70,7 +70,7 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyModelInfoUpdateInterval, Value: "24"},         // 默认24小时更新一次模型信息
 		{Key: SettingKeySyncLLMInterval, Value: "24"},                 // 默认24小时同步一次LLM
 		{Key: SettingKeySiteSyncInterval, Value: "12"},                // 默认12小时同步一次站点账号信息
-		{Key: SettingKeySiteCheckinInterval, Value: "24"},             // 默认24小时自动签到一次
+		{Key: SettingKeySiteCheckinInterval, Value: "24"},             // 兼容旧版本；账号级调度不再读取此值
 		{Key: SettingKeyRelayLogKeepPeriod, Value: "7"},               // 默认日志保存7天
 		{Key: SettingKeyRelayLogKeepEnabled, Value: "true"},           // 默认保留历史日志
 		{Key: SettingKeyCircuitBreakerThreshold, Value: "5"},          // 默认连续失败5次触发熔断

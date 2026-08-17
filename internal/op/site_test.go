@@ -1453,3 +1453,32 @@ func TestSiteBatchEditCanClearAllHeaders(t *testing.T) {
 		t.Fatalf("expected headers to be cleared, got %#v", reloaded.CustomHeader)
 	}
 }
+
+func TestSiteUpdatePersistsCheckinSchedule(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+	site := &model.Site{
+		Name:     "checkin-schedule-update",
+		Platform: model.SitePlatformNewAPI,
+		BaseURL:  "https://example.com",
+		Enabled:  true,
+	}
+	if err := SiteCreate(site, ctx); err != nil {
+		t.Fatalf("SiteCreate failed: %v", err)
+	}
+
+	timezone := "Asia/Tokyo"
+	windowStart := "08:00"
+	windowEnd := "22:30"
+	updated, err := SiteUpdate(&model.SiteUpdateRequest{
+		ID:                 site.ID,
+		CheckinTimezone:    &timezone,
+		CheckinWindowStart: &windowStart,
+		CheckinWindowEnd:   &windowEnd,
+	}, ctx)
+	if err != nil {
+		t.Fatalf("SiteUpdate failed: %v", err)
+	}
+	if updated.CheckinTimezone != timezone || updated.CheckinWindowStart != windowStart || updated.CheckinWindowEnd != windowEnd {
+		t.Fatalf("unexpected checkin schedule: timezone=%q start=%q end=%q", updated.CheckinTimezone, updated.CheckinWindowStart, updated.CheckinWindowEnd)
+	}
+}

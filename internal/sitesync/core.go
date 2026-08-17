@@ -97,7 +97,7 @@ func CheckinAccount(ctx context.Context, accountID int) (*model.SiteCheckinResul
 			status = model.SiteExecutionStatusSkipped
 		}
 		message := sanitizeSiteStatusMessage(err)
-		updateErr := updateAccountCheckinState(ctx, account, status, message, false, resolvedAccessToken)
+		updateErr := updateAccountCheckinState(ctx, siteRecord, account, status, message, resolvedAccessToken)
 		if updateErr != nil {
 			return nil, sanitizeSiteError(updateErr)
 		}
@@ -107,7 +107,7 @@ func CheckinAccount(ctx context.Context, accountID int) (*model.SiteCheckinResul
 	result.AccountID = account.ID
 	result.SiteID = siteRecord.ID
 	result.Message = sanitizeSiteStatusText(result.Message)
-	if err := updateAccountCheckinState(ctx, account, result.Status, result.Message, result.Status == model.SiteExecutionStatusSuccess, resolvedAccessToken); err != nil {
+	if err := updateAccountCheckinState(ctx, siteRecord, account, result.Status, result.Message, resolvedAccessToken); err != nil {
 		return nil, sanitizeSiteError(err)
 	}
 	return result, nil
@@ -219,8 +219,8 @@ func CheckinAllWithOptions(ctx context.Context, opts SiteBatchOptions) SiteBatch
 	now := time.Now()
 	for i := 0; i < len(items); i++ {
 		item := items[i]
-		if item.account.RandomCheckin {
-			nextAt, scheduleErr := ensureRandomCheckinSchedule(ctx, item.account, now)
+		if trigger == SiteBatchTriggerScheduled {
+			nextAt, scheduleErr := ensureAccountCheckinSchedule(ctx, item.site, item.account, now)
 			if scheduleErr != nil {
 				summary.recordFailure(item.site.ID, item.site.Platform, item.account.ID, sanitizeSiteError(scheduleErr))
 				continue

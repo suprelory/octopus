@@ -101,6 +101,8 @@ export type SiteAccount = {
   next_auto_checkin_at?: string | null;
   last_sync_at?: string | null;
   last_checkin_at?: string | null;
+  last_checkin_success_at?: string | null;
+  checkin_failure_count: number;
   last_sync_status: string;
   last_checkin_status: string;
   last_sync_message: string;
@@ -123,6 +125,9 @@ export type Site = {
   proxy_mode: Exclude<ProxyMode, "inherit">;
   proxy_config_id?: number | null;
   external_checkin_url?: string | null;
+  checkin_timezone: string;
+  checkin_window_start: string;
+  checkin_window_end: string;
   is_pinned: boolean;
   sort_order: number;
   global_weight: number;
@@ -326,6 +331,9 @@ function normalizeSiteServerList(data: SiteServer[]): Site[] {
     proxy_mode: site.proxy_mode ?? "direct",
     proxy_config_id: site.proxy_config_id ?? null,
     external_checkin_url: site.external_checkin_url ?? null,
+    checkin_timezone: site.checkin_timezone || "Asia/Shanghai",
+    checkin_window_start: site.checkin_window_start || "00:00",
+    checkin_window_end: site.checkin_window_end || "23:59",
     is_pinned: site.is_pinned ?? false,
     sort_order: typeof site.sort_order === "number" ? site.sort_order : 0,
     global_weight:
@@ -359,6 +367,12 @@ function normalizeSiteServerList(data: SiteServer[]): Site[] {
         account.checkin_random_window_minutes >= 0
           ? account.checkin_random_window_minutes
           : 120,
+      last_checkin_success_at: account.last_checkin_success_at ?? null,
+      checkin_failure_count:
+        typeof account.checkin_failure_count === "number" &&
+        account.checkin_failure_count > 0
+          ? account.checkin_failure_count
+          : 0,
       balance: typeof account.balance === "number" ? account.balance : 0,
       balance_used:
         typeof account.balance_used === "number" ? account.balance_used : 0,
@@ -481,6 +495,8 @@ export function useCreateSiteAccount() {
         | "channel_bindings"
         | "last_sync_at"
         | "last_checkin_at"
+        | "last_checkin_success_at"
+        | "checkin_failure_count"
         | "last_sync_status"
         | "last_checkin_status"
         | "last_sync_message"

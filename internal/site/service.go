@@ -60,8 +60,12 @@ func LastCheckinAllTime() time.Time {
 	return sitesync.LastCheckinAllTime()
 }
 
-func RefreshAccountRandomCheckinSchedule(ctx context.Context, accountID int) error {
-	return sitesync.RefreshAccountRandomCheckinSchedule(ctx, accountID)
+func RefreshAccountCheckinSchedule(ctx context.Context, accountID int) error {
+	return sitesync.RefreshAccountCheckinSchedule(ctx, accountID)
+}
+
+func RefreshSiteCheckinSchedules(ctx context.Context, siteID int) error {
+	return sitesync.RefreshSiteCheckinSchedules(ctx, siteID)
 }
 
 func DeleteSite(ctx context.Context, siteID int) error {

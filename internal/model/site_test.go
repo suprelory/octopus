@@ -149,6 +149,50 @@ func TestValidateSiteRouteBaseURLs(t *testing.T) {
 	}
 }
 
+func TestSiteValidateNormalizesCheckinScheduleDefaults(t *testing.T) {
+	site := &Site{
+		Name:     "schedule-defaults",
+		Platform: SitePlatformNewAPI,
+		BaseURL:  "https://example.com",
+	}
+	if err := site.Validate(); err != nil {
+		t.Fatalf("Site.Validate failed: %v", err)
+	}
+	if site.CheckinTimezone != DefaultSiteCheckinTimezone ||
+		site.CheckinWindowStart != DefaultSiteCheckinWindowStart ||
+		site.CheckinWindowEnd != DefaultSiteCheckinWindowEnd {
+		t.Fatalf("unexpected checkin defaults: timezone=%q start=%q end=%q", site.CheckinTimezone, site.CheckinWindowStart, site.CheckinWindowEnd)
+	}
+}
+
+func TestSiteValidateRejectsInvalidCheckinSchedule(t *testing.T) {
+	tests := []struct {
+		name     string
+		timezone string
+		start    string
+		end      string
+	}{
+		{name: "invalid timezone", timezone: "Not/A_Timezone", start: "08:00", end: "23:00"},
+		{name: "invalid start", timezone: "Asia/Shanghai", start: "8am", end: "23:00"},
+		{name: "end before start", timezone: "Asia/Shanghai", start: "20:00", end: "08:00"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			site := &Site{
+				Name:               "invalid-schedule",
+				Platform:           SitePlatformNewAPI,
+				BaseURL:            "https://example.com",
+				CheckinTimezone:    tt.timezone,
+				CheckinWindowStart: tt.start,
+				CheckinWindowEnd:   tt.end,
+			}
+			if err := site.Validate(); err == nil {
+				t.Fatalf("expected invalid checkin schedule to fail validation")
+			}
+		})
+	}
+}
+
 func TestCompactSiteModelRouteTypeName(t *testing.T) {
 	tests := []struct {
 		name      string

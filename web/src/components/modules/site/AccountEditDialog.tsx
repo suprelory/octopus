@@ -267,20 +267,20 @@ export function AccountEditDialog({ open, onOpenChange, site, account }: Account
                 toast.error('请输入 API Key');
                 return;
             }
-            if (accountForm.auto_checkin && accountForm.random_checkin) {
+            if (accountForm.auto_checkin) {
                 if (
                     !Number.isFinite(accountForm.checkin_interval_hours) ||
                     accountForm.checkin_interval_hours < 1 ||
                     accountForm.checkin_interval_hours > 720
                 ) {
-                    toast.error('最小签到间隔必须在 1 到 720 小时之间');
+                    toast.error('签到间隔必须在 1 到 720 小时之间');
                     return;
                 }
-                if (
+                if (accountForm.random_checkin && (
                     !Number.isFinite(accountForm.checkin_random_window_minutes) ||
                     accountForm.checkin_random_window_minutes < 0 ||
                     accountForm.checkin_random_window_minutes > 1440
-                ) {
+                )) {
                     toast.error('随机延迟窗口必须在 0 到 1440 分钟之间');
                     return;
                 }
@@ -724,9 +724,9 @@ export function AccountEditDialog({ open, onOpenChange, site, account }: Account
                             </div>
 
                             <AnimatePresence initial={false}>
-                                {accountForm.auto_checkin && accountForm.random_checkin ? (
+                                {accountForm.auto_checkin ? (
                                     <motion.div
-                                        key="random-checkin-options"
+                                        key="auto-checkin-options"
                                         initial={{ height: 0, opacity: 0 }}
                                         animate={{ height: 'auto', opacity: 1 }}
                                         exit={{ height: 0, opacity: 0 }}
@@ -741,7 +741,7 @@ export function AccountEditDialog({ open, onOpenChange, site, account }: Account
                                             className="mt-4 grid gap-4 border-t border-border/50 pt-4 md:grid-cols-2"
                                         >
                                             <label className="grid gap-2 text-sm">
-                                                <span className="font-medium">最小签到间隔（小时）</span>
+                                                <span className="font-medium">签到间隔（小时）</span>
                                                 <Input
                                                     type="number"
                                                     min={1}
@@ -760,31 +760,36 @@ export function AccountEditDialog({ open, onOpenChange, site, account }: Account
                                                     placeholder="24"
                                                     className="rounded-xl"
                                                 />
+                                                <span className="text-xs text-muted-foreground">
+                                                    每 24 小时按站点当地自然日计算一次。
+                                                </span>
                                             </label>
 
-                                            <label className="grid gap-2 text-sm">
-                                                <span className="font-medium">随机延迟窗口（分钟）</span>
-                                                <Input
-                                                    type="number"
-                                                    min={0}
-                                                    max={1440}
-                                                    value={accountForm.checkin_random_window_minutes}
-                                                    onChange={(event) =>
-                                                        setAccountForm((current) =>
-                                                            current
-                                                                ? {
-                                                                      ...current,
-                                                                      checkin_random_window_minutes: Number(
-                                                                          event.target.value,
-                                                                      ),
-                                                                  }
-                                                                : current,
-                                                        )
-                                                    }
-                                                    placeholder="120"
-                                                    className="rounded-xl"
-                                                />
-                                            </label>
+                                            {accountForm.random_checkin ? (
+                                                <label className="grid gap-2 text-sm">
+                                                    <span className="font-medium">随机延迟窗口（分钟）</span>
+                                                    <Input
+                                                        type="number"
+                                                        min={0}
+                                                        max={1440}
+                                                        value={accountForm.checkin_random_window_minutes}
+                                                        onChange={(event) =>
+                                                            setAccountForm((current) =>
+                                                                current
+                                                                    ? {
+                                                                          ...current,
+                                                                          checkin_random_window_minutes: Number(
+                                                                              event.target.value,
+                                                                          ),
+                                                                      }
+                                                                    : current,
+                                                            )
+                                                        }
+                                                        placeholder="120"
+                                                        className="rounded-xl"
+                                                    />
+                                                </label>
+                                            ) : null}
                                         </motion.div>
                                     </motion.div>
                                 ) : null}

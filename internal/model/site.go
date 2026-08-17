@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	_ "time/tzdata"
 	"unicode/utf8"
 
 	"github.com/bestruirui/octopus/internal/transformer/outbound"
@@ -19,11 +20,17 @@ const (
 	SitePlatformOneAPI    SitePlatform = "one-api"
 	SitePlatformOneHub    SitePlatform = "one-hub"
 	SitePlatformDoneHub   SitePlatform = "done-hub"
-	SitePlatformSub2API SitePlatform = "sub2api"
-	SitePlatformAPI     SitePlatform = "api"
+	SitePlatformSub2API   SitePlatform = "sub2api"
+	SitePlatformAPI       SitePlatform = "api"
 )
 
 type SiteCredentialType string
+
+const (
+	DefaultSiteCheckinTimezone    = "Asia/Shanghai"
+	DefaultSiteCheckinWindowStart = "00:00"
+	DefaultSiteCheckinWindowEnd   = "23:59"
+)
 
 const (
 	SiteCredentialTypeUsernamePassword SiteCredentialType = "username_password"
@@ -169,6 +176,9 @@ type Site struct {
 	SiteProxy          *string            `json:"-" gorm:"column:site_proxy"`
 	UseSystemProxy     bool               `json:"-" gorm:"default:false"`
 	ExternalCheckinURL *string            `json:"external_checkin_url"`
+	CheckinTimezone    string             `json:"checkin_timezone" gorm:"size:64;not null;default:'Asia/Shanghai'"`
+	CheckinWindowStart string             `json:"checkin_window_start" gorm:"size:5;not null;default:'00:00'"`
+	CheckinWindowEnd   string             `json:"checkin_window_end" gorm:"size:5;not null;default:'23:59'"`
 	IsPinned           bool               `json:"is_pinned" gorm:"default:false"`
 	SortOrder          int                `json:"sort_order" gorm:"default:0"`
 	GlobalWeight       float64            `json:"global_weight" gorm:"default:1"`
@@ -239,6 +249,8 @@ type SiteAccount struct {
 	NextAutoCheckinAt          *time.Time           `json:"next_auto_checkin_at"`
 	LastSyncAt                 *time.Time           `json:"last_sync_at"`
 	LastCheckinAt              *time.Time           `json:"last_checkin_at"`
+	LastCheckinSuccessAt       *time.Time           `json:"last_checkin_success_at"`
+	CheckinFailureCount        int                  `json:"checkin_failure_count" gorm:"default:0"`
 	LastSyncStatus             SiteExecutionStatus  `json:"last_sync_status" gorm:"type:varchar(16);default:'idle'"`
 	LastCheckinStatus          SiteExecutionStatus  `json:"last_checkin_status" gorm:"type:varchar(16);default:'idle'"`
 	LastSyncMessage            string               `json:"last_sync_message"`
@@ -348,6 +360,9 @@ type SiteUpdateRequest struct {
 	UseSystemProxy     *bool               `json:"-"`
 	ExternalCheckinURL *string             `json:"external_checkin_url,omitempty"`
 	ExternalCheckinSet bool                `json:"-"`
+	CheckinTimezone    *string             `json:"checkin_timezone,omitempty"`
+	CheckinWindowStart *string             `json:"checkin_window_start,omitempty"`
+	CheckinWindowEnd   *string             `json:"checkin_window_end,omitempty"`
 	IsPinned           *bool               `json:"is_pinned,omitempty"`
 	SortOrder          *int                `json:"sort_order,omitempty"`
 	GlobalWeight       *float64            `json:"global_weight,omitempty"`
@@ -864,6 +879,18 @@ func (s *Site) Normalize() {
 			s.ExternalCheckinURL = &trimmed
 		}
 	}
+	s.CheckinTimezone = strings.TrimSpace(s.CheckinTimezone)
+	if s.CheckinTimezone == "" {
+		s.CheckinTimezone = DefaultSiteCheckinTimezone
+	}
+	s.CheckinWindowStart = strings.TrimSpace(s.CheckinWindowStart)
+	if s.CheckinWindowStart == "" {
+		s.CheckinWindowStart = DefaultSiteCheckinWindowStart
+	}
+	s.CheckinWindowEnd = strings.TrimSpace(s.CheckinWindowEnd)
+	if s.CheckinWindowEnd == "" {
+		s.CheckinWindowEnd = DefaultSiteCheckinWindowEnd
+	}
 	if strings.TrimSpace(string(s.ProxyMode)) == "" {
 		s.ProxyMode = ProxyUsageModeDirect
 	}
@@ -952,6 +979,20 @@ func (s *Site) Validate() error {
 		if checkinParsed.Host == "" {
 			return fmt.Errorf("external checkin url must have a host")
 		}
+	}
+	if _, err := time.LoadLocation(s.CheckinTimezone); err != nil {
+		return fmt.Errorf("site checkin timezone is invalid: %w", err)
+	}
+	windowStart, err := time.Parse("15:04", s.CheckinWindowStart)
+	if err != nil {
+		return fmt.Errorf("site checkin window start must use HH:MM format")
+	}
+	windowEnd, err := time.Parse("15:04", s.CheckinWindowEnd)
+	if err != nil {
+		return fmt.Errorf("site checkin window end must use HH:MM format")
+	}
+	if windowEnd.Before(windowStart) {
+		return fmt.Errorf("site checkin window end must not be before start")
 	}
 	return nil
 }

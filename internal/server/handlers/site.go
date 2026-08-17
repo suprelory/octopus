@@ -21,9 +21,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func refreshAccountRandomCheckinScheduleBestEffort(ctx context.Context, accountID int) {
-	if err := sitesvc.RefreshAccountRandomCheckinSchedule(ctx, accountID); err != nil {
-		log.Warnf("failed to refresh random checkin schedule (account=%d): %v", accountID, err)
+func refreshAccountCheckinScheduleBestEffort(ctx context.Context, accountID int) {
+	if err := sitesvc.RefreshAccountCheckinSchedule(ctx, accountID); err != nil {
+		log.Warnf("failed to refresh checkin schedule (account=%d): %v", accountID, err)
 	}
 }
 
@@ -160,6 +160,9 @@ func updateSite(c *gin.Context) {
 		resp.InternalErrorWithLog(c, err)
 		return
 	}
+	if err := sitesvc.RefreshSiteCheckinSchedules(c.Request.Context(), site.ID); err != nil {
+		log.Warnf("failed to refresh site checkin schedules (site=%d): %v", site.ID, err)
+	}
 	siteID := site.ID
 	safe.Go("site-update-project", func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -183,6 +186,9 @@ func enableSite(c *gin.Context) {
 	if err := op.SiteEnabled(request.ID, request.Enabled, c.Request.Context()); err != nil {
 		resp.InternalErrorWithLog(c, err)
 		return
+	}
+	if err := sitesvc.RefreshSiteCheckinSchedules(c.Request.Context(), request.ID); err != nil {
+		log.Warnf("failed to refresh site checkin schedules (site=%d): %v", request.ID, err)
 	}
 	siteID := request.ID
 	safe.Go("site-enable-project", func() {
@@ -231,6 +237,9 @@ func restoreSite(c *gin.Context) {
 		resp.InternalErrorWithLog(c, err)
 		return
 	}
+	if err := sitesvc.RefreshSiteCheckinSchedules(c.Request.Context(), idNum); err != nil {
+		log.Warnf("failed to refresh site checkin schedules (site=%d): %v", idNum, err)
+	}
 	resp.Success(c, nil)
 }
 
@@ -257,7 +266,7 @@ func createSiteAccount(c *gin.Context) {
 		resp.InternalErrorWithLog(c, err)
 		return
 	}
-	refreshAccountRandomCheckinScheduleBestEffort(c.Request.Context(), account.ID)
+	refreshAccountCheckinScheduleBestEffort(c.Request.Context(), account.ID)
 	createdAccount, err := op.SiteAccountGet(account.ID, c.Request.Context())
 	if err != nil {
 		resp.InternalErrorWithLog(c, err)
@@ -287,7 +296,7 @@ func updateSiteAccount(c *gin.Context) {
 		resp.InternalErrorWithLog(c, err)
 		return
 	}
-	refreshAccountRandomCheckinScheduleBestEffort(c.Request.Context(), account.ID)
+	refreshAccountCheckinScheduleBestEffort(c.Request.Context(), account.ID)
 	account, err = op.SiteAccountGet(account.ID, c.Request.Context())
 	if err != nil {
 		resp.InternalErrorWithLog(c, err)
@@ -323,7 +332,7 @@ func enableSiteAccount(c *gin.Context) {
 		resp.InternalErrorWithLog(c, err)
 		return
 	}
-	refreshAccountRandomCheckinScheduleBestEffort(c.Request.Context(), request.ID)
+	refreshAccountCheckinScheduleBestEffort(c.Request.Context(), request.ID)
 	accountID := request.ID
 	safe.Go("site-account-enable-project", func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
