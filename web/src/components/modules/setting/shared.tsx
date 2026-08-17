@@ -98,7 +98,7 @@ export function SettingHelpTip({ children }: { children: React.ReactNode }) {
         <TooltipProvider>
             <Tooltip>
                 <TooltipTrigger asChild>
-                    <HelpCircle className="size-4 text-muted-foreground cursor-help" />
+                    <HelpCircle className="size-4 shrink-0 text-muted-foreground cursor-help" />
                 </TooltipTrigger>
                 {/* 限宽让长描述自动换行；内层覆盖组件自带的 text-balance——
                     balance 会把各行收窄至近似等宽，导致盒子右侧留白 */}
@@ -119,7 +119,7 @@ export function SettingCard({ icon: Icon, title, tooltip, children }: {
     return (
         <div className="rounded-3xl border border-border bg-card p-6 space-y-5">
             <h2 className="text-lg font-bold text-card-foreground flex items-center gap-2">
-                <Icon className="h-5 w-5" />
+                <Icon className="h-5 w-5 shrink-0" />
                 {title}
                 {tooltip && <SettingHelpTip>{tooltip}</SettingHelpTip>}
             </h2>
@@ -136,8 +136,8 @@ export function SettingRow({ icon: Icon, label, tooltip, children }: {
 }) {
     return (
         <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-                {Icon && <Icon className="h-5 w-5 text-muted-foreground" />}
+            <div className="flex min-w-0 items-center gap-3">
+                {Icon && <Icon className="h-5 w-5 shrink-0 text-muted-foreground" />}
                 <span className="text-sm font-medium">{label}</span>
                 {tooltip && <SettingHelpTip>{tooltip}</SettingHelpTip>}
             </div>
