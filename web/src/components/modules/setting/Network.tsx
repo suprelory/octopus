@@ -9,7 +9,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { useSettingList, useSetSetting, SettingKey } from '@/api/endpoints/setting';
 import { toast } from '@/components/common/Toast';
 import type { ApiError } from '@/api/types';
-import { SettingCard, SettingRow, useSettingField } from './shared';
+import { SETTING_CONTROL_WIDTH, SettingCard, SettingRow, useSettingField } from './shared';
 
 // SSE 心跳间隔与流建立前首次心跳延迟统一为一个值（通常配置相同），回显以心跳间隔为准
 const SSE_MIRROR_KEYS = [SettingKey.SSEPreStreamHeartbeatDelay] as const;
@@ -171,7 +171,7 @@ export function SettingNetwork() {
                     onChange={(e) => proxyUrl.setValue(e.target.value)}
                     onBlur={proxyUrl.save}
                     placeholder={t('proxyUrl.placeholder')}
-                    className="w-48 rounded-xl"
+                    className={`${SETTING_CONTROL_WIDTH} rounded-xl`}
                 />
             </SettingRow>
 
@@ -185,7 +185,7 @@ export function SettingNetwork() {
                     <PopoverTrigger asChild>
                         <button
                             type="button"
-                            className="border-input focus-visible:border-ring focus-visible:ring-ring/50 w-48 min-h-9 rounded-xl border bg-transparent px-3 py-2 text-left text-sm shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px]"
+                            className={`${SETTING_CONTROL_WIDTH} border-input focus-visible:border-ring focus-visible:ring-ring/50 min-h-9 rounded-xl border bg-transparent px-3 py-2 text-left text-sm shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px]`}
                             title={trustedProxyDisplay}
                         >
                             <span className={`block overflow-hidden text-ellipsis whitespace-nowrap ${trustedProxyList.length === 0 ? 'text-muted-foreground' : ''}`}>
@@ -245,7 +245,7 @@ export function SettingNetwork() {
                     onChange={(e) => apiBaseUrl.setValue(e.target.value)}
                     onBlur={apiBaseUrl.save}
                     placeholder={t('apiBaseUrl.placeholder')}
-                    className="w-48 rounded-xl"
+                    className={`${SETTING_CONTROL_WIDTH} rounded-xl`}
                 />
             </SettingRow>
 
@@ -259,7 +259,7 @@ export function SettingNetwork() {
                     <PopoverTrigger asChild>
                         <button
                             type="button"
-                            className="border-input focus-visible:border-ring focus-visible:ring-ring/50 w-48 min-h-9 rounded-xl border bg-transparent px-3 py-2 text-left text-sm shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px]"
+                            className={`${SETTING_CONTROL_WIDTH} border-input focus-visible:border-ring focus-visible:ring-ring/50 min-h-9 rounded-xl border bg-transparent px-3 py-2 text-left text-sm shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px]`}
                             title={corsAllowOriginsDisplay}
                         >
                             <span className={`block overflow-hidden text-ellipsis whitespace-nowrap ${corsAllowOriginsList.length === 0 ? 'text-muted-foreground' : ''}`}>
@@ -315,14 +315,14 @@ export function SettingNetwork() {
                     onChange={(e) => sseHeartbeat.setValue(e.target.value)}
                     onBlur={sseHeartbeat.save}
                     placeholder={t('sseHeartbeat.placeholder')}
-                    className="w-48 rounded-xl"
+                    className={`${SETTING_CONTROL_WIDTH} rounded-xl`}
                 />
             </SettingRow>
 
             {/* Responses WebSocket：开关 + 默认模式收敛为单个下拉 */}
             <SettingRow icon={Radio} label={t('responsesWS.label')} tooltip={t('responsesWS.description')}>
                 <Select value={responsesWS.mode} onValueChange={(v) => responsesWS.change(v as WSMode)}>
-                    <SelectTrigger className="w-48 rounded-xl">
+                    <SelectTrigger className={`${SETTING_CONTROL_WIDTH} rounded-xl`}>
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="rounded-xl">

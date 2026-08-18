@@ -5,7 +5,7 @@ import { CircleAlert, Hash, Route, ShieldCheck, Timer, TimerOff, type LucideIcon
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { SettingKey } from '@/api/endpoints/setting';
-import { SettingCard, SettingRow, SettingSection, useSettingField, useSettingToggle } from './shared';
+import { SETTING_CONTROL_WIDTH, SettingCard, SettingRow, SettingSection, useSettingField, useSettingToggle } from './shared';
 
 function NumberFieldRow({ settingKey, label, placeholder, tooltip, icon, min, max }: {
     settingKey: string;
@@ -28,7 +28,7 @@ function NumberFieldRow({ settingKey, label, placeholder, tooltip, icon, min, ma
                 onChange={(e) => field.setValue(e.target.value)}
                 onBlur={field.save}
                 placeholder={placeholder}
-                className="w-48 rounded-xl"
+                className={`${SETTING_CONTROL_WIDTH} rounded-xl`}
             />
         </SettingRow>
     );

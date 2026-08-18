@@ -490,7 +490,7 @@
                 "placeholder": "/octopus-backups"
             },
             "interval": {
-                "label": "自動備份間隔(小時)",
+                "label": "自動備份間隔（小時）",
                 "placeholder": "0 = 停用",
                 "description": "設為 0 表示停用自動備份"
             },

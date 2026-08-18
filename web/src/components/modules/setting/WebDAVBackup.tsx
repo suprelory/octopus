@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { CloudUpload, Download, Eye, EyeOff, FolderSync, Key, Link, RefreshCw, User } from 'lucide-react';
+import { Clock, CloudUpload, Download, Eye, EyeOff, FolderSync, Key, Link, RefreshCw, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -15,7 +15,7 @@ import {
     useRestoreWebDAVBackup,
     useSettingValue,
 } from '@/api/endpoints/setting';
-import { SettingCard, SettingRow, SettingSection, useSettingField, useSettingToggle } from './shared';
+import { SETTING_CONTROL_WIDTH, SettingCard, SettingRow, SettingSection, useSettingField, useSettingToggle } from './shared';
 
 function formatBytes(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
@@ -92,7 +92,7 @@ export function SettingWebDAVBackup() {
                     onChange={(e) => url.setValue(e.target.value)}
                     onBlur={url.save}
                     placeholder={t('url.placeholder')}
-                    className="w-64 rounded-xl"
+                    className={`${SETTING_CONTROL_WIDTH} rounded-xl`}
                 />
             </SettingRow>
 
@@ -102,12 +102,12 @@ export function SettingWebDAVBackup() {
                     onChange={(e) => username.setValue(e.target.value)}
                     onBlur={username.save}
                     placeholder={t('username.placeholder')}
-                    className="w-64 rounded-xl"
+                    className={`${SETTING_CONTROL_WIDTH} rounded-xl`}
                 />
             </SettingRow>
 
             <SettingRow icon={Key} label={t('password.label')}>
-                <div className="relative w-64">
+                <div className={`relative ${SETTING_CONTROL_WIDTH}`}>
                     <Input
                         type={showPassword ? 'text' : 'password'}
                         value={password.value}
@@ -132,32 +132,32 @@ export function SettingWebDAVBackup() {
                     onChange={(e) => backupPath.setValue(e.target.value)}
                     onBlur={backupPath.save}
                     placeholder={t('backupPath.placeholder')}
-                    className="w-64 rounded-xl"
+                    className={`${SETTING_CONTROL_WIDTH} rounded-xl`}
                 />
             </SettingRow>
 
-            <SettingSection title={t('interval.label')} />
-            <div className="space-y-3">
+            <SettingRow icon={Clock} label={t('interval.label')} tooltip={t('interval.description')}>
                 <Input
                     type="number"
+                    step={1}
                     value={interval.value}
                     onChange={(e) => interval.setValue(e.target.value)}
                     onBlur={interval.save}
                     placeholder={t('interval.placeholder')}
-                    className="w-48 rounded-xl"
+                    className={`${SETTING_CONTROL_WIDTH} rounded-xl`}
                     min={0}
                 />
-                <p className="text-xs text-muted-foreground">{t('interval.description')}</p>
-            </div>
+            </SettingRow>
 
             <SettingRow label={t('retentionCount.label')}>
                 <Input
                     type="number"
+                    step={1}
                     value={retentionCount.value}
                     onChange={(e) => retentionCount.setValue(e.target.value)}
                     onBlur={retentionCount.save}
                     placeholder={t('retentionCount.placeholder')}
-                    className="w-48 rounded-xl"
+                    className={`${SETTING_CONTROL_WIDTH} rounded-xl`}
                     min={1}
                 />
             </SettingRow>

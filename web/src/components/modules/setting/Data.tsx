@@ -9,7 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import { toast } from '@/components/common/Toast';
 import { SettingKey, useExportDB, useImportDB } from '@/api/endpoints/setting';
 import { useClearLogs } from '@/api/endpoints/log';
-import { SettingCard, SettingRow, SettingSection, useSettingField, useSettingToggle } from './shared';
+import { SETTING_CONTROL_WIDTH, SettingCard, SettingRow, SettingSection, useSettingField, useSettingToggle } from './shared';
 
 export function SettingData() {
     const t = useTranslations('setting');
@@ -92,7 +92,7 @@ export function SettingData() {
                     onChange={(e) => statsInterval.setValue(e.target.value)}
                     onBlur={statsInterval.save}
                     placeholder={t('statsSaveInterval.placeholder')}
-                    className="w-48 rounded-xl"
+                    className={`${SETTING_CONTROL_WIDTH} rounded-xl`}
                 />
             </SettingRow>
 
@@ -108,7 +108,7 @@ export function SettingData() {
                     onChange={(e) => keepPeriod.setValue(e.target.value)}
                     onBlur={keepPeriod.save}
                     placeholder={t('log.keepPeriod.placeholder')}
-                    className="w-48 rounded-xl"
+                    className={`${SETTING_CONTROL_WIDTH} rounded-xl`}
                     disabled={!logEnabled.enabled}
                 />
             </SettingRow>

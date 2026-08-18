@@ -8,6 +8,11 @@ import { toast } from '@/components/common/Toast';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/animate-ui/components/animate/tooltip';
 import type { ApiError } from '@/api/types';
 
+// Standard width for row-style setting controls. The viewport cap keeps the
+// control usable on narrow screens without allowing long labels to squeeze
+// otherwise identical fields to different widths.
+export const SETTING_CONTROL_WIDTH = 'w-48 max-w-[45vw] shrink-0';
+
 // 文本/数字设置项的本地编辑状态。
 // 仅首次拿到数据时回填：useSettingList 每 30s 轮询、保存成功又会 invalidate，
 // 反复回填会覆盖正在编辑但尚未保存的输入。
@@ -136,12 +141,12 @@ export function SettingRow({ icon: Icon, label, tooltip, children }: {
 }) {
     return (
         <div className="flex items-center justify-between gap-4">
-            <div className="flex min-w-0 items-center gap-3">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
                 {Icon && <Icon className="h-5 w-5 shrink-0 text-muted-foreground" />}
-                <span className="text-sm font-medium">{label}</span>
+                <span className="min-w-0 text-sm font-medium leading-5">{label}</span>
                 {tooltip && <SettingHelpTip>{tooltip}</SettingHelpTip>}
             </div>
-            {children}
+            <div className="shrink-0">{children}</div>
         </div>
     );
 }
