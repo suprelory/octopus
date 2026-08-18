@@ -148,6 +148,10 @@ type ChannelKey struct {
 type ChannelKeySelectOptions struct {
 	ExcludeKeyIDs  map[int]struct{}
 	PreferredKeyID int
+	// InFlightCount optionally supplies runtime reservations for a key. It is
+	// deliberately a callback so model selection does not depend on relay state.
+	InFlightCount   func(keyID int) int
+	InFlightPenalty float64
 }
 
 // ChannelUpdateRequest 渠道更新请求 - 仅包含变更的数据
@@ -260,9 +264,17 @@ func (c *Channel) GetChannelKey(opts ...ChannelKeySelectOptions) ChannelKey {
 		if _, excluded := selectOpts.ExcludeKeyIDs[k.ID]; excluded {
 			continue
 		}
-		if !bestSet || k.TotalCost < bestCost {
+		effectiveCost := k.TotalCost
+		if selectOpts.InFlightCount != nil {
+			penalty := selectOpts.InFlightPenalty
+			if penalty <= 0 {
+				penalty = 1
+			}
+			effectiveCost += float64(selectOpts.InFlightCount(k.ID)) * penalty
+		}
+		if !bestSet || effectiveCost < bestCost {
 			best = k
-			bestCost = k.TotalCost
+			bestCost = effectiveCost
 			bestSet = true
 		}
 	}

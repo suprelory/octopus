@@ -101,6 +101,7 @@ type relayRequest struct {
 	capabilityPolicy capabilityDegradationPolicy
 	// Shared by iterator ranking and final candidate evaluation for this request.
 	capabilityPlanner *relayCapabilityPlanner
+	candidateSnapshot *candidateSnapshot
 
 	// rawBody 保存客户端原始请求 body，用于同格式（如 Anthropic→Anthropic）直通转发时
 	// 绕过内部模型来回转换，以保证 beta 字段、内容块顺序、thinking 签名等完全透传。
@@ -151,6 +152,7 @@ func newAttemptRelayRequest(base *relayRequest, ctx context.Context, modelName s
 		iter:              base.iter,
 		capabilityPolicy:  base.capabilityPolicy,
 		capabilityPlanner: base.capabilityPlanner,
+		candidateSnapshot: base.candidateSnapshot,
 		rawBody:           base.rawBody,
 		streamWriter:      base.streamWriter,
 		heartbeat:         base.heartbeat,

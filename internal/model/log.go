@@ -29,6 +29,10 @@ type ChannelAttempt struct {
 	Status            AttemptStatus    `json:"status"`
 	Duration          int              `json:"duration"`
 	Sticky            bool             `json:"sticky,omitempty"`
+	SelectionReason   string           `json:"selection_reason,omitempty"`
+	SelectionStrategy string           `json:"selection_strategy,omitempty"`
+	QualityRank       int              `json:"quality_rank"`
+	CandidateCount    int              `json:"candidate_count"`
 	Msg               string           `json:"msg,omitempty"`
 	CapabilityStatus  string           `json:"capability_status,omitempty"`
 	CapabilityPolicy  string           `json:"capability_policy,omitempty"`

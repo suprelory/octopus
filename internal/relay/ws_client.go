@@ -341,6 +341,7 @@ func bestEffortWarmupUpstreamWS(
 	if err != nil {
 		return fmt.Errorf("model not found")
 	}
+	candidateSnapshot := newCandidateSnapshot(ctx, group)
 
 	iter := balancer.NewIterator(group, apiKeyID, requestModel)
 	if iter.Len() == 0 {
@@ -354,7 +355,7 @@ func bestEffortWarmupUpstreamWS(
 	for iter.Next() {
 		item := iter.Item()
 
-		channel, err := op.ChannelGet(item.ChannelID, ctx)
+		channel, err := candidateSnapshot.Channel(item.ChannelID)
 		if err != nil {
 			lastErr = err
 			continue
@@ -373,26 +374,30 @@ func bestEffortWarmupUpstreamWS(
 		}
 		sawSupportedCapability = true
 		selectOpts := dbmodel.ChannelKeySelectOptions{
-			ExcludeKeyIDs:  make(map[int]struct{}),
-			PreferredKeyID: iter.StickyKeyID(),
+			ExcludeKeyIDs:   make(map[int]struct{}),
+			PreferredKeyID:  iter.StickyKeyID(),
+			InFlightPenalty: 1,
 		}
 
 		for {
-			usedKey := channel.GetChannelKey(selectOpts)
+			usedKey, releaseKey := balancer.SelectAndReserveChannelKey(channel, selectOpts)
 			if usedKey.ChannelKey == "" {
 				break
 			}
 			if iter.SkipCircuitBreak(channel.ID, usedKey.ID, channel.Name) {
+				releaseKey()
 				selectOpts.ExcludeKeyIDs[usedKey.ID] = struct{}{}
 				continue
 			}
 
 			if err := warmupUpstreamWSConnection(ctx, channel, usedKey); err != nil {
+				releaseKey()
 				lastErr = err
 				selectOpts.ExcludeKeyIDs[usedKey.ID] = struct{}{}
 				continue
 			}
 
+			releaseKey()
 			return nil
 		}
 	}
@@ -450,10 +455,12 @@ func newWSRelayRequest(
 	if err != nil {
 		return nil, nil, fmt.Errorf("model not found")
 	}
+	candidateSnapshot := newCandidateSnapshot(ctx, group)
 
 	capabilityPlanner := newRelayCapabilityPlanner(executionRequest, rawBody, true)
 	iter := balancer.NewIteratorWithPreferenceAndQuality(group, apiKeyID, requestModel, preferredSticky, func(item dbmodel.GroupItem) int {
-		return capabilityPlanner.rank(ctx, item)
+		channel, _ := candidateSnapshot.Channel(item.ChannelID)
+		return capabilityPlanner.rankChannel(channel, item)
 	})
 	if iter.Len() == 0 {
 		return nil, nil, fmt.Errorf("no available channel")
@@ -472,6 +479,7 @@ func newWSRelayRequest(
 		groupSessionTTL:   group.SessionKeepTime,
 		iter:              iter,
 		capabilityPlanner: capabilityPlanner,
+		candidateSnapshot: candidateSnapshot,
 		rawBody:           rawBody,
 		streamWriter:      NewWSStreamWriter(ctx, conn),
 	}, &group, nil
@@ -532,7 +540,7 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group, em
 			continue
 		}
 
-		channel, err := op.ChannelGet(item.ChannelID, ctx)
+		channel, err := req.candidateSnapshot.Channel(item.ChannelID)
 		if err != nil {
 			req.iter.Skip(item.ChannelID, 0, fmt.Sprintf("channel_%d", item.ChannelID), fmt.Sprintf("channel not found: %v", err))
 			lastErr = err
@@ -566,19 +574,22 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group, em
 		sawSupportedCapability = true
 
 		selectOpts := dbmodel.ChannelKeySelectOptions{
-			ExcludeKeyIDs:  make(map[int]struct{}),
-			PreferredKeyID: req.iter.StickyKeyID(),
+			ExcludeKeyIDs:   make(map[int]struct{}),
+			PreferredKeyID:  req.iter.StickyKeyID(),
+			InFlightPenalty: 1,
 		}
 
 		var usedKey dbmodel.ChannelKey
+		releaseKey := func() {}
 		for {
-			usedKey = channel.GetChannelKey(selectOpts)
+			usedKey, releaseKey = balancer.SelectAndReserveChannelKey(channel, selectOpts)
 			if usedKey.ChannelKey == "" {
 				break
 			}
 			if !req.iter.SkipCircuitBreak(channel.ID, usedKey.ID, channel.Name) {
 				break
 			}
+			releaseKey()
 			selectOpts.ExcludeKeyIDs[usedKey.ID] = struct{}{}
 			usedKey = dbmodel.ChannelKey{}
 		}
@@ -645,6 +656,7 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group, em
 				break
 			}
 		}
+		releaseKey()
 
 		if !result.Success && !result.Canceled && !result.ResetConversation && result.Failure.Record {
 			result.RetryAt = recordFailureAndResolveRetryAt(channel.ID, usedKey.ID, item.ModelName, result.Failure, result.RetryAt)

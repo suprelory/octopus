@@ -3,6 +3,8 @@ package op
 import (
 	"context"
 	"fmt"
+	"sync"
+	"sync/atomic"
 
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
@@ -13,6 +15,30 @@ import (
 
 var groupCache = cache.New[int, model.Group](16)
 var groupMap = cache.New[string, model.Group](16)
+
+type enabledGroupCacheEntry struct {
+	generation uint64
+	group      model.Group
+}
+
+var enabledGroupCache = cache.New[string, enabledGroupCacheEntry](16)
+var enabledGroupCacheMu sync.Mutex
+var groupResolutionVersion atomic.Uint64
+
+const maxEnabledGroupCacheEntries = 4096
+
+func invalidateGroupResolutionCache() {
+	groupResolutionVersion.Add(1)
+}
+
+func cacheEnabledGroup(name string, entry enabledGroupCacheEntry) {
+	enabledGroupCacheMu.Lock()
+	defer enabledGroupCacheMu.Unlock()
+	if enabledGroupCache.Len() >= maxEnabledGroupCacheEntries && !enabledGroupCache.Exists(name) {
+		enabledGroupCache.Clear()
+	}
+	enabledGroupCache.Set(name, entry)
+}
 
 func GroupList(ctx context.Context) ([]model.Group, error) {
 	groups := make([]model.Group, 0, groupCache.Len())
@@ -39,13 +65,18 @@ func GroupGet(id int, ctx context.Context) (*model.Group, error) {
 }
 
 func GroupGetEnabledMap(name string, ctx context.Context) (model.Group, error) {
+	generation := groupResolutionVersion.Load()
+	if entry, ok := enabledGroupCache.Get(name); ok && entry.generation == generation {
+		return cloneGroup(entry.group), nil
+	}
 	group, ok := groupMap.Get(name)
 	if !ok {
 		return model.Group{}, fmt.Errorf("group not found")
 	}
 	if len(group.Items) == 0 {
 		group.Items = nil
-		return group, nil
+		cacheEnabledGroup(name, enabledGroupCacheEntry{generation: generation, group: group})
+		return cloneGroup(group), nil
 	}
 
 	enabledItems := make([]model.GroupItem, 0, len(group.Items))
@@ -57,7 +88,15 @@ func GroupGetEnabledMap(name string, ctx context.Context) (model.Group, error) {
 		enabledItems = append(enabledItems, item)
 	}
 	group.Items = enabledItems
-	return group, nil
+	cacheEnabledGroup(name, enabledGroupCacheEntry{generation: generation, group: group})
+	return cloneGroup(group), nil
+}
+
+func cloneGroup(group model.Group) model.Group {
+	if len(group.Items) > 0 {
+		group.Items = append([]model.GroupItem(nil), group.Items...)
+	}
+	return group
 }
 
 func GroupCreate(group *model.Group, ctx context.Context) error {
@@ -66,6 +105,7 @@ func GroupCreate(group *model.Group, ctx context.Context) error {
 	}
 	groupCache.Set(group.ID, *group)
 	groupMap.Set(group.Name, *group)
+	invalidateGroupResolutionCache()
 	return nil
 }
 
@@ -233,6 +273,7 @@ func GroupDel(id int, ctx context.Context) error {
 	groupCache.Del(id)
 	groupMap.Del(group.Name)
 	resetBalancerStateForGroup(id)
+	invalidateGroupResolutionCache()
 	return nil
 }
 
@@ -405,6 +446,7 @@ func groupRefreshCache(ctx context.Context) error {
 		groupCache.Set(group.ID, group)
 		groupMap.Set(group.Name, group)
 	}
+	invalidateGroupResolutionCache()
 	return nil
 }
 
@@ -417,6 +459,7 @@ func groupRefreshCacheByID(id int, ctx context.Context) error {
 	}
 	groupCache.Set(group.ID, group)
 	groupMap.Set(group.Name, group)
+	invalidateGroupResolutionCache()
 	return nil
 }
 
@@ -435,6 +478,7 @@ func groupRefreshCacheByIDs(ids []int, ctx context.Context) error {
 		groupCache.Set(group.ID, group)
 		groupMap.Set(group.Name, group)
 	}
+	invalidateGroupResolutionCache()
 	return nil
 }
 

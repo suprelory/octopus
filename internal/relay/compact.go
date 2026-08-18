@@ -87,6 +87,7 @@ func HandleResponsesCompact(c *gin.Context) {
 		resp.ErrorWithCode(c, http.StatusNotFound, CodeRelayModelNotFound, "model not found")
 		return
 	}
+	candidateSnapshot := newCandidateSnapshot(c.Request.Context(), group)
 
 	iter := balancer.NewIterator(group, apiKeyID, requestModel)
 	if iter.Len() == 0 {
@@ -125,7 +126,7 @@ func HandleResponsesCompact(c *gin.Context) {
 			iter.Skip(item.ChannelID, 0, fmt.Sprintf("channel_%d", item.ChannelID), "channel rate limited earlier in this request")
 			continue
 		}
-		channel, err := op.ChannelGet(item.ChannelID, c.Request.Context())
+		channel, err := candidateSnapshot.Channel(item.ChannelID)
 		if err != nil {
 			iter.Skip(item.ChannelID, 0, fmt.Sprintf("channel_%d", item.ChannelID), fmt.Sprintf("channel not found: %v", err))
 			lastErr = err
@@ -149,18 +150,21 @@ func HandleResponsesCompact(c *gin.Context) {
 		sawSupportedCapability = true
 
 		selectOpts := dbmodel.ChannelKeySelectOptions{
-			ExcludeKeyIDs:  make(map[int]struct{}),
-			PreferredKeyID: iter.StickyKeyID(),
+			ExcludeKeyIDs:   make(map[int]struct{}),
+			PreferredKeyID:  iter.StickyKeyID(),
+			InFlightPenalty: 1,
 		}
 		var usedKey dbmodel.ChannelKey
+		releaseKey := func() {}
 		for {
-			usedKey = channel.GetChannelKey(selectOpts)
+			usedKey, releaseKey = balancer.SelectAndReserveChannelKey(channel, selectOpts)
 			if usedKey.ChannelKey == "" {
 				break
 			}
 			if !iter.SkipCircuitBreak(channel.ID, usedKey.ID, channel.Name) {
 				break
 			}
+			releaseKey()
 			selectOpts.ExcludeKeyIDs[usedKey.ID] = struct{}{}
 			usedKey = dbmodel.ChannelKey{}
 		}
@@ -184,6 +188,7 @@ func HandleResponsesCompact(c *gin.Context) {
 			if attemptNum > 0 {
 				delay := computeAttemptBackoff(attemptNum, retryAt, retryAfter)
 				if !waitBackoff(c.Request.Context(), delay) {
+					releaseKey()
 					metrics.SaveWithChannelStats(c.Request.Context(), false, context.Canceled, iter.Attempts(), false)
 					return
 				}
@@ -219,6 +224,7 @@ func HandleResponsesCompact(c *gin.Context) {
 				break
 			}
 		}
+		releaseKey()
 
 		usedKey.StatusCode = statusCode
 		usedKey.LastUseTimeStamp = time.Now().Unix()

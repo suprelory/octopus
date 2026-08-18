@@ -22,6 +22,15 @@ var channelKeyCache = cache.New[int, model.ChannelKey](16)
 var channelKeyCacheNeedUpdate = make(map[int]struct{})
 var channelKeyCacheNeedUpdateLock sync.Mutex
 
+func setChannelCache(id int, channel model.Channel) {
+	channelCache.Set(id, channel)
+	invalidateGroupResolutionCache()
+}
+
+func setChannelRuntimeCache(id int, channel model.Channel) {
+	channelCache.Set(id, channel)
+}
+
 func ChannelList(ctx context.Context) ([]model.Channel, error) {
 	channels := make([]model.Channel, 0, channelCache.Len())
 	for _, channel := range channelCache.GetAll() {
@@ -70,7 +79,7 @@ func ChannelCreate(channel *model.Channel, ctx context.Context) error {
 		return err
 	}
 	normalizeChannelProxyFields(channel)
-	channelCache.Set(channel.ID, *channel)
+	setChannelCache(channel.ID, *channel)
 	for _, k := range channel.Keys {
 		if k.ID != 0 {
 			channelKeyCache.Set(k.ID, k)
@@ -99,7 +108,7 @@ func ChannelKeyUpdate(key model.ChannelKey) error {
 		}
 		ch.Keys = keys
 	}
-	channelCache.Set(key.ChannelID, ch)
+	setChannelRuntimeCache(key.ChannelID, ch)
 	channelKeyCache.Set(key.ID, key)
 	channelKeyCacheNeedUpdateLock.Lock()
 	channelKeyCacheNeedUpdate[key.ID] = struct{}{}
@@ -119,7 +128,7 @@ func ChannelBaseUrlUpdate(channelID int, baseUrl []model.BaseUrl) error {
 		copy(cp, baseUrl)
 		ch.BaseUrls = cp
 	}
-	channelCache.Set(channelID, ch)
+	setChannelRuntimeCache(channelID, ch)
 	return nil
 }
 
@@ -349,7 +358,7 @@ func ChannelUpdate(req *model.ChannelUpdateRequest, ctx context.Context) (*model
 
 	channel, _ := channelCache.Get(req.ID)
 	normalizeChannelProxyFields(&channel)
-	channelCache.Set(req.ID, channel)
+	setChannelCache(req.ID, channel)
 	resetBalancerStateForChannel(req.ID)
 	return &channel, nil
 }
@@ -369,7 +378,7 @@ func ChannelEnabled(id int, enabled bool, ctx context.Context) error {
 	}
 	oldChannel.Enabled = enabled
 	normalizeChannelProxyFields(&oldChannel)
-	channelCache.Set(id, oldChannel)
+	setChannelCache(id, oldChannel)
 	resetBalancerStateForChannel(id)
 	return nil
 }
@@ -384,7 +393,7 @@ func ChannelEnabledManaged(id int, enabled bool, ctx context.Context) error {
 	}
 	oldChannel.Enabled = enabled
 	normalizeChannelProxyFields(&oldChannel)
-	channelCache.Set(id, oldChannel)
+	setChannelCache(id, oldChannel)
 	resetBalancerStateForChannel(id)
 	return nil
 }
@@ -608,7 +617,7 @@ func ChannelGetByName(name string, ctx context.Context) (*model.Channel, error) 
 
 	normalizeChannelProxyFields(&channel)
 	channel.Stats = nil
-	channelCache.Set(channel.ID, channel)
+	setChannelCache(channel.ID, channel)
 	for _, k := range channel.Keys {
 		if k.ID != 0 {
 			channelKeyCache.Set(k.ID, k)
@@ -632,7 +641,7 @@ func channelRefreshCache(ctx context.Context) error {
 	channelKeyCacheNeedUpdateLock.Unlock()
 	for _, channel := range channels {
 		normalizeChannelProxyFields(&channel)
-		channelCache.Set(channel.ID, channel)
+		setChannelCache(channel.ID, channel)
 		for _, k := range channel.Keys {
 			if k.ID != 0 {
 				channelKeyCache.Set(k.ID, k)
@@ -658,7 +667,7 @@ func channelRefreshCacheByID(id int, ctx context.Context) error {
 	}
 	normalizeChannelProxyFields(&channel)
 	channel.Stats = nil
-	channelCache.Set(channel.ID, channel)
+	setChannelCache(channel.ID, channel)
 	for _, k := range channel.Keys {
 		if k.ID != 0 {
 			channelKeyCache.Set(k.ID, k)

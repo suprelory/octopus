@@ -18,6 +18,7 @@ type Iterator struct {
 	apiKeyID     int
 	requestModel string
 	modelName    string // 请求模型名（用于熔断检查）
+	mode         model.GroupMode
 
 	// 内嵌追踪
 	attempts []model.ChannelAttempt
@@ -38,6 +39,17 @@ const (
 	PreferenceResponsesReplay
 	PreferenceChannelAffinity
 )
+
+func (p PreferenceSource) String() string {
+	switch p {
+	case PreferenceResponsesReplay:
+		return "responses_replay"
+	case PreferenceChannelAffinity:
+		return "channel_affinity"
+	default:
+		return "normal"
+	}
+}
 
 type routingPreference struct {
 	source PreferenceSource
@@ -162,6 +174,7 @@ func NewIteratorWithPreferenceAndQuality(group model.Group, apiKeyID int, reques
 		apiKeyID:     apiKeyID,
 		requestModel: requestModel,
 		modelName:    requestModel,
+		mode:         group.Mode,
 	}
 }
 
@@ -252,6 +265,53 @@ func (it *Iterator) PreferenceSource() PreferenceSource {
 		return PreferenceNone
 	}
 	return preference.source
+}
+
+func (it *Iterator) selectionTier() (candidateTier, bool) {
+	if it == nil || it.index < 0 || it.index >= len(it.candidates) {
+		return candidateTier{}, false
+	}
+	for _, tier := range it.tiers {
+		if it.index >= tier.start && it.index < tier.end {
+			return tier, true
+		}
+	}
+	return candidateTier{}, false
+}
+
+// SelectionReason and SelectionStrategy expose stable routing metadata for
+// attempt logs without coupling the relay package to balancer internals.
+func (it *Iterator) SelectionReason() string {
+	return it.PreferenceSource().String()
+}
+
+func (it *Iterator) SelectionStrategy() string {
+	if tier, ok := it.selectionTier(); ok {
+		return groupModeName(tier.mode)
+	}
+	return groupModeName(it.mode)
+}
+
+func groupModeName(mode model.GroupMode) string {
+	switch mode {
+	case model.GroupModeRoundRobin:
+		return "round_robin"
+	case model.GroupModeRandom:
+		return "random"
+	case model.GroupModeFailover:
+		return "failover"
+	case model.GroupModeWeighted:
+		return "weighted"
+	default:
+		return "round_robin"
+	}
+}
+
+func (it *Iterator) QualityRank() int {
+	if tier, ok := it.selectionTier(); ok {
+		return tier.scope.qualityTier
+	}
+	return 0
 }
 
 // InvalidateCurrentPreference clears ordinary affinity after the preferred
@@ -347,6 +407,10 @@ func (it *Iterator) skip(channelID, channelKeyID int, channelName, msg string, t
 		Lossiness:         trace.Lossiness,
 		CapabilityReasons: append([]string(nil), trace.Reasons...),
 		FallbackReason:    msg,
+		SelectionReason:   it.SelectionReason(),
+		SelectionStrategy: it.SelectionStrategy(),
+		QualityRank:       it.QualityRank(),
+		CandidateCount:    len(it.candidates),
 	})
 	it.InvalidateCurrentPreference()
 }
@@ -368,16 +432,20 @@ func (it *Iterator) SkipCircuitBreak(channelID, channelKeyID int, channelName st
 	}
 	it.count++
 	it.attempts = append(it.attempts, model.ChannelAttempt{
-		ChannelID:      channelID,
-		ChannelKeyID:   channelKeyID,
-		ChannelName:    channelName,
-		ModelName:      modelName,
-		AttemptNum:     it.count,
-		Status:         model.AttemptCircuitBreak,
-		Sticky:         it.IsSticky(),
-		Msg:            msg,
-		FallbackReason: msg,
-		FailureClass:   "circuit_open",
+		ChannelID:         channelID,
+		ChannelKeyID:      channelKeyID,
+		ChannelName:       channelName,
+		ModelName:         modelName,
+		AttemptNum:        it.count,
+		Status:            model.AttemptCircuitBreak,
+		Sticky:            it.IsSticky(),
+		Msg:               msg,
+		FallbackReason:    msg,
+		FailureClass:      "circuit_open",
+		SelectionReason:   it.SelectionReason(),
+		SelectionStrategy: it.SelectionStrategy(),
+		QualityRank:       it.QualityRank(),
+		CandidateCount:    len(it.candidates),
 	})
 	if retryAt, ok := RetryAt(channelID, channelKeyID, modelName); ok {
 		attempt := &it.attempts[len(it.attempts)-1]
@@ -391,12 +459,16 @@ func (it *Iterator) StartAttempt(channelID, channelKeyID int, channelName string
 	it.count++
 	return &AttemptSpan{
 		attempt: model.ChannelAttempt{
-			ChannelID:    channelID,
-			ChannelKeyID: channelKeyID,
-			ChannelName:  channelName,
-			ModelName:    it.candidates[it.index].ModelName,
-			AttemptNum:   it.count,
-			Sticky:       it.IsSticky(),
+			ChannelID:         channelID,
+			ChannelKeyID:      channelKeyID,
+			ChannelName:       channelName,
+			ModelName:         it.candidates[it.index].ModelName,
+			AttemptNum:        it.count,
+			Sticky:            it.IsSticky(),
+			SelectionReason:   it.SelectionReason(),
+			SelectionStrategy: it.SelectionStrategy(),
+			QualityRank:       it.QualityRank(),
+			CandidateCount:    len(it.candidates),
 		},
 		startTime: time.Now(),
 		iter:      it,

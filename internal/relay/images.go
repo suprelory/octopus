@@ -113,6 +113,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 		resp.ErrorWithCode(c, http.StatusNotFound, CodeRelayModelNotFound, "model not found")
 		return
 	}
+	candidateSnapshot := newCandidateSnapshot(ctx, group)
 
 	// 创建迭代器（策略排序 + 粘性优先）
 	iter := balancer.NewIterator(group, apiKeyID, requestModel)
@@ -152,7 +153,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 		item := iter.Item()
 
 		// 获取通道
-		channel, err := op.ChannelGet(item.ChannelID, ctx)
+		channel, err := candidateSnapshot.Channel(item.ChannelID)
 		if err != nil {
 			log.Warnf("failed to get channel %d: %v", item.ChannelID, err)
 			iter.Skip(item.ChannelID, 0, fmt.Sprintf("channel_%d", item.ChannelID), fmt.Sprintf("channel not found: %v", err))
@@ -178,18 +179,21 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 		sawSupportedCapability = true
 
 		selectOpts := model.ChannelKeySelectOptions{
-			ExcludeKeyIDs:  make(map[int]struct{}),
-			PreferredKeyID: iter.StickyKeyID(),
+			ExcludeKeyIDs:   make(map[int]struct{}),
+			PreferredKeyID:  iter.StickyKeyID(),
+			InFlightPenalty: 1,
 		}
 		var usedKey model.ChannelKey
+		releaseKey := func() {}
 		for {
-			usedKey = channel.GetChannelKey(selectOpts)
+			usedKey, releaseKey = balancer.SelectAndReserveChannelKey(channel, selectOpts)
 			if usedKey.ChannelKey == "" {
 				break
 			}
 			if !iter.SkipCircuitBreak(channel.ID, usedKey.ID, channel.Name) {
 				break
 			}
+			releaseKey()
 			selectOpts.ExcludeKeyIDs[usedKey.ID] = struct{}{}
 			usedKey = model.ChannelKey{}
 		}
@@ -212,6 +216,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 		// 尝试一次转发
 		var retryAt time.Time
 		statusCode, written, usage, upstreamCT, fwdErr := imagesAttempt(ctx, endpoint, c, bc, isMultipart, boundary, jsonPayload, stream, channel, usedKey.ChannelKey, group.FirstTokenTimeOut, metrics, item.ModelName, hb, &retryAt)
+		releaseKey()
 
 		// 更新 channel key 状态
 		usedKey.StatusCode = statusCode

@@ -92,6 +92,13 @@ func (p *relayCapabilityPlanner) rank(ctx context.Context, item dbmodel.GroupIte
 	if err != nil || channel == nil || !channel.Enabled {
 		return 3
 	}
+	return p.rankChannel(channel, item)
+}
+
+func (p *relayCapabilityPlanner) rankChannel(channel *dbmodel.Channel, item dbmodel.GroupItem) int {
+	if channel == nil || !channel.Enabled {
+		return 3
+	}
 	adapter := outbound.Get(channel.Type)
 	if adapter == nil || p == nil || p.request == nil {
 		return 3

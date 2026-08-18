@@ -94,6 +94,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 		writeInboundProtocolError(c, nil, inAdapter, relayProtocolError(http.StatusNotFound, CodeRelayModelNotFound, "model not found"))
 		return
 	}
+	candidateSnapshot := newCandidateSnapshot(c.Request.Context(), group)
 
 	// === HTTP Replay 机制 ===
 	// 当 HTTP 请求携带 previous_response_id 时，尝试从本地加载上一次成功的 replay 状态，
@@ -134,7 +135,8 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 	capabilityPolicy := getCapabilityDegradationPolicy()
 	capabilityPlanner := newRelayCapabilityPlanner(internalRequest, rawBody, false)
 	iter := balancer.NewIteratorWithPreferenceAndQuality(group, apiKeyID, requestModel, preferredSticky, func(item dbmodel.GroupItem) int {
-		return capabilityPlanner.rank(c.Request.Context(), item)
+		channel, _ := candidateSnapshot.Channel(item.ChannelID)
+		return capabilityPlanner.rankChannel(channel, item)
 	})
 	if iter.Len() == 0 {
 		writeInboundProtocolError(c, nil, inAdapter, relayProtocolError(http.StatusServiceUnavailable, CodeRelayNoAvailableChannel, "no available channel"))
@@ -171,6 +173,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 		iter:              iter,
 		capabilityPolicy:  capabilityPolicy,
 		capabilityPlanner: capabilityPlanner,
+		candidateSnapshot: candidateSnapshot,
 		rawBody:           rawBody,
 		heartbeat:         hb,
 	}
@@ -210,7 +213,7 @@ relayLoop:
 		}
 
 		// 获取通道
-		channel, err := op.ChannelGet(item.ChannelID, c.Request.Context())
+		channel, err := candidateSnapshot.Channel(item.ChannelID)
 		if err != nil {
 			log.Warnf("failed to get channel %d: %v", item.ChannelID, err)
 			iter.Skip(item.ChannelID, 0, fmt.Sprintf("channel_%d", item.ChannelID), fmt.Sprintf("channel not found: %v", err))
@@ -250,18 +253,21 @@ relayLoop:
 			iter.Index()+1, iter.Len(), iter.IsSticky())
 
 		selectOpts := dbmodel.ChannelKeySelectOptions{
-			ExcludeKeyIDs:  make(map[int]struct{}),
-			PreferredKeyID: iter.StickyKeyID(),
+			ExcludeKeyIDs:   make(map[int]struct{}),
+			PreferredKeyID:  iter.StickyKeyID(),
+			InFlightPenalty: 1,
 		}
 		var usedKey dbmodel.ChannelKey
+		releaseKey := func() {}
 		for {
-			usedKey = channel.GetChannelKey(selectOpts)
+			usedKey, releaseKey = balancer.SelectAndReserveChannelKey(channel, selectOpts)
 			if usedKey.ChannelKey == "" {
 				break
 			}
 			if !iter.SkipCircuitBreak(channel.ID, usedKey.ID, channel.Name) {
 				break
 			}
+			releaseKey()
 			selectOpts.ExcludeKeyIDs[usedKey.ID] = struct{}{}
 			usedKey = dbmodel.ChannelKey{}
 		}
@@ -274,6 +280,7 @@ relayLoop:
 			continue
 		}
 		if budgetErr := failoverBudget.reserveChannel(channel.ID, time.Now()); budgetErr != nil {
+			releaseKey()
 			lastErr = budgetErr
 			lastResult = relayBudgetAttemptResult(budgetErr)
 			log.Warnf("relay failover budget exhausted: %v", budgetErr)
@@ -290,6 +297,7 @@ relayLoop:
 					lastErr = budgetErr
 					lastResult = relayBudgetAttemptResult(budgetErr)
 					log.Warnf("relay failover budget exhausted: %v", budgetErr)
+					releaseKey()
 					break relayLoop
 				}
 				delay := computeAttemptBackoff(attemptNum, result.RetryAt, result.RetryAfter)
@@ -300,9 +308,11 @@ relayLoop:
 						lastErr = waitErr
 						lastResult = relayBudgetAttemptResult(waitErr)
 						log.Warnf("relay failover budget exhausted: %v", waitErr)
+						releaseKey()
 						break relayLoop
 					}
 					log.Debugf("request context canceled during retry backoff")
+					releaseKey()
 					metrics.SaveWithChannelStats(c.Request.Context(), false, waitErr, iter.Attempts(), false)
 					return
 				}
@@ -341,6 +351,7 @@ relayLoop:
 				lastErr = budgetErr
 				lastResult = relayBudgetAttemptResult(budgetErr)
 				log.Warnf("relay failover budget exhausted: %v", budgetErr)
+				releaseKey()
 				break relayLoop
 			}
 
@@ -357,6 +368,7 @@ relayLoop:
 				lastErr = result.Err
 				lastResult = relayBudgetAttemptResult(result.Err)
 				log.Warnf("relay failover budget exhausted: %v", result.Err)
+				releaseKey()
 				break relayLoop
 			}
 			switchTime := time.Now()
@@ -373,6 +385,7 @@ relayLoop:
 				break
 			}
 		}
+		releaseKey()
 
 		// 同通道重试耗尽后记录熔断器失败
 		if !result.Success && !result.Written && !result.Canceled && !result.ResetConversation && result.Failure.Record {
