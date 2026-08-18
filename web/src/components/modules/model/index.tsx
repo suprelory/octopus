@@ -1,12 +1,15 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { PackageSearch } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useModelList } from '@/api/endpoints/model';
 import { ModelItem } from './Item';
 import { useSearchStore, useToolbarViewOptionsStore } from '@/components/modules/toolbar';
+import { Pagination } from '@/components/common/Pagination';
 import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
+
+const DEFAULT_MODEL_PAGE_SIZE = 20;
 
 export function Model() {
     const t = useTranslations('model');
@@ -15,6 +18,8 @@ export function Model() {
     const searchTerm = useSearchStore((s) => s.getSearchTerm(pageKey));
     const layout = useToolbarViewOptionsStore((s) => s.getLayout(pageKey));
     const sortOrder = useToolbarViewOptionsStore((s) => s.getSortOrder(pageKey));
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(DEFAULT_MODEL_PAGE_SIZE);
 
     const sortedModels = useMemo(() => {
         if (!models) return [];
@@ -27,6 +32,31 @@ export function Model() {
         const term = searchTerm.toLowerCase().trim();
         return !term ? sortedModels : sortedModels.filter((m) => m.name.toLowerCase().includes(term));
     }, [sortedModels, searchTerm]);
+
+    const viewSignature = `${searchTerm.toLowerCase().trim()}|${sortOrder}`;
+    const previousViewSignatureRef = useRef(viewSignature);
+    useEffect(() => {
+        if (previousViewSignatureRef.current === viewSignature) return;
+        previousViewSignatureRef.current = viewSignature;
+        queueMicrotask(() => setPage(1));
+    }, [viewSignature]);
+
+    const totalPages = Math.max(1, Math.ceil(visibleModels.length / pageSize));
+    const currentPage = Math.min(page, totalPages);
+    useEffect(() => {
+        if (page <= totalPages) return;
+        queueMicrotask(() => setPage((current) => Math.min(current, totalPages)));
+    }, [page, totalPages]);
+
+    const paginatedModels = useMemo(() => {
+        const start = (currentPage - 1) * pageSize;
+        return visibleModels.slice(start, start + pageSize);
+    }, [currentPage, pageSize, visibleModels]);
+
+    const handlePageSizeChange = (nextPageSize: number) => {
+        setPageSize(nextPageSize);
+        setPage(1);
+    };
 
     if (isLoading) {
         return (
@@ -72,13 +102,27 @@ export function Model() {
     }
 
     return (
-        <VirtualizedGrid
-            items={visibleModels}
-            layout={layout}
-            columns={{ default: 1, md: 2, lg: 3 }}
-            estimateItemHeight={112}
-            getItemKey={(model) => `model-${model.name}`}
-            renderItem={(model) => <ModelItem model={model} layout={layout} />}
-        />
+        <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+            <div className="min-h-0 flex-1">
+                <VirtualizedGrid
+                    items={paginatedModels}
+                    layout={layout}
+                    columns={{ default: 1, md: 2, lg: 3 }}
+                    estimateItemHeight={112}
+                    getItemKey={(model) => `model-${model.name}`}
+                    renderItem={(model) => <ModelItem model={model} layout={layout} />}
+                    scrollResetKey={`${currentPage}|${pageSize}|${viewSignature}`}
+                />
+            </div>
+
+            <Pagination
+                page={currentPage}
+                pageSize={pageSize}
+                total={visibleModels.length}
+                onPageChange={setPage}
+                onPageSizeChange={handlePageSizeChange}
+                className="px-1 pb-1"
+            />
+        </div>
     );
 }
