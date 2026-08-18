@@ -39,14 +39,7 @@ export const ModelItem = memo(function ModelItem({ model, layout = 'grid' }: Mod
     const updateModel = useUpdateModel();
     const deleteModel = useDeleteModel();
 
-    const { Avatar: ModelAvatar, color: brandColor } = useMemo(
-        () => getModelIcon(model.name, {
-            icon: model.icon,
-            vendor: model.vendor,
-            vendorIcon: model.vendor_icon,
-        }),
-        [model.icon, model.name, model.vendor, model.vendor_icon],
-    );
+    const { Avatar: ModelAvatar, color: brandColor } = useMemo(() => getModelIcon(model.name), [model.name]);
 
     const updateOverlayRect = useCallback(() => {
         const card = cardRef.current;

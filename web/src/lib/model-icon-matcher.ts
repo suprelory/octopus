@@ -1,75 +1,66 @@
-export const MODEL_ICON_KEYS = [
-    'OpenAI',
-    'Claude',
-    'Gemini',
-    'Gemma',
-    'Google',
-    'DeepSeek',
-    'Grok',
-    'Qwen',
-    'Zhipu',
-    'Minimax',
-    'Kimi',
-    'Mistral',
-    'Meta',
-    'Doubao',
-    'Yi',
-    'Hunyuan',
-    'Spark',
-    'Wenxin',
-    'InternLM',
-    'Stepfun',
-    'Nvidia',
-    'Azure',
-    'Aws',
-    'Volcengine',
-    'SiliconCloud',
-    'Groq',
-    'Together',
-    'Fireworks',
-    'Replicate',
-    'Ollama',
-    'OpenRouter',
-    'Cloudflare',
-    'Cerebras',
-    'SambaNova',
-    'Novita',
-    'HuggingFace',
-    'Cohere',
-    'Perplexity',
-    'Microsoft',
-    'KwaiKAT',
-    'Jina',
-    'Ai360',
-    'Kling',
-    'Jimeng',
-    'Vidu',
-    'Midjourney',
-    'Suno',
-    'V0',
-] as const;
+export type ModelIconKey =
+    | 'OpenAI'
+    | 'Claude'
+    | 'Gemini'
+    | 'Gemma'
+    | 'Google'
+    | 'DeepSeek'
+    | 'Grok'
+    | 'Qwen'
+    | 'Zhipu'
+    | 'Minimax'
+    | 'Kimi'
+    | 'Mistral'
+    | 'Meta'
+    | 'Doubao'
+    | 'Yi'
+    | 'Hunyuan'
+    | 'Spark'
+    | 'Wenxin'
+    | 'InternLM'
+    | 'Stepfun'
+    | 'Nvidia'
+    | 'Azure'
+    | 'Aws'
+    | 'Volcengine'
+    | 'SiliconCloud'
+    | 'Groq'
+    | 'Together'
+    | 'Fireworks'
+    | 'Replicate'
+    | 'Ollama'
+    | 'OpenRouter'
+    | 'Cloudflare'
+    | 'Cerebras'
+    | 'SambaNova'
+    | 'Novita'
+    | 'HuggingFace'
+    | 'Cohere'
+    | 'Perplexity'
+    | 'Microsoft'
+    | 'KwaiKAT'
+    | 'Jina'
+    | 'Ai360'
+    | 'Kling'
+    | 'Jimeng'
+    | 'Vidu'
+    | 'Midjourney'
+    | 'Suno'
+    | 'V0';
+export type ModelIconMatchSource = 'model' | 'namespace' | 'fallback';
 
-export type ModelIconKey = (typeof MODEL_ICON_KEYS)[number];
-export type ModelIconMatchSource = 'explicit' | 'model' | 'vendor' | 'namespace' | 'fallback';
-
-export type ModelIconMatchOptions = {
-    /** Lobe icon export name, for example `OpenAI`, `Claude.Color`, or `Qwen.Avatar`. */
-    icon?: string | null;
-    /** Persisted vendor icon key used when the model has no family match. */
-    vendorIcon?: string | null;
-    /** Provider/vendor name used only when the model family cannot be identified. */
-    vendor?: string | null;
-};
-
-export type ModelIconMatch = {
-    key?: ModelIconKey;
-    source: ModelIconMatchSource;
-    fallbackText: string;
-};
+export type ModelIconMatch =
+    | { key: ModelIconKey; source: Exclude<ModelIconMatchSource, 'fallback'> }
+    | { source: 'fallback'; fallbackText: string };
 
 type MatchRule = {
     key: ModelIconKey;
     aliases: readonly string[];
+};
+
+type CompiledMatchRule = {
+    key: ModelIconKey;
+    aliases: readonly RegExp[];
 };
 
 // Model-family rules are ordered only as a tie-breaker. The earliest family
@@ -155,8 +146,6 @@ const VENDOR_RULES: readonly MatchRule[] = [
     { key: 'V0', aliases: ['v0', 'vercel-v0'] },
 ];
 
-const ICON_KEY_BY_IDENTITY = new Map<string, ModelIconKey>();
-
 function normalizeForMatch(value: string): string {
     return value
         .normalize('NFKC')
@@ -169,29 +158,6 @@ function normalizeForMatch(value: string): string {
 function normalizeIdentity(value: string): string {
     return normalizeForMatch(value).replace(/-/g, '');
 }
-
-for (const key of MODEL_ICON_KEYS) {
-    ICON_KEY_BY_IDENTITY.set(normalizeIdentity(key), key);
-}
-
-const EXPLICIT_ICON_ALIASES: Readonly<Record<string, ModelIconKey>> = {
-    anthropic: 'Claude',
-    xai: 'Grok',
-    alibaba: 'Qwen',
-    qwenlm: 'Qwen',
-    zai: 'Zhipu',
-    zhipuai: 'Zhipu',
-    moonshot: 'Kimi',
-    moonshotai: 'Kimi',
-    baidu: 'Wenxin',
-    iflytek: 'Spark',
-    tencent: 'Hunyuan',
-    bytedance: 'Doubao',
-    '01ai': 'Yi',
-    azureai: 'Azure',
-    siliconflow: 'SiliconCloud',
-    kuaishou: 'Kling',
-};
 
 const VENDOR_KEY_BY_IDENTITY = new Map<string, ModelIconKey>();
 for (const rule of VENDOR_RULES) {
@@ -213,24 +179,30 @@ for (const [alias, key] of Object.entries({
     VENDOR_KEY_BY_IDENTITY.set(normalizeIdentity(alias), key);
 }
 
-function aliasPosition(value: string, alias: string): number | undefined {
-    const normalizedValue = normalizeForMatch(value);
-    const normalizedAlias = normalizeForMatch(alias);
-    if (!normalizedValue || !normalizedAlias) return undefined;
-
-    const escapedAlias = normalizedAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const match = new RegExp(`(?:^|-)${escapedAlias}(?=$|-|\\d)`, 'u').exec(normalizedValue);
-    if (!match) return undefined;
-    return match.index + (match[0].startsWith('-') ? 1 : 0);
+function compileRules(rules: readonly MatchRule[]): readonly CompiledMatchRule[] {
+    return rules.map((rule) => ({
+        key: rule.key,
+        aliases: rule.aliases.map((alias) => {
+            const normalizedAlias = normalizeForMatch(alias);
+            const escapedAlias = normalizedAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            return new RegExp(`(?:^|-)${escapedAlias}(?=$|-|\\d)`, 'u');
+        }),
+    }));
 }
 
-function findRuleKey(value: string, rules: readonly MatchRule[]): ModelIconKey | undefined {
+const COMPILED_MODEL_FAMILY_RULES = compileRules(MODEL_FAMILY_RULES);
+const COMPILED_VENDOR_RULES = compileRules(VENDOR_RULES);
+
+function findRuleKey(value: string, rules: readonly CompiledMatchRule[]): ModelIconKey | undefined {
+    const normalizedValue = normalizeForMatch(value);
+    if (!normalizedValue) return undefined;
     let best: { key: ModelIconKey; position: number; ruleIndex: number } | undefined;
 
     rules.forEach((rule, ruleIndex) => {
-        for (const alias of rule.aliases) {
-            const position = aliasPosition(value, alias);
-            if (position === undefined) continue;
+        for (const matcher of rule.aliases) {
+            const match = matcher.exec(normalizedValue);
+            if (!match) continue;
+            const position = match.index + (match[0].startsWith('-') ? 1 : 0);
             if (!best || position < best.position || (position === best.position && ruleIndex < best.ruleIndex)) {
                 best = { key: rule.key, position, ruleIndex };
             }
@@ -248,17 +220,15 @@ function modelPathSegments(modelName: string): string[] {
         .filter(Boolean);
 }
 
-function findModelFamilyKey(modelName: string): ModelIconKey | undefined {
-    const segments = modelPathSegments(modelName);
+function findModelFamilyKey(segments: readonly string[]): ModelIconKey | undefined {
     for (let index = segments.length - 1; index >= 0; index -= 1) {
-        const key = findRuleKey(segments[index], MODEL_FAMILY_RULES);
+        const key = findRuleKey(segments[index], COMPILED_MODEL_FAMILY_RULES);
         if (key) return key;
     }
     return undefined;
 }
 
-function findNamespaceVendorKey(modelName: string): ModelIconKey | undefined {
-    const segments = modelPathSegments(modelName);
+function findNamespaceVendorKey(segments: readonly string[]): ModelIconKey | undefined {
     for (let index = segments.length - 2; index >= 0; index -= 1) {
         const key = VENDOR_KEY_BY_IDENTITY.get(normalizeIdentity(segments[index]));
         if (key) return key;
@@ -266,50 +236,29 @@ function findNamespaceVendorKey(modelName: string): ModelIconKey | undefined {
     return undefined;
 }
 
-export function resolveExplicitIconKey(icon: string | null | undefined): ModelIconKey | undefined {
-    const baseName = icon?.trim().split('.')[0] ?? '';
-    const identity = normalizeIdentity(baseName);
-    if (!identity) return undefined;
-    return ICON_KEY_BY_IDENTITY.get(identity) ?? EXPLICIT_ICON_ALIASES[identity];
-}
-
-export function resolveVendorIconKey(vendor: string | null | undefined): ModelIconKey | undefined {
-    if (!vendor?.trim()) return undefined;
-    return VENDOR_KEY_BY_IDENTITY.get(normalizeIdentity(vendor)) ?? findRuleKey(vendor, VENDOR_RULES);
-}
-
-export function getModelFallbackText(modelName: string): string {
-    const segments = modelPathSegments(modelName);
-    const leaf = segments.at(-1) ?? modelName;
+function getModelFallbackText(segments: readonly string[], originalName: string): string {
+    const leaf = segments.at(-1) ?? originalName;
     return leaf.match(/[\p{L}\p{N}]/u)?.[0]?.toUpperCase() ?? '?';
 }
 
-export function resolveModelIcon(modelName: string, options: ModelIconMatchOptions = {}): ModelIconMatch {
-    const fallbackText = getModelFallbackText(modelName);
-    const explicitKey = resolveExplicitIconKey(options.icon);
-    if (explicitKey) return { key: explicitKey, source: 'explicit', fallbackText };
+export function resolveModelIcon(modelName: string): ModelIconMatch {
+    const segments = modelPathSegments(modelName);
+    const modelKey = findModelFamilyKey(segments);
+    if (modelKey) return { key: modelKey, source: 'model' };
 
-    const modelKey = findModelFamilyKey(modelName);
-    if (modelKey) return { key: modelKey, source: 'model', fallbackText };
+    const namespaceKey = findNamespaceVendorKey(segments) ?? findRuleKey(modelName, COMPILED_VENDOR_RULES);
+    if (namespaceKey) return { key: namespaceKey, source: 'namespace' };
 
-    const vendorIconKey = resolveExplicitIconKey(options.vendorIcon);
-    if (vendorIconKey) return { key: vendorIconKey, source: 'vendor', fallbackText };
-
-    const vendorKey = resolveVendorIconKey(options.vendor);
-    if (vendorKey) return { key: vendorKey, source: 'vendor', fallbackText };
-
-    const namespaceKey = findNamespaceVendorKey(modelName) ?? findRuleKey(modelName, VENDOR_RULES);
-    if (namespaceKey) return { key: namespaceKey, source: 'namespace', fallbackText };
-
-    return { source: 'fallback', fallbackText };
+    return { source: 'fallback', fallbackText: getModelFallbackText(segments, modelName) };
 }
 
 export function resolveGroupIconKey(groupName: string, modelNames: readonly string[] = []): ModelIconKey | undefined {
-    const groupKey = findRuleKey(groupName, MODEL_FAMILY_RULES) ?? findRuleKey(groupName, VENDOR_RULES);
+    const groupKey = findRuleKey(groupName, COMPILED_MODEL_FAMILY_RULES) ?? findRuleKey(groupName, COMPILED_VENDOR_RULES);
     if (groupKey) return groupKey;
 
     for (const modelName of modelNames) {
-        const modelKey = findModelFamilyKey(modelName) ?? findNamespaceVendorKey(modelName);
+        const segments = modelPathSegments(modelName);
+        const modelKey = findModelFamilyKey(segments) ?? findNamespaceVendorKey(segments);
         if (modelKey) return modelKey;
     }
 

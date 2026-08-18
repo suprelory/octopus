@@ -51,7 +51,6 @@ import {
     resolveGroupIconKey,
     resolveModelIcon,
     type ModelIconKey,
-    type ModelIconMatchOptions,
 } from './model-icon-matcher';
 
 type BrandIcon = ComponentType<{
@@ -212,9 +211,9 @@ function createFallbackAvatar(text: string): AvatarComponent {
     return FallbackAvatar;
 }
 
-export function getModelIcon(modelName: string, options: ModelIconMatchOptions = {}): ModelIcon {
-    const match = resolveModelIcon(modelName, options);
-    if (match.key) return MODEL_ICONS[match.key];
+export function getModelIcon(modelName: string): ModelIcon {
+    const match = resolveModelIcon(modelName);
+    if ('key' in match) return MODEL_ICONS[match.key];
 
     return {
         Avatar: createFallbackAvatar(match.fallbackText),
@@ -222,7 +221,7 @@ export function getModelIcon(modelName: string, options: ModelIconMatchOptions =
     };
 }
 
-export function getGroupIcon(groupName: string, modelNames: string[] = []): ModelIcon | undefined {
+export function getGroupIcon(groupName: string, modelNames: readonly string[] = []): ModelIcon | undefined {
     const key = resolveGroupIconKey(groupName, modelNames);
     return key ? MODEL_ICONS[key] : undefined;
 }
