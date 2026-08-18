@@ -17,6 +17,10 @@ export interface LLMPrice {
  */
 export interface LLMInfo extends LLMPrice {
     name: string;
+    /** Optional model/vendor metadata for deterministic icon rendering. */
+    icon?: string | null;
+    vendor?: string | null;
+    vendor_icon?: string | null;
 }
 
 /**
