@@ -17,7 +17,7 @@ type Group struct {
 	Mode                   GroupMode   `json:"mode" gorm:"not null"`
 	MatchRegex             string      `json:"match_regex"`
 	FirstTokenTimeOut      int         `json:"first_token_time_out"`               // 单个渠道首个Token响应超时时间(秒)
-	SessionKeepTime        int         `json:"session_keep_time"`                  // 会话保持时间(秒) 0 为禁用
+	SessionKeepTime        int         `json:"session_keep_time"`                  // Responses 续接状态保留时间(秒)，0 使用默认值
 	RetryEnabled           bool        `json:"retry_enabled" gorm:"default:false"` // 启用同通道重试；限流且有备用渠道时优先切换
 	MaxRetries             int         `json:"max_retries" gorm:"default:3"`       // 兼容字段：同通道最大尝试次数（包含首次请求）
 	EmptyResponseDetection bool        `json:"-"`                                  // 兼容旧数据库列；运行时使用全局设置
@@ -70,7 +70,7 @@ type GroupUpdateRequest struct {
 	Mode              *GroupMode               `json:"mode,omitempty"`                 // 仅在模式变更时发送
 	MatchRegex        *string                  `json:"match_regex,omitempty"`          // 仅在匹配正则变更时发送
 	FirstTokenTimeOut *int                     `json:"first_token_time_out,omitempty"` // 仅在超时变更时发送(秒)
-	SessionKeepTime   *int                     `json:"session_keep_time,omitempty"`    // 仅在会话保持时间变更时发送(秒)
+	SessionKeepTime   *int                     `json:"session_keep_time,omitempty"`    // 仅在 Responses 续接状态保留时间变更时发送(秒)
 	RetryEnabled      *bool                    `json:"retry_enabled,omitempty"`        // 启用同通道重试
 	MaxRetries        *int                     `json:"max_retries,omitempty"`          // 兼容字段：同通道最大尝试次数（包含首次请求）
 	ItemsToAdd        []GroupItemAddRequest    `json:"items_to_add,omitempty"`         // 新增的 items

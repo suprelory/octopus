@@ -393,7 +393,6 @@ func bestEffortWarmupUpstreamWS(
 				continue
 			}
 
-			balancer.SetSticky(apiKeyID, requestModel, channel.ID, usedKey.ID)
 			return nil
 		}
 	}

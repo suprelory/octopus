@@ -1,6 +1,7 @@
 package balancer
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -10,8 +11,18 @@ import (
 
 const defaultChannelAffinityTTL = time.Hour
 
+type SessionEntry struct {
+	ChannelID    int
+	ChannelKeyID int
+	Timestamp    time.Time
+}
+
+func sessionKey(apiKeyID int, requestModel string) string {
+	return fmt.Sprintf("%d:%s", apiKeyID, requestModel)
+}
+
 // channelAffinity stores the channel/key that completed the latest real model
-// request. It is process-local and independent of the legacy group sticky TTL.
+// request. It is process-local and uses the global affinity TTL.
 var channelAffinity sync.Map // key: apiKeyID:requestModel -> *SessionEntry
 
 func channelAffinityEnabled() bool {
@@ -74,16 +85,14 @@ func DeleteChannelAffinity(apiKeyID int, requestModel string) {
 	channelAffinity.Delete(sessionKey(apiKeyID, requestModel))
 }
 
-// SetRoutingAffinity refreshes both system affinity and legacy group sticky.
+// SetRoutingAffinity records the latest fully successful route.
 func SetRoutingAffinity(apiKeyID int, requestModel string, channelID, keyID int) {
 	SetChannelAffinity(apiKeyID, requestModel, channelID, keyID)
-	SetSticky(apiKeyID, requestModel, channelID, keyID)
 }
 
 // DeleteRoutingAffinity does not touch Responses replay/previous_response_id.
 func DeleteRoutingAffinity(apiKeyID int, requestModel string) {
 	DeleteChannelAffinity(apiKeyID, requestModel)
-	DeleteSticky(apiKeyID, requestModel)
 }
 
 func resetChannelAffinityByChannel(channelID int) {

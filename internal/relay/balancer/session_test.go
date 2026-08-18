@@ -7,19 +7,6 @@ import (
 	"github.com/bestruirui/octopus/internal/model"
 )
 
-func TestDeleteStickyRemovesSession(t *testing.T) {
-	Reset()
-	SetSticky(1, "gpt-4o", 10, 20)
-	if entry := GetSticky(1, "gpt-4o", 60*time.Second); entry == nil || entry.ChannelKeyID != 20 {
-		t.Fatalf("expected sticky session to exist before delete, got %#v", entry)
-	}
-
-	DeleteSticky(1, "gpt-4o")
-	if entry := GetSticky(1, "gpt-4o", 60*time.Second); entry != nil {
-		t.Fatalf("expected sticky session to be deleted, got %#v", entry)
-	}
-}
-
 func TestChannelAffinityIsolatedByAPIKeyAndModel(t *testing.T) {
 	Reset()
 
@@ -81,7 +68,6 @@ func TestIteratorPreferencePriority(t *testing.T) {
 		},
 	}
 	SetChannelAffinity(apiKeyID, requestModel, 2, 202)
-	SetSticky(apiKeyID, requestModel, 3, 303)
 
 	iterator := NewIteratorWithPreference(group, apiKeyID, requestModel, &SessionEntry{ChannelID: 1, ChannelKeyID: 101})
 	expected := []struct {
@@ -91,7 +77,7 @@ func TestIteratorPreferencePriority(t *testing.T) {
 	}{
 		{channelID: 1, keyID: 101, source: PreferenceResponsesReplay},
 		{channelID: 2, keyID: 202, source: PreferenceChannelAffinity},
-		{channelID: 3, keyID: 303, source: PreferenceLegacySticky},
+		{channelID: 3, keyID: 0, source: PreferenceNone},
 	}
 	for index, want := range expected {
 		if !iterator.Next() {
@@ -127,7 +113,6 @@ func TestIteratorFallsBackFromMissingReplayChannelToAffinity(t *testing.T) {
 		},
 	}
 	SetChannelAffinity(apiKeyID, requestModel, 2, 202)
-	SetSticky(apiKeyID, requestModel, 1, 101)
 
 	iterator := NewIteratorWithPreference(group, apiKeyID, requestModel, &SessionEntry{ChannelID: 999, ChannelKeyID: 9999})
 	if !iterator.Next() {
@@ -229,14 +214,13 @@ func TestIteratorKeepsPreferredChannelOnlyOnce(t *testing.T) {
 	}
 }
 
-func TestInvalidateCurrentPreferenceClearsOrdinaryAffinities(t *testing.T) {
+func TestInvalidateCurrentPreferenceClearsChannelAffinity(t *testing.T) {
 	Reset()
 	const (
 		apiKeyID     = 10
 		requestModel = "routing-model"
 	)
 	SetChannelAffinity(apiKeyID, requestModel, 2, 202)
-	SetSticky(apiKeyID, requestModel, 3, 303)
 	group := model.Group{
 		Mode:            model.GroupModeFailover,
 		SessionKeepTime: 60,
@@ -256,14 +240,11 @@ func TestInvalidateCurrentPreferenceClearsOrdinaryAffinities(t *testing.T) {
 	if entry := GetChannelAffinity(apiKeyID, requestModel); entry != nil {
 		t.Fatalf("expected channel affinity to be cleared, got %#v", entry)
 	}
-	if entry := GetSticky(apiKeyID, requestModel, time.Minute); entry != nil {
-		t.Fatalf("expected legacy sticky to be cleared, got %#v", entry)
-	}
 	if !iterator.Next() {
-		t.Fatal("expected legacy candidate to remain available as normal fallback")
+		t.Fatal("expected another candidate to remain available as normal fallback")
 	}
 	if source := iterator.PreferenceSource(); source != PreferenceNone {
-		t.Fatalf("expected cleared legacy candidate to lose preference marker, got %d", source)
+		t.Fatalf("expected fallback candidate to have no preference marker, got %d", source)
 	}
 }
 

@@ -243,7 +243,7 @@
             "description": "Remembers the channel and channel key from the latest fully successful request for each API key and requested model, then prefers them on later requests. Responses continuation routing still takes precedence.",
             "enabled": {
                 "label": "Enable Channel Affinity",
-                "description": "When disabled, affinity records are neither read nor refreshed. Normal load balancing and group session keep behavior are unchanged."
+                "description": "When disabled, affinity records are neither read nor refreshed and normal load balancing resumes."
             },
             "ttl": {
                 "label": "Affinity TTL (seconds)",
@@ -613,8 +613,8 @@
             "matchRegexInvalid": "Invalid regex",
             "firstTokenTimeOut": "First Token Timeout",
             "firstTokenTimeOutHint": "Unit: seconds, only effective for streaming response, 0 = no limit",
-            "sessionKeepTime": "Session Keep Time",
-            "sessionKeepTimeHint": "Unit: seconds, keeps using the same channel within a session, 0 = disabled",
+            "sessionKeepTime": "Responses State TTL",
+            "sessionKeepTimeHint": "Unit: seconds. Retains Responses replay, WebSocket continuation, and response affinity state; 0 uses the default 1 hour, with a maximum of 1 hour",
             "retryEnabled": "Same-Channel Retry",
             "retryEnabledHint": "When enabled, errors such as 5xx are retried on the same channel. Rate limits switch to a backup channel first when one is available",
             "maxRetries": "Max Attempts",

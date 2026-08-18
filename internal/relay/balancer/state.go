@@ -9,7 +9,6 @@ func init() {
 
 func ResetStateByChannel(channelID int) {
 	resetCircuitBreakerByChannel(channelID)
-	resetStickyByChannel(channelID)
 	resetChannelAffinityByChannel(channelID)
 	globalStrategyState.resetByChannel(channelID)
 }

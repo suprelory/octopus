@@ -1100,7 +1100,7 @@ func TestHandlerStopsFailoverWhenContinuationTransportIsUnavailable(t *testing.T
 		t.Fatalf("GroupItemAdd second item failed: %v", err)
 	}
 
-	balancer.SetSticky(77, "relay-ws-continuation-group", firstChannel.ID, firstChannel.Keys[0].ID)
+	balancer.SetChannelAffinity(77, "relay-ws-continuation-group", firstChannel.ID, firstChannel.Keys[0].ID)
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -1141,8 +1141,8 @@ func TestHandlerStopsFailoverWhenContinuationTransportIsUnavailable(t *testing.T
 	if secondHits.Load() != 0 {
 		t.Fatalf("expected failover to stop before hitting second channel, got %d hits", secondHits.Load())
 	}
-	if sticky := balancer.GetSticky(77, "relay-ws-continuation-group", time.Minute); sticky != nil {
-		t.Fatalf("expected sticky to be cleared after continuation failure, got %#v", sticky)
+	if affinity := balancer.GetChannelAffinity(77, "relay-ws-continuation-group"); affinity != nil {
+		t.Fatalf("expected channel affinity to be cleared after continuation failure, got %#v", affinity)
 	}
 	wsUpstreamPool.Remove(pc.poolKey)
 	wsUpstreamPool.Remove(newWSPoolKey(secondChannel.ID, secondChannel.Keys[0].ID, buildUpstreamWSHeaders(c.Request.Header, secondChannel, secondChannel.Keys[0].ChannelKey)))
@@ -1952,9 +1952,6 @@ func TestHandleResponsesCompactProxiesSuccessfulResponse(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), `"object":"response.compaction"`) {
 		t.Fatalf("expected compact response to be proxied, got %s", recorder.Body.String())
-	}
-	if sticky := balancer.GetSticky(42, "relay-compact-group", time.Minute); sticky == nil || sticky.ChannelID != channel.ID {
-		t.Fatalf("expected compact success to refresh sticky channel, got %#v", sticky)
 	}
 	if affinity := balancer.GetChannelAffinity(42, "relay-compact-group"); affinity == nil || affinity.ChannelID != channel.ID || affinity.ChannelKeyID != channel.Keys[0].ID {
 		t.Fatalf("expected compact success to refresh channel affinity, got %#v", affinity)

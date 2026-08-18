@@ -243,7 +243,7 @@
             "description": "按 API Key 和请求模型记录最近一次完整成功的渠道与渠道密钥，并在后续请求中优先复用；Responses 会话续接仍具有更高优先级。",
             "enabled": {
                 "label": "启用渠道亲和",
-                "description": "关闭后不读取或刷新亲和记录，普通负载均衡与分组会话保持逻辑不受影响。"
+                "description": "关闭后不读取或刷新亲和记录，并恢复普通负载均衡顺序。"
             },
             "ttl": {
                 "label": "亲和记录有效期（秒）",
@@ -613,8 +613,8 @@
             "matchRegexInvalid": "正则无效",
             "firstTokenTimeOut": "首字超时",
             "firstTokenTimeOutHint": "单位秒，仅流式响应起效，0 表示不限制",
-            "sessionKeepTime": "会话保持",
-            "sessionKeepTimeHint": "单位秒，会话期间保持使用同一渠道，0 表示禁用",
+            "sessionKeepTime": "Responses 状态有效期",
+            "sessionKeepTimeHint": "单位秒，用于保留 Responses replay、WebSocket 续接和响应亲和状态；0 使用默认 1 小时，最大 1 小时",
             "retryEnabled": "同通道重试",
             "retryEnabledHint": "启用后，5xx 等可重试错误会在同通道继续尝试；遇到限流且存在备用渠道时优先切换渠道",
             "maxRetries": "最大尝试",

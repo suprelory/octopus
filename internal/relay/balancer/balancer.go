@@ -101,6 +101,5 @@ func sortByPriority(items []model.GroupItem) []model.GroupItem {
 func Reset() {
 	globalStrategyState.reset()
 	globalBreaker = sync.Map{}
-	globalSession = sync.Map{}
 	channelAffinity = sync.Map{}
 }

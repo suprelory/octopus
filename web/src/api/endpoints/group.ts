@@ -114,7 +114,7 @@ export interface GroupUpdateRequest {
     mode?: GroupMode;                     // 仅在模式变更时发送
     match_regex?: string;                 // 仅在匹配正则变更时发送
     first_token_time_out?: number;        // 仅在超时变更时发送
-    session_keep_time?: number;           // 仅在会话保持时间变更时发送
+    session_keep_time?: number;           // 仅在 Responses 续接状态有效期变更时发送
     retry_enabled?: boolean;              // 仅在同通道重试开关变更时发送
     max_retries?: number;                 // 兼容字段：同通道最大尝试次数（包含首次请求）
     items_to_add?: GroupItemAddRequest[];    // 新增的 items

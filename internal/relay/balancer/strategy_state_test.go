@@ -94,15 +94,14 @@ func TestPreferencesStayWithinBestQualityTier(t *testing.T) {
 		requestModel = "request-model"
 	)
 	group := model.Group{
-		ID:              401,
-		Mode:            model.GroupModeFailover,
-		SessionKeepTime: 60,
+		ID:   401,
+		Mode: model.GroupModeFailover,
 		Items: []model.GroupItem{
 			{ID: 1, ChannelID: 1, ModelName: "native", Priority: 1},
 			{ID: 2, ChannelID: 2, ModelName: "translated", Priority: 2},
 		},
 	}
-	SetSticky(apiKeyID, requestModel, 2, 202)
+	SetChannelAffinity(apiKeyID, requestModel, 2, 202)
 	iterator := NewIteratorWithPreferenceAndQuality(
 		group,
 		apiKeyID,

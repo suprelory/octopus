@@ -37,7 +37,6 @@ const (
 	PreferenceNone PreferenceSource = iota
 	PreferenceResponsesReplay
 	PreferenceChannelAffinity
-	PreferenceLegacySticky
 )
 
 type routingPreference struct {
@@ -82,7 +81,7 @@ func NewIteratorWithPreference(group model.Group, apiKeyID int, requestModel str
 // therefore remains preferred only among candidates in the same quality tier.
 func NewIteratorWithPreferenceAndQuality(group model.Group, apiKeyID int, requestModel string, preferred *SessionEntry, quality QualityRanker) *Iterator {
 	rankedTiers := partitionQualityTiers(group.Items, quality)
-	preferenceCandidates := make([]routingPreference, 0, 3)
+	preferenceCandidates := make([]routingPreference, 0, 2)
 	if preferred != nil && preferred.ChannelID > 0 {
 		preferenceCandidates = append(preferenceCandidates, routingPreference{
 			source: PreferenceResponsesReplay,
@@ -95,16 +94,6 @@ func NewIteratorWithPreferenceAndQuality(group model.Group, apiKeyID int, reques
 			entry:  *affinity,
 		})
 	}
-	if group.SessionKeepTime > 0 {
-		stickyTTL := time.Duration(group.SessionKeepTime) * time.Second
-		if sticky := GetSticky(apiKeyID, requestModel, stickyTTL); sticky != nil {
-			preferenceCandidates = append(preferenceCandidates, routingPreference{
-				source: PreferenceLegacySticky,
-				entry:  *sticky,
-			})
-		}
-	}
-
 	candidates := make([]model.GroupItem, 0, len(group.Items))
 	preferences := make(map[int]routingPreference, len(preferenceCandidates))
 	selectedChannels := make(map[int]struct{}, len(preferenceCandidates))
@@ -119,11 +108,8 @@ func NewIteratorWithPreferenceAndQuality(group model.Group, apiKeyID int, reques
 
 		preferredItem, preferredTier, found := findPreferredCandidate(rankedTiers, channelID)
 		if !found {
-			switch preference.source {
-			case PreferenceChannelAffinity:
+			if preference.source == PreferenceChannelAffinity {
 				DeleteChannelAffinity(apiKeyID, requestModel)
-			case PreferenceLegacySticky:
-				DeleteSticky(apiKeyID, requestModel)
 			}
 			continue
 		}

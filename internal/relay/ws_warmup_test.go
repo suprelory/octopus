@@ -18,7 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func TestBestEffortWarmupUpstreamWSPrimesPoolAndSticky(t *testing.T) {
+func TestBestEffortWarmupUpstreamWSOnlyPrimesPool(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx := setupRelayTestDB(t)
 	resetWSUpstreamPool()
@@ -85,13 +85,6 @@ func TestBestEffortWarmupUpstreamWSPrimesPoolAndSticky(t *testing.T) {
 		t.Fatalf("expected one upstream ws connection to be accepted, got %d", accepted.Load())
 	}
 
-	sticky := balancer.GetSticky(321, "relay-warmup-group", time.Minute)
-	if sticky == nil {
-		t.Fatalf("expected warmup to create sticky session")
-	}
-	if sticky.ChannelID != channel.ID || sticky.ChannelKeyID != channel.Keys[0].ID {
-		t.Fatalf("expected sticky to target warmed channel/key, got %#v", sticky)
-	}
 	if affinity := balancer.GetChannelAffinity(321, "relay-warmup-group"); affinity != nil {
 		t.Fatalf("expected warmup not to create or refresh channel affinity, got %#v", affinity)
 	}

@@ -243,7 +243,7 @@
             "description": "按 API Key 和請求模型記錄最近一次完整成功的渠道與渠道金鑰，並在後續請求中優先複用；Responses 會話續接仍具有更高優先級。",
             "enabled": {
                 "label": "啟用渠道親和",
-                "description": "關閉後不讀取或刷新親和記錄，普通負載均衡與分組會話保持邏輯不受影響。"
+                "description": "關閉後不讀取或刷新親和記錄，並恢復普通負載均衡順序。"
             },
             "ttl": {
                 "label": "親和記錄有效期（秒）",
@@ -613,8 +613,8 @@
             "matchRegexInvalid": "正規無效",
             "firstTokenTimeOut": "首字逾時",
             "firstTokenTimeOutHint": "單位秒，僅串流響應起效，0 表示不限制",
-            "sessionKeepTime": "會話保持",
-            "sessionKeepTimeHint": "單位秒，會話期間保持使用同一供應源，0 表示停用",
+            "sessionKeepTime": "Responses 狀態有效期",
+            "sessionKeepTimeHint": "單位秒，用於保留 Responses replay、WebSocket 續接和回應親和狀態；0 使用預設 1 小時，最大 1 小時",
             "retryEnabled": "同通道重試",
             "retryEnabledHint": "啟用後，5xx 等可重試錯誤會在同通道繼續嘗試；遇到限流且存在備用渠道時優先切換渠道",
             "maxRetries": "最大嘗試",
