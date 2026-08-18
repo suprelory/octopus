@@ -121,6 +121,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 		resp.ErrorWithCode(c, http.StatusServiceUnavailable, CodeRelayNoAvailableChannel, "no available channel")
 		return
 	}
+	defer iter.Close()
 
 	// 初始化 Metrics（Images 独立，避免 b64_json 内存膨胀）
 	metrics := newImagesRelayMetrics(apiKeyID, requestModel, middleware.ClientIP(c))

@@ -347,6 +347,7 @@ func bestEffortWarmupUpstreamWS(
 	if iter.Len() == 0 {
 		return fmt.Errorf("no available channel")
 	}
+	defer iter.Close()
 
 	var lastErr error
 	var lastCapabilityErr error
@@ -486,6 +487,10 @@ func newWSRelayRequest(
 }
 
 func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group, emptyResponseDetection bool) wsRelayResult {
+	if req == nil || req.iter == nil {
+		return wsRelayResult{Err: fmt.Errorf("relay request iterator is nil")}
+	}
+	defer req.iter.Close()
 	replayExact := req != nil && req.internalRequest != nil && req.internalRequest.IsOpenAIExactReplayRequest()
 	relayCtx := ctx
 	if replayExact {

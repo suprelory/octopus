@@ -20,32 +20,49 @@ type CapabilityLoss struct {
 
 // ChannelAttempt 记录单次渠道尝试的决策和结果
 type ChannelAttempt struct {
-	ChannelID         int              `json:"channel_id"`
-	ChannelKeyID      int              `json:"channel_key_id,omitempty"`
-	ChannelName       string           `json:"channel_name"`
-	ModelName         string           `json:"model_name"`
-	AdapterType       string           `json:"adapter_type,omitempty"` // response, chat, anthropic, gemini, embedding, etc.
-	AttemptNum        int              `json:"attempt_num"`
-	Status            AttemptStatus    `json:"status"`
-	Duration          int              `json:"duration"`
-	Sticky            bool             `json:"sticky,omitempty"`
-	SelectionReason   string           `json:"selection_reason,omitempty"`
-	SelectionStrategy string           `json:"selection_strategy,omitempty"`
-	QualityRank       int              `json:"quality_rank"`
-	CandidateCount    int              `json:"candidate_count"`
-	Msg               string           `json:"msg,omitempty"`
-	CapabilityStatus  string           `json:"capability_status,omitempty"`
-	CapabilityPolicy  string           `json:"capability_policy,omitempty"`
-	ConversionPath    []string         `json:"conversion_path,omitempty"`
-	RequiredFeatures  []string         `json:"required_features,omitempty"`
-	DegradedFields    []string         `json:"degraded_fields,omitempty"`
-	CapabilityLosses  []CapabilityLoss `json:"capability_losses,omitempty"`
-	Lossiness         string           `json:"lossiness,omitempty"`
-	CapabilityReasons []string         `json:"capability_reasons,omitempty"`
-	FallbackReason    string           `json:"fallback_reason,omitempty"`
-	FailureClass      string           `json:"failure_class,omitempty"`
-	Retryable         bool             `json:"retryable,omitempty"`
-	RetryAt           *time.Time       `json:"retry_at,omitempty"`
+	ChannelID         int                      `json:"channel_id"`
+	ChannelKeyID      int                      `json:"channel_key_id,omitempty"`
+	ChannelName       string                   `json:"channel_name"`
+	ModelName         string                   `json:"model_name"`
+	AdapterType       string                   `json:"adapter_type,omitempty"` // response, chat, anthropic, gemini, embedding, etc.
+	AttemptNum        int                      `json:"attempt_num"`
+	Status            AttemptStatus            `json:"status"`
+	Duration          int                      `json:"duration"`
+	Sticky            bool                     `json:"sticky,omitempty"`
+	SelectionReason   string                   `json:"selection_reason,omitempty"`
+	SelectionStrategy string                   `json:"selection_strategy,omitempty"`
+	QualityRank       int                      `json:"quality_rank"`
+	CandidateCount    int                      `json:"candidate_count"`
+	SelectionMetrics  *ChannelSelectionMetrics `json:"selection_metrics,omitempty"`
+	Msg               string                   `json:"msg,omitempty"`
+	CapabilityStatus  string                   `json:"capability_status,omitempty"`
+	CapabilityPolicy  string                   `json:"capability_policy,omitempty"`
+	ConversionPath    []string                 `json:"conversion_path,omitempty"`
+	RequiredFeatures  []string                 `json:"required_features,omitempty"`
+	DegradedFields    []string                 `json:"degraded_fields,omitempty"`
+	CapabilityLosses  []CapabilityLoss         `json:"capability_losses,omitempty"`
+	Lossiness         string                   `json:"lossiness,omitempty"`
+	CapabilityReasons []string                 `json:"capability_reasons,omitempty"`
+	FallbackReason    string                   `json:"fallback_reason,omitempty"`
+	FailureClass      string                   `json:"failure_class,omitempty"`
+	Retryable         bool                     `json:"retryable,omitempty"`
+	RetryAt           *time.Time               `json:"retry_at,omitempty"`
+}
+
+// ChannelSelectionMetrics captures the local health signals used when the
+// candidate was selected. It is serialized inside the relay attempt payload
+// and does not require a schema migration.
+type ChannelSelectionMetrics struct {
+	BaseRank            *int       `json:"base_rank,omitempty"`
+	Priority            int        `json:"priority"`
+	DynamicScore        float64    `json:"dynamic_score"`
+	CompositeScore      float64    `json:"composite_score"`
+	InFlight            int        `json:"in_flight"`
+	RecentLoad          float64    `json:"recent_load"`
+	FailureRate         float64    `json:"failure_rate"`
+	LatencyMillis       float64    `json:"latency_millis"`
+	ConsecutiveFailures int        `json:"consecutive_failures"`
+	CooldownUntil       *time.Time `json:"cooldown_until,omitempty"`
 }
 
 // RelayLogWSMode 表示本次上游 WebSocket 的会话/恢复模式。

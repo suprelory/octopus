@@ -23,6 +23,10 @@ type Iterator struct {
 	// 内嵌追踪
 	attempts []model.ChannelAttempt
 	count    int
+
+	currentReservation *channelHealthReservation
+	selectionMetrics   model.ChannelSelectionMetrics
+	healthBaseRanks    map[candidateIdentity]int
 }
 
 // QualityRanker returns a lower-is-better semantic conversion quality rank for
@@ -57,11 +61,12 @@ type routingPreference struct {
 }
 
 type candidateTier struct {
-	start     int
-	end       int
-	mode      model.GroupMode
-	scope     balanceScope
-	scheduled bool
+	start      int
+	end        int
+	mode       model.GroupMode
+	scope      balanceScope
+	healthTopK int
+	scheduled  bool
 }
 
 type CapabilityTrace struct {
@@ -163,19 +168,31 @@ func NewIteratorWithPreferenceAndQuality(group model.Group, apiKeyID int, reques
 				qualityTier:   rankedTier.rank,
 				qualityRanked: quality != nil,
 			},
+			healthTopK: candidateHealthTopK(group.MaxRetries),
 		})
 	}
 
 	return &Iterator{
-		candidates:   candidates,
-		tiers:        tiers,
-		index:        -1,
-		preferences:  preferences,
-		apiKeyID:     apiKeyID,
-		requestModel: requestModel,
-		modelName:    requestModel,
-		mode:         group.Mode,
+		candidates:      candidates,
+		tiers:           tiers,
+		index:           -1,
+		preferences:     preferences,
+		apiKeyID:        apiKeyID,
+		requestModel:    requestModel,
+		modelName:       requestModel,
+		mode:            group.Mode,
+		healthBaseRanks: make(map[candidateIdentity]int),
 	}
+}
+
+func candidateHealthTopK(maxRetries int) int {
+	if maxRetries < 3 {
+		return 3
+	}
+	if maxRetries > 16 {
+		return 16
+	}
+	return maxRetries
 }
 
 type rankedCandidateTier struct {
@@ -221,6 +238,7 @@ func findPreferredCandidate(tiers []rankedCandidateTier, channelID int) (model.G
 
 // Next 移动到下一个候选，返回 false 表示遍历完成
 func (it *Iterator) Next() bool {
+	it.releaseCurrentReservation()
 	next := it.index + 1
 	if next >= len(it.candidates) {
 		it.index = next
@@ -231,13 +249,84 @@ func (it *Iterator) Next() bool {
 		if tier.scheduled || tier.start != next {
 			continue
 		}
-		ordered := getBalancer(tier.mode, tier.scope).Candidates(it.candidates[tier.start:tier.end])
+		baseCandidates := append([]model.GroupItem(nil), it.candidates[tier.start:tier.end]...)
+		ordered := getBalancer(tier.mode, tier.scope).Candidates(baseCandidates)
+		baseSelected := model.GroupItem{}
+		if len(ordered) > 0 {
+			baseSelected = ordered[0]
+		}
+		for baseRank, item := range ordered {
+			it.healthBaseRanks[groupItemIdentity(item)] = baseRank
+		}
+		ordered = globalChannelHealth.rankCandidates(tier.mode, ordered, tier.healthTopK)
+		if tier.mode == model.GroupModeWeighted && len(ordered) > 0 {
+			globalStrategyState.adjustWeightedSelection(tier.scope, baseCandidates, baseSelected, ordered[0])
+		}
 		copy(it.candidates[tier.start:tier.end], ordered)
 		tier.scheduled = true
 		break
 	}
 	it.index = next
+	snapshot := globalChannelHealth.snapshot(it.Item().ChannelID, it.Item().ModelName)
+	it.selectionMetrics = it.selectionMetricsFromSnapshot(it.Item(), snapshot)
 	return true
+}
+
+func groupItemIdentity(item model.GroupItem) candidateIdentity {
+	return candidateIdentity{itemID: item.ID, channelID: item.ChannelID, modelName: item.ModelName}
+}
+
+func (it *Iterator) selectionMetricsFromSnapshot(item model.GroupItem, snapshot channelHealthSnapshot) model.ChannelSelectionMetrics {
+	var retryAt *time.Time
+	if !snapshot.CooldownUntil.IsZero() {
+		deadline := snapshot.CooldownUntil
+		retryAt = &deadline
+	}
+	snapshot.DynamicScore = healthPenalty(snapshot, globalChannelHealth.now())
+	var baseRank *int
+	compositeScore := snapshot.DynamicScore
+	if rank, ok := it.healthBaseRanks[groupItemIdentity(item)]; ok {
+		rankCopy := rank
+		baseRank = &rankCopy
+		compositeScore += float64(rank) * channelBaseRankPenalty
+	}
+	return model.ChannelSelectionMetrics{
+		BaseRank:            baseRank,
+		Priority:            item.Priority,
+		DynamicScore:        snapshot.DynamicScore,
+		CompositeScore:      compositeScore,
+		InFlight:            snapshot.InFlight,
+		RecentLoad:          snapshot.RecentLoad,
+		FailureRate:         snapshot.FailureRate,
+		LatencyMillis:       snapshot.LatencyMillis,
+		ConsecutiveFailures: snapshot.ConsecutiveFailure,
+		CooldownUntil:       retryAt,
+	}
+}
+
+func (it *Iterator) releaseCurrentReservation() {
+	if it == nil || it.currentReservation == nil {
+		return
+	}
+	reservation := it.currentReservation
+	it.currentReservation = nil
+	reservation.release()
+}
+
+func (it *Iterator) releaseReservation(reservation *channelHealthReservation) {
+	if reservation == nil {
+		return
+	}
+	if it != nil && it.currentReservation == reservation {
+		it.currentReservation = nil
+	}
+	reservation.release()
+}
+
+// Close releases an attempt reservation if a request exits before its span can
+// complete normally.
+func (it *Iterator) Close() {
+	it.releaseCurrentReservation()
 }
 
 // Item 返回当前候选的 GroupItem
@@ -411,7 +500,9 @@ func (it *Iterator) skip(channelID, channelKeyID int, channelName, msg string, t
 		SelectionStrategy: it.SelectionStrategy(),
 		QualityRank:       it.QualityRank(),
 		CandidateCount:    len(it.candidates),
+		SelectionMetrics:  cloneSelectionMetrics(it.selectionMetrics),
 	})
+	it.releaseCurrentReservation()
 	it.InvalidateCurrentPreference()
 }
 
@@ -446,7 +537,9 @@ func (it *Iterator) SkipCircuitBreak(channelID, channelKeyID int, channelName st
 		SelectionStrategy: it.SelectionStrategy(),
 		QualityRank:       it.QualityRank(),
 		CandidateCount:    len(it.candidates),
+		SelectionMetrics:  cloneSelectionMetrics(it.selectionMetrics),
 	})
+	it.releaseCurrentReservation()
 	if retryAt, ok := RetryAt(channelID, channelKeyID, modelName); ok {
 		attempt := &it.attempts[len(it.attempts)-1]
 		attempt.RetryAt = &retryAt
@@ -457,6 +550,11 @@ func (it *Iterator) SkipCircuitBreak(channelID, channelKeyID int, channelName st
 // StartAttempt 开始一次真实转发尝试，返回 Span 用于记录结果
 func (it *Iterator) StartAttempt(channelID, channelKeyID int, channelName string) *AttemptSpan {
 	it.count++
+	if it.currentReservation == nil || !it.currentReservation.active.Load() {
+		reservation, snapshot := globalChannelHealth.reserve(channelID, it.candidates[it.index].ModelName)
+		it.currentReservation = reservation
+		it.selectionMetrics = it.selectionMetricsFromSnapshot(it.candidates[it.index], snapshot)
+	}
 	return &AttemptSpan{
 		attempt: model.ChannelAttempt{
 			ChannelID:         channelID,
@@ -469,10 +567,25 @@ func (it *Iterator) StartAttempt(channelID, channelKeyID int, channelName string
 			SelectionStrategy: it.SelectionStrategy(),
 			QualityRank:       it.QualityRank(),
 			CandidateCount:    len(it.candidates),
+			SelectionMetrics:  cloneSelectionMetrics(it.selectionMetrics),
 		},
-		startTime: time.Now(),
-		iter:      it,
+		startTime:   time.Now(),
+		iter:        it,
+		reservation: it.currentReservation,
 	}
+}
+
+func cloneSelectionMetrics(metrics model.ChannelSelectionMetrics) *model.ChannelSelectionMetrics {
+	cloned := metrics
+	if metrics.CooldownUntil != nil {
+		deadline := *metrics.CooldownUntil
+		cloned.CooldownUntil = &deadline
+	}
+	if metrics.BaseRank != nil {
+		rank := *metrics.BaseRank
+		cloned.BaseRank = &rank
+	}
+	return &cloned
 }
 
 // Attempts 返回所有决策记录（交给日志模块持久化）
@@ -482,10 +595,11 @@ func (it *Iterator) Attempts() []model.ChannelAttempt {
 
 // AttemptSpan 管理单次通道尝试的生命周期（计时、状态、结果）
 type AttemptSpan struct {
-	attempt   model.ChannelAttempt
-	startTime time.Time
-	iter      *Iterator
-	ended     bool
+	attempt     model.ChannelAttempt
+	startTime   time.Time
+	iter        *Iterator
+	ended       bool
+	reservation *channelHealthReservation
 }
 
 // End 结束尝试：设置状态，自动计算耗时，追加到 Iterator
@@ -494,13 +608,31 @@ func (s *AttemptSpan) End(status model.AttemptStatus, statusCode int, msg string
 		return
 	}
 	s.ended = true
+	duration := time.Since(s.startTime)
 	s.attempt.Status = status
-	s.attempt.Duration = int(time.Since(s.startTime).Milliseconds())
+	s.attempt.Duration = int(duration.Milliseconds())
 	s.attempt.Msg = msg
+	if s.reservation != nil {
+		globalChannelHealth.record(s.attempt.ChannelID, s.attempt.ModelName, status, duration, s.attempt.FailureClass, valueOrZeroTime(s.attempt.RetryAt))
+	}
+	if s.iter != nil {
+		s.iter.releaseReservation(s.reservation)
+	} else if s.reservation != nil {
+		s.reservation.release()
+	}
 	if status == model.AttemptFailed && msg != "" {
 		s.attempt.FallbackReason = msg
 	}
-	s.iter.attempts = append(s.iter.attempts, s.attempt)
+	if s.iter != nil {
+		s.iter.attempts = append(s.iter.attempts, s.attempt)
+	}
+}
+
+func valueOrZeroTime(value *time.Time) time.Time {
+	if value == nil {
+		return time.Time{}
+	}
+	return *value
 }
 
 // SetAdapterType records the outbound protocol selected for this attempt.

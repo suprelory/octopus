@@ -133,6 +133,34 @@ func (s *strategyStateStore) weighted(scope balanceScope, items []model.GroupIte
 	return result
 }
 
+func (s *strategyStateStore) adjustWeightedSelection(scope balanceScope, items []model.GroupItem, charged, selected model.GroupItem) {
+	if groupItemIdentity(charged) == groupItemIdentity(selected) {
+		return
+	}
+	items = canonicalCandidates(items)
+	key := newStrategyStateKey(scope, model.GroupModeWeighted, items)
+	s.mu.Lock()
+	entry, ok := s.entries[key]
+	s.mu.Unlock()
+	if !ok {
+		return
+	}
+	chargedIdentity := groupItemIdentity(charged)
+	selectedIdentity := groupItemIdentity(selected)
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	for index := range entry.candidates {
+		switch entry.candidates[index].identity {
+		case chargedIdentity:
+			if entry.candidates[index].selections > 0 {
+				entry.candidates[index].selections--
+			}
+		case selectedIdentity:
+			entry.candidates[index].selections++
+		}
+	}
+}
+
 func (s *strategyStateStore) entryLocked(key strategyStateKey, items []model.GroupItem) *strategyStateEntry {
 	now := s.now()
 	s.cleanupLocked(now)

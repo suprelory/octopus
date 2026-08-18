@@ -142,6 +142,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 		writeInboundProtocolError(c, nil, inAdapter, relayProtocolError(http.StatusServiceUnavailable, CodeRelayNoAvailableChannel, "no available channel"))
 		return
 	}
+	defer iter.Close()
 
 	// === 早期心跳 ===
 	// 在所有 forward / 重试 / 退避之前启动早期心跳协程，覆盖前置阶段（连接慢、failover、退避叠加）

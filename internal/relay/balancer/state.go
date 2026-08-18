@@ -11,6 +11,7 @@ func ResetStateByChannel(channelID int) {
 	resetCircuitBreakerByChannel(channelID)
 	resetChannelAffinityByChannel(channelID)
 	globalStrategyState.resetByChannel(channelID)
+	globalChannelHealth.resetByChannel(channelID)
 }
 
 func ResetStateByGroup(groupID int) {

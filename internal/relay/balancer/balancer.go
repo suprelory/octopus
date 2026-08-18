@@ -103,4 +103,5 @@ func Reset() {
 	globalBreaker = sync.Map{}
 	channelAffinity = sync.Map{}
 	ResetKeyReservations()
+	globalChannelHealth.reset()
 }
