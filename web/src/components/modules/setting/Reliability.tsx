@@ -62,6 +62,36 @@ export function SettingReliability() {
                 />
             )}
 
+            {/* HTTP 故障转移预算 */}
+            <SettingSection title={t('relayBudget.title')} tooltip={t('relayBudget.description')} />
+            <NumberFieldRow
+                settingKey={SettingKey.RelayMaxChannelAttempts}
+                label={t('relayBudget.maxChannels.label')}
+                placeholder={t('relayBudget.maxChannels.placeholder')}
+                tooltip={t('relayBudget.maxChannels.description')}
+                icon={Route}
+                min={1}
+                max={64}
+            />
+            <NumberFieldRow
+                settingKey={SettingKey.RelayMaxTotalAttempts}
+                label={t('relayBudget.maxAttempts.label')}
+                placeholder={t('relayBudget.maxAttempts.placeholder')}
+                tooltip={t('relayBudget.maxAttempts.description')}
+                icon={Hash}
+                min={1}
+                max={256}
+            />
+            <NumberFieldRow
+                settingKey={SettingKey.RelayFailoverTimeoutSeconds}
+                label={t('relayBudget.timeout.label')}
+                placeholder={t('relayBudget.timeout.placeholder')}
+                tooltip={t('relayBudget.timeout.description')}
+                icon={Timer}
+                min={1}
+                max={3600}
+            />
+
             {/* 熔断器 */}
             <SettingSection title={t('circuitBreaker.title')} tooltip={t('circuitBreaker.hint')} />
             <NumberFieldRow

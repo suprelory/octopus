@@ -251,6 +251,25 @@
                 "placeholder": "Enter TTL in seconds"
             }
         },
+        "relayBudget": {
+            "title": "HTTP Failover Budget",
+            "description": "Limits channel switches, upstream forwarding attempts, and pre-commit elapsed time for one text relay HTTP request to contain failure amplification and tail latency.",
+            "maxChannels": {
+                "label": "Max Candidate Channels",
+                "description": "Maximum number of usable candidate channels entered by one request. Disabled, keyless, and capability-incompatible candidates do not count.",
+                "placeholder": "Default 4"
+            },
+            "maxAttempts": {
+                "label": "Max Total Upstream Attempts",
+                "description": "Maximum number of upstream forwarding attempts across all candidate channels and same-channel attempts.",
+                "placeholder": "Default 12"
+            },
+            "timeout": {
+                "label": "Failover Timeout (seconds)",
+                "description": "Bounds the full upstream response for non-stream requests. For streams it only applies before the first semantic event and does not truncate a healthy stream after output starts.",
+                "placeholder": "Default 300"
+            }
+        },
         "circuitBreaker": {
             "title": "Circuit Breaker",
             "threshold": {
@@ -597,9 +616,9 @@
             "sessionKeepTime": "Session Keep Time",
             "sessionKeepTimeHint": "Unit: seconds, keeps using the same channel within a session, 0 = disabled",
             "retryEnabled": "Same-Channel Retry",
-            "retryEnabledHint": "When enabled, retries on the same channel for 429/5xx errors before passing through the status code to the client",
-            "maxRetries": "Max Retries",
-            "maxRetriesHint": "Same-channel retry count, only effective when same-channel retry is enabled",
+            "retryEnabledHint": "When enabled, errors such as 5xx are retried on the same channel. Rate limits switch to a backup channel first when one is available",
+            "maxRetries": "Max Attempts",
+            "maxRetriesHint": "Maximum total attempts on one channel, including the initial request; only effective when same-channel retry is enabled",
             "items": "Selected Models",
             "addItem": "Add Model",
             "autoAdd": "Auto Add",

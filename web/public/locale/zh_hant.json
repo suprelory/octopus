@@ -251,6 +251,25 @@
                 "placeholder": "請輸入有效期秒數"
             }
         },
+        "relayBudget": {
+            "title": "HTTP 故障轉移預算",
+            "description": "限制單個文字中繼 HTTP 請求在產生可提交回應前的渠道切換、上游轉發嘗試數和總耗時，防止故障時放大請求與尾延遲。",
+            "maxChannels": {
+                "label": "最大候選渠道數",
+                "description": "單個請求最多進入多少個可用候選渠道；禁用渠道、無金鑰和能力不相容的候選不計入。",
+                "placeholder": "預設 4"
+            },
+            "maxAttempts": {
+                "label": "最大上游嘗試總數",
+                "description": "所有候選渠道及其同渠道嘗試合計最多發起的上游轉發嘗試數。",
+                "placeholder": "預設 12"
+            },
+            "timeout": {
+                "label": "故障轉移逾時（秒）",
+                "description": "非串流請求限制完整上游回應時間；串流請求僅限制首個語義事件之前，不會截斷已開始輸出的正常長串流。",
+                "placeholder": "預設 300"
+            }
+        },
         "circuitBreaker": {
             "title": "熔斷器配置",
             "threshold": {
@@ -597,9 +616,9 @@
             "sessionKeepTime": "會話保持",
             "sessionKeepTimeHint": "單位秒，會話期間保持使用同一供應源，0 表示停用",
             "retryEnabled": "同通道重試",
-            "retryEnabledHint": "啟用後，遇到 429/5xx 等可重試錯誤時先在同通道重試，全部失敗後透傳狀態碼給客戶端",
-            "maxRetries": "最大重試",
-            "maxRetriesHint": "同通道重試次數，僅在開啟同通道重試時生效",
+            "retryEnabledHint": "啟用後，5xx 等可重試錯誤會在同通道繼續嘗試；遇到限流且存在備用渠道時優先切換渠道",
+            "maxRetries": "最大嘗試",
+            "maxRetriesHint": "同一渠道的最大總嘗試次數，包含首次請求，僅在開啟同通道重試時生效",
             "items": "已選模型",
             "addItem": "新增模型",
             "autoAdd": "自動新增",

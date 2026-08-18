@@ -26,6 +26,7 @@ const (
 	FailureRateLimit        FailureClass = "rate_limit"
 	FailureModelUnsupported FailureClass = "model_unsupported"
 	FailureTransient        FailureClass = "transient"
+	FailureBudgetExceeded   FailureClass = "budget_exceeded"
 	FailureClientCanceled   FailureClass = "client_canceled"
 )
 
@@ -91,6 +92,9 @@ func ClassifyRelayFailure(statusCode int, err error, retryAt time.Time) FailureC
 }
 
 func classifyRelayFailureContext(ctx context.Context, statusCode int, err error, retryAt time.Time) FailureClassification {
+	if isLocalRelayBudgetExceeded(ctx, err) || isLocalRelayBudgetExceeded(ctx, contextError(ctx)) {
+		return FailureClassification{Class: FailureBudgetExceeded, StatusCode: statusCode, RetryAt: retryAt}
+	}
 	if ctx != nil && ctx.Err() != nil && isClientCancellation(ctx, err) {
 		return FailureClassification{Class: FailureClientCanceled, StatusCode: statusCode, RetryAt: retryAt}
 	}
@@ -254,7 +258,7 @@ func isPermissionText(text string) bool {
 
 func failureCircuitKind(classification FailureClassification) balancer.FailureKind {
 	switch classification.Class {
-	case FailureRequest, FailureConfiguration, FailureClientCanceled, FailureNone:
+	case FailureRequest, FailureConfiguration, FailureBudgetExceeded, FailureClientCanceled, FailureNone:
 		return balancer.FailureIgnored
 	case FailureRateLimit:
 		return balancer.FailureRateLimit

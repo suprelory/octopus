@@ -145,7 +145,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 	// 在所有 forward / 重试 / 退避之前启动早期心跳协程，覆盖前置阶段（连接慢、failover、退避叠加）
 	// 期间向客户端发 SSE 注释字节，避免被 Cloudflare 在 120s 零字节阈值上判 524。
 	// 仅对流式请求生效；非流式无法发送 SSE 注释（破坏 application/json 协议），
-	// 不施加任何本地超时——上游慢响应应让其自然完成或由上游/CF 自身处理。
+	// 非流式请求由下方的请求级故障转移截止时间约束完整上游响应。
 	isStream := internalRequest.Stream != nil && *internalRequest.Stream
 	hb := startEarlyHeartbeat(c, isStream)
 	defer hb.Stop()
@@ -182,15 +182,12 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 	var capabilityResult attemptResult
 	var sawSupportedCapability bool
 
-	// 同通道重试次数：启用时使用配置值，否则 1 次（不重试）
-	maxSameChannelRetries := 1
-	if group.RetryEnabled {
-		maxSameChannelRetries = group.MaxRetries
-		if maxSameChannelRetries <= 0 {
-			maxSameChannelRetries = 3
-		}
-	}
+	// max_retries 为兼容字段，运行时语义是“包含首次请求的最大尝试次数”。
+	maxSameChannelAttempts := sameChannelMaxAttempts(group.RetryEnabled, group.MaxRetries)
+	failoverBudget := newRelayFailoverBudget(time.Now())
+	rateLimitedChannels := make(map[int]struct{})
 
+relayLoop:
 	for iter.Next() {
 		select {
 		case <-c.Request.Context().Done():
@@ -199,8 +196,18 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 			return
 		default:
 		}
+		if budgetErr := failoverBudget.timeError(time.Now()); budgetErr != nil {
+			lastErr = budgetErr
+			lastResult = relayBudgetAttemptResult(budgetErr)
+			log.Warnf("relay failover budget exhausted: %v", budgetErr)
+			break
+		}
 
 		item := iter.Item()
+		if _, rateLimited := rateLimitedChannels[item.ChannelID]; rateLimited {
+			iter.Skip(item.ChannelID, 0, fmt.Sprintf("channel_%d", item.ChannelID), "channel rate limited earlier in this request")
+			continue
+		}
 
 		// 获取通道
 		channel, err := op.ChannelGet(item.ChannelID, c.Request.Context())
@@ -266,24 +273,48 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 			}
 			continue
 		}
+		if budgetErr := failoverBudget.reserveChannel(channel.ID, time.Now()); budgetErr != nil {
+			lastErr = budgetErr
+			lastResult = relayBudgetAttemptResult(budgetErr)
+			log.Warnf("relay failover budget exhausted: %v", budgetErr)
+			break
+		}
 
 		// 同通道重试循环
 		var result attemptResult
-		for retryNum := 0; retryNum < maxSameChannelRetries; retryNum++ {
+		for attemptNum := 0; attemptNum < maxSameChannelAttempts; attemptNum++ {
 			// 重试前等待退避
-			if retryNum > 0 {
-				delay := computeAttemptBackoff(retryNum, result.RetryAt, result.RetryAfter)
+			if attemptNum > 0 {
+				// 预检查避免在已无尝试配额时仍等待 Retry-After。
+				if budgetErr := failoverBudget.attemptError(time.Now()); budgetErr != nil {
+					lastErr = budgetErr
+					lastResult = relayBudgetAttemptResult(budgetErr)
+					log.Warnf("relay failover budget exhausted: %v", budgetErr)
+					break relayLoop
+				}
+				delay := computeAttemptBackoff(attemptNum, result.RetryAt, result.RetryAfter)
 				log.Infof("same-channel retry %d/%d for %s, waiting %v",
-					retryNum, maxSameChannelRetries, channel.Name, delay)
-				if !waitBackoff(c.Request.Context(), delay) {
+					attemptNum, maxSameChannelAttempts-1, channel.Name, delay)
+				if waitErr := failoverBudget.wait(c.Request.Context(), delay); waitErr != nil {
+					if isLocalRelayBudgetExceeded(nil, waitErr) {
+						lastErr = waitErr
+						lastResult = relayBudgetAttemptResult(waitErr)
+						log.Warnf("relay failover budget exhausted: %v", waitErr)
+						break relayLoop
+					}
 					log.Debugf("request context canceled during retry backoff")
-					metrics.SaveWithChannelStats(c.Request.Context(), false, context.Canceled, iter.Attempts(), false)
+					metrics.SaveWithChannelStats(c.Request.Context(), false, waitErr, iter.Attempts(), false)
 					return
 				}
 			}
-
-			attemptRequest, attemptErr := newAttemptRelayRequest(req, c.Request.Context(), item.ModelName)
+			attemptCtx := c.Request.Context()
+			cancelAttempt := func() {}
+			if !isStream {
+				attemptCtx, cancelAttempt = failoverBudget.attemptContext(attemptCtx)
+			}
+			attemptRequest, attemptErr := newAttemptRelayRequest(req, attemptCtx, item.ModelName)
 			if attemptErr != nil {
+				cancelAttempt()
 				classified := classifyLocalRelayError(FailureConfiguration, fmt.Errorf("failed to prepare relay attempt: %w", attemptErr))
 				result = attemptResult{
 					Err:           classified,
@@ -301,17 +332,42 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 				channel:                channel,
 				usedKey:                usedKey,
 				firstTokenTimeOutSec:   group.FirstTokenTimeOut,
+				failoverDeadline:       failoverBudget.precommitDeadline(),
 				emptyResponseDetection: emptyResponseDetection,
 				capabilityDecision:     decision,
 			}
+			if budgetErr := failoverBudget.reserveAttempt(time.Now()); budgetErr != nil {
+				cancelAttempt()
+				lastErr = budgetErr
+				lastResult = relayBudgetAttemptResult(budgetErr)
+				log.Warnf("relay failover budget exhausted: %v", budgetErr)
+				break relayLoop
+			}
 
 			result = ra.attempt()
+			cancelAttempt()
 			lastAttempt = attemptRequest
 			if result.EmptyResponse {
 				log.Warnf("empty response from channel %s (model=%s, stream=%t, retry %d/%d)",
 					channel.Name, item.ModelName,
 					req.internalRequest.Stream != nil && *req.internalRequest.Stream,
-					retryNum+1, maxSameChannelRetries)
+					attemptNum+1, maxSameChannelAttempts)
+			}
+			if result.Failure.Class == FailureBudgetExceeded {
+				lastErr = result.Err
+				lastResult = relayBudgetAttemptResult(result.Err)
+				log.Warnf("relay failover budget exhausted: %v", result.Err)
+				break relayLoop
+			}
+			switchTime := time.Now()
+			if !result.Written && !result.Canceled && !result.ResetConversation &&
+				result.Failure.Class == FailureRateLimit &&
+				iter.HasRemainingDifferentChannelMatching(channel.ID, rateLimitedChannels, func(candidateChannelID int) bool {
+					return failoverBudget.canAttemptChannel(candidateChannelID, switchTime)
+				}) {
+				rateLimitedChannels[channel.ID] = struct{}{}
+				log.Infof("channel %s rate limited; switching to a remaining channel without same-channel backoff", channel.Name)
+				break
 			}
 			if result.Success || result.Written || result.Canceled || result.ResetConversation || result.FirstTokenTimeout || !result.Failure.Retryable {
 				break
@@ -556,12 +612,24 @@ func logRelayCapability(channel *dbmodel.Channel, modelName string, decision out
 
 // attempt 统一管理一次通道尝试的完整生命周期
 func (ra *relayAttempt) attempt() attemptResult {
+	defer ra.closeFirstTokenBudget()
+
 	span := ra.iter.StartAttempt(ra.channel.ID, ra.usedKey.ID, ra.channel.Name)
 	span.SetAdapterType(ra.channel.Type.String())
 	span.SetCapability(capabilityTrace(ra.capabilityDecision, ra.capabilityPolicy, ra.channel.Type.String()))
 
 	// 转发请求
 	statusCode, fwdErr := ra.forward()
+	// Some transports surface a canceled read instead of the cancel cause. Do
+	// the cause translation once at the attempt boundary so HTTP error bodies,
+	// transformed streams, and WS passthrough share the same timeout semantics.
+	if fwdErr != nil &&
+		!isLocalRelayBudgetExceeded(nil, fwdErr) &&
+		!isFirstTokenTimeout(nil, fwdErr) {
+		if timeoutErr := ra.firstTokenTimeoutIfNeeded(ra.requestContext(), fwdErr); timeoutErr != nil {
+			fwdErr = timeoutErr
+		}
+	}
 
 	// 更新 channel key 状态
 	ra.usedKey.StatusCode = statusCode
@@ -715,6 +783,7 @@ func parseRequest(inboundType inbound.InboundType, c *gin.Context) ([]byte, *mod
 // forward 转发请求到上游服务
 func (ra *relayAttempt) forward() (int, error) {
 	ctx := ra.requestContext()
+	ctx = ra.startFirstTokenBudget(ctx)
 
 	// 尝试上游 WebSocket（仅 OpenAI Response outbound 类型；必须是客户端 WS 入站且新开关显式启用）
 	if ra.channel.Type == outbound.OutboundTypeOpenAIResponse &&
@@ -1119,6 +1188,9 @@ func (ra *relayAttempt) handleResponsePassthrough(ctx context.Context, response 
 	}
 	if _, err := ra.inAdapter.TransformResponse(ctx, internalResponse); err != nil {
 		return fmt.Errorf("failed to validate passthrough response: %w", err)
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return contextError(ctx)
 	}
 	ra.collectResponse()
 
@@ -1681,6 +1753,9 @@ func (ra *relayAttempt) handleResponse(ctx context.Context, response *http.Respo
 	if err != nil {
 		log.Warnf("failed to transform response: %v", err)
 		return fmt.Errorf("failed to transform inbound response: %w", err)
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return contextError(ctx)
 	}
 
 	ra.c.Data(http.StatusOK, "application/json", inResponse)

@@ -289,6 +289,41 @@ func (it *Iterator) Len() int {
 	return len(it.candidates)
 }
 
+// HasRemainingDifferentChannel reports whether a later candidate belongs to a
+// different channel. It is used by retry policy decisions that should bypass a
+// rate-limited channel only when an actual channel-level fallback remains.
+func (it *Iterator) HasRemainingDifferentChannel(channelID int) bool {
+	return it.HasRemainingDifferentChannelExcept(channelID, nil)
+}
+
+// HasRemainingDifferentChannelExcept is the exclusion-aware variant used when
+// the current request has already ruled out one or more channels.
+func (it *Iterator) HasRemainingDifferentChannelExcept(channelID int, excluded map[int]struct{}) bool {
+	return it.HasRemainingDifferentChannelMatching(channelID, excluded, nil)
+}
+
+// HasRemainingDifferentChannelMatching also requires accept to approve the
+// candidate channel. A nil predicate accepts every non-excluded channel.
+func (it *Iterator) HasRemainingDifferentChannelMatching(channelID int, excluded map[int]struct{}, accept func(int) bool) bool {
+	if it == nil {
+		return false
+	}
+	for index := it.index + 1; index < len(it.candidates); index++ {
+		candidateChannelID := it.candidates[index].ChannelID
+		if candidateChannelID == channelID {
+			continue
+		}
+		if _, skip := excluded[candidateChannelID]; skip {
+			continue
+		}
+		if accept != nil && !accept(candidateChannelID) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
 // Index 返回当前迭代位置（0-based）
 func (it *Iterator) Index() int {
 	return it.index

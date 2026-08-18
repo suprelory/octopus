@@ -493,13 +493,7 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group, em
 		defer cancel()
 	}
 
-	maxSameChannelRetries := 1
-	if group.RetryEnabled {
-		maxSameChannelRetries = group.MaxRetries
-		if maxSameChannelRetries <= 0 {
-			maxSameChannelRetries = 3
-		}
-	}
+	maxSameChannelAttempts := sameChannelMaxAttempts(group.RetryEnabled, group.MaxRetries)
 	capabilityPolicy := getCapabilityDegradationPolicy()
 	req.capabilityPolicy = capabilityPolicy
 
@@ -509,6 +503,7 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group, em
 	var capabilityErr error
 	var capabilityResult attemptResult
 	var sawSupportedCapability bool
+	rateLimitedChannels := make(map[int]struct{})
 	maxChannelAttempts := req.iter.Len()
 	if replayExact && maxChannelAttempts > 3 {
 		maxChannelAttempts = 3
@@ -533,6 +528,10 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group, em
 		}
 
 		item := req.iter.Item()
+		if _, rateLimited := rateLimitedChannels[item.ChannelID]; rateLimited {
+			req.iter.Skip(item.ChannelID, 0, fmt.Sprintf("channel_%d", item.ChannelID), "channel rate limited earlier in this request")
+			continue
+		}
 
 		channel, err := op.ChannelGet(item.ChannelID, ctx)
 		if err != nil {
@@ -597,9 +596,9 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group, em
 			req.requestModel, channel.Name, item.ModelName, req.iter.Index()+1, req.iter.Len())
 
 		var result attemptResult
-		for retryNum := 0; retryNum < maxSameChannelRetries; retryNum++ {
-			if retryNum > 0 {
-				delay := computeAttemptBackoff(retryNum, result.RetryAt, result.RetryAfter)
+		for attemptNum := 0; attemptNum < maxSameChannelAttempts; attemptNum++ {
+			if attemptNum > 0 {
+				delay := computeAttemptBackoff(attemptNum, result.RetryAt, result.RetryAfter)
 				if !waitBackoff(relayCtx, delay) {
 					if isLocalRelayBudgetExceeded(relayCtx, contextError(relayCtx)) {
 						publicErr := wsPublicError{
@@ -637,6 +636,12 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group, em
 
 			result = ra.attempt()
 			lastAttempt = attemptRequest
+			if !result.Written && !result.Canceled && !result.ResetConversation &&
+				result.Failure.Class == FailureRateLimit &&
+				req.iter.HasRemainingDifferentChannelExcept(channel.ID, rateLimitedChannels) {
+				rateLimitedChannels[channel.ID] = struct{}{}
+				break
+			}
 			if result.Success || result.Written || result.Canceled || result.ResetConversation || !result.Failure.Retryable {
 				break
 			}

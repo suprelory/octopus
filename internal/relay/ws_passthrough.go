@@ -261,6 +261,12 @@ func (ra *relayAttempt) handleWSPassthroughStream(ctx context.Context, pc *poole
 				return stats, writeErr
 			}
 			ra.streamPayloadWritten.Store(true)
+			if firstEvent {
+				if ra.metrics != nil {
+					ra.metrics.SetFirstTokenTime(time.Now())
+				}
+				ra.stopFirstTokenTimer()
+			}
 		}
 		firstEvent = false
 		if isWSPassthroughTerminal(data) {

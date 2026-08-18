@@ -46,6 +46,9 @@ func protocolErrorForAttempt(result attemptResult, err error) *model.ResponseErr
 		}
 		return relayProtocolError(http.StatusInternalServerError, CodeRelayConfiguration, message)
 	}
+	if result.Failure.Class == FailureBudgetExceeded {
+		return relayProtocolError(http.StatusGatewayTimeout, CodeRelayTimeout, "relay failover budget exceeded")
+	}
 	if result.ProtocolError != nil {
 		return model.NormalizeResponseError(result.ProtocolError, result.StatusCode, "api_error")
 	}
@@ -62,7 +65,9 @@ func protocolErrorForAttempt(result attemptResult, err error) *model.ResponseErr
 }
 
 func defaultFailureProtocol(class FailureClass, status int) (int, string) {
-	if status < 400 || status > 599 {
+	if class == FailureBudgetExceeded {
+		status = http.StatusGatewayTimeout
+	} else if status < 400 || status > 599 {
 		switch class {
 		case FailureRequest:
 			status = http.StatusBadRequest
@@ -96,6 +101,8 @@ func defaultFailureProtocol(class FailureClass, status int) (int, string) {
 		code = CodeRelayRateLimit
 	case FailureModelUnsupported:
 		code = CodeRelayModelNotSupported
+	case FailureBudgetExceeded:
+		code = CodeRelayTimeout
 	}
 	return status, code
 }

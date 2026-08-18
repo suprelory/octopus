@@ -60,6 +60,47 @@ func TestEmptyResponseDetectionSetting(t *testing.T) {
 	}
 }
 
+func TestRelayFailoverBudgetSettings(t *testing.T) {
+	defaults := make(map[SettingKey]string)
+	for _, setting := range DefaultSettings() {
+		defaults[setting.Key] = setting.Value
+	}
+	if got := defaults[SettingKeyRelayMaxChannelAttempts]; got != "4" {
+		t.Fatalf("relay max channel attempts default = %q, want 4", got)
+	}
+	if got := defaults[SettingKeyRelayMaxTotalAttempts]; got != "12" {
+		t.Fatalf("relay max total attempts default = %q, want 12", got)
+	}
+	if got := defaults[SettingKeyRelayFailoverTimeoutSeconds]; got != "300" {
+		t.Fatalf("relay failover timeout default = %q, want 300", got)
+	}
+
+	tests := []struct {
+		name    string
+		setting Setting
+		valid   bool
+	}{
+		{name: "channel minimum", setting: Setting{Key: SettingKeyRelayMaxChannelAttempts, Value: "1"}, valid: true},
+		{name: "channel maximum", setting: Setting{Key: SettingKeyRelayMaxChannelAttempts, Value: "64"}, valid: true},
+		{name: "channel above maximum", setting: Setting{Key: SettingKeyRelayMaxChannelAttempts, Value: "65"}, valid: false},
+		{name: "total default", setting: Setting{Key: SettingKeyRelayMaxTotalAttempts, Value: "12"}, valid: true},
+		{name: "total zero", setting: Setting{Key: SettingKeyRelayMaxTotalAttempts, Value: "0"}, valid: false},
+		{name: "timeout default", setting: Setting{Key: SettingKeyRelayFailoverTimeoutSeconds, Value: "300"}, valid: true},
+		{name: "timeout above maximum", setting: Setting{Key: SettingKeyRelayFailoverTimeoutSeconds, Value: "3601"}, valid: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := test.setting.Validate()
+			if test.valid && err != nil {
+				t.Fatalf("expected setting to be valid, got %v", err)
+			}
+			if !test.valid && err == nil {
+				t.Fatal("expected setting to be rejected")
+			}
+		})
+	}
+}
+
 func TestCapabilityDegradationPolicySetting(t *testing.T) {
 	defaults := make(map[SettingKey]string)
 	for _, setting := range DefaultSettings() {

@@ -144,6 +144,39 @@ func TestIteratorFallsBackFromMissingReplayChannelToAffinity(t *testing.T) {
 	}
 }
 
+func TestIteratorDetectsRemainingDifferentChannel(t *testing.T) {
+	iterator := NewIterator(model.Group{
+		Mode: model.GroupModeFailover,
+		Items: []model.GroupItem{
+			{ChannelID: 1, ModelName: "model-a", Priority: 1},
+			{ChannelID: 1, ModelName: "model-b", Priority: 2},
+			{ChannelID: 2, ModelName: "model-c", Priority: 3},
+		},
+	}, 1, "request-model")
+
+	if !iterator.Next() {
+		t.Fatal("expected first candidate")
+	}
+	if !iterator.HasRemainingDifferentChannel(1) {
+		t.Fatal("expected a remaining channel-level fallback")
+	}
+	if iterator.HasRemainingDifferentChannelExcept(1, map[int]struct{}{2: {}}) {
+		t.Fatal("did not expect a fallback after excluding the only different channel")
+	}
+	if !iterator.Next() {
+		t.Fatal("expected second candidate")
+	}
+	if !iterator.HasRemainingDifferentChannel(1) {
+		t.Fatal("expected channel 2 to remain")
+	}
+	if !iterator.Next() {
+		t.Fatal("expected third candidate")
+	}
+	if iterator.HasRemainingDifferentChannel(2) {
+		t.Fatal("did not expect another channel after the final candidate")
+	}
+}
+
 func TestIteratorQualityPrecedesStickyPreference(t *testing.T) {
 	Reset()
 	group := model.Group{

@@ -27,6 +27,9 @@ const (
 	SettingKeyChannelAffinityEnabled           SettingKey = "channel_affinity_enabled"             // 是否优先复用同一 API Key/模型上次成功的渠道
 	SettingKeyChannelAffinityTTLSeconds        SettingKey = "channel_affinity_ttl_seconds"         // 渠道亲和记录 TTL（秒）
 	SettingKeyEmptyResponseDetectionEnabled    SettingKey = "empty_response_detection_enabled"     // 是否全局启用空回检测
+	SettingKeyRelayMaxChannelAttempts          SettingKey = "relay_max_channel_attempts"           // 单个 HTTP 请求最多尝试的候选渠道数
+	SettingKeyRelayMaxTotalAttempts            SettingKey = "relay_max_total_attempts"             // 单个 HTTP 请求最多发起的上游尝试总数
+	SettingKeyRelayFailoverTimeoutSeconds      SettingKey = "relay_failover_timeout_seconds"       // HTTP 故障转移总预算（秒）
 	SettingKeyCapabilityDegradationPolicy      SettingKey = "capability_degradation_policy"        // 能力降级策略：allow/warn/strict
 	SettingKeyResponsesWSEnabled               SettingKey = "responses_ws_enabled"                 // 是否启用 OpenAI Responses WS 上游能力（仅客户端 WS 入站）
 	SettingKeyResponsesWSDefaultMode           SettingKey = "responses_ws_default_mode"            // OpenAI Responses WS 默认模式：off/transform/passthrough
@@ -68,6 +71,9 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyChannelAffinityEnabled, Value: "true"},        // 默认启用同 API Key/模型的成功渠道亲和
 		{Key: SettingKeyChannelAffinityTTLSeconds, Value: "3600"},     // 默认保留 1 小时
 		{Key: SettingKeyEmptyResponseDetectionEnabled, Value: "true"}, // 默认启用空回检测
+		{Key: SettingKeyRelayMaxChannelAttempts, Value: "4"},          // 默认最多尝试 4 个候选渠道
+		{Key: SettingKeyRelayMaxTotalAttempts, Value: "12"},           // 默认最多发起 12 次上游转发尝试
+		{Key: SettingKeyRelayFailoverTimeoutSeconds, Value: "300"},    // 默认故障转移预算 5 分钟
 		{Key: SettingKeyCapabilityDegradationPolicy, Value: "warn"},   // 默认允许降级并写入诊断日志
 		{Key: SettingKeyResponsesWSEnabled, Value: "false"},           // 默认关闭 OpenAI Responses WS 新路径
 		{Key: SettingKeyResponsesWSDefaultMode, Value: "passthrough"}, // 启用后默认使用协议保真的 passthrough
@@ -99,6 +105,12 @@ func (s *Setting) Validate() error {
 		return nil
 	case SettingKeyWebDAVRetentionCount, SettingKeyChannelAffinityTTLSeconds:
 		return validateIntMin(s.Value, 1)
+	case SettingKeyRelayMaxChannelAttempts:
+		return validateIntRange(s.Value, 1, 64)
+	case SettingKeyRelayMaxTotalAttempts:
+		return validateIntRange(s.Value, 1, 256)
+	case SettingKeyRelayFailoverTimeoutSeconds:
+		return validateIntRange(s.Value, 1, 3600)
 	case SettingKeySSEHeartbeatInterval, SettingKeySSEPreStreamHeartbeatDelay, SettingKeyWebDAVBackupInterval:
 		value, err := strconv.Atoi(s.Value)
 		if err != nil {
@@ -202,6 +214,18 @@ func validateIntMin(v string, lo int) error {
 	}
 	if n < lo {
 		return fmt.Errorf("setting value must be at least %d", lo)
+	}
+	return nil
+}
+
+// validateIntRange 校验 v 为整数且位于闭区间 [lo, hi]。
+func validateIntRange(v string, lo, hi int) error {
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return fmt.Errorf("setting value must be an integer")
+	}
+	if n < lo || n > hi {
+		return fmt.Errorf("setting value must be between %d and %d", lo, hi)
 	}
 	return nil
 }

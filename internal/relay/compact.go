@@ -108,13 +108,8 @@ func HandleResponsesCompact(c *gin.Context) {
 	var capabilityErrorMessage string
 	capabilityPolicy := getCapabilityDegradationPolicy()
 
-	maxSameChannelRetries := 1
-	if group.RetryEnabled {
-		maxSameChannelRetries = group.MaxRetries
-		if maxSameChannelRetries <= 0 {
-			maxSameChannelRetries = 3
-		}
-	}
+	maxSameChannelAttempts := sameChannelMaxAttempts(group.RetryEnabled, group.MaxRetries)
+	rateLimitedChannels := make(map[int]struct{})
 
 	for iter.Next() {
 		select {
@@ -126,6 +121,10 @@ func HandleResponsesCompact(c *gin.Context) {
 		}
 
 		item := iter.Item()
+		if _, rateLimited := rateLimitedChannels[item.ChannelID]; rateLimited {
+			iter.Skip(item.ChannelID, 0, fmt.Sprintf("channel_%d", item.ChannelID), "channel rate limited earlier in this request")
+			continue
+		}
 		channel, err := op.ChannelGet(item.ChannelID, c.Request.Context())
 		if err != nil {
 			iter.Skip(item.ChannelID, 0, fmt.Sprintf("channel_%d", item.ChannelID), fmt.Sprintf("channel not found: %v", err))
@@ -181,9 +180,9 @@ func HandleResponsesCompact(c *gin.Context) {
 		var failure FailureClassification
 		var success bool
 
-		for retryNum := 0; retryNum < maxSameChannelRetries; retryNum++ {
-			if retryNum > 0 {
-				delay := computeAttemptBackoff(retryNum, retryAt, retryAfter)
+		for attemptNum := 0; attemptNum < maxSameChannelAttempts; attemptNum++ {
+			if attemptNum > 0 {
+				delay := computeAttemptBackoff(attemptNum, retryAt, retryAfter)
 				if !waitBackoff(c.Request.Context(), delay) {
 					metrics.SaveWithChannelStats(c.Request.Context(), false, context.Canceled, iter.Attempts(), false)
 					return
@@ -212,6 +211,10 @@ func HandleResponsesCompact(c *gin.Context) {
 				break
 			}
 			failure = classifyRelayFailureContext(c.Request.Context(), statusCode, attemptErr, retryAt)
+			if failure.Class == FailureRateLimit && iter.HasRemainingDifferentChannelExcept(channel.ID, rateLimitedChannels) {
+				rateLimitedChannels[channel.ID] = struct{}{}
+				break
+			}
 			if !failure.Retryable {
 				break
 			}

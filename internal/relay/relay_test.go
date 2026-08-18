@@ -841,6 +841,9 @@ data: [DONE]
 func TestHandlerFirstTokenTimeoutStopsAfterFirstStreamChunk(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx := setupRelayTestDB(t)
+	if err := op.SettingSetString(model.SettingKeyRelayFailoverTimeoutSeconds, "1"); err != nil {
+		t.Fatalf("set relay failover timeout: %v", err)
+	}
 
 	var hits atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1564,6 +1567,156 @@ func TestHandlerRetryEnabledHonorsRecent429Cooldown(t *testing.T) {
 	}
 	if hits.Load() != 4 {
 		t.Fatalf("expected post-cooldown request to retry upstream twice, got %d total hits", hits.Load())
+	}
+}
+
+func TestHandler429SwitchesToFallbackBeforeSameChannelRetry(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx := setupRelayTestDB(t)
+
+	var rateLimitedHits atomic.Int32
+	rateLimitedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rateLimitedHits.Add(1)
+		w.Header().Set("Retry-After", "1")
+		http.Error(w, `{"error":"rate limited"}`, http.StatusTooManyRequests)
+	}))
+	defer rateLimitedServer.Close()
+
+	var fallbackHits atomic.Int32
+	fallbackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fallbackHits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"resp_1","object":"chat.completion","created":1,"model":"retry-fallback-model","choices":[{"index":0,"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer fallbackServer.Close()
+
+	firstChannel := &model.Channel{
+		Name:     "relay-retry-429-primary",
+		Type:     outbound.OutboundTypeOpenAIChat,
+		Enabled:  true,
+		BaseUrls: []model.BaseUrl{{URL: rateLimitedServer.URL + "/v1"}},
+		Model:    "retry-fallback-model",
+		Keys:     []model.ChannelKey{{Enabled: true, ChannelKey: "primary-key"}},
+	}
+	if err := op.ChannelCreate(firstChannel, ctx); err != nil {
+		t.Fatalf("ChannelCreate primary failed: %v", err)
+	}
+	secondChannel := &model.Channel{
+		Name:     "relay-retry-429-fallback",
+		Type:     outbound.OutboundTypeOpenAIChat,
+		Enabled:  true,
+		BaseUrls: []model.BaseUrl{{URL: fallbackServer.URL + "/v1"}},
+		Model:    "retry-fallback-model",
+		Keys:     []model.ChannelKey{{Enabled: true, ChannelKey: "fallback-key"}},
+	}
+	if err := op.ChannelCreate(secondChannel, ctx); err != nil {
+		t.Fatalf("ChannelCreate fallback failed: %v", err)
+	}
+
+	group := &model.Group{
+		Name:         "relay-retry-429-fallback-group",
+		Mode:         model.GroupModeFailover,
+		RetryEnabled: true,
+		MaxRetries:   3,
+	}
+	if err := op.GroupCreate(group, ctx); err != nil {
+		t.Fatalf("GroupCreate failed: %v", err)
+	}
+	if err := op.GroupItemAdd(&model.GroupItem{GroupID: group.ID, ChannelID: firstChannel.ID, ModelName: "retry-fallback-model", Priority: 1, Weight: 1}, ctx); err != nil {
+		t.Fatalf("GroupItemAdd primary failed: %v", err)
+	}
+	if err := op.GroupItemAdd(&model.GroupItem{GroupID: group.ID, ChannelID: secondChannel.ID, ModelName: "retry-fallback-model", Priority: 2, Weight: 1}, ctx); err != nil {
+		t.Fatalf("GroupItemAdd fallback failed: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"relay-retry-429-fallback-group","messages":[{"role":"user","content":"hello"}]}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	Handler(inbound.InboundTypeOpenAIChat, c)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected fallback success, got status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if rateLimitedHits.Load() != 1 {
+		t.Fatalf("expected rate-limited channel once, got %d", rateLimitedHits.Load())
+	}
+	if fallbackHits.Load() != 1 {
+		t.Fatalf("expected fallback channel once, got %d", fallbackHits.Load())
+	}
+}
+
+func TestHandlerStopsBeforeExceedingTotalAttemptBudget(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx := setupRelayTestDB(t)
+	if err := op.SettingSetString(model.SettingKeyRelayMaxTotalAttempts, "1"); err != nil {
+		t.Fatalf("set relay attempt budget: %v", err)
+	}
+
+	var firstHits atomic.Int32
+	firstServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		firstHits.Add(1)
+		http.Error(w, `{"error":"temporarily unavailable"}`, http.StatusServiceUnavailable)
+	}))
+	defer firstServer.Close()
+
+	var secondHits atomic.Int32
+	secondServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		secondHits.Add(1)
+		http.Error(w, `{"error":"should not be reached"}`, http.StatusServiceUnavailable)
+	}))
+	defer secondServer.Close()
+
+	channels := []*model.Channel{
+		{
+			Name:     "relay-budget-primary",
+			Type:     outbound.OutboundTypeOpenAIChat,
+			Enabled:  true,
+			BaseUrls: []model.BaseUrl{{URL: firstServer.URL + "/v1"}},
+			Model:    "budget-model",
+			Keys:     []model.ChannelKey{{Enabled: true, ChannelKey: "primary-key"}},
+		},
+		{
+			Name:     "relay-budget-fallback",
+			Type:     outbound.OutboundTypeOpenAIChat,
+			Enabled:  true,
+			BaseUrls: []model.BaseUrl{{URL: secondServer.URL + "/v1"}},
+			Model:    "budget-model",
+			Keys:     []model.ChannelKey{{Enabled: true, ChannelKey: "fallback-key"}},
+		},
+	}
+	for _, channel := range channels {
+		if err := op.ChannelCreate(channel, ctx); err != nil {
+			t.Fatalf("ChannelCreate failed: %v", err)
+		}
+	}
+
+	group := &model.Group{Name: "relay-attempt-budget-group", Mode: model.GroupModeFailover}
+	if err := op.GroupCreate(group, ctx); err != nil {
+		t.Fatalf("GroupCreate failed: %v", err)
+	}
+	for index, channel := range channels {
+		if err := op.GroupItemAdd(&model.GroupItem{
+			GroupID: group.ID, ChannelID: channel.ID, ModelName: "budget-model", Priority: index + 1, Weight: 1,
+		}, ctx); err != nil {
+			t.Fatalf("GroupItemAdd failed: %v", err)
+		}
+	}
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"relay-attempt-budget-group","messages":[{"role":"user","content":"hello"}]}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	Handler(inbound.InboundTypeOpenAIChat, c)
+
+	if recorder.Code != http.StatusGatewayTimeout {
+		t.Fatalf("expected relay budget timeout, got status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if firstHits.Load() != 1 || secondHits.Load() != 0 {
+		t.Fatalf("unexpected upstream hits: first=%d second=%d", firstHits.Load(), secondHits.Load())
+	}
+	if !strings.Contains(recorder.Body.String(), CodeRelayTimeout) {
+		t.Fatalf("expected %q error code, got %s", CodeRelayTimeout, recorder.Body.String())
 	}
 }
 

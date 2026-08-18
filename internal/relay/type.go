@@ -157,12 +157,16 @@ func newAttemptRelayRequest(base *relayRequest, ctx context.Context, modelName s
 	}, nil
 }
 
-// requestContext returns the request context from gin or the standalone context.
+// requestContext returns the attempt-scoped context when present, then falls
+// back to the inbound request context.
 func (r *relayRequest) requestContext() context.Context {
+	if r.ctx != nil {
+		return r.ctx
+	}
 	if r.c != nil {
 		return r.c.Request.Context()
 	}
-	return r.ctx
+	return context.Background()
 }
 
 // relayAttempt 尝试级上下文
@@ -174,6 +178,7 @@ type relayAttempt struct {
 	usedKey                dbmodel.ChannelKey
 	firstTokenTimeOutSec   int
 	firstTokenBudget       *firstTokenBudget
+	failoverDeadline       time.Time     // 流式请求首个语义事件前的请求级预算截止时间
 	emptyResponseDetection bool          // 空回检测开关（来自全局设置）
 	retryAfter             time.Duration // compatibility duration derived from retryAt
 	retryAt                time.Time     // absolute upstream Retry-After deadline

@@ -27,8 +27,8 @@ const (
 func Init() {
 	priceUpdateIntervalHours, err := op.SettingGetInt(model.SettingKeyModelInfoUpdateInterval)
 	if err != nil {
-		log.Errorf("failed to get model info update interval: %v", err)
-		return
+		log.Warnf("failed to get model info update interval, using 24h fallback: %v", err)
+		priceUpdateIntervalHours = 24
 	}
 	priceUpdateInterval := time.Duration(priceUpdateIntervalHours) * time.Hour
 	// 注册价格更新任务
@@ -44,16 +44,16 @@ func Init() {
 	// 注册LLM同步任务
 	syncLLMIntervalHours, err := op.SettingGetInt(model.SettingKeySyncLLMInterval)
 	if err != nil {
-		log.Warnf("failed to get sync LLM interval: %v", err)
-		return
+		log.Warnf("failed to get sync LLM interval, using 24h fallback: %v", err)
+		syncLLMIntervalHours = 24
 	}
 	syncLLMInterval := time.Duration(syncLLMIntervalHours) * time.Hour
 	Register(string(model.SettingKeySyncLLMInterval), syncLLMInterval, true, SyncModelsTask)
 
 	siteSyncIntervalHours, err := op.SettingGetInt(model.SettingKeySiteSyncInterval)
 	if err != nil {
-		log.Warnf("failed to get site sync interval: %v", err)
-		return
+		log.Warnf("failed to get site sync interval, using 12h fallback: %v", err)
+		siteSyncIntervalHours = 12
 	}
 	siteSyncInterval := time.Duration(siteSyncIntervalHours) * time.Hour
 	Register(string(model.SettingKeySiteSyncInterval), siteSyncInterval, true, SiteSyncTask)
@@ -64,8 +64,8 @@ func Init() {
 	// 注册统计保存任务
 	statsSaveIntervalMinutes, err := op.SettingGetInt(model.SettingKeyStatsSaveInterval)
 	if err != nil {
-		log.Warnf("failed to get stats save interval: %v", err)
-		return
+		log.Warnf("failed to get stats save interval, using 10m fallback: %v", err)
+		statsSaveIntervalMinutes = 10
 	}
 	statsSaveInterval := time.Duration(statsSaveIntervalMinutes) * time.Minute
 	Register(TaskStatsSave, statsSaveInterval, false, op.StatsSaveDBTask)

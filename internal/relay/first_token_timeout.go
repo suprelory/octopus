@@ -2,6 +2,7 @@ package relay
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -49,30 +50,66 @@ func (b *firstTokenBudget) close() {
 }
 
 func (ra *relayAttempt) attachFirstTokenBudget(req *http.Request) *http.Request {
-	if req == nil || !ra.shouldUseFirstTokenBudget() {
+	if req == nil {
 		return req
 	}
+	ctx := ra.startFirstTokenBudget(req.Context())
+	if ra == nil || ra.firstTokenBudget == nil {
+		return req
+	}
+	return req.WithContext(ctx)
+}
 
-	ctx, cancel := context.WithCancelCause(req.Context())
+func (ra *relayAttempt) startFirstTokenBudget(parent context.Context) context.Context {
+	if parent == nil {
+		parent = context.Background()
+	}
+	if ra != nil && ra.firstTokenBudget != nil {
+		return ra.firstTokenBudget.ctx
+	}
+	timeout, cause, ok := ra.firstTokenBudgetSpec()
+	if !ok {
+		return parent
+	}
+	if timeout < 0 {
+		timeout = 0
+	}
+
+	ctx, cancel := context.WithCancelCause(parent)
 	budget := &firstTokenBudget{ctx: ctx, cancel: cancel}
-	budget.timer = time.AfterFunc(time.Duration(ra.firstTokenTimeOutSec)*time.Second, func() {
+	budget.timer = time.AfterFunc(timeout, func() {
 		budget.mu.Lock()
 		defer budget.mu.Unlock()
 		if budget.stopped {
 			return
 		}
-		cancel(errFirstTokenTimeout)
+		cancel(cause)
 	})
 	ra.firstTokenBudget = budget
-	return req.WithContext(ctx)
+	return ctx
 }
 
-func (ra *relayAttempt) shouldUseFirstTokenBudget() bool {
-	return ra != nil &&
-		ra.firstTokenTimeOutSec > 0 &&
-		ra.internalRequest != nil &&
-		ra.internalRequest.Stream != nil &&
-		*ra.internalRequest.Stream
+func (ra *relayAttempt) firstTokenBudgetSpec() (time.Duration, error, bool) {
+	if ra == nil || ra.internalRequest == nil || ra.internalRequest.Stream == nil || !*ra.internalRequest.Stream {
+		return 0, nil, false
+	}
+
+	var timeout time.Duration
+	cause := error(errFirstTokenTimeout)
+	if ra.firstTokenTimeOutSec > 0 {
+		timeout = time.Duration(ra.firstTokenTimeOutSec) * time.Second
+	}
+	if !ra.failoverDeadline.IsZero() {
+		remaining := time.Until(ra.failoverDeadline)
+		if remaining <= 0 || timeout <= 0 || remaining < timeout {
+			timeout = remaining
+			cause = errLocalRelayBudgetExceeded
+		}
+	}
+	if timeout <= 0 && !errors.Is(cause, errLocalRelayBudgetExceeded) {
+		return 0, nil, false
+	}
+	return timeout, cause, true
 }
 
 func (ra *relayAttempt) stopFirstTokenTimer() {
@@ -100,6 +137,15 @@ func (ra *relayAttempt) firstTokenTimeoutIfNeeded(ctx context.Context, err error
 	budgetCtx := context.Context(nil)
 	if ra != nil && ra.firstTokenBudget != nil {
 		budgetCtx = ra.firstTokenBudget.ctx
+	}
+	if isLocalRelayBudgetExceeded(ctx, err) || isLocalRelayBudgetExceeded(ctx, contextError(ctx)) ||
+		isLocalRelayBudgetExceeded(budgetCtx, err) || isLocalRelayBudgetExceeded(budgetCtx, contextError(budgetCtx)) {
+		if ra != nil && ra.internalRequest != nil && ra.internalRequest.Stream != nil && *ra.internalRequest.Stream {
+			log.Warnf("relay failover budget exceeded before the first semantic stream event")
+			return newRelayBudgetError("failover timeout exceeded before first semantic stream event")
+		}
+		log.Warnf("relay failover budget exceeded before the upstream response completed")
+		return newRelayBudgetError("failover timeout exceeded before upstream response completed")
 	}
 	if isFirstTokenTimeout(ctx, err) || isFirstTokenTimeout(ctx, contextError(ctx)) ||
 		isFirstTokenTimeout(budgetCtx, err) || isFirstTokenTimeout(budgetCtx, contextError(budgetCtx)) {
