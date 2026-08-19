@@ -127,9 +127,7 @@ func (h *earlyHeartbeat) Hand() {
 	if h == nil {
 		return
 	}
-	if !h.handed.CompareAndSwap(false, true) {
-		return
-	}
+	h.handed.Store(true)
 	if h.cancel != nil {
 		h.cancel()
 	}
@@ -141,14 +139,22 @@ func (h *earlyHeartbeat) Stop() {
 		return
 	}
 	h.stopped.Store(true)
-	if !h.handed.CompareAndSwap(false, true) {
-		<-h.done
-		return
-	}
+	h.handed.Store(true)
 	if h.cancel != nil {
 		h.cancel()
 	}
 	<-h.done
+}
+
+// Handoff stops the early heartbeat and waits until no background goroutine
+// can write to the response. The returned value is safe to use when choosing
+// between an SSE error body and a normal HTTP response.
+func (h *earlyHeartbeat) Handoff() bool {
+	if h == nil {
+		return false
+	}
+	h.Hand()
+	return h.headerSet.Load()
 }
 
 func (h *earlyHeartbeat) HeaderWritten() bool {
@@ -175,7 +181,7 @@ func (h *earlyHeartbeat) WriteSSEError(statusCode int, message string) {
 }
 
 func (h *earlyHeartbeat) FlushOrError(c *gin.Context, statusCode int, message string) {
-	if h != nil && h.HeaderWritten() {
+	if h != nil && h.Handoff() {
 		h.WriteSSEError(statusCode, message)
 		return
 	}

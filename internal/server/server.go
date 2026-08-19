@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -91,14 +92,24 @@ func Start() error {
 	r.Use(middleware.MaxBodySize())
 	r.Use(middleware.StaticEmbed("/", static.StaticFS))
 
-	router.RegisterAll(r)
+	addr := fmt.Sprintf("%s:%d", conf.AppConfig.Server.Host, conf.AppConfig.Server.Port)
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("listen on %s: %w", addr, err)
+	}
+	if err := router.RegisterAll(r); err != nil {
+		_ = listener.Close()
+		return fmt.Errorf("register routes: %w", err)
+	}
 
-	httpSrv.Addr = fmt.Sprintf("%s:%d", conf.AppConfig.Server.Host, conf.AppConfig.Server.Port)
-	httpSrv.Handler = r
-	httpSrv.ReadHeaderTimeout = readHeaderTimeout
-	httpSrv.IdleTimeout = idleTimeout
+	httpSrv = http.Server{
+		Addr:              addr,
+		Handler:           r,
+		ReadHeaderTimeout: readHeaderTimeout,
+		IdleTimeout:       idleTimeout,
+	}
 	safe.Go("http-listen", func() {
-		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := httpSrv.Serve(listener); err != nil && err != http.ErrServerClosed {
 			log.Errorf("http server listen and serve error: %v", err)
 		}
 	})

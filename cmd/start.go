@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"time"
 
@@ -28,15 +29,18 @@ const ensureIndexShutdownGrace = 3 * time.Second
 var startCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Start " + conf.APP_NAME,
-	PreRun: func(cmd *cobra.Command, args []string) {
+	PreRunE: func(cmd *cobra.Command, args []string) error {
 		conf.PrintBanner()
-		conf.Load(cfgFile)
+		if err := conf.Load(cfgFile); err != nil {
+			return fmt.Errorf("load config: %w", err)
+		}
 		log.Configure(log.Config{
 			Level:           conf.AppConfig.Log.Level,
 			Format:          conf.AppConfig.Log.Format,
 			Caller:          conf.AppConfig.Log.Caller,
 			StacktraceLevel: conf.AppConfig.Log.StacktraceLevel,
 		})
+		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		shutdown.Init(log.Logger)

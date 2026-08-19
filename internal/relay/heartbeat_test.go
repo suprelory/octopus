@@ -98,6 +98,7 @@ func TestStartEarlyHeartbeat_DoesNotWriteBeforeDelay(t *testing.T) {
 	defer hb.Stop()
 
 	time.Sleep(100 * time.Millisecond)
+	hb.Hand()
 	if hb.HeaderWritten() {
 		t.Fatal("heartbeat must not write SSE header before delay")
 	}
@@ -115,6 +116,7 @@ func TestEarlyHeartbeat_DelayedFirstHeartbeat(t *testing.T) {
 	defer hb.Stop()
 
 	time.Sleep(1200 * time.Millisecond)
+	hb.Hand()
 	if !hb.HeaderWritten() {
 		t.Fatal("expected SSE header after delay")
 	}

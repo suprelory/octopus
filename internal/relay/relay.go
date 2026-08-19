@@ -653,8 +653,7 @@ func (ra *relayAttempt) attempt() attemptResult {
 		// ====== 成功 ======
 		// Passthrough handlers collect response at stream end via PassthroughConfig.CollectMetrics
 		ra.collectResponse()
-		ra.usedKey.TotalCost += ra.metrics.Stats.InputCost + ra.metrics.Stats.OutputCost
-		op.ChannelKeyUpdate(ra.usedKey)
+		op.ChannelKeyUpdateWithDelta(ra.usedKey, ra.metrics.Stats.InputCost+ra.metrics.Stats.OutputCost)
 
 		span.End(dbmodel.AttemptSuccess, statusCode, "")
 
@@ -678,7 +677,7 @@ func (ra *relayAttempt) attempt() attemptResult {
 		if written {
 			ra.collectResponse()
 		}
-		op.ChannelKeyUpdate(ra.usedKey)
+		op.ChannelKeyUpdateWithDelta(ra.usedKey, 0)
 		span.SetFailure(string(FailureClientCanceled), false, time.Time{})
 		span.End(dbmodel.AttemptFailed, statusCode, fwdErr.Error())
 		return attemptResult{
@@ -693,7 +692,7 @@ func (ra *relayAttempt) attempt() attemptResult {
 
 	failure := classifyRelayFailureContext(ra.requestContext(), statusCode, fwdErr, ra.retryAt)
 	span.SetFailure(string(failure.Class), failure.Retryable, failure.RetryAt)
-	op.ChannelKeyUpdate(ra.usedKey)
+	op.ChannelKeyUpdateWithDelta(ra.usedKey, 0)
 	span.End(dbmodel.AttemptFailed, statusCode, fwdErr.Error())
 
 	// Channel 维度统计

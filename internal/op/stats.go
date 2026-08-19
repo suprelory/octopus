@@ -321,14 +321,13 @@ func StatsTotalUpdate(metrics model.StatsMetrics) error {
 }
 
 func StatsChannelUpdate(channelID int, metrics model.StatsMetrics) error {
-	channelCache, ok := statsChannelCache.Get(channelID)
-	if !ok {
-		channelCache = model.StatsChannel{
-			ChannelID: channelID,
+	statsChannelCache.Update(channelID, func(current model.StatsChannel, exists bool) model.StatsChannel {
+		if !exists {
+			current.ChannelID = channelID
 		}
-	}
-	channelCache.StatsMetrics.Add(metrics)
-	statsChannelCache.Set(channelID, channelCache)
+		current.StatsMetrics.Add(metrics)
+		return current
+	})
 	statsChannelCacheNeedUpdateLock.Lock()
 	statsChannelCacheNeedUpdate[channelID] = struct{}{}
 	statsChannelCacheNeedUpdateLock.Unlock()
@@ -355,14 +354,13 @@ func StatsHourlyUpdate(metrics model.StatsMetrics) error {
 }
 
 func StatsModelUpdate(stats model.StatsModel) error {
-	modelCache, ok := statsModelCache.Get(stats.ID)
-	if !ok {
-		modelCache = model.StatsModel{
-			ID: stats.ID,
+	statsModelCache.Update(stats.ID, func(current model.StatsModel, exists bool) model.StatsModel {
+		if !exists {
+			current.ID = stats.ID
 		}
-	}
-	modelCache.StatsMetrics.Add(stats.StatsMetrics)
-	statsModelCache.Set(stats.ID, modelCache)
+		current.StatsMetrics.Add(stats.StatsMetrics)
+		return current
+	})
 	statsModelCacheNeedUpdateLock.Lock()
 	statsModelCacheNeedUpdate[stats.ID] = struct{}{}
 	statsModelCacheNeedUpdateLock.Unlock()
@@ -370,14 +368,13 @@ func StatsModelUpdate(stats model.StatsModel) error {
 }
 
 func StatsAPIKeyUpdate(apiKeyID int, metrics model.StatsMetrics) error {
-	apiKeyCache, ok := statsAPIKeyCache.Get(apiKeyID)
-	if !ok {
-		apiKeyCache = model.StatsAPIKey{
-			APIKeyID: apiKeyID,
+	statsAPIKeyCache.Update(apiKeyID, func(current model.StatsAPIKey, exists bool) model.StatsAPIKey {
+		if !exists {
+			current.APIKeyID = apiKeyID
 		}
-	}
-	apiKeyCache.StatsMetrics.Add(metrics)
-	statsAPIKeyCache.Set(apiKeyID, apiKeyCache)
+		current.StatsMetrics.Add(metrics)
+		return current
+	})
 	statsAPIKeyCacheNeedUpdateLock.Lock()
 	statsAPIKeyCacheNeedUpdate[apiKeyID] = struct{}{}
 	statsAPIKeyCacheNeedUpdateLock.Unlock()

@@ -235,8 +235,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 			}
 			metrics.ResponseContent = buildImagesResponseContentForLog(stream, upstreamCT, usage)
 
-			usedKey.TotalCost += metrics.Stats.InputCost + metrics.Stats.OutputCost
-			op.ChannelKeyUpdate(usedKey)
+			op.ChannelKeyUpdateWithDelta(usedKey, metrics.Stats.InputCost+metrics.Stats.OutputCost)
 
 			span.End(model.AttemptSuccess, statusCode, "")
 
@@ -257,7 +256,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 
 		// ====== 失败 ======
 		failure := classifyRelayFailureContext(ctx, statusCode, fwdErr, retryAt)
-		op.ChannelKeyUpdate(usedKey)
+		op.ChannelKeyUpdateWithDelta(usedKey, 0)
 		span.SetFailure(string(failure.Class), failure.Retryable, failure.RetryAt)
 		span.End(model.AttemptFailed, statusCode, fwdErr.Error())
 
@@ -291,7 +290,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 	}
 	metrics.SaveWithChannelStats(ctx, false, finalErr, iter.Attempts(), false)
 	if !sawSupportedCapability && capabilityErrorCode != "" {
-		if hb.HeaderWritten() {
+		if hb.Handoff() {
 			hb.WriteSSEError(http.StatusBadRequest, capabilityErrorMessage)
 		} else {
 			resp.ErrorWithCode(c, http.StatusBadRequest, capabilityErrorCode, capabilityErrorMessage)
@@ -327,7 +326,7 @@ func writeImagesFailure(c *gin.Context, hb *earlyHeartbeat, result attemptResult
 	if responseError == nil {
 		responseError = relayProtocolError(http.StatusBadGateway, CodeRelayUpstreamFailed, "all channels failed")
 	}
-	if hb != nil && hb.HeaderWritten() {
+	if hb != nil && hb.Handoff() {
 		hb.WriteSSEError(responseError.StatusCode, responseError.Detail.Message)
 		return
 	}

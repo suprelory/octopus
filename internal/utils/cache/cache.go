@@ -14,6 +14,9 @@ func keyToString[K comparable](key K) string {
 type Cache[K comparable, V any] interface {
 	Set(k K, v V)
 	Get(k K) (V, bool)
+	// Update atomically computes and stores the value for one key while holding
+	// that key's shard lock.
+	Update(k K, fn func(current V, exists bool) V) V
 	GetOrSet(k K, v V) (V, bool)
 	GetAll() map[K]V
 	Del(keys ...K) int
@@ -53,6 +56,12 @@ func (c *cache[K, V]) Get(k K) (V, bool) {
 	hashedKey := xxhash.Sum64String(keyToString(k))
 	shard := c.getShard(hashedKey)
 	return shard.get(k)
+}
+
+func (c *cache[K, V]) Update(k K, fn func(current V, exists bool) V) V {
+	hashedKey := xxhash.Sum64String(keyToString(k))
+	shard := c.getShard(hashedKey)
+	return shard.update(k, fn)
 }
 
 func (c *cache[K, V]) GetOrSet(k K, v V) (V, bool) {

@@ -114,11 +114,15 @@ func writeInboundProtocolError(c *gin.Context, heartbeat *earlyHeartbeat, inboun
 	normalized := model.NormalizeResponseError(responseError, http.StatusBadGateway, "api_error")
 	transformed, err := inbound.TransformError(c.Request.Context(), normalized)
 	if err != nil || transformed == nil || len(transformed.Body) == 0 {
+		if heartbeat != nil && heartbeat.Handoff() {
+			heartbeat.WriteSSEError(normalized.StatusCode, normalized.Detail.Message)
+			return
+		}
 		resp.ErrorWithCode(c, normalized.StatusCode, normalized.Detail.Code, normalized.Detail.Message)
 		return
 	}
 
-	if heartbeat != nil && heartbeat.HeaderWritten() {
+	if heartbeat != nil && heartbeat.Handoff() {
 		body := transformed.StreamBody
 		if len(body) == 0 {
 			body = transformed.Body

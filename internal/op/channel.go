@@ -88,28 +88,65 @@ func ChannelCreate(channel *model.Channel, ctx context.Context) error {
 	return nil
 }
 
-// ChannelKeyUpdate 仅更新 ChannelKey 的内存缓存（不落库），并标记为需要在 SaveCache 时写入数据库。
+// ChannelKeyUpdate 更新 ChannelKey 的完整内存快照（不落库），并标记为需要在 SaveCache 时写入数据库。
+// 该入口保留给管理/同步场景；relay 运行时状态应使用 ChannelKeyUpdateWithDelta，
+// 避免用请求开始时的旧 TotalCost 覆盖并发请求的增量。
 func ChannelKeyUpdate(key model.ChannelKey) error {
+	return channelKeyUpdate(key, 0, false)
+}
+
+// ChannelKeyUpdateWithDelta 原子合并 relay 运行时状态和成本增量。
+func ChannelKeyUpdateWithDelta(key model.ChannelKey, costDelta float64) error {
+	return channelKeyUpdate(key, costDelta, true)
+}
+
+func channelKeyUpdate(key model.ChannelKey, costDelta float64, mergeCost bool) error {
 	if key.ID == 0 || key.ChannelID == 0 {
 		return fmt.Errorf("invalid channel key")
 	}
-	ch, ok := channelCache.Get(key.ChannelID)
-	if !ok {
+	if _, ok := channelCache.Get(key.ChannelID); !ok {
 		return fmt.Errorf("channel not found")
 	}
-	if len(ch.Keys) > 0 {
-		keys := make([]model.ChannelKey, len(ch.Keys))
-		copy(keys, ch.Keys)
+	updatedKey := channelKeyCache.Update(key.ID, func(current model.ChannelKey, exists bool) model.ChannelKey {
+		if !exists {
+			current = key
+			if mergeCost {
+				current.TotalCost += costDelta
+			}
+			return current
+		}
+
+		if !mergeCost {
+			return key
+		}
+
+		current.TotalCost += costDelta
+		if key.LastUseTimeStamp >= current.LastUseTimeStamp {
+			current.LastUseTimeStamp = key.LastUseTimeStamp
+			current.StatusCode = key.StatusCode
+		}
+		return current
+	})
+
+	channelCache.Update(key.ChannelID, func(current model.Channel, exists bool) model.Channel {
+		if !exists {
+			return current
+		}
+		latestKey, ok := channelKeyCache.Get(key.ID)
+		if !ok {
+			latestKey = updatedKey
+		}
+		keys := make([]model.ChannelKey, len(current.Keys))
+		copy(keys, current.Keys)
 		for i := range keys {
 			if keys[i].ID == key.ID {
-				keys[i] = key
+				keys[i] = latestKey
 				break
 			}
 		}
-		ch.Keys = keys
-	}
-	setChannelRuntimeCache(key.ChannelID, ch)
-	channelKeyCache.Set(key.ID, key)
+		current.Keys = keys
+		return current
+	})
 	channelKeyCacheNeedUpdateLock.Lock()
 	channelKeyCacheNeedUpdate[key.ID] = struct{}{}
 	channelKeyCacheNeedUpdateLock.Unlock()
