@@ -628,7 +628,6 @@
         },
         "mode": {
             "roundRobin": "轮询",
-            "random": "随机",
             "failover": "故障转移",
             "weighted": "加权分配"
         },

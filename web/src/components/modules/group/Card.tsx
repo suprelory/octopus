@@ -404,8 +404,8 @@ export function GroupCard({ group }: { group: Group }) {
                         className="overflow-hidden"
                     >
                         <div className="space-y-3 border-t border-border/40 px-4 pb-4 pt-3">
-                            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-                                {([GroupMode.RoundRobin, GroupMode.Random, GroupMode.Failover, GroupMode.Weighted] as const).map((mode) => (
+                            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                                {([GroupMode.RoundRobin, GroupMode.Failover, GroupMode.Weighted] as const).map((mode) => (
                                     <button
                                         key={mode}
                                         type="button"

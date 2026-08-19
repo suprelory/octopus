@@ -1,7 +1,6 @@
 package balancer
 
 import (
-	"math/rand"
 	"sort"
 	"sync"
 
@@ -24,8 +23,6 @@ func getBalancer(mode model.GroupMode, scope balanceScope) Balancer {
 	switch mode {
 	case model.GroupModeRoundRobin:
 		return &RoundRobin{scope: scope}
-	case model.GroupModeRandom:
-		return &Random{}
 	case model.GroupModeFailover:
 		return &Failover{}
 	case model.GroupModeWeighted:
@@ -42,22 +39,6 @@ type RoundRobin struct {
 
 func (b *RoundRobin) Candidates(items []model.GroupItem) []model.GroupItem {
 	return globalStrategyState.roundRobin(b.scope, items)
-}
-
-// Random 随机：随机打乱所有 items
-type Random struct{}
-
-func (b *Random) Candidates(items []model.GroupItem) []model.GroupItem {
-	n := len(items)
-	if n == 0 {
-		return nil
-	}
-	result := make([]model.GroupItem, n)
-	copy(result, items)
-	rand.Shuffle(n, func(i, j int) {
-		result[i], result[j] = result[j], result[i]
-	})
-	return result
 }
 
 // Failover 故障转移：按优先级排序

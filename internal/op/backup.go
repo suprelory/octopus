@@ -405,6 +405,7 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 			g := dump.Groups[i]
 			oldID := g.ID
 			g.ID = 0
+			g.Mode = g.Mode.Normalize()
 			g.Items = nil
 
 			var existing model.Group

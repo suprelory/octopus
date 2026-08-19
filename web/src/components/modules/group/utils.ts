@@ -3,7 +3,6 @@ import { GroupMode } from '@/api/endpoints/group';
 
 export const MODE_LABELS: Record<GroupMode, string> = {
     [GroupMode.RoundRobin]: 'roundRobin',
-    [GroupMode.Random]: 'random',
     [GroupMode.Failover]: 'failover',
     [GroupMode.Weighted]: 'weighted',
 } as const;
@@ -32,5 +31,4 @@ export function buildChannelNameByModelKey(modelChannels: LLMChannel[]) {
     });
     return map;
 }
-
 

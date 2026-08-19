@@ -5,7 +5,7 @@ Octopus 是一个面向多模型服务的 LLM API 聚合、协议转换和负载
 ## 功能概览
 
 - 统一代理 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 和 Gemini 等协议。
-- 按渠道、模型和 API Key 进行负载均衡，支持轮询、随机、故障切换和加权策略。
+- 按渠道、模型和 API Key 进行负载均衡，支持轮询、故障切换和加权策略。
 - 支持渠道亲和、熔断、健康检查、空响应检测和流式请求。
 - 提供 Web 管理面板，用于管理用户、API Key、渠道、分组、站点同步、备份和运行设置。
 - 支持 SSE、WebSocket、工具调用、推理内容和多模态请求的协议适配。

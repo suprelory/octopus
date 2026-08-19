@@ -628,7 +628,6 @@
         },
         "mode": {
             "roundRobin": "輪詢",
-            "random": "隨機",
             "failover": "故障轉移",
             "weighted": "加權分配"
         },

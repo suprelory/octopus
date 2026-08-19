@@ -628,7 +628,6 @@
         },
         "mode": {
             "roundRobin": "Round Robin",
-            "random": "Random",
             "failover": "Failover",
             "weighted": "Weighted"
         },

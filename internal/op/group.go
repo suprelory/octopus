@@ -100,6 +100,7 @@ func cloneGroup(group model.Group) model.Group {
 }
 
 func GroupCreate(group *model.Group, ctx context.Context) error {
+	group.Mode = group.Mode.Normalize()
 	if err := db.GetDB().WithContext(ctx).Create(group).Error; err != nil {
 		return err
 	}
@@ -132,7 +133,7 @@ func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (*model.Gro
 	}
 	if req.Mode != nil {
 		selectFields = append(selectFields, "mode")
-		updates.Mode = *req.Mode
+		updates.Mode = req.Mode.Normalize()
 	}
 	if req.MatchRegex != nil {
 		selectFields = append(selectFields, "match_regex")

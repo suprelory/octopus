@@ -385,8 +385,6 @@ func groupModeName(mode model.GroupMode) string {
 	switch mode {
 	case model.GroupModeRoundRobin:
 		return "round_robin"
-	case model.GroupModeRandom:
-		return "random"
 	case model.GroupModeFailover:
 		return "failover"
 	case model.GroupModeWeighted:

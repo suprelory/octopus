@@ -20,7 +20,6 @@ export interface GroupItem {
  */
 export enum GroupMode {
     RoundRobin = 1,
-    Random = 2,
     Failover = 3,
     Weighted = 4,
 }

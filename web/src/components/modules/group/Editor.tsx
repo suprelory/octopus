@@ -12,7 +12,7 @@ import { Switch } from '@/components/ui/switch';
 import { Accordion, AccordionContent, AccordionItem } from '@/components/ui/accordion';
 import { cn } from '@/lib/utils';
 import { getModelIcon } from '@/lib/model-icons';
-import type { GroupMode } from '@/api/endpoints/group';
+import { GroupMode } from '@/api/endpoints/group';
 import type { SelectedMember } from './ItemList';
 import { MemberList } from './ItemList';
 import { matchesGroupName, memberKey, normalizeKey, MODE_LABELS } from './utils';
@@ -274,7 +274,7 @@ export function GroupEditor({
 
     const [groupName, setGroupName] = useState(initial?.name ?? '');
     const [matchRegex, setMatchRegex] = useState(initial?.match_regex ?? '');
-    const [mode, setMode] = useState<GroupMode>((initial?.mode ?? 1) as GroupMode);
+    const [mode, setMode] = useState<GroupMode>(initial?.mode ?? GroupMode.RoundRobin);
     const [firstTokenTimeOut, setFirstTokenTimeOut] = useState<number>(initial?.first_token_time_out ?? 0);
     const [sessionKeepTime, setSessionKeepTime] = useState<number>(initial?.session_keep_time ?? 0);
     const [retryEnabled, setRetryEnabled] = useState<boolean>(initial?.retry_enabled ?? false);
@@ -489,8 +489,8 @@ export function GroupEditor({
                                     <Sparkles className="size-3.5" />
                                     {t(`mode.${MODE_LABELS[mode]}`)}
                                 </div>
-                                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 md:gap-2">
-                            {([1, 2, 3, 4] as const).map((m) => (
+                                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 md:gap-2">
+                            {([GroupMode.RoundRobin, GroupMode.Failover, GroupMode.Weighted] as const).map((m) => (
                                 <button
                                     key={m}
                                     type="button"
@@ -584,7 +584,7 @@ export function GroupEditor({
                                 onRemove={handleRemoveMember}
                                 onWeightChange={handleWeightChange}
                                 removingIds={removingIds}
-                                showWeight={mode === 4}
+                                showWeight={mode === GroupMode.Weighted}
                                 onClear={handleClearMembers}
                             />
                             </div>
