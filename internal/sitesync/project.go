@@ -247,7 +247,7 @@ func ProjectAccount(ctx context.Context, accountID int) ([]int, error) {
 			continue
 		}
 		baseGroupKey, _ := parseCompositeBindingKey(bindingKey)
-		if group, ok := groupMap[baseGroupKey]; ok && isSiteGroupProjectionSystemPaused(group) {
+		if group, ok := groupMap[baseGroupKey]; ok && shouldPreserveSystemPausedProjection(group) {
 			if err := updateSiteChannelBindingGroup(ctx, binding.ID, group); err != nil {
 				return nil, err
 			}
@@ -292,15 +292,20 @@ func isSiteGroupProjectionActive(siteRecord *model.Site, account *model.SiteAcco
 	}
 }
 
-func isSiteGroupProjectionSystemPaused(group model.SiteUserGroup) bool {
+func shouldPreserveSystemPausedProjection(group model.SiteUserGroup) bool {
 	if group.ProjectionDisabled {
+		return false
+	}
+	// Missing keys are authoritative credential removals. Clear their projected
+	// channels even when older records still carry projection_suspended=true.
+	if group.ModelSyncStatus == model.SiteGroupModelSyncStatusMissingKey {
 		return false
 	}
 	if group.ProjectionSuspended {
 		return true
 	}
 	switch group.ModelSyncStatus {
-	case model.SiteGroupModelSyncStatusEmpty, model.SiteGroupModelSyncStatusMissingKey:
+	case model.SiteGroupModelSyncStatusEmpty:
 		return true
 	default:
 		return false
@@ -666,7 +671,7 @@ func rewriteManagedGroupItemsForAccount(ctx context.Context, siteRecord *model.S
 			continue
 		}
 		baseGroupKey, _ := parseCompositeBindingKey(binding.GroupKey)
-		if group, ok := groupMap[baseGroupKey]; ok && isSiteGroupProjectionSystemPaused(group) {
+		if group, ok := groupMap[baseGroupKey]; ok && shouldPreserveSystemPausedProjection(group) {
 			continue
 		}
 		modelKey := baseGroupKey + "\x00" + strings.TrimSpace(item.ModelName)
