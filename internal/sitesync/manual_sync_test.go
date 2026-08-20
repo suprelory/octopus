@@ -195,6 +195,91 @@ func TestManualSyncMaskedTokenWarnsAndCannotProject(t *testing.T) {
 	if !warningsContain(plan.preview.Warnings, "脱敏值") {
 		t.Fatalf("expected masked token warning, got %+v", plan.preview.Warnings)
 	}
+	if len(plan.snapshot.groupResults) != 1 || plan.snapshot.groupResults[0].Status != siteGroupSyncStatusMissingKey {
+		t.Fatalf("expected masked-only group to be marked missing_key, got %+v", plan.snapshot.groupResults)
+	}
+	if !strings.Contains(plan.snapshot.message, "清理 1 个缺少可用 Key 的分组历史投影") {
+		t.Fatalf("expected missing-key cleanup message, got %q", plan.snapshot.message)
+	}
+}
+
+func TestApplyManualSyncMissingKeyClearsHistoricalProjection(t *testing.T) {
+	ctx := setupProjectTestDB(t)
+	_, account := createProjectionFixture(t, ctx)
+
+	if _, err := ProjectAccount(ctx, account.ID); err != nil {
+		t.Fatalf("initial ProjectAccount failed: %v", err)
+	}
+	channelsByGroup := loadProjectedChannelsByGroupKey(t, ctx, account.ID)
+	channel := channelsByGroup[model.SiteDefaultGroupKey]
+	if channel.ID == 0 {
+		t.Fatalf("expected initial projected channel")
+	}
+	consumerGroup := &model.Group{Name: "manual-sync-missing-key", Mode: model.GroupModeFailover}
+	if err := op.GroupCreate(consumerGroup, ctx); err != nil {
+		t.Fatalf("GroupCreate failed: %v", err)
+	}
+	if err := op.GroupItemAdd(&model.GroupItem{
+		GroupID:   consumerGroup.ID,
+		ChannelID: channel.ID,
+		ModelName: "gpt-4o-mini",
+		Priority:  1,
+		Weight:    1,
+	}, ctx); err != nil {
+		t.Fatalf("GroupItemAdd failed: %v", err)
+	}
+
+	emptyTokens := []ManualSyncTokenInput{}
+	req := ManualSyncRequest{
+		Mode:   ManualSyncModeReplace,
+		Format: ManualSyncFormatSnapshot,
+		Snapshot: &ManualSyncSnapshotInput{
+			Tokens: &emptyTokens,
+		},
+	}
+	preview, err := PreviewManualSync(ctx, account.ID, req)
+	if err != nil {
+		t.Fatalf("PreviewManualSync returned error: %v", err)
+	}
+	if preview.ChannelCountEstimate != 0 || len(preview.Groups) != 1 || preview.Groups[0].WillProject {
+		t.Fatalf("expected missing-key preview to be non-projectable, got %+v", preview)
+	}
+	req.PreviewFingerprint = preview.PreviewFingerprint
+	result, err := ApplyManualSync(ctx, account.ID, req)
+	if err != nil {
+		t.Fatalf("ApplyManualSync returned error: %v", err)
+	}
+	if result.SyncResult.ChannelCount != 0 || len(result.SyncResult.GroupResults) != 1 || result.SyncResult.GroupResults[0].Status != string(siteGroupSyncStatusMissingKey) {
+		t.Fatalf("expected missing-key apply result without projected channels, got %+v", result.SyncResult)
+	}
+	if result.SyncResult.GroupResults[0].ProjectionSuspended || result.SyncResult.GroupResults[0].ProjectionSuspendReason != "" {
+		t.Fatalf("expected missing-key result to be non-suspended, got %+v", result.SyncResult.GroupResults[0])
+	}
+	if !strings.Contains(result.SyncResult.Message, "清理 1 个缺少可用 Key 的分组历史投影") {
+		t.Fatalf("expected missing-key cleanup result message, got %q", result.SyncResult.Message)
+	}
+
+	channelsByGroup = loadProjectedChannelsByGroupKey(t, ctx, account.ID)
+	if len(channelsByGroup) != 0 {
+		t.Fatalf("expected historical projected channels to be removed, got %+v", channelsByGroup)
+	}
+	items, err := op.GroupItemList(consumerGroup.ID, ctx)
+	if err != nil {
+		t.Fatalf("GroupItemList failed: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected historical projected group items to be removed, got %+v", items)
+	}
+	var group model.SiteUserGroup
+	if err := dbpkg.GetDB().WithContext(ctx).Where("site_account_id = ? AND group_key = ?", account.ID, model.SiteDefaultGroupKey).First(&group).Error; err != nil {
+		t.Fatalf("query missing-key group failed: %v", err)
+	}
+	if group.ModelSyncStatus != model.SiteGroupModelSyncStatusMissingKey {
+		t.Fatalf("expected persisted missing_key status, got %q", group.ModelSyncStatus)
+	}
+	if group.ProjectionSuspended || group.ProjectionSuspendReason != "" || group.ProjectionSuspendedAt != nil {
+		t.Fatalf("expected persisted missing-key group to be non-suspended, got %+v", group)
+	}
 }
 
 func TestManualSyncReplaceTokenSectionKeepsOnlyImportedAndManualTokens(t *testing.T) {

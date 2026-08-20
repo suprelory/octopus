@@ -265,6 +265,7 @@ func buildManualSyncPlan(siteRecord *model.Site, account *model.SiteAccount, req
 	finalTokens := buildManualSyncTokens(account, sections, mode)
 	affectedModels, groupResults, explicitModelGroups := buildManualSyncModels(account, sections, mode)
 	groupResults, affectedModels = addManualTokenRecoveryGroups(account, finalTokens, sections, groupResults, affectedModels, explicitModelGroups, mode)
+	groupResults = addManualMissingKeyGroups(account, finalTokens, sections, groupResults, explicitModelGroups, mode)
 
 	existingModelMap := make(map[string]model.SiteModel, len(account.Models))
 	for _, item := range account.Models {
@@ -968,15 +969,7 @@ func addManualTokenRecoveryGroups(
 	if !sections.tokensProvided {
 		return results, affected
 	}
-	touched := make(map[string]struct{})
-	if mode == ManualSyncModeReplace {
-		for _, token := range account.Tokens {
-			touched[model.NormalizeSiteGroupKey(token.GroupKey)] = struct{}{}
-		}
-	}
-	for _, token := range sections.tokens {
-		touched[model.NormalizeSiteGroupKey(token.GroupKey)] = struct{}{}
-	}
+	touched := collectManualSyncTouchedGroups(account, sections, explicit, mode)
 	for groupKey := range touched {
 		if _, ok := explicit[groupKey]; ok || !hasUsableToken(tokensForGroup(finalTokens, groupKey)) || !manualGroupNeedsTokenRecovery(account.UserGroups, groupKey) {
 			continue
@@ -995,6 +988,68 @@ func addManualTokenRecoveryGroups(
 		})
 	}
 	return results, affected
+}
+
+func addManualMissingKeyGroups(
+	account *model.SiteAccount,
+	finalTokens []model.SiteToken,
+	sections manualSyncSections,
+	results []siteGroupSyncResult,
+	explicit map[string]struct{},
+	mode string,
+) []siteGroupSyncResult {
+	touched := collectManualSyncTouchedGroups(account, sections, explicit, mode)
+	if len(touched) == 0 {
+		return results
+	}
+
+	resultIndexes := make(map[string]int, len(results))
+	for index := range results {
+		resultIndexes[model.NormalizeSiteGroupKey(results[index].GroupKey)] = index
+	}
+	for groupKey := range touched {
+		groupKey = model.NormalizeSiteGroupKey(groupKey)
+		if hasUsableToken(tokensForGroup(finalTokens, groupKey)) {
+			continue
+		}
+		missingKeyResult := siteGroupSyncResult{
+			GroupKey: groupKey,
+			Status:   siteGroupSyncStatusMissingKey,
+			Message:  "手动导入后该分组没有可用 Key，无法投影，已清理历史投影",
+		}
+		if index, ok := resultIndexes[groupKey]; ok {
+			results[index] = missingKeyResult
+			continue
+		}
+		resultIndexes[groupKey] = len(results)
+		results = append(results, missingKeyResult)
+	}
+	return results
+}
+
+func collectManualSyncTouchedGroups(account *model.SiteAccount, sections manualSyncSections, explicit map[string]struct{}, mode string) map[string]struct{} {
+	touched := make(map[string]struct{})
+	for groupKey := range explicit {
+		touched[model.NormalizeSiteGroupKey(groupKey)] = struct{}{}
+	}
+	if !sections.tokensProvided {
+		return touched
+	}
+	if mode == ManualSyncModeReplace && account != nil {
+		for _, group := range account.UserGroups {
+			touched[model.NormalizeSiteGroupKey(group.GroupKey)] = struct{}{}
+		}
+		for _, token := range account.Tokens {
+			touched[model.NormalizeSiteGroupKey(token.GroupKey)] = struct{}{}
+		}
+		for _, item := range account.Models {
+			touched[model.NormalizeSiteGroupKey(item.GroupKey)] = struct{}{}
+		}
+	}
+	for _, token := range sections.tokens {
+		touched[model.NormalizeSiteGroupKey(token.GroupKey)] = struct{}{}
+	}
+	return touched
 }
 
 func manualGroupNeedsTokenRecovery(groups []model.SiteUserGroup, groupKey string) bool {
@@ -1169,7 +1224,7 @@ func buildManualSyncWarnings(account *model.SiteAccount, sections manualSyncSect
 			continue
 		}
 		if !hasUsableToken(tokensForGroup(finalTokens, groupKey)) {
-			warnings = append(warnings, fmt.Sprintf("分组 %q 有模型但没有可用完整 Key，不会生成可用渠道", groupKey))
+			warnings = append(warnings, fmt.Sprintf("分组 %q 有模型但没有可用完整 Key，不会投影，并会清理历史投影", groupKey))
 		}
 	}
 	if mode == ManualSyncModeReplace && sections.tokensProvided {
@@ -1200,8 +1255,21 @@ func buildManualSyncMessage(sections manualSyncSections, results []siteGroupSync
 	if sections.balance != nil || sections.balanceUsed != nil || sections.todayIncome != nil {
 		parts = append(parts, "更新账户额度")
 	}
-	if len(results) > 0 && len(sections.models) == 0 {
+	missingKeyCount := 0
+	recoveredCount := 0
+	for _, result := range results {
+		switch result.Status {
+		case siteGroupSyncStatusMissingKey:
+			missingKeyCount++
+		case siteGroupSyncStatusSynced:
+			recoveredCount++
+		}
+	}
+	if recoveredCount > 0 && len(sections.models) == 0 {
 		parts = append(parts, "恢复历史模型投影")
+	}
+	if missingKeyCount > 0 {
+		parts = append(parts, fmt.Sprintf("清理 %d 个缺少可用 Key 的分组历史投影", missingKeyCount))
 	}
 	if len(parts) == 0 {
 		return "手动导入完成"

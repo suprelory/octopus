@@ -78,7 +78,7 @@ func buildSyncSnapshotMessage(results []siteGroupSyncResult) string {
 		parts = append(parts, fmt.Sprintf("保留 %d 个分组的历史投影", counts[siteGroupSyncStatusUnresolved]+counts[siteGroupSyncStatusFailed]))
 	}
 	if counts[siteGroupSyncStatusMissingKey] > 0 {
-		parts = append(parts, fmt.Sprintf("暂停 %d 个缺少可用 Key 的分组投影", counts[siteGroupSyncStatusMissingKey]))
+		parts = append(parts, fmt.Sprintf("清理 %d 个缺少可用 Key 的分组历史投影", counts[siteGroupSyncStatusMissingKey]))
 	}
 
 	message := strings.Join(parts, "，")
@@ -189,7 +189,7 @@ func finalizeSiteGroupSyncResults(
 			result.Message = "本次未能确认该分组模型，已沿用历史投影"
 		} else {
 			result.Status = siteGroupSyncStatusMissingKey
-			result.Message = "该分组没有可用 Key，已暂停投影"
+			result.Message = "该分组没有可用 Key，无法投影，已清理历史投影"
 		}
 		resultMap[groupKey] = result
 	}
@@ -220,7 +220,7 @@ func finalizeSiteGroupSyncResults(
 
 func isSuspendedGroupSyncStatus(status siteGroupSyncStatus) bool {
 	switch status {
-	case siteGroupSyncStatusEmpty, siteGroupSyncStatusMissingKey:
+	case siteGroupSyncStatusEmpty:
 		return true
 	default:
 		return false

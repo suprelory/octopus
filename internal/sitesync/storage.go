@@ -224,9 +224,9 @@ func applyPersistedGroupSyncState(group *model.SiteUserGroup, existing *model.Si
 		group.ProjectionSuspendedAt = nil
 		group.ModelSyncFailureCount = 0
 	case siteGroupSyncStatusMissingKey:
-		group.ProjectionSuspended = true
-		group.ProjectionSuspendReason = firstNonEmptyString(group.ModelSyncMessage, "该分组没有可用 Key，已暂停投影")
-		group.ProjectionSuspendedAt = &now
+		group.ProjectionSuspended = false
+		group.ProjectionSuspendReason = ""
+		group.ProjectionSuspendedAt = nil
 		group.ModelSyncFailureCount++
 	case siteGroupSyncStatusFailed, siteGroupSyncStatusUnresolved:
 		group.ProjectionSuspended = false
