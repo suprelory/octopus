@@ -15,7 +15,7 @@ func TestBuildManualSyncPlanParsesManagementResponses(t *testing.T) {
 	siteRecord := &model.Site{ID: 7, Platform: model.SitePlatformNewAPI, Enabled: true}
 	account := &model.SiteAccount{ID: 11, SiteID: siteRecord.ID, Enabled: true, Balance: 9, BalanceUsed: 3}
 	req := ManualSyncRequest{
-		Mode:          ManualSyncModeMerge,
+		Mode:          ManualSyncModeReplace,
 		Format:        ManualSyncFormatResponses,
 		TokenResponse: json.RawMessage(`{"success":true,"data":{"items":[{"name":"primary","key":"abc123","group":"default","status":1},{"name":"vip","api_key":"vip-key","group_id":"vip","group_name":"VIP","enabled":true}]}}`),
 		GroupResponses: []json.RawMessage{
@@ -54,7 +54,7 @@ func TestBuildManualSyncPlanParsesManagementResponses(t *testing.T) {
 	}
 }
 
-func TestManualSyncMergePreservesHistoricalSections(t *testing.T) {
+func TestManualSyncReplacePreservesUnprovidedSections(t *testing.T) {
 	ctx := setupProjectTestDB(t)
 	_, account := createProjectionFixture(t, ctx)
 	addManualSyncVIPFixture(t, ctx, account.ID)
@@ -76,7 +76,7 @@ func TestManualSyncMergePreservesHistoricalSections(t *testing.T) {
 	}
 	enabled := true
 	req := ManualSyncRequest{
-		Mode:   ManualSyncModeMerge,
+		Mode:   ManualSyncModeReplace,
 		Format: ManualSyncFormatSnapshot,
 		Snapshot: &ManualSyncSnapshotInput{
 			Tokens: &[]ManualSyncTokenInput{{Name: "primary", Token: "replacement-primary", GroupKey: "default", Enabled: &enabled}},
@@ -89,11 +89,11 @@ func TestManualSyncMergePreservesHistoricalSections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildManualSyncPlan returned error: %v", err)
 	}
-	if plan.preview.TokenCount != 3 {
-		t.Fatalf("expected primary replacement plus backup and vip tokens, got %d", plan.preview.TokenCount)
+	if plan.preview.TokenCount != 1 {
+		t.Fatalf("expected only the imported token after replacement, got %d", plan.preview.TokenCount)
 	}
-	if plan.preview.ModelCount != 5 {
-		t.Fatalf("expected four default models plus preserved vip model, got %d", plan.preview.ModelCount)
+	if plan.preview.ModelCount != 2 {
+		t.Fatalf("expected replaced default model plus preserved vip model, got %d", plan.preview.ModelCount)
 	}
 	if plan.snapshot.balance != 12.5 || plan.snapshot.balanceUsed != 4.25 || plan.snapshot.todayIncome != 0.75 {
 		t.Fatalf("expected omitted balance section to preserve historical values, got %+v", plan.snapshot)
@@ -106,11 +106,82 @@ func TestManualSyncMergePreservesHistoricalSections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SiteAccountGet after persist failed: %v", err)
 	}
-	if !hasModel(reloaded.Models, "default", "gpt-4o-mini") || !hasModel(reloaded.Models, "default", "gpt-5") || !hasModel(reloaded.Models, "vip", "gpt-4o-vip") {
-		t.Fatalf("expected merge to preserve old models and add new model, got %+v", reloaded.Models)
+	if hasModel(reloaded.Models, "default", "gpt-4o-mini") || !hasModel(reloaded.Models, "default", "gpt-5") || !hasModel(reloaded.Models, "vip", "gpt-4o-vip") {
+		t.Fatalf("expected replace to remove old default models and preserve unmentioned vip models, got %+v", reloaded.Models)
 	}
-	if !hasToken(reloaded.Tokens, "default", "replacement-primary") || !hasToken(reloaded.Tokens, "default", "key-backup") || !hasToken(reloaded.Tokens, "vip", "key-vip") {
-		t.Fatalf("expected merge to preserve unmatched historical tokens, got %+v", reloaded.Tokens)
+	if !hasToken(reloaded.Tokens, "default", "replacement-primary") || hasToken(reloaded.Tokens, "default", "key-backup") || hasToken(reloaded.Tokens, "vip", "key-vip") {
+		t.Fatalf("expected replace to remove unmatched non-manual historical tokens, got %+v", reloaded.Tokens)
+	}
+	if _, ok := findSiteGroup(reloaded.UserGroups, "vip"); !ok {
+		t.Fatalf("expected unprovided vip group to be preserved, got %+v", reloaded.UserGroups)
+	}
+}
+
+func TestManualSyncRejectsMergeMode(t *testing.T) {
+	siteRecord := &model.Site{ID: 12, Platform: model.SitePlatformNewAPI, Enabled: true}
+	account := &model.SiteAccount{ID: 13, SiteID: siteRecord.ID, Enabled: true}
+	req := ManualSyncRequest{
+		Mode:   "merge",
+		Format: ManualSyncFormatSnapshot,
+		Snapshot: &ManualSyncSnapshotInput{
+			Balance: floatPointer(1),
+		},
+	}
+	if _, err := buildManualSyncPlan(siteRecord, account, req); !IsManualSyncValidationError(err) {
+		t.Fatalf("expected merge mode to be rejected, got %v", err)
+	}
+}
+
+func TestManualSyncDefaultsToReplaceMode(t *testing.T) {
+	siteRecord := &model.Site{ID: 14, Platform: model.SitePlatformNewAPI, Enabled: true}
+	account := &model.SiteAccount{ID: 15, SiteID: siteRecord.ID, Enabled: true}
+	req := ManualSyncRequest{
+		Format: ManualSyncFormatSnapshot,
+		Snapshot: &ManualSyncSnapshotInput{
+			Balance: floatPointer(1),
+		},
+	}
+	plan, err := buildManualSyncPlan(siteRecord, account, req)
+	if err != nil {
+		t.Fatalf("buildManualSyncPlan returned error: %v", err)
+	}
+	if plan.preview.Mode != ManualSyncModeReplace {
+		t.Fatalf("expected omitted mode to default to replace, got %q", plan.preview.Mode)
+	}
+}
+
+func TestManualSyncReplaceCanClearExplicitModelGroup(t *testing.T) {
+	siteRecord := &model.Site{ID: 16, Platform: model.SitePlatformNewAPI, Enabled: true}
+	account := &model.SiteAccount{
+		ID:      17,
+		SiteID:  siteRecord.ID,
+		Enabled: true,
+		Tokens: []model.SiteToken{
+			{Name: "primary", Token: "key-primary", GroupKey: "default", Enabled: true, Source: "sync"},
+		},
+		Models: []model.SiteModel{
+			{GroupKey: "default", ModelName: "gpt-4o-mini", Source: "sync"},
+			{GroupKey: "vip", ModelName: "gpt-4o-vip", Source: "sync"},
+		},
+	}
+	req := ManualSyncRequest{
+		Mode:   ManualSyncModeReplace,
+		Format: ManualSyncFormatSnapshot,
+		Snapshot: &ManualSyncSnapshotInput{
+			Models: &map[string][]ManualSyncModelInput{"default": {}},
+		},
+	}
+	plan, err := buildManualSyncPlan(siteRecord, account, req)
+	if err != nil {
+		t.Fatalf("buildManualSyncPlan returned error: %v", err)
+	}
+	if len(modelsForGroup(plan.finalModels, "default")) != 0 || !hasModel(plan.finalModels, "vip", "gpt-4o-vip") {
+		t.Fatalf("expected empty explicit group to be cleared and vip models preserved, got %+v", plan.finalModels)
+	}
+	for _, group := range plan.preview.Groups {
+		if group.GroupKey == "default" && (group.ModelAction != ManualSyncModeReplace || group.ModelCount != 0) {
+			t.Fatalf("expected default preview to show an empty replacement, got %+v", group)
+		}
 	}
 }
 

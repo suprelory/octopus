@@ -185,7 +185,7 @@ export type SiteSyncResult = {
   message: string;
 };
 
-export type SiteManualSyncMode = "merge" | "replace";
+export type SiteManualSyncMode = "replace";
 export type SiteManualSyncFormat = "responses" | "snapshot";
 
 export type SiteManualSyncRequest = {
@@ -236,7 +236,7 @@ export type SiteManualSyncPreviewGroup = {
   usable_token_count: number;
   masked_token_count: number;
   model_count: number;
-  model_action: "merge" | "replace" | "preserve";
+  model_action: "replace" | "preserve";
   route_types: string[];
   will_project: boolean;
 };

@@ -19,7 +19,6 @@ import (
 )
 
 const (
-	ManualSyncModeMerge   = "merge"
 	ManualSyncModeReplace = "replace"
 
 	ManualSyncFormatResponses = "responses"
@@ -262,10 +261,10 @@ func buildManualSyncPlan(siteRecord *model.Site, account *model.SiteAccount, req
 		return nil, err
 	}
 
-	finalTokens := buildManualSyncTokens(account, sections, mode)
-	affectedModels, groupResults, explicitModelGroups := buildManualSyncModels(account, sections, mode)
-	groupResults, affectedModels = addManualTokenRecoveryGroups(account, finalTokens, sections, groupResults, affectedModels, explicitModelGroups, mode)
-	groupResults = addManualMissingKeyGroups(account, finalTokens, sections, groupResults, explicitModelGroups, mode)
+	finalTokens := buildManualSyncTokens(account, sections)
+	affectedModels, groupResults, explicitModelGroups := buildManualSyncModels(sections)
+	groupResults, affectedModels = addManualTokenRecoveryGroups(account, finalTokens, sections, groupResults, affectedModels, explicitModelGroups)
+	groupResults = addManualMissingKeyGroups(account, finalTokens, sections, groupResults, explicitModelGroups)
 
 	existingModelMap := make(map[string]model.SiteModel, len(account.Models))
 	for _, item := range account.Models {
@@ -276,7 +275,7 @@ func buildManualSyncPlan(siteRecord *model.Site, account *model.SiteAccount, req
 	finalModels := mergePersistedSiteModelsByGroup(account.Models, preparedModels, groupResults)
 	sortSiteModels(finalModels)
 
-	finalGroups := buildManualSyncGroups(account, sections, mode, finalTokens, finalModels, explicitModelGroups)
+	finalGroups := buildManualSyncGroups(account, sections, finalTokens, finalModels, explicitModelGroups)
 	groupNames := make(map[string]string, len(finalGroups))
 	for _, group := range finalGroups {
 		groupNames[model.NormalizeSiteGroupKey(group.GroupKey)] = model.NormalizeSiteGroupName(group.GroupKey, group.Name)
@@ -319,9 +318,9 @@ func buildManualSyncPlan(siteRecord *model.Site, account *model.SiteAccount, req
 		message:      buildManualSyncMessage(sections, groupResults),
 	}
 
-	previewGroups, channelCount := buildManualSyncPreviewGroups(siteRecord, account, finalGroups, finalTokens, finalModels, explicitModelGroups, mode, groupResults)
+	previewGroups, channelCount := buildManualSyncPreviewGroups(siteRecord, account, finalGroups, finalTokens, finalModels, explicitModelGroups, groupResults)
 	warnings := append([]string(nil), sections.warnings...)
-	warnings = append(warnings, buildManualSyncWarnings(account, sections, finalTokens, finalModels, explicitModelGroups, mode)...)
+	warnings = append(warnings, buildManualSyncWarnings(account, sections, finalTokens, finalModels, explicitModelGroups)...)
 	warnings = normalizeManualWarnings(warnings)
 
 	usableTokenCount, maskedTokenCount := countManualTokens(finalTokens)
@@ -363,9 +362,9 @@ func buildManualSyncPlan(siteRecord *model.Site, account *model.SiteAccount, req
 func normalizeManualSyncRequest(req *ManualSyncRequest) (string, string, error) {
 	mode := strings.ToLower(strings.TrimSpace(req.Mode))
 	if mode == "" {
-		mode = ManualSyncModeMerge
+		mode = ManualSyncModeReplace
 	}
-	if mode != ManualSyncModeMerge && mode != ManualSyncModeReplace {
+	if mode != ManualSyncModeReplace {
 		return "", "", manualSyncInvalid("不支持的导入模式：%s", req.Mode)
 	}
 	format := strings.ToLower(strings.TrimSpace(req.Format))
@@ -870,9 +869,9 @@ func isKnownManualRouteType(routeType model.SiteModelRouteType) bool {
 	}
 }
 
-func buildManualSyncTokens(account *model.SiteAccount, sections manualSyncSections, mode string) []model.SiteToken {
+func buildManualSyncTokens(account *model.SiteAccount, sections manualSyncSections) []model.SiteToken {
 	base := make([]model.SiteToken, 0, len(account.Tokens)+len(sections.tokens))
-	if !sections.tokensProvided || mode == ManualSyncModeMerge {
+	if !sections.tokensProvided {
 		base = append(base, cloneSiteTokens(account.Tokens)...)
 	} else {
 		for _, token := range account.Tokens {
@@ -910,13 +909,7 @@ func sameManualTokenIdentity(left model.SiteToken, right model.SiteToken) bool {
 	return leftName != "" && rightName != "" && leftName == rightName
 }
 
-func buildManualSyncModels(account *model.SiteAccount, sections manualSyncSections, mode string) ([]model.SiteModel, []siteGroupSyncResult, map[string]struct{}) {
-	existingByGroup := make(map[string][]model.SiteModel)
-	for _, item := range account.Models {
-		groupKey := model.NormalizeSiteGroupKey(item.GroupKey)
-		item.GroupKey = groupKey
-		existingByGroup[groupKey] = append(existingByGroup[groupKey], item)
-	}
+func buildManualSyncModels(sections manualSyncSections) ([]model.SiteModel, []siteGroupSyncResult, map[string]struct{}) {
 	groupKeys := make([]string, 0, len(sections.models))
 	for groupKey := range sections.models {
 		groupKeys = append(groupKeys, model.NormalizeSiteGroupKey(groupKey))
@@ -929,17 +922,11 @@ func buildManualSyncModels(account *model.SiteAccount, sections manualSyncSectio
 	for _, groupKey := range groupKeys {
 		explicit[groupKey] = struct{}{}
 		incoming := sections.models[groupKey]
-		desired := make([]model.SiteModel, 0, len(existingByGroup[groupKey])+len(incoming))
-		if mode == ManualSyncModeMerge {
-			desired = append(desired, cloneSiteModels(existingByGroup[groupKey])...)
-		}
+		desired := make([]model.SiteModel, 0, len(incoming))
 		for _, item := range incoming {
 			desired = upsertManualModel(desired, item)
 		}
 		sortSiteModels(desired)
-		if mode == ManualSyncModeMerge && len(incoming) == 0 {
-			continue
-		}
 		affected = append(affected, desired...)
 		result := siteGroupSyncResult{
 			GroupKey:      groupKey,
@@ -964,12 +951,11 @@ func addManualTokenRecoveryGroups(
 	results []siteGroupSyncResult,
 	affected []model.SiteModel,
 	explicit map[string]struct{},
-	mode string,
 ) ([]siteGroupSyncResult, []model.SiteModel) {
 	if !sections.tokensProvided {
 		return results, affected
 	}
-	touched := collectManualSyncTouchedGroups(account, sections, explicit, mode)
+	touched := collectManualSyncTouchedGroups(account, sections, explicit)
 	for groupKey := range touched {
 		if _, ok := explicit[groupKey]; ok || !hasUsableToken(tokensForGroup(finalTokens, groupKey)) || !manualGroupNeedsTokenRecovery(account.UserGroups, groupKey) {
 			continue
@@ -996,9 +982,8 @@ func addManualMissingKeyGroups(
 	sections manualSyncSections,
 	results []siteGroupSyncResult,
 	explicit map[string]struct{},
-	mode string,
 ) []siteGroupSyncResult {
-	touched := collectManualSyncTouchedGroups(account, sections, explicit, mode)
+	touched := collectManualSyncTouchedGroups(account, sections, explicit)
 	if len(touched) == 0 {
 		return results
 	}
@@ -1027,7 +1012,7 @@ func addManualMissingKeyGroups(
 	return results
 }
 
-func collectManualSyncTouchedGroups(account *model.SiteAccount, sections manualSyncSections, explicit map[string]struct{}, mode string) map[string]struct{} {
+func collectManualSyncTouchedGroups(account *model.SiteAccount, sections manualSyncSections, explicit map[string]struct{}) map[string]struct{} {
 	touched := make(map[string]struct{})
 	for groupKey := range explicit {
 		touched[model.NormalizeSiteGroupKey(groupKey)] = struct{}{}
@@ -1035,7 +1020,7 @@ func collectManualSyncTouchedGroups(account *model.SiteAccount, sections manualS
 	if !sections.tokensProvided {
 		return touched
 	}
-	if mode == ManualSyncModeReplace && account != nil {
+	if account != nil {
 		for _, group := range account.UserGroups {
 			touched[model.NormalizeSiteGroupKey(group.GroupKey)] = struct{}{}
 		}
@@ -1063,9 +1048,9 @@ func manualGroupNeedsTokenRecovery(groups []model.SiteUserGroup, groupKey string
 	return false
 }
 
-func buildManualSyncGroups(account *model.SiteAccount, sections manualSyncSections, mode string, tokens []model.SiteToken, models []model.SiteModel, explicitModelGroups map[string]struct{}) []model.SiteUserGroup {
+func buildManualSyncGroups(account *model.SiteAccount, sections manualSyncSections, tokens []model.SiteToken, models []model.SiteModel, explicitModelGroups map[string]struct{}) []model.SiteUserGroup {
 	groupMap := make(map[string]model.SiteUserGroup)
-	if !sections.groupsProvided || mode == ManualSyncModeMerge {
+	if !sections.groupsProvided {
 		for _, group := range account.UserGroups {
 			groupKey := model.NormalizeSiteGroupKey(group.GroupKey)
 			group.GroupKey = groupKey
@@ -1118,7 +1103,6 @@ func buildManualSyncPreviewGroups(
 	tokens []model.SiteToken,
 	models []model.SiteModel,
 	explicitModelGroups map[string]struct{},
-	mode string,
 	results []siteGroupSyncResult,
 ) ([]ManualSyncPreviewGroup, int) {
 	preparedGroups := cloneSiteGroups(groups)
@@ -1185,7 +1169,7 @@ func buildManualSyncPreviewGroups(
 		usable, masked := countManualTokens(groupTokens)
 		action := "preserve"
 		if _, ok := explicitModelGroups[groupKey]; ok {
-			action = mode
+			action = ManualSyncModeReplace
 		}
 		preview = append(preview, ManualSyncPreviewGroup{
 			GroupKey:         groupKey,
@@ -1202,7 +1186,7 @@ func buildManualSyncPreviewGroups(
 	return preview, channelCount
 }
 
-func buildManualSyncWarnings(account *model.SiteAccount, sections manualSyncSections, finalTokens []model.SiteToken, finalModels []model.SiteModel, explicitModelGroups map[string]struct{}, mode string) []string {
+func buildManualSyncWarnings(account *model.SiteAccount, sections manualSyncSections, finalTokens []model.SiteToken, finalModels []model.SiteModel, explicitModelGroups map[string]struct{}) []string {
 	warnings := make([]string, 0)
 	for _, incoming := range sections.tokens {
 		if !model.IsMaskedSiteTokenValue(incoming.Token) {
@@ -1227,7 +1211,7 @@ func buildManualSyncWarnings(account *model.SiteAccount, sections manualSyncSect
 			warnings = append(warnings, fmt.Sprintf("分组 %q 有模型但没有可用完整 Key，不会投影，并会清理历史投影", groupKey))
 		}
 	}
-	if mode == ManualSyncModeReplace && sections.tokensProvided {
+	if sections.tokensProvided {
 		manualCount := 0
 		for _, token := range account.Tokens {
 			if strings.TrimSpace(token.Source) == "manual" {

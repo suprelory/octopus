@@ -15,7 +15,6 @@ import {
   type Site,
   type SiteAccount,
   type SiteManualSyncFormat,
-  type SiteManualSyncMode,
   type SiteManualSyncPreview,
   type SiteManualSyncRequest,
   useApplyManualSiteSync,
@@ -139,8 +138,6 @@ function parseJSONField(value: string, label: string): unknown {
 
 function modelActionLabel(action: string) {
   switch (action) {
-    case "merge":
-      return "合并模型";
     case "replace":
       return "替换模型";
     default:
@@ -165,7 +162,6 @@ export function ManualSyncDialog({
   const applyMutation = useApplyManualSiteSync();
   const nextRowID = useRef(2);
 
-  const [mode, setMode] = useState<SiteManualSyncMode>("merge");
   const [format, setFormat] =
     useState<SiteManualSyncFormat>("responses");
   const [tokenResponse, setTokenResponse] = useState("");
@@ -181,7 +177,6 @@ export function ManualSyncDialog({
   const endpointHints = getManualSyncEndpointHints(site?.platform);
 
   function reset() {
-    setMode("merge");
     setFormat("responses");
     setTokenResponse("");
     setGroupResponse("");
@@ -219,13 +214,13 @@ export function ManualSyncDialog({
         throw new Error("统一快照必须是 JSON 对象");
       }
       return {
-        mode,
+        mode: "replace",
         format,
         snapshot: snapshot as NonNullable<SiteManualSyncRequest["snapshot"]>,
       };
     }
 
-    const request: SiteManualSyncRequest = { mode, format };
+    const request: SiteManualSyncRequest = { mode: "replace", format };
     let hasSection = false;
     if (tokenResponse.trim()) {
       request.token_response = parseJSONField(tokenResponse, "Token 响应");
@@ -325,7 +320,7 @@ export function ManualSyncDialog({
 
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-1 pb-4">
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4">
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">输入格式</label>
                 <Select
@@ -345,29 +340,6 @@ export function ManualSyncDialog({
                     </SelectItem>
                     <SelectItem value="snapshot" className="rounded-xl">
                       统一快照
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">写入方式</label>
-                <Select
-                  value={mode}
-                  disabled={isBusy}
-                  onValueChange={(value) => {
-                    setMode(value as SiteManualSyncMode);
-                    invalidatePreview();
-                  }}
-                >
-                  <SelectTrigger className="rounded-xl">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl">
-                    <SelectItem value="merge" className="rounded-xl">
-                      合并并保留历史
-                    </SelectItem>
-                    <SelectItem value="replace" className="rounded-xl">
-                      按已提供区段替换
                     </SelectItem>
                   </SelectContent>
                 </Select>
@@ -631,7 +603,7 @@ function PreviewResult({ preview }: { preview: SiteManualSyncPreview }) {
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-sm font-semibold">解析预览</h3>
         <Badge variant="outline" className="rounded-full">
-          {preview.mode === "merge" ? "合并" : "按区段替换"}
+          按区段替换
         </Badge>
       </div>
 
