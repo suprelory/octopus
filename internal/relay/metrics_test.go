@@ -6,10 +6,25 @@ import (
 	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
 )
 
+func TestImagesRelayMetricsUsesRequestModelForCostLookup(t *testing.T) {
+	m := newImagesRelayMetrics(0, "gpt-4o-mini", "")
+	m.SetUsageFromImages("unpriced-upstream-model", imagesUsage{InputTokens: 1000, OutputTokens: 2000})
+
+	if m.ActualModel != "unpriced-upstream-model" {
+		t.Fatalf("actual model: got %q want unpriced-upstream-model", m.ActualModel)
+	}
+	if m.Stats.InputCost <= 0 {
+		t.Fatalf("expected input cost to use request model price, got %f", m.Stats.InputCost)
+	}
+	if m.Stats.OutputCost <= 0 {
+		t.Fatalf("expected output cost to use request model price, got %f", m.Stats.OutputCost)
+	}
+}
+
 // usage 完全缺失时，应使用 TransportInputTokens 兜底填充 input，output 保持 0。
 func TestSetInternalResponseFallbackWhenUsageMissing(t *testing.T) {
-	m := &RelayMetrics{TransportInputTokens: intPtr(123)}
-	m.SetInternalResponse(&transformerModel.InternalLLMResponse{}, "test-model")
+	m := &RelayMetrics{RequestModel: "gpt-4o-mini", TransportInputTokens: intPtr(123)}
+	m.SetInternalResponse(&transformerModel.InternalLLMResponse{}, "unpriced-upstream-model")
 
 	if m.Stats.InputToken != 123 {
 		t.Fatalf("input token: got %d want 123 (fallback)", m.Stats.InputToken)
@@ -19,6 +34,9 @@ func TestSetInternalResponseFallbackWhenUsageMissing(t *testing.T) {
 	}
 	if m.Stats.OutputToken != 0 {
 		t.Fatalf("output token: got %d want 0", m.Stats.OutputToken)
+	}
+	if m.Stats.InputCost <= 0 {
+		t.Fatalf("expected fallback input cost to use request model price, got %f", m.Stats.InputCost)
 	}
 }
 

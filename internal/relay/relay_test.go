@@ -966,26 +966,26 @@ func TestHandlerAppliesChannelParamOverride(t *testing.T) {
 	}
 }
 
-func TestRelayMetricsUsesResponseModelForCostLookup(t *testing.T) {
-	metrics := NewRelayMetrics(0, "alias-model", "chat", "", nil, &transformerModel.InternalLLMRequest{Model: "alias-model"})
+func TestRelayMetricsUsesRequestModelForCostLookup(t *testing.T) {
+	metrics := NewRelayMetrics(0, "gpt-4o-mini", "chat", "", nil, &transformerModel.InternalLLMRequest{Model: "gpt-4o-mini"})
 	metrics.StartTime = time.Now()
 
 	metrics.SetInternalResponse(&transformerModel.InternalLLMResponse{
-		Model: "gpt-4o-mini",
+		Model: "unpriced-upstream-model",
 		Usage: &transformerModel.Usage{
 			PromptTokens:     1000,
 			CompletionTokens: 2000,
 		},
-	}, "gpt-4o-mini")
+	}, "unpriced-upstream-model")
 
-	if metrics.ActualModel != "gpt-4o-mini" {
-		t.Fatalf("expected actual model to use response model, got %q", metrics.ActualModel)
+	if metrics.ActualModel != "unpriced-upstream-model" {
+		t.Fatalf("expected actual model to retain response model, got %q", metrics.ActualModel)
 	}
 	if metrics.Stats.InputCost <= 0 {
-		t.Fatalf("expected input cost to be computed from response model price, got %f", metrics.Stats.InputCost)
+		t.Fatalf("expected input cost to be computed from request model price, got %f", metrics.Stats.InputCost)
 	}
 	if metrics.Stats.OutputCost <= 0 {
-		t.Fatalf("expected output cost to be computed from response model price, got %f", metrics.Stats.OutputCost)
+		t.Fatalf("expected output cost to be computed from request model price, got %f", metrics.Stats.OutputCost)
 	}
 }
 
