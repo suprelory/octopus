@@ -10,6 +10,9 @@ export function ServiceWorkerRegister() {
         if (process.env.NODE_ENV !== 'production') return;
 
         let hasRefreshed = false;
+        let disposed = false;
+        let idleId: number | undefined;
+        let timer: ReturnType<typeof globalThis.setTimeout> | undefined;
         const onControllerChange = () => {
             if (hasRefreshed) return;
             hasRefreshed = true;
@@ -27,32 +30,54 @@ export function ServiceWorkerRegister() {
 
         navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
 
-        navigator.serviceWorker
-            .register('/sw.js', { scope: '/' })
-            .then((registration) => {
-                // If an update is already waiting, activate it immediately.
-                if (registration.waiting) {
-                    activateUpdate(registration);
-                }
+        const register = () => {
+            if (disposed) return;
 
-                registration.update();
-                registration.addEventListener('updatefound', () => {
-                    const installing = registration.installing;
-                    if (!installing) return;
-                    installing.addEventListener('statechange', () => {
-                        if (installing.state === 'installed') {
-                            // When installed + controller exists => an update is ready (likely in `waiting`)
-                            activateUpdate(registration);
-                        }
+            navigator.serviceWorker
+                .register('/sw.js', { scope: '/' })
+                .then((registration) => {
+                    // If an update is already waiting, activate it immediately.
+                    if (registration.waiting) {
+                        activateUpdate(registration);
+                    }
+
+                    registration.addEventListener('updatefound', () => {
+                        const installing = registration.installing;
+                        if (!installing) return;
+                        installing.addEventListener('statechange', () => {
+                            if (installing.state === 'installed') {
+                                // When installed + controller exists => an update is ready (likely in `waiting`)
+                                activateUpdate(registration);
+                            }
+                        });
                     });
+                })
+                .catch(() => {
+                    // ignore
                 });
-            })
-            .catch(() => {
-                // ignore
-            });
+        };
+
+        const scheduleRegistration = () => {
+            if ('requestIdleCallback' in window) {
+                idleId = window.requestIdleCallback(register, { timeout: 2000 });
+                return;
+            }
+
+            timer = globalThis.setTimeout(register, 0);
+        };
+
+        if (document.readyState === 'complete') {
+            scheduleRegistration();
+        } else {
+            window.addEventListener('load', scheduleRegistration, { once: true });
+        }
 
         return () => {
+            disposed = true;
+            window.removeEventListener('load', scheduleRegistration);
             navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
+            if (idleId !== undefined) window.cancelIdleCallback(idleId);
+            if (timer !== undefined) globalThis.clearTimeout(timer);
         };
     }, []);
 

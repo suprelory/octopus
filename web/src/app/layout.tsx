@@ -1,11 +1,10 @@
 import "./globals.css";
 import type { Viewport } from "next";
 import { ThemeProvider } from "@/provider/theme";
-import { Toaster } from "@/components/ui/sonner"
+import { DeferredToaster } from "@/components/deferred-toaster";
 import { LocaleProvider } from "@/provider/locale";
 import QueryProvider from "@/provider/query";
-import { ServiceWorkerRegister } from "@/components/sw-register";
-import { TooltipProvider } from "@/components/animate-ui/components/animate/tooltip";
+import { DeferredServiceWorkerRegister } from "@/components/deferred-sw-register";
 
 
 
@@ -112,14 +111,12 @@ export default function RootLayout({
             </g>
           </svg>
         </div>
-        <ServiceWorkerRegister />
+        <DeferredServiceWorkerRegister />
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <QueryProvider>
             <LocaleProvider>
-              <TooltipProvider>
-                {children}
-                <Toaster />
-              </TooltipProvider>
+              {children}
+              <DeferredToaster />
             </LocaleProvider>
           </QueryProvider>
         </ThemeProvider>

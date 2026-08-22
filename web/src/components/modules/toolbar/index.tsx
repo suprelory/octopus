@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useMemo, useState } from 'react';
 import {
     ArrowDownWideNarrow,
     ArrowDownZA,
@@ -149,25 +149,6 @@ export function Toolbar({ activeItem }: { activeItem: NavItem }) {
     const showSiteSortOptions = toolbarItem === 'site';
     const showCombinedSortOptions = toolbarItem === 'channel' || toolbarItem === 'group';
     const showSortOptions = !isLogToolbar;
-
-    useEffect(() => {
-        switch (toolbarItem) {
-            case 'channel':
-                void ChannelCreateContent.preload();
-                break;
-            case 'group':
-                void Promise.all([GroupCreateContent.preload(), GroupAutoGroupDialogContent.preload()]);
-                break;
-            case 'model':
-                void ModelCreateContent.preload();
-                break;
-            case 'log':
-                void LogFilterPopover.preload();
-                break;
-            default:
-                break;
-        }
-    }, [toolbarItem]);
 
     // 构建工具栏按钮配置
     const actions = useMemo((): ToolbarAction[] => {
