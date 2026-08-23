@@ -79,6 +79,7 @@ import {
   type CheckinFilterStatus,
 } from "./checkin-status";
 import { translateSiteMessage } from "./site-message";
+import { siteSyncStatusHasFailure } from "./sync-health";
 import { useSiteUIStore } from "./ui-store";
 import {
   isSiteJumpTarget,
@@ -137,7 +138,6 @@ type SiteSummary = {
   balance: number;
   todayIncome: number;
   failedAccountCount: number;
-  partialAccountCount: number;
   disabledAccountCount: number;
   enabledAccountCount: number;
   healthLabel: string;
@@ -248,7 +248,7 @@ function normalizedStatus(status?: string | null) {
 }
 
 function accountHasSyncFailure(account: SiteAccount) {
-  return normalizedStatus(account.last_sync_status) === "failed";
+  return siteSyncStatusHasFailure(account.last_sync_status);
 }
 
 function accountHasCheckinFailure(
@@ -315,7 +315,6 @@ function buildSiteSummary(site: SiteRecord): SiteSummary {
   let balance = 0;
   let todayIncome = 0;
   let failedAccountCount = 0;
-  let partialAccountCount = 0;
   let disabledAccountCount = 0;
   let enabledAccountCount = 0;
 
@@ -332,8 +331,6 @@ function buildSiteSummary(site: SiteRecord): SiteSummary {
 
     if (accountHasHealthFailure(site, account)) {
       failedAccountCount += 1;
-    } else if (normalizedStatus(account.last_sync_status) === "partial") {
-      partialAccountCount += 1;
     }
   }
 
@@ -346,7 +343,6 @@ function buildSiteSummary(site: SiteRecord): SiteSummary {
       balance,
       todayIncome,
       failedAccountCount,
-      partialAccountCount,
       disabledAccountCount,
       enabledAccountCount,
       healthLabel: "站点停用",
@@ -363,7 +359,6 @@ function buildSiteSummary(site: SiteRecord): SiteSummary {
       balance,
       todayIncome,
       failedAccountCount,
-      partialAccountCount,
       disabledAccountCount,
       enabledAccountCount,
       healthLabel: `${failedAccountCount} 异常`,
@@ -380,28 +375,10 @@ function buildSiteSummary(site: SiteRecord): SiteSummary {
       balance,
       todayIncome,
       failedAccountCount,
-      partialAccountCount,
       disabledAccountCount,
       enabledAccountCount,
       healthLabel: `${disabledAccountCount} 已停用`,
       healthTone: "muted",
-    };
-  }
-
-  if (partialAccountCount > 0) {
-    return {
-      accountCount: site.accounts.length,
-      keyCount,
-      modelCount,
-      groupCount,
-      balance,
-      todayIncome,
-      failedAccountCount,
-      partialAccountCount,
-      disabledAccountCount,
-      enabledAccountCount,
-      healthLabel: `${partialAccountCount} 部分同步`,
-      healthTone: "warning",
     };
   }
 
@@ -414,7 +391,6 @@ function buildSiteSummary(site: SiteRecord): SiteSummary {
       balance,
       todayIncome,
       failedAccountCount,
-      partialAccountCount,
       disabledAccountCount,
       enabledAccountCount,
       healthLabel: "待配置",
@@ -438,7 +414,6 @@ function buildSiteSummary(site: SiteRecord): SiteSummary {
     balance,
     todayIncome,
     failedAccountCount,
-    partialAccountCount,
     disabledAccountCount,
     enabledAccountCount,
     healthLabel: allIdle ? "未执行" : "正常",

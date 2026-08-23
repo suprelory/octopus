@@ -582,7 +582,7 @@ export function useApplyManualSiteSync() {
         `/api/v1/site/account/manual-sync/${data.id}`,
         data.request,
       ),
-    onSuccess: () => invalidateSiteQueries(queryClient),
+    onSettled: () => invalidateSiteQueries(queryClient),
     onError: (error) => logger.error("手动同步数据应用失败:", error),
   });
 }

@@ -30,6 +30,19 @@ type siteBatchAccount struct {
 	account *model.SiteAccount
 }
 
+func markAccountSyncFailure(ctx context.Context, accountID int, syncErr error, accessToken string) {
+	if syncErr == nil {
+		return
+	}
+	message := sanitizeSiteStatusMessage(syncErr)
+	if message == "" {
+		message = "同步失败"
+	}
+	if updateErr := updateAccountSyncState(ctx, accountID, model.SiteExecutionStatusFailed, message, accessToken); updateErr != nil {
+		log.Warnf("failed to update site account sync state (account=%d): %v", accountID, updateErr)
+	}
+}
+
 func SyncAccount(ctx context.Context, accountID int) (*model.SiteSyncResult, error) {
 	siteRecord, account, err := loadSiteAccount(ctx, accountID)
 	if err != nil {
@@ -39,10 +52,7 @@ func SyncAccount(ctx context.Context, accountID int) (*model.SiteSyncResult, err
 	snapshot, syncErr := syncAccountState(ctx, siteRecord, account)
 	if snapshot == nil && syncErr != nil {
 		message := sanitizeSiteStatusMessage(syncErr)
-		updateErr := updateAccountSyncState(ctx, account.ID, model.SiteExecutionStatusFailed, message, "")
-		if updateErr != nil {
-			log.Warnf("failed to update site account sync state (account=%d): %v", account.ID, updateErr)
-		}
+		markAccountSyncFailure(ctx, account.ID, syncErr, "")
 		if staleErr := MarkAccountProjectionStale(ctx, account.ID, message); staleErr != nil {
 			log.Warnf("failed to mark site account projection stale (account=%d): %v", account.ID, staleErr)
 		}
@@ -50,11 +60,13 @@ func SyncAccount(ctx context.Context, accountID int) (*model.SiteSyncResult, err
 	}
 
 	if err := persistSyncSnapshot(ctx, account.ID, snapshot); err != nil {
+		markAccountSyncFailure(ctx, account.ID, err, snapshot.accessToken)
 		return nil, sanitizeSiteError(err)
 	}
 
 	channelIDs, err := ProjectAccount(ctx, account.ID)
 	if err != nil {
+		markAccountSyncFailure(ctx, account.ID, err, snapshot.accessToken)
 		return nil, sanitizeSiteError(err)
 	}
 

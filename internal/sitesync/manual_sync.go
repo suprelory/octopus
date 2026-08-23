@@ -219,10 +219,12 @@ func ApplyManualSync(ctx context.Context, accountID int, req ManualSyncRequest) 
 	}
 
 	if err := persistSyncSnapshot(ctx, account.ID, plan.snapshot); err != nil {
+		markAccountSyncFailure(ctx, account.ID, err, plan.snapshot.accessToken)
 		return nil, sanitizeSiteError(err)
 	}
 	channelIDs, err := ProjectAccount(ctx, account.ID)
 	if err != nil {
+		markAccountSyncFailure(ctx, account.ID, err, plan.snapshot.accessToken)
 		return nil, sanitizeSiteError(err)
 	}
 
