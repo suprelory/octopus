@@ -15,5 +15,6 @@ func ResetStateByChannel(channelID int) {
 }
 
 func ResetStateByGroup(groupID int) {
+	resetChannelAffinityByGroup(groupID)
 	globalStrategyState.resetByGroup(groupID)
 }

@@ -240,7 +240,7 @@
         },
         "channelAffinity": {
             "title": "Channel Affinity",
-            "description": "Remembers the channel and channel key from the latest fully successful request for each API key and requested model, then prefers them on later requests. Responses continuation routing still takes precedence.",
+            "description": "Remembers the channel and channel key from the latest fully successful request for each API key, group, and requested model, then prefers them on later requests. Responses continuation routing still takes precedence.",
             "enabled": {
                 "label": "Enable Channel Affinity",
                 "description": "When disabled, affinity records are neither read nor refreshed and normal load balancing resumes."

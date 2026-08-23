@@ -12,18 +12,20 @@ import (
 const defaultChannelAffinityTTL = time.Hour
 
 type SessionEntry struct {
+	GroupID      int
 	ChannelID    int
 	ChannelKeyID int
 	Timestamp    time.Time
 }
 
-func sessionKey(apiKeyID int, requestModel string) string {
-	return fmt.Sprintf("%d:%s", apiKeyID, requestModel)
+func sessionKey(apiKeyID, groupID int, requestModel string) string {
+	return fmt.Sprintf("%d:%d:%s", apiKeyID, groupID, requestModel)
 }
 
 // channelAffinity stores the channel/key that completed the latest real model
-// request. It is process-local and uses the global affinity TTL.
-var channelAffinity sync.Map // key: apiKeyID:requestModel -> *SessionEntry
+// request. The scope is API key + group + request model. It is process-local
+// and uses the global affinity TTL.
+var channelAffinity sync.Map // key: apiKeyID:groupID:requestModel -> *SessionEntry
 
 func channelAffinityEnabled() bool {
 	enabled, err := op.SettingGetBool(model.SettingKeyChannelAffinityEnabled)
@@ -46,11 +48,11 @@ func channelAffinityTTL() time.Duration {
 }
 
 // GetChannelAffinity reads an unexpired affinity while the switch is enabled.
-func GetChannelAffinity(apiKeyID int, requestModel string) *SessionEntry {
+func GetChannelAffinity(apiKeyID, groupID int, requestModel string) *SessionEntry {
 	if !channelAffinityEnabled() {
 		return nil
 	}
-	key := sessionKey(apiKeyID, requestModel)
+	key := sessionKey(apiKeyID, groupID, requestModel)
 	value, ok := channelAffinity.Load(key)
 	if !ok {
 		return nil
@@ -70,35 +72,46 @@ func GetChannelAffinity(apiKeyID int, requestModel string) *SessionEntry {
 
 // SetChannelAffinity records a fully successful real request. Disabled affinity
 // neither writes nor refreshes entries, and existing entries remain in memory.
-func SetChannelAffinity(apiKeyID int, requestModel string, channelID, keyID int) {
+func SetChannelAffinity(apiKeyID, groupID int, requestModel string, channelID, keyID int) {
 	if !channelAffinityEnabled() || channelID <= 0 {
 		return
 	}
-	channelAffinity.Store(sessionKey(apiKeyID, requestModel), &SessionEntry{
+	channelAffinity.Store(sessionKey(apiKeyID, groupID, requestModel), &SessionEntry{
+		GroupID:      groupID,
 		ChannelID:    channelID,
 		ChannelKeyID: keyID,
 		Timestamp:    time.Now(),
 	})
 }
 
-func DeleteChannelAffinity(apiKeyID int, requestModel string) {
-	channelAffinity.Delete(sessionKey(apiKeyID, requestModel))
+func DeleteChannelAffinity(apiKeyID, groupID int, requestModel string) {
+	channelAffinity.Delete(sessionKey(apiKeyID, groupID, requestModel))
 }
 
 // SetRoutingAffinity records the latest fully successful route.
-func SetRoutingAffinity(apiKeyID int, requestModel string, channelID, keyID int) {
-	SetChannelAffinity(apiKeyID, requestModel, channelID, keyID)
+func SetRoutingAffinity(apiKeyID, groupID int, requestModel string, channelID, keyID int) {
+	SetChannelAffinity(apiKeyID, groupID, requestModel, channelID, keyID)
 }
 
 // DeleteRoutingAffinity does not touch Responses replay/previous_response_id.
-func DeleteRoutingAffinity(apiKeyID int, requestModel string) {
-	DeleteChannelAffinity(apiKeyID, requestModel)
+func DeleteRoutingAffinity(apiKeyID, groupID int, requestModel string) {
+	DeleteChannelAffinity(apiKeyID, groupID, requestModel)
 }
 
 func resetChannelAffinityByChannel(channelID int) {
 	channelAffinity.Range(func(key, value any) bool {
 		entry, ok := value.(*SessionEntry)
 		if ok && entry != nil && entry.ChannelID == channelID {
+			channelAffinity.Delete(key)
+		}
+		return true
+	})
+}
+
+func resetChannelAffinityByGroup(groupID int) {
+	channelAffinity.Range(func(key, value any) bool {
+		entry, ok := value.(*SessionEntry)
+		if ok && entry != nil && entry.GroupID == groupID {
 			channelAffinity.Delete(key)
 		}
 		return true

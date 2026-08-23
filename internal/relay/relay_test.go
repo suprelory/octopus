@@ -690,7 +690,7 @@ func TestHandlerFallsBackToNextChannelAfterFirstFailure(t *testing.T) {
 		t.Fatalf("GroupItemAdd second item failed: %v", err)
 	}
 	const apiKeyID = 71
-	balancer.SetRoutingAffinity(apiKeyID, group.Name, firstChannel.ID, firstChannel.Keys[0].ID)
+	balancer.SetRoutingAffinity(apiKeyID, group.ID, group.Name, firstChannel.ID, firstChannel.Keys[0].ID)
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -712,7 +712,7 @@ func TestHandlerFallsBackToNextChannelAfterFirstFailure(t *testing.T) {
 	if !strings.Contains(recorder.Body.String(), `"content":"ok"`) {
 		t.Fatalf("expected fallback response body to be returned, got %s", recorder.Body.String())
 	}
-	affinity := balancer.GetChannelAffinity(apiKeyID, group.Name)
+	affinity := balancer.GetChannelAffinity(apiKeyID, group.ID, group.Name)
 	if affinity == nil || affinity.ChannelID != secondChannel.ID || affinity.ChannelKeyID != secondChannel.Keys[0].ID {
 		t.Fatalf("expected successful fallback to replace affinity with second channel/key, got %#v", affinity)
 	}
@@ -1100,7 +1100,7 @@ func TestHandlerStopsFailoverWhenContinuationTransportIsUnavailable(t *testing.T
 		t.Fatalf("GroupItemAdd second item failed: %v", err)
 	}
 
-	balancer.SetChannelAffinity(77, "relay-ws-continuation-group", firstChannel.ID, firstChannel.Keys[0].ID)
+	balancer.SetChannelAffinity(77, group.ID, "relay-ws-continuation-group", firstChannel.ID, firstChannel.Keys[0].ID)
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -1141,7 +1141,7 @@ func TestHandlerStopsFailoverWhenContinuationTransportIsUnavailable(t *testing.T
 	if secondHits.Load() != 0 {
 		t.Fatalf("expected failover to stop before hitting second channel, got %d hits", secondHits.Load())
 	}
-	if affinity := balancer.GetChannelAffinity(77, "relay-ws-continuation-group"); affinity != nil {
+	if affinity := balancer.GetChannelAffinity(77, group.ID, "relay-ws-continuation-group"); affinity != nil {
 		t.Fatalf("expected channel affinity to be cleared after continuation failure, got %#v", affinity)
 	}
 	wsUpstreamPool.Remove(pc.poolKey)
@@ -1953,7 +1953,7 @@ func TestHandleResponsesCompactProxiesSuccessfulResponse(t *testing.T) {
 	if !strings.Contains(recorder.Body.String(), `"object":"response.compaction"`) {
 		t.Fatalf("expected compact response to be proxied, got %s", recorder.Body.String())
 	}
-	if affinity := balancer.GetChannelAffinity(42, "relay-compact-group"); affinity == nil || affinity.ChannelID != channel.ID || affinity.ChannelKeyID != channel.Keys[0].ID {
+	if affinity := balancer.GetChannelAffinity(42, group.ID, "relay-compact-group"); affinity == nil || affinity.ChannelID != channel.ID || affinity.ChannelKeyID != channel.Keys[0].ID {
 		t.Fatalf("expected compact success to refresh channel affinity, got %#v", affinity)
 	}
 	logItems, err := op.RelayLogList(ctx, nil, nil, nil, 1, 10)

@@ -24,7 +24,7 @@ const (
 	SettingKeyCircuitBreakerThreshold          SettingKey = "circuit_breaker_threshold"            // 熔断触发阈值（连续失败次数）
 	SettingKeyCircuitBreakerCooldown           SettingKey = "circuit_breaker_cooldown"             // 熔断基础冷却时间（秒）
 	SettingKeyCircuitBreakerMaxCooldown        SettingKey = "circuit_breaker_max_cooldown"         // 熔断最大冷却时间（秒），指数退避上限
-	SettingKeyChannelAffinityEnabled           SettingKey = "channel_affinity_enabled"             // 是否优先复用同一 API Key/模型上次成功的渠道
+	SettingKeyChannelAffinityEnabled           SettingKey = "channel_affinity_enabled"             // 是否优先复用同一 API Key/分组/模型上次成功的渠道
 	SettingKeyChannelAffinityTTLSeconds        SettingKey = "channel_affinity_ttl_seconds"         // 渠道亲和记录 TTL（秒）
 	SettingKeyEmptyResponseDetectionEnabled    SettingKey = "empty_response_detection_enabled"     // 是否全局启用空回检测
 	SettingKeyRelayMaxChannelAttempts          SettingKey = "relay_max_channel_attempts"           // 单个 HTTP 请求最多尝试的候选渠道数
@@ -68,7 +68,7 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyCircuitBreakerThreshold, Value: "5"},          // 默认连续失败5次触发熔断
 		{Key: SettingKeyCircuitBreakerCooldown, Value: "60"},          // 默认基础冷却60秒
 		{Key: SettingKeyCircuitBreakerMaxCooldown, Value: "600"},      // 默认最大冷却600秒（10分钟）
-		{Key: SettingKeyChannelAffinityEnabled, Value: "true"},        // 默认启用同 API Key/模型的成功渠道亲和
+		{Key: SettingKeyChannelAffinityEnabled, Value: "true"},        // 默认启用同 API Key/分组/模型的成功渠道亲和
 		{Key: SettingKeyChannelAffinityTTLSeconds, Value: "3600"},     // 默认保留 1 小时
 		{Key: SettingKeyEmptyResponseDetectionEnabled, Value: "true"}, // 默认启用空回检测
 		{Key: SettingKeyRelayMaxChannelAttempts, Value: "4"},          // 默认最多尝试 4 个候选渠道

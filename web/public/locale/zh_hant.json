@@ -240,7 +240,7 @@
         },
         "channelAffinity": {
             "title": "渠道親和",
-            "description": "按 API Key 和請求模型記錄最近一次完整成功的渠道與渠道金鑰，並在後續請求中優先複用；Responses 會話續接仍具有更高優先級。",
+            "description": "按 API Key、分組和請求模型記錄最近一次完整成功的渠道與渠道金鑰，並在後續請求中優先複用；Responses 會話續接仍具有更高優先級。",
             "enabled": {
                 "label": "啟用渠道親和",
                 "description": "關閉後不讀取或刷新親和記錄，並恢復普通負載均衡順序。"

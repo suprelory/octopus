@@ -248,7 +248,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 			// 熔断器：记录成功
 			balancer.RecordSuccess(channel.ID, usedKey.ID, item.ModelName)
 			// Refresh affinity only after the complete image response succeeds.
-			balancer.SetRoutingAffinity(apiKeyID, requestModel, channel.ID, usedKey.ID)
+			balancer.SetRoutingAffinity(apiKeyID, group.ID, requestModel, channel.ID, usedKey.ID)
 
 			metrics.SaveWithChannelStats(ctx, true, nil, iter.Attempts(), false)
 			return

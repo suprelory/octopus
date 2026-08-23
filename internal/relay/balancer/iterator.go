@@ -16,6 +16,7 @@ type Iterator struct {
 	index        int
 	preferences  map[int]routingPreference
 	apiKeyID     int
+	groupID      int
 	requestModel string
 	modelName    string // 请求模型名（用于熔断检查）
 	mode         model.GroupMode
@@ -105,7 +106,7 @@ func NewIteratorWithPreferenceAndQuality(group model.Group, apiKeyID int, reques
 			entry:  *preferred,
 		})
 	}
-	if affinity := GetChannelAffinity(apiKeyID, requestModel); affinity != nil {
+	if affinity := GetChannelAffinity(apiKeyID, group.ID, requestModel); affinity != nil {
 		preferenceCandidates = append(preferenceCandidates, routingPreference{
 			source: PreferenceChannelAffinity,
 			entry:  *affinity,
@@ -126,7 +127,7 @@ func NewIteratorWithPreferenceAndQuality(group model.Group, apiKeyID int, reques
 		preferredItem, preferredTier, found := findPreferredCandidate(rankedTiers, channelID)
 		if !found {
 			if preference.source == PreferenceChannelAffinity {
-				DeleteChannelAffinity(apiKeyID, requestModel)
+				DeleteChannelAffinity(apiKeyID, group.ID, requestModel)
 			}
 			continue
 		}
@@ -178,6 +179,7 @@ func NewIteratorWithPreferenceAndQuality(group model.Group, apiKeyID int, reques
 		index:           -1,
 		preferences:     preferences,
 		apiKeyID:        apiKeyID,
+		groupID:         group.ID,
 		requestModel:    requestModel,
 		modelName:       requestModel,
 		mode:            group.Mode,
@@ -409,7 +411,7 @@ func (it *Iterator) InvalidateCurrentPreference() {
 	if !ok || preference.source == PreferenceResponsesReplay {
 		return
 	}
-	DeleteRoutingAffinity(it.apiKeyID, it.requestModel)
+	DeleteRoutingAffinity(it.apiKeyID, it.groupID, it.requestModel)
 	for index, remainingPreference := range it.preferences {
 		if index >= it.index && remainingPreference.source != PreferenceResponsesReplay {
 			delete(it.preferences, index)

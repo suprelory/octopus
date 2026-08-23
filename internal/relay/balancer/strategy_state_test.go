@@ -101,7 +101,7 @@ func TestPreferencesStayWithinBestQualityTier(t *testing.T) {
 			{ID: 2, ChannelID: 2, ModelName: "translated", Priority: 2},
 		},
 	}
-	SetChannelAffinity(apiKeyID, requestModel, 2, 202)
+	SetChannelAffinity(apiKeyID, group.ID, requestModel, 2, 202)
 	iterator := NewIteratorWithPreferenceAndQuality(
 		group,
 		apiKeyID,
@@ -352,14 +352,14 @@ func TestStickyPreferenceDoesNotAdvanceWeightedState(t *testing.T) {
 			{ID: 2, ChannelID: 2, ModelName: "upstream-b", Weight: 1},
 		},
 	}
-	SetChannelAffinity(apiKeyID, requestModel, 2, 22)
+	SetChannelAffinity(apiKeyID, group.ID, requestModel, 2, 22)
 	for index := 0; index < 5; index++ {
 		iterator := NewIterator(group, apiKeyID, requestModel)
 		if !iterator.Next() || iterator.Item().ChannelID != 2 || !iterator.IsSticky() {
 			t.Fatalf("sticky selection %d = %#v", index, iterator)
 		}
 	}
-	DeleteChannelAffinity(apiKeyID, requestModel)
+	DeleteChannelAffinity(apiKeyID, group.ID, requestModel)
 	if got := firstCandidateChannel(t, group, requestModel, nil); got != 1 {
 		t.Fatalf("first ordinary candidate after sticky traffic = %d, want 1", got)
 	}

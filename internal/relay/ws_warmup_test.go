@@ -85,7 +85,7 @@ func TestBestEffortWarmupUpstreamWSOnlyPrimesPool(t *testing.T) {
 		t.Fatalf("expected one upstream ws connection to be accepted, got %d", accepted.Load())
 	}
 
-	if affinity := balancer.GetChannelAffinity(321, "relay-warmup-group"); affinity != nil {
+	if affinity := balancer.GetChannelAffinity(321, group.ID, "relay-warmup-group"); affinity != nil {
 		t.Fatalf("expected warmup not to create or refresh channel affinity, got %#v", affinity)
 	}
 

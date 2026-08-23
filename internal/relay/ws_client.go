@@ -265,7 +265,7 @@ func processWSResponseCreate(
 	if result.ResetConversation && autoRestart && !req.streamWriter.Written() {
 		log.Debugf("ws relay switching to replay (apikey=%d, request_model=%s, failed_previous_response_id=%s, reset_conversation=%t)",
 			apiKeyID, requestModel, failedPreviousResponseID, result.ResetConversation)
-		balancer.DeleteRoutingAffinity(apiKeyID, requestModel)
+		balancer.DeleteRoutingAffinity(apiKeyID, group.ID, requestModel)
 		replayedRequest := conversationState.BuildReplayRequest(originalRequest)
 		replayReq, replayGroup, replayErr := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, clientIP, replayedRequest, originalRequest, preferredSticky, bodyBytes)
 		if replayErr == nil {
@@ -723,7 +723,7 @@ func finalizeWSRelay(ctx context.Context, conn *websocket.Conn, req *relayReques
 	}
 	if result.PublicError != nil {
 		if result.PublicError.ResetConversation {
-			balancer.DeleteRoutingAffinity(req.apiKeyID, req.requestModel)
+			balancer.DeleteRoutingAffinity(req.apiKeyID, req.groupID, req.requestModel)
 		}
 		writeWSError(ctx, conn, result.PublicError.Status, result.PublicError.Code, result.PublicError.Message, result.RetryAt)
 		return result
