@@ -1,4 +1,4 @@
 export function siteSyncStatusHasFailure(status?: string | null) {
   const normalized = status || "idle";
-  return normalized === "failed" || normalized === "partial";
+  return normalized === "failed";
 }
