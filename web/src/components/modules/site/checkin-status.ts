@@ -3,21 +3,27 @@ import {
   type SiteAccount,
   SitePlatform,
 } from "@/api/endpoints/site";
+import { siteAccountHasActiveSyncFailure } from "./sync-health";
 
 export type CheckinFilterStatus =
   | "all"
   | "success"
   | "failed"
+  | "sync_failed"
   | "idle"
   | "disabled";
 
 export type CheckinActiveFilterStatus = Exclude<CheckinFilterStatus, "all">;
-export type DerivedCheckinStatus = CheckinActiveFilterStatus;
+export type DerivedCheckinStatus = Exclude<
+  CheckinActiveFilterStatus,
+  "sync_failed"
+>;
 
 export type CheckinSummary = {
   total: number;
   success: number;
   failed: number;
+  sync_failed: number;
   idle: number;
   disabled: number;
 };
@@ -31,6 +37,7 @@ export function createEmptyCheckinSummary(): CheckinSummary {
     total: 0,
     success: 0,
     failed: 0,
+    sync_failed: 0,
     idle: 0,
     disabled: 0,
   };
@@ -128,7 +135,13 @@ export function accountMatchesCheckinFilters(
   site: Pick<Site, "enabled" | "platform" | "checkin_timezone">,
   account: Pick<
     SiteAccount,
-    "enabled" | "auto_checkin" | "last_checkin_at" | "last_checkin_success_at" | "last_checkin_status"
+    | "enabled"
+    | "auto_sync"
+    | "auto_checkin"
+    | "last_sync_status"
+    | "last_checkin_at"
+    | "last_checkin_success_at"
+    | "last_checkin_status"
   >,
   filterStatuses: CheckinActiveFilterStatus[],
   now = new Date(),
@@ -137,8 +150,13 @@ export function accountMatchesCheckinFilters(
     return true;
   }
 
-  const status = deriveCheckinStatus(site, account, now);
-  return status ? filterStatuses.includes(status) : false;
+  const checkinStatus = deriveCheckinStatus(site, account, now);
+  return filterStatuses.some((status) => {
+    if (status === "sync_failed") {
+      return siteAccountHasActiveSyncFailure(site, account);
+    }
+    return checkinStatus === status;
+  });
 }
 
 export function buildCheckinSummary(
@@ -150,12 +168,17 @@ export function buildCheckinSummary(
   for (const site of sites ?? []) {
     for (const account of site.accounts ?? []) {
       const status = deriveCheckinStatus(site, account, now);
-      if (!status) {
-        continue;
+      if (status) {
+        summary.total += 1;
+        summary[status] += 1;
       }
 
-      summary.total += 1;
-      summary[status] += 1;
+      if (siteAccountHasActiveSyncFailure(site, account)) {
+        if (!status) {
+          summary.total += 1;
+        }
+        summary.sync_failed += 1;
+      }
     }
   }
 

@@ -24,7 +24,8 @@ import {
 const FILTERS: Array<{ key: CheckinFilterStatus; label: string }> = [
   { key: "all", label: "全部" },
   { key: "success", label: "成功" },
-  { key: "failed", label: "失败" },
+  { key: "failed", label: "签到失败" },
+  { key: "sync_failed", label: "同步失败" },
   { key: "idle", label: "未执行" },
   { key: "disabled", label: "禁用" },
 ];
@@ -35,6 +36,7 @@ function filterTone(status: CheckinFilterStatus, active: boolean) {
       case "success":
         return "border-emerald-500/30 bg-emerald-500 text-white";
       case "failed":
+      case "sync_failed":
         return "border-destructive/30 bg-destructive text-white";
       case "idle":
         return "border-border bg-foreground text-background";
@@ -50,6 +52,7 @@ function filterTone(status: CheckinFilterStatus, active: boolean) {
     case "success":
       return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
     case "failed":
+    case "sync_failed":
       return "border-destructive/20 bg-destructive/10 text-destructive";
     case "idle":
       return "border-border bg-muted/40 text-muted-foreground";
@@ -192,7 +195,7 @@ export function CheckinPanel({
           />
           <OverviewMetric
             icon={<AlertTriangle className="size-4" />}
-            label="今日异常"
+            label="今日签到异常"
             value={`${summary.failed}`}
             tone={summary.failed > 0 ? "warning" : "default"}
           />
