@@ -30,6 +30,13 @@ type siteBatchAccount struct {
 	account *model.SiteAccount
 }
 
+func snapshotAccessToken(snapshot *syncSnapshot) string {
+	if snapshot == nil {
+		return ""
+	}
+	return snapshot.accessToken
+}
+
 func markAccountSyncFailure(ctx context.Context, accountID int, syncErr error, accessToken string) {
 	if syncErr == nil {
 		return
@@ -60,13 +67,13 @@ func SyncAccount(ctx context.Context, accountID int) (*model.SiteSyncResult, err
 	}
 
 	if err := persistSyncSnapshot(ctx, account.ID, snapshot); err != nil {
-		markAccountSyncFailure(ctx, account.ID, err, snapshot.accessToken)
+		markAccountSyncFailure(ctx, account.ID, err, snapshotAccessToken(snapshot))
 		return nil, sanitizeSiteError(err)
 	}
 
 	channelIDs, err := ProjectAccount(ctx, account.ID)
 	if err != nil {
-		markAccountSyncFailure(ctx, account.ID, err, snapshot.accessToken)
+		markAccountSyncFailure(ctx, account.ID, err, snapshotAccessToken(snapshot))
 		return nil, sanitizeSiteError(err)
 	}
 
