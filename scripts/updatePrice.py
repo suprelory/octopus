@@ -6,6 +6,8 @@
 
 import json
 import re
+import shutil
+import subprocess
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -237,7 +239,21 @@ def main():
     output_path = script_dir.parent / "internal" / "price" / "presets.go"
 
     output_path.write_text(content, encoding="utf-8")
+    format_generated_file(output_path)
     print(f"\nGenerated {output_path} with {len(entries)} models")
+
+
+def format_generated_file(path: Path) -> None:
+    """对生成结果跑一遍 gofmt，使其能通过 CI 的格式检查。"""
+    gofmt = shutil.which("gofmt")
+    if gofmt is None:
+        print("  Warning: gofmt not found, generated file left unformatted")
+        return
+    result = subprocess.run(
+        [gofmt, "-w", str(path)], capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        print(f"  Warning: gofmt failed: {result.stderr.strip()}")
 
 
 if __name__ == "__main__":

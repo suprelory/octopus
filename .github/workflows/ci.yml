@@ -35,6 +35,20 @@ jobs:
           mkdir -p static/out
           touch static/out/.keep
 
+      - name: Format
+        run: |
+          # Scoped to the Go source roots so the check never walks web/node_modules.
+          unformatted="$(gofmt -l cmd internal scripts static main.go)"
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"
+            echo "$unformatted"
+            gofmt -d $unformatted
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
       - name: Test price generator
         run: python -m unittest discover -s scripts -p 'test_*.py'
 
