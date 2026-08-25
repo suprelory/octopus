@@ -15,9 +15,12 @@ type Migration struct {
 
 type MigrationRecordStatus int
 
+// Values are assigned explicitly: omitting the expression in a const group
+// repeats the previous one rather than incrementing, which previously made
+// Failed equal Success and caused failed migrations to be skipped forever.
 const (
 	MigrationRecordStatusSuccess MigrationRecordStatus = 1
-	MigrationRecordStatusFailed
+	MigrationRecordStatusFailed  MigrationRecordStatus = 2
 )
 
 type MigrationRecord struct {
