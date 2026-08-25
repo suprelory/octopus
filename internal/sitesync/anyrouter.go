@@ -796,26 +796,37 @@ func anyRouterRequestJSONWithCookies(ctx context.Context, siteRecord *model.Site
 			bodyReader = bytes.NewReader(payloadBytes)
 		}
 
-		req, err := http.NewRequestWithContext(ctx, method, requestURL, bodyReader)
+		// Bound each shield-challenge attempt separately, so three unresponsive
+		// tries cannot together outlast the batch deadline.
+		bodyBytes, respHeader, statusCode, err := func() ([]byte, http.Header, int, error) {
+			attemptCtx, cancel := context.WithTimeout(ctx, siteRequestTimeout)
+			defer cancel()
+
+			req, err := http.NewRequestWithContext(attemptCtx, method, requestURL, bodyReader)
+			if err != nil {
+				return nil, nil, 0, err
+			}
+			for key, value := range mergedHeaders {
+				req.Header.Set(key, value)
+			}
+
+			resp, err := httpClient.Do(req)
+			if err != nil {
+				return nil, nil, 0, err
+			}
+			defer resp.Body.Close()
+
+			bodyBytes, readErr := readSiteResponseBody(resp.Body)
+			if readErr != nil {
+				return nil, nil, 0, readErr
+			}
+			return bodyBytes, resp.Header, resp.StatusCode, nil
+		}()
 		if err != nil {
 			return nil, cookieHeader, err
 		}
-		for key, value := range mergedHeaders {
-			req.Header.Set(key, value)
-		}
 
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			return nil, cookieHeader, err
-		}
-
-		bodyBytes, readErr := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if readErr != nil {
-			return nil, cookieHeader, readErr
-		}
-
-		cookieHeader = anyRouterMergeSetCookiePairs(cookieHeader, resp.Header.Values("Set-Cookie"))
+		cookieHeader = anyRouterMergeSetCookiePairs(cookieHeader, respHeader.Values("Set-Cookie"))
 		if cookieHeader != "" {
 			mergedHeaders["Cookie"] = cookieHeader
 		}
@@ -825,8 +836,8 @@ func anyRouterRequestJSONWithCookies(ctx context.Context, siteRecord *model.Site
 		}
 
 		text := strings.TrimSpace(string(bodyBytes))
-		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			if anyRouterIsShieldChallenge(resp.Header.Get("Content-Type"), text) && cookieHeader != "" {
+		if statusCode >= 200 && statusCode < 300 {
+			if anyRouterIsShieldChallenge(respHeader.Get("Content-Type"), text) && cookieHeader != "" {
 				acwScV2 := anyRouterSolveAcwScV2(text)
 				if acwScV2 != "" {
 					cookieHeader = anyRouterUpsertCookie(cookieHeader, "acw_sc__v2", acwScV2)
@@ -837,7 +848,7 @@ func anyRouterRequestJSONWithCookies(ctx context.Context, siteRecord *model.Site
 			return nil, cookieHeader, nil
 		}
 
-		return nil, cookieHeader, anyRouterFormatHTTPError(resp.StatusCode, resp.Header, text)
+		return nil, cookieHeader, anyRouterFormatHTTPError(statusCode, respHeader, text)
 	}
 
 	return nil, cookieHeader, nil

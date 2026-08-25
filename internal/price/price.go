@@ -17,6 +17,9 @@ import (
 
 const llmPriceUrl = "https://models.dev/api.json"
 
+// llmPriceBodyLimit caps the third-party price catalogue we buffer into memory.
+const llmPriceBodyLimit = 32 << 20
+
 var Provider = []string{
 	"openai",     // GPT 系列
 	"anthropic",  // Claude 系列
@@ -61,9 +64,12 @@ func UpdateLLMPrice(ctx context.Context) error {
 			Cost model.LLMPrice `json:"cost"`
 		} `json:"models"`
 	}
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, llmPriceBodyLimit+1))
 	if err != nil {
 		return fmt.Errorf("failed to read response body: %w", err)
+	}
+	if len(body) > llmPriceBodyLimit {
+		return fmt.Errorf("LLM price response exceeds the %d MiB limit", llmPriceBodyLimit>>20)
 	}
 	if err := json.Unmarshal(body, &rawPrice); err != nil {
 		return fmt.Errorf("failed to parse LLM info: %w", err)

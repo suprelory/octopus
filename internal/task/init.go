@@ -33,7 +33,11 @@ func Init() {
 	priceUpdateInterval := time.Duration(priceUpdateIntervalHours) * time.Hour
 	// 注册价格更新任务
 	Register(string(model.SettingKeyModelInfoUpdateInterval), priceUpdateInterval, true, func() {
-		if err := price.UpdateLLMPrice(context.Background()); err != nil {
+		// Bound the third-party fetch; an unresponsive host would otherwise hold
+		// this task open until the process restarts.
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if err := price.UpdateLLMPrice(ctx); err != nil {
 			log.Warnf("failed to update price info: %v", err)
 		}
 	})

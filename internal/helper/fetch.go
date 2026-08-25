@@ -15,6 +15,9 @@ import (
 
 const modelFetchUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36"
 
+// modelResponseBodyLimit caps how much of a channel's model listing is buffered.
+const modelResponseBodyLimit = 32 << 20
+
 func FetchModels(ctx context.Context, request model.Channel) ([]string, error) {
 	client, err := ChannelHTTPClientWithContext(ctx, &request)
 	if err != nil {
@@ -198,9 +201,12 @@ func applyDefaultModelRequestHeaders(req *http.Request, request model.Channel) {
 }
 
 func decodeModelJSONResponse(resp *http.Response, result any) error {
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, modelResponseBodyLimit+1))
 	if err != nil {
 		return err
+	}
+	if len(bodyBytes) > modelResponseBodyLimit {
+		return fmt.Errorf("upstream model response exceeds the %d MiB limit", modelResponseBodyLimit>>20)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return formatModelHTTPError(resp.StatusCode, resp.Header.Get("Content-Type"), bodyBytes)

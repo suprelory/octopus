@@ -9,11 +9,38 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/bestruirui/octopus/internal/client"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 )
+
+// siteResponseBodyLimit caps how much of an upstream response is buffered. Model
+// and token listings are the largest legitimate payloads; anything past this is
+// treated as a malformed response rather than read into memory.
+const siteResponseBodyLimit = 32 << 20
+
+// siteRequestTimeout bounds one upstream call. Site sync is a metadata API
+// conversation, not a model stream, so a slow response means a broken site.
+// Overridable so tests do not have to wait out the real bound.
+var siteRequestTimeout = 60 * time.Second
+
+// readSiteResponseBody buffers an upstream body up to siteResponseBodyLimit and
+// reports oversized responses instead of reading them without bound.
+func readSiteResponseBody(body io.Reader) ([]byte, error) {
+	if body == nil {
+		return nil, nil
+	}
+	bodyBytes, err := io.ReadAll(io.LimitReader(body, siteResponseBodyLimit+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(bodyBytes) > siteResponseBodyLimit {
+		return nil, fmt.Errorf("上游响应超过 %d MiB 上限", siteResponseBodyLimit>>20)
+	}
+	return bodyBytes, nil
+}
 
 func siteHTTPClient(ctx context.Context, siteRecord *model.Site, accounts ...*model.SiteAccount) (*http.Client, error) {
 	if siteRecord == nil {
@@ -58,6 +85,12 @@ func requestJSON(ctx context.Context, siteRecord *model.Site, method string, req
 		return nil, err
 	}
 
+	// The shared relay client has no Timeout (streaming relays need none) and the
+	// caller's context only carries the batch-wide deadline, so without a
+	// per-request bound one unresponsive site stalls the whole sync batch.
+	ctx, cancel := context.WithTimeout(ctx, siteRequestTimeout)
+	defer cancel()
+
 	var bodyReader io.Reader
 	if body != nil {
 		payload, marshalErr := json.Marshal(body)
@@ -89,7 +122,7 @@ func requestJSON(ctx context.Context, siteRecord *model.Site, method string, req
 	}
 	defer resp.Body.Close()
 
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, err := readSiteResponseBody(resp.Body)
 	if err != nil {
 		return nil, err
 	}
