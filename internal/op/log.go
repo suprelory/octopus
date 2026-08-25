@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -36,6 +37,14 @@ var relayLogRecentLock sync.Mutex
 
 var relayLogFlushLock sync.Mutex
 var relayLogFlushSignal = make(chan struct{}, 1)
+
+// relayLogClearing rejects overlapping RelayLogClear calls. The purge cannot
+// hold relayLogFlushLock across its batched deletes — that would block the
+// background flusher long enough for the pending queue to overflow and drop
+// logs — so it takes the lock only to claim and release this flag. Logs that
+// arrive mid-purge are either swept up by a later batch or simply survive, which
+// matches "clear the logs that existed when the request was made".
+var relayLogClearing bool
 var relayLogDroppedTotal atomic.Uint64
 var relayLogLastDropWarn atomic.Int64
 
@@ -1068,8 +1077,23 @@ func relayLogSearchMode(filter RelayLogListFilter) string {
 }
 
 func RelayLogClear(ctx context.Context) error {
+	// Claim the purge under the flush lock so a flush already in flight finishes
+	// first and concurrent clears are rejected, then release it before the
+	// batched deletes: holding it across a multi-million-row purge stalls the
+	// background flusher long enough to overflow the pending queue.
 	relayLogFlushLock.Lock()
-	defer relayLogFlushLock.Unlock()
+	if relayLogClearing {
+		relayLogFlushLock.Unlock()
+		return fmt.Errorf("relay log clear already in progress")
+	}
+	relayLogClearing = true
+	relayLogFlushLock.Unlock()
+
+	defer func() {
+		relayLogFlushLock.Lock()
+		relayLogClearing = false
+		relayLogFlushLock.Unlock()
+	}()
 
 	// 缓存的 total 在删除后立刻失效，否则清空日志后列表还会显示旧总数。
 	defer RelayLogTotalCacheInvalidate()
