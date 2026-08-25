@@ -62,6 +62,10 @@ func HandleWSResponse(c *gin.Context) {
 	log.Debugf("ws client connected (apikey=%d)", apiKeyID)
 
 	downstreamSessionID := fmt.Sprintf("ws_%d", time.Now().UnixNano())
+	// The session ID is unique to this connection, so any state left behind is
+	// unreachable once we return. Release it here instead of waiting for the
+	// sweeper to notice the TTL.
+	defer deleteWSConversationStatesBySession(apiKeyID, downstreamSessionID)
 	var conversationState *wsConversationState
 
 	// Message loop
