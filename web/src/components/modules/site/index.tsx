@@ -79,7 +79,10 @@ import {
   type CheckinFilterStatus,
 } from "./checkin-status";
 import { translateSiteMessage } from "./site-message";
-import { siteSyncStatusHasFailure } from "./sync-health";
+import {
+  siteAccountHasActivePartialSync,
+  siteAccountHasActiveSyncFailure,
+} from "./sync-health";
 import { useSiteUIStore } from "./ui-store";
 import {
   isSiteJumpTarget,
@@ -248,10 +251,6 @@ function normalizedStatus(status?: string | null) {
   return status || "idle";
 }
 
-function accountHasSyncFailure(account: SiteAccount) {
-  return siteSyncStatusHasFailure(account.last_sync_status);
-}
-
 function accountHasCheckinFailure(
   site: SiteRecord,
   account: SiteAccount,
@@ -259,11 +258,16 @@ function accountHasCheckinFailure(
   return deriveCheckinStatus(site, account) === "failed";
 }
 
+// Shares siteAccountHasActiveSyncFailure's gate so the card badge and the
+// "同步失败" filter describe the same set of accounts.
 function accountHasHealthFailure(
   site: SiteRecord,
   account: SiteAccount,
 ) {
-  return accountHasSyncFailure(account) || accountHasCheckinFailure(site, account);
+  return (
+    siteAccountHasActiveSyncFailure(site, account) ||
+    accountHasCheckinFailure(site, account)
+  );
 }
 
 function statusDotClass(status: string) {
@@ -333,7 +337,7 @@ function buildSiteSummary(site: SiteRecord): SiteSummary {
 
     if (accountHasHealthFailure(site, account)) {
       failedAccountCount += 1;
-    } else if (normalizedStatus(account.last_sync_status) === "partial") {
+    } else if (siteAccountHasActivePartialSync(site, account)) {
       partialAccountCount += 1;
     }
   }
@@ -372,6 +376,26 @@ function buildSiteSummary(site: SiteRecord): SiteSummary {
     };
   }
 
+  // A partial sync is actionable, so it outranks the purely informational
+  // "some accounts are disabled" label; otherwise one disabled account hides
+  // the warning for every partially synced account on the site.
+  if (partialAccountCount > 0) {
+    return {
+      accountCount: site.accounts.length,
+      keyCount,
+      modelCount,
+      groupCount,
+      balance,
+      todayIncome,
+      failedAccountCount,
+      partialAccountCount,
+      disabledAccountCount,
+      enabledAccountCount,
+      healthLabel: `${partialAccountCount} 部分同步`,
+      healthTone: "warning",
+    };
+  }
+
   if (disabledAccountCount > 0) {
     return {
       accountCount: site.accounts.length,
@@ -402,23 +426,6 @@ function buildSiteSummary(site: SiteRecord): SiteSummary {
       disabledAccountCount,
       enabledAccountCount,
       healthLabel: "待配置",
-      healthTone: "warning",
-    };
-  }
-
-  if (partialAccountCount > 0) {
-    return {
-      accountCount: site.accounts.length,
-      keyCount,
-      modelCount,
-      groupCount,
-      balance,
-      todayIncome,
-      failedAccountCount,
-      partialAccountCount,
-      disabledAccountCount,
-      enabledAccountCount,
-      healthLabel: `${partialAccountCount} 部分同步`,
       healthTone: "warning",
     };
   }
@@ -1667,11 +1674,17 @@ export function Site() {
                       <div className="space-y-2">
                         {visibleAccounts.map((account) => {
                           const accountFailed = accountHasHealthFailure(site, account);
+                          const accountPartial = siteAccountHasActivePartialSync(
+                            site,
+                            account,
+                          );
                           const accountTone: HealthTone = accountFailed
                             ? "danger"
-                            : account.enabled
-                              ? "default"
-                              : "muted";
+                            : accountPartial
+                              ? "warning"
+                              : account.enabled
+                                ? "default"
+                                : "muted";
                           const supportsCheckin = sitePlatformSupportsCheckin(
                             site.platform,
                           );
