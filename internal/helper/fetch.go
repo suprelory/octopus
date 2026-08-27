@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/transformer/outbound"
@@ -18,7 +19,20 @@ const modelFetchUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebK
 // modelResponseBodyLimit caps how much of a channel's model listing is buffered.
 const modelResponseBodyLimit = 32 << 20
 
+// modelFetchRequestTimeout bounds one upstream model-listing request. The shared
+// relay client has no Timeout (streaming relays need none) and callers only pass
+// a batch-wide deadline, so without a per-request bound a single unresponsive
+// upstream stalls the whole batch — site sync fetches models once per candidate
+// base URL in a loop. Paginated listings get this bound per page, not per call.
+const modelFetchRequestTimeout = 60 * time.Second
+
 func FetchModels(ctx context.Context, request model.Channel) ([]string, error) {
+	return fetchModels(ctx, request, modelFetchRequestTimeout)
+}
+
+// fetchModels takes the per-request bound explicitly so tests can shorten it
+// without mutating package state.
+func fetchModels(ctx context.Context, request model.Channel, requestTimeout time.Duration) ([]string, error) {
 	client, err := ChannelHTTPClientWithContext(ctx, &request)
 	if err != nil {
 		return nil, err
@@ -26,11 +40,11 @@ func FetchModels(ctx context.Context, request model.Channel) ([]string, error) {
 	var fetchModel []string
 	switch request.Type {
 	case outbound.OutboundTypeAnthropic:
-		fetchModel, err = fetchAnthropicModels(client, ctx, request)
+		fetchModel, err = fetchAnthropicModels(client, ctx, request, requestTimeout)
 	case outbound.OutboundTypeGemini:
-		fetchModel, err = fetchGeminiModels(client, ctx, request)
+		fetchModel, err = fetchGeminiModels(client, ctx, request, requestTimeout)
 	default:
-		fetchModel, err = fetchOpenAIModels(client, ctx, request)
+		fetchModel, err = fetchOpenAIModels(client, ctx, request, requestTimeout)
 	}
 	if err != nil {
 		return nil, err
@@ -55,25 +69,46 @@ func FetchModels(ctx context.Context, request model.Channel) ([]string, error) {
 	return fetchModel, nil
 }
 
-// refer: https://platform.openai.com/docs/api-reference/models/list
-func fetchOpenAIModels(client *http.Client, ctx context.Context, request model.Channel) ([]string, error) {
-	req, _ := http.NewRequestWithContext(
-		ctx,
-		http.MethodGet,
-		request.GetBaseUrl()+"/models",
-		nil,
-	)
-	applyDefaultModelRequestHeaders(req, request)
-	req.Header.Set("Authorization", "Bearer "+request.GetChannelKey().ChannelKey)
+// doBoundedModelRequest issues one model-listing request under its own deadline
+// and decodes the response into result. The deadline covers building, sending and
+// reading a single request, so paginated callers can invoke this per page without
+// letting hung pages accumulate.
+func doBoundedModelRequest(client *http.Client, ctx context.Context, requestTimeout time.Duration, buildRequest func(context.Context) (*http.Request, error), result any) error {
+	reqCtx, cancel := context.WithTimeout(ctx, requestTimeout)
+	defer cancel()
+
+	req, err := buildRequest(reqCtx)
+	if err != nil {
+		return err
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer resp.Body.Close()
 
+	return decodeModelJSONResponse(resp, result)
+}
+
+// refer: https://platform.openai.com/docs/api-reference/models/list
+func fetchOpenAIModels(client *http.Client, ctx context.Context, request model.Channel, requestTimeout time.Duration) ([]string, error) {
 	var result model.OpenAIModelList
-	if err := decodeModelJSONResponse(resp, &result); err != nil {
+	err := doBoundedModelRequest(client, ctx, requestTimeout, func(reqCtx context.Context) (*http.Request, error) {
+		req, err := http.NewRequestWithContext(
+			reqCtx,
+			http.MethodGet,
+			request.GetBaseUrl()+"/models",
+			nil,
+		)
+		if err != nil {
+			return nil, err
+		}
+		applyDefaultModelRequestHeaders(req, request)
+		req.Header.Set("Authorization", "Bearer "+request.GetChannelKey().ChannelKey)
+		return req, nil
+	}, &result)
+	if err != nil {
 		return nil, err
 	}
 
@@ -85,36 +120,35 @@ func fetchOpenAIModels(client *http.Client, ctx context.Context, request model.C
 }
 
 // refer: https://ai.google.dev/api/models
-func fetchGeminiModels(client *http.Client, ctx context.Context, request model.Channel) ([]string, error) {
+func fetchGeminiModels(client *http.Client, ctx context.Context, request model.Channel, requestTimeout time.Duration) ([]string, error) {
 	var allModels []string
 	pageToken := ""
 
 	for {
-		req, _ := http.NewRequestWithContext(
-			ctx,
-			http.MethodGet,
-			request.GetBaseUrl()+"/models",
-			nil,
-		)
-		applyDefaultModelRequestHeaders(req, request)
-		req.Header.Set("X-Goog-Api-Key", request.GetChannelKey().ChannelKey)
-		if pageToken != "" {
-			q := req.URL.Query()
-			q.Add("pageToken", pageToken)
-			req.URL.RawQuery = q.Encode()
-		}
-
-		resp, err := client.Do(req)
+		currentPageToken := pageToken
+		var result model.GeminiModelList
+		err := doBoundedModelRequest(client, ctx, requestTimeout, func(reqCtx context.Context) (*http.Request, error) {
+			req, err := http.NewRequestWithContext(
+				reqCtx,
+				http.MethodGet,
+				request.GetBaseUrl()+"/models",
+				nil,
+			)
+			if err != nil {
+				return nil, err
+			}
+			applyDefaultModelRequestHeaders(req, request)
+			req.Header.Set("X-Goog-Api-Key", request.GetChannelKey().ChannelKey)
+			if currentPageToken != "" {
+				q := req.URL.Query()
+				q.Add("pageToken", currentPageToken)
+				req.URL.RawQuery = q.Encode()
+			}
+			return req, nil
+		}, &result)
 		if err != nil {
 			return nil, err
 		}
-
-		var result model.GeminiModelList
-		if err := decodeModelJSONResponse(resp, &result); err != nil {
-			resp.Body.Close()
-			return nil, err
-		}
-		resp.Body.Close()
 
 		for _, m := range result.Models {
 			name := strings.TrimPrefix(m.Name, "models/")
@@ -127,42 +161,41 @@ func fetchGeminiModels(client *http.Client, ctx context.Context, request model.C
 		pageToken = result.NextPageToken
 	}
 	if len(allModels) == 0 {
-		return fetchOpenAIModels(client, ctx, request)
+		return fetchOpenAIModels(client, ctx, request, requestTimeout)
 	}
 	return allModels, nil
 }
 
 // refer: https://platform.claude.com/docs
-func fetchAnthropicModels(client *http.Client, ctx context.Context, request model.Channel) ([]string, error) {
+func fetchAnthropicModels(client *http.Client, ctx context.Context, request model.Channel, requestTimeout time.Duration) ([]string, error) {
 	var allModels []string
 	var afterID string
 	for {
-		req, _ := http.NewRequestWithContext(
-			ctx,
-			http.MethodGet,
-			request.GetBaseUrl()+"/models",
-			nil,
-		)
-		applyDefaultModelRequestHeaders(req, request)
-		req.Header.Set("X-Api-Key", request.GetChannelKey().ChannelKey)
-		req.Header.Set("Anthropic-Version", "2023-06-01")
-		q := req.URL.Query()
-		if afterID != "" {
-			q.Set("after_id", afterID)
-		}
-		req.URL.RawQuery = q.Encode()
-
-		resp, err := client.Do(req)
+		currentAfterID := afterID
+		var result model.AnthropicModelList
+		err := doBoundedModelRequest(client, ctx, requestTimeout, func(reqCtx context.Context) (*http.Request, error) {
+			req, err := http.NewRequestWithContext(
+				reqCtx,
+				http.MethodGet,
+				request.GetBaseUrl()+"/models",
+				nil,
+			)
+			if err != nil {
+				return nil, err
+			}
+			applyDefaultModelRequestHeaders(req, request)
+			req.Header.Set("X-Api-Key", request.GetChannelKey().ChannelKey)
+			req.Header.Set("Anthropic-Version", "2023-06-01")
+			q := req.URL.Query()
+			if currentAfterID != "" {
+				q.Set("after_id", currentAfterID)
+			}
+			req.URL.RawQuery = q.Encode()
+			return req, nil
+		}, &result)
 		if err != nil {
 			return nil, err
 		}
-
-		var result model.AnthropicModelList
-		if err := decodeModelJSONResponse(resp, &result); err != nil {
-			resp.Body.Close()
-			return nil, err
-		}
-		resp.Body.Close()
 
 		for _, m := range result.Data {
 			allModels = append(allModels, m.ID)
@@ -175,7 +208,7 @@ func fetchAnthropicModels(client *http.Client, ctx context.Context, request mode
 		afterID = result.LastID
 	}
 	if len(allModels) == 0 {
-		return fetchOpenAIModels(client, ctx, request)
+		return fetchOpenAIModels(client, ctx, request, requestTimeout)
 	}
 	return allModels, nil
 }

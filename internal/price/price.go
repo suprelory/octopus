@@ -20,6 +20,12 @@ const llmPriceUrl = "https://models.dev/api.json"
 // llmPriceBodyLimit caps the third-party price catalogue we buffer into memory.
 const llmPriceBodyLimit = 32 << 20
 
+// llmPriceRequestTimeout bounds the catalogue fetch. The scheduled task wraps its
+// own deadline, but the manual refresh handler passes the request context, which
+// only ends when the caller disconnects — so the bound has to live here to cover
+// both paths.
+const llmPriceRequestTimeout = 2 * time.Minute
+
 var Provider = []string{
 	"openai",     // GPT 系列
 	"anthropic",  // Claude 系列
@@ -45,6 +51,8 @@ func UpdateLLMPrice(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	ctx, cancel := context.WithTimeout(ctx, llmPriceRequestTimeout)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, llmPriceUrl, nil)
 	if err != nil {
 		return err
