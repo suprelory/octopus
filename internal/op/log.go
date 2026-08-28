@@ -38,12 +38,17 @@ var relayLogRecentLock sync.Mutex
 var relayLogFlushLock sync.Mutex
 var relayLogFlushSignal = make(chan struct{}, 1)
 
+// relayLogSnapshotLock establishes the clear boundary. RelayLogAdd holds a read
+// lock from ID allocation through its in-memory writes, while RelayLogClear
+// briefly takes the write lock to mint a cutoff ID and prune the buffers. This
+// makes every log unambiguously older or newer than an in-progress purge.
+var relayLogSnapshotLock sync.RWMutex
+
 // relayLogClearing rejects overlapping RelayLogClear calls. The purge cannot
 // hold relayLogFlushLock across its batched deletes — that would block the
 // background flusher long enough for the pending queue to overflow and drop
-// logs — so it takes the lock only to claim and release this flag. Logs that
-// arrive mid-purge are either swept up by a later batch or simply survive, which
-// matches "clear the logs that existed when the request was made".
+// logs — so it holds that lock only while establishing the snapshot. Logs
+// admitted after the snapshot always survive the active purge.
 var relayLogClearing bool
 var relayLogDroppedTotal atomic.Uint64
 var relayLogLastDropWarn atomic.Int64
@@ -337,14 +342,17 @@ func RelayLogAdd(ctx context.Context, relayLog model.RelayLog) error {
 	if err != nil {
 		return err
 	}
+
+	relayLogSnapshotLock.RLock()
 	relayLog.ID = snowflake.GenerateID()
 	notifySubscribers(relayLog)
 	appendRelayLogRecent(relayLog)
 
-	if !enabled {
-		return nil
+	if enabled {
+		enqueueRelayLogPending(relayLog)
 	}
-	enqueueRelayLogPending(relayLog)
+	relayLogSnapshotLock.RUnlock()
+
 	_ = ctx // kept for API compatibility; DB writes are handled by the background writer.
 	return nil
 }
@@ -1078,15 +1086,23 @@ func relayLogSearchMode(filter RelayLogListFilter) string {
 
 func RelayLogClear(ctx context.Context) error {
 	// Claim the purge under the flush lock so a flush already in flight finishes
-	// first and concurrent clears are rejected, then release it before the
-	// batched deletes: holding it across a multi-million-row purge stalls the
-	// background flusher long enough to overflow the pending queue.
+	// first and concurrent clears are rejected. Keep it only while establishing
+	// the cutoff and pruning the in-memory buffers; the batched DB purge must not
+	// stall the background flusher.
 	relayLogFlushLock.Lock()
 	if relayLogClearing {
 		relayLogFlushLock.Unlock()
 		return fmt.Errorf("relay log clear already in progress")
 	}
 	relayLogClearing = true
+
+	// Exclude RelayLogAdd while minting the boundary. GenerateID is monotonic, so
+	// every later log receives an ID greater than clearThroughID and is excluded
+	// from both the buffer pruning and the database delete below.
+	relayLogSnapshotLock.Lock()
+	clearThroughID := snowflake.GenerateID()
+	discardRelayLogBuffersThrough(clearThroughID)
+	relayLogSnapshotLock.Unlock()
 	relayLogFlushLock.Unlock()
 
 	defer func() {
@@ -1097,15 +1113,6 @@ func RelayLogClear(ctx context.Context) error {
 
 	// 缓存的 total 在删除后立刻失效，否则清空日志后列表还会显示旧总数。
 	defer RelayLogTotalCacheInvalidate()
-
-	relayLogPendingLock.Lock()
-	relayLogPending = make([]model.RelayLog, 0, relayLogBatchSize)
-	relayLogPendingBytes = 0
-	relayLogPendingLock.Unlock()
-
-	relayLogRecentLock.Lock()
-	relayLogRecent = make([]model.RelayLog, 0, relayLogRecentMaxSize)
-	relayLogRecentLock.Unlock()
 
 	start := time.Now()
 	deletedRows := int64(0)
@@ -1119,6 +1126,7 @@ func RelayLogClear(ctx context.Context) error {
 		}
 		var ids []int64
 		if err := dbConn.Model(&model.RelayLog{}).
+			Where("id <= ?", clearThroughID).
 			Order("time ASC").
 			Order("id ASC").
 			Limit(relayLogCleanupBatchSize).
@@ -1151,4 +1159,32 @@ func RelayLogClear(ctx context.Context) error {
 		log.Debugw("relay_log.clear", "deleted_rows", deletedRows, "batch_count", batchCount, "duration", time.Since(start).String())
 	}
 	return nil
+}
+
+// discardRelayLogBuffersThrough removes the in-memory portion of a clear
+// snapshot. The caller must hold relayLogSnapshotLock for writing.
+func discardRelayLogBuffersThrough(clearThroughID int64) {
+	relayLogPendingLock.Lock()
+	keptPending := make([]model.RelayLog, 0, relayLogBatchSize)
+	keptPendingBytes := int64(0)
+	for _, entry := range relayLogPending {
+		if entry.ID <= clearThroughID {
+			continue
+		}
+		keptPending = append(keptPending, entry)
+		keptPendingBytes += relayLogApproxBytes(entry)
+	}
+	relayLogPending = keptPending
+	relayLogPendingBytes = keptPendingBytes
+	relayLogPendingLock.Unlock()
+
+	relayLogRecentLock.Lock()
+	keptRecent := make([]model.RelayLog, 0, relayLogRecentMaxSize)
+	for _, entry := range relayLogRecent {
+		if entry.ID > clearThroughID {
+			keptRecent = append(keptRecent, entry)
+		}
+	}
+	relayLogRecent = keptRecent
+	relayLogRecentLock.Unlock()
 }

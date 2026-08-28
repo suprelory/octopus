@@ -183,7 +183,24 @@ func TestRelayLogFlushStillDrainsDuringClear(t *testing.T) {
 		clearErr = RelayLogClear(ctx)
 	}()
 
-	// Queue new logs mid-purge and drain them; this must not deadlock or hang.
+	// Observing the flag while holding relayLogFlushLock guarantees that clear
+	// has released the lock after establishing its cutoff.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		relayLogFlushLock.Lock()
+		clearing := relayLogClearing
+		relayLogFlushLock.Unlock()
+		if clearing {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for RelayLogClear to establish its snapshot")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	// Queue new logs after the cutoff and drain them. They must remain flushable
+	// during the purge and must not be consumed by one of its later batches.
 	for i := 0; i < 10; i++ {
 		if err := RelayLogAdd(ctx, model.RelayLog{Time: time.Now().Unix(), RequestModelName: "gpt-4o-mini", Success: true}); err != nil {
 			t.Fatalf("RelayLogAdd failed: %v", err)
@@ -203,5 +220,15 @@ func TestRelayLogFlushStillDrainsDuringClear(t *testing.T) {
 	wg.Wait()
 	if clearErr != nil {
 		t.Fatalf("RelayLogClear failed: %v", clearErr)
+	}
+
+	var surviving int64
+	if err := dbpkg.GetDB().WithContext(ctx).Model(&model.RelayLog{}).
+		Where("request_model_name = ?", "gpt-4o-mini").
+		Count(&surviving).Error; err != nil {
+		t.Fatalf("count logs added after clear snapshot failed: %v", err)
+	}
+	if surviving != 10 {
+		t.Fatalf("expected all 10 logs added after the clear snapshot to survive, got %d", surviving)
 	}
 }
