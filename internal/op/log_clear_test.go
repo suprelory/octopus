@@ -9,6 +9,7 @@ import (
 
 	dbpkg "github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/utils/snowflake"
 )
 
 // RelayLogClear must not hold relayLogFlushLock across its batched deletes: the
@@ -100,6 +101,42 @@ func TestRelayLogClearResetsBuffers(t *testing.T) {
 	}
 	if relayLogClearing {
 		t.Fatal("expected the clearing flag to be released")
+	}
+}
+
+// Imported logs can carry IDs ahead of the local clock. A clear snapshot must
+// include those persisted IDs and advance the local generator past them.
+func TestRelayLogClearRemovesPersistedIDsAheadOfLocalGenerator(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+	if err := settingRefreshCache(ctx); err != nil {
+		t.Fatalf("settingRefreshCache failed: %v", err)
+	}
+	resetRelayLogStateForTest()
+
+	futureID := snowflake.GenerateID() + int64((24*time.Hour)/time.Millisecond)
+	row := model.RelayLog{
+		ID:               futureID,
+		Time:             time.Now().Unix(),
+		RequestModelName: "imported-future-id",
+		Success:          true,
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&row).Error; err != nil {
+		t.Fatalf("seed future relay log failed: %v", err)
+	}
+
+	if err := RelayLogClear(ctx); err != nil {
+		t.Fatalf("RelayLogClear failed: %v", err)
+	}
+
+	var remaining int64
+	if err := dbpkg.GetDB().WithContext(ctx).Model(&model.RelayLog{}).Count(&remaining).Error; err != nil {
+		t.Fatalf("count relay logs failed: %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("expected the imported future-ID row to be purged, %d rows remain", remaining)
+	}
+	if nextID := snowflake.GenerateID(); nextID <= futureID {
+		t.Fatalf("expected the local generator to advance past %d, got %d", futureID, nextID)
 	}
 }
 

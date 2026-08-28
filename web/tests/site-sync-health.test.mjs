@@ -30,7 +30,7 @@ test('idle and successful syncs remain healthy', () => {
     assert.equal(siteSyncStatusHasFailure(undefined), false);
 });
 
-test('the sync failure filter only matches enabled automatic sync accounts', () => {
+test('the sync failure filter matches enabled accounts in either scheduling mode', () => {
     const enabledSite = { enabled: true };
     const failedAccount = {
         enabled: true,
@@ -41,7 +41,7 @@ test('the sync failure filter only matches enabled automatic sync accounts', () 
     assert.equal(siteAccountHasActiveSyncFailure(enabledSite, failedAccount), true);
     assert.equal(
         siteAccountHasActiveSyncFailure(enabledSite, { ...failedAccount, auto_sync: false }),
-        false,
+        true,
     );
     assert.equal(
         siteAccountHasActiveSyncFailure(enabledSite, { ...failedAccount, enabled: false }),
@@ -71,7 +71,7 @@ test('the partial sync signal is gated the same way as the failure signal', () =
     assert.equal(siteAccountHasActivePartialSync(enabledSite, partialAccount), true);
     assert.equal(
         siteAccountHasActivePartialSync(enabledSite, { ...partialAccount, auto_sync: false }),
-        false,
+        true,
     );
     assert.equal(
         siteAccountHasActivePartialSync(enabledSite, { ...partialAccount, enabled: false }),
@@ -84,7 +84,7 @@ test('the partial sync signal is gated the same way as the failure signal', () =
 });
 
 // The card badge and the sync filter must agree, so both read the same gate.
-test('a stale status on an inactive account is not reported as a live problem', () => {
+test('only disabled sites and accounts make a sync status inactive', () => {
     const failedAccount = {
         enabled: true,
         auto_sync: true,
@@ -99,16 +99,12 @@ test('a stale status on an inactive account is not reported as a live problem', 
     );
     assert.equal(
         siteAccountSyncIsActive({ enabled: true }, { ...failedAccount, auto_sync: false }),
-        false,
+        true,
     );
 
-    for (const account of [
-        { ...failedAccount, enabled: false },
-        { ...failedAccount, auto_sync: false },
-    ]) {
-        assert.equal(
-            siteAccountHasActiveSyncFailure({ enabled: true }, account),
-            siteAccountSyncIsActive({ enabled: true }, account),
-        );
-    }
+    const disabledAccount = { ...failedAccount, enabled: false };
+    assert.equal(
+        siteAccountHasActiveSyncFailure({ enabled: true }, disabledAccount),
+        siteAccountSyncIsActive({ enabled: true }, disabledAccount),
+    );
 });

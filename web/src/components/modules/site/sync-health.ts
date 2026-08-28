@@ -2,7 +2,6 @@ type SyncHealthSite = { enabled: boolean };
 
 type SyncHealthAccount = {
   enabled: boolean;
-  auto_sync: boolean;
   last_sync_status?: string | null;
 };
 
@@ -18,8 +17,8 @@ export function siteSyncStatusIsPartial(status?: string | null) {
 
 /**
  * Whether an account's last sync status still describes something actionable.
- * A stale status on a disabled account, a disabled site, or an account that is
- * not synced automatically is history, not a live problem. Every surface that
+ * Disabled sites and accounts are inactive, but auto_sync only controls
+ * scheduling: a manual sync failure remains actionable. Every surface that
  * reports sync health shares this gate so the site card, the account card and
  * the sync filter cannot disagree about the same account.
  */
@@ -27,7 +26,7 @@ export function siteAccountSyncIsActive(
   site: SyncHealthSite,
   account: SyncHealthAccount,
 ) {
-  return site.enabled && account.enabled && account.auto_sync;
+  return site.enabled && account.enabled;
 }
 
 export function siteAccountHasActiveSyncFailure(

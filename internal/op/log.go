@@ -1096,11 +1096,18 @@ func RelayLogClear(ctx context.Context) error {
 	}
 	relayLogClearing = true
 
-	// Exclude RelayLogAdd while minting the boundary. GenerateID is monotonic, so
-	// every later log receives an ID greater than clearThroughID and is excluded
-	// from both the buffer pruning and the database delete below.
+	// Exclude RelayLogAdd while minting the boundary. Include the largest
+	// persisted ID because imports and wall-clock rollback can leave database IDs
+	// ahead of this process's generator. Advancing the generator past that value
+	// keeps every later local log outside the purge.
 	relayLogSnapshotLock.Lock()
-	clearThroughID := snowflake.GenerateID()
+	clearThroughID, err := relayLogClearThroughID(ctx)
+	if err != nil {
+		relayLogSnapshotLock.Unlock()
+		relayLogClearing = false
+		relayLogFlushLock.Unlock()
+		return err
+	}
 	discardRelayLogBuffersThrough(clearThroughID)
 	relayLogSnapshotLock.Unlock()
 	relayLogFlushLock.Unlock()
@@ -1159,6 +1166,22 @@ func RelayLogClear(ctx context.Context) error {
 		log.Debugw("relay_log.clear", "deleted_rows", deletedRows, "batch_count", batchCount, "duration", time.Since(start).String())
 	}
 	return nil
+}
+
+func relayLogClearThroughID(ctx context.Context) (int64, error) {
+	var maxPersistedID int64
+	if err := db.GetDB().WithContext(ctx).
+		Model(&model.RelayLog{}).
+		Select("COALESCE(MAX(id), 0)").
+		Scan(&maxPersistedID).Error; err != nil {
+		return 0, fmt.Errorf("failed to snapshot relay log boundary: %w", err)
+	}
+
+	clearThroughID, err := snowflake.GenerateIDAfter(maxPersistedID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to reserve relay log boundary: %w", err)
+	}
+	return clearThroughID, nil
 }
 
 // discardRelayLogBuffersThrough removes the in-memory portion of a clear

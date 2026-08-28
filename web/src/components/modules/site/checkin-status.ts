@@ -3,7 +3,15 @@ import {
   type SiteAccount,
   SitePlatform,
 } from "@/api/endpoints/site";
+import {
+  createEmptyCheckinSummary,
+  recordCheckinSummaryAccount,
+  type CheckinSummary,
+} from "./checkin-summary";
 import { siteAccountHasActiveSyncFailure } from "./sync-health";
+
+export { createEmptyCheckinSummary } from "./checkin-summary";
+export type { CheckinSummary } from "./checkin-summary";
 
 export type CheckinFilterStatus =
   | "all"
@@ -19,28 +27,8 @@ export type DerivedCheckinStatus = Exclude<
   "sync_failed"
 >;
 
-export type CheckinSummary = {
-  total: number;
-  success: number;
-  failed: number;
-  sync_failed: number;
-  idle: number;
-  disabled: number;
-};
-
 function normalizeExecutionStatus(status?: string | null) {
   return status || "idle";
-}
-
-export function createEmptyCheckinSummary(): CheckinSummary {
-  return {
-    total: 0,
-    success: 0,
-    failed: 0,
-    sync_failed: 0,
-    idle: 0,
-    disabled: 0,
-  };
 }
 
 export function sitePlatformSupportsCheckin(platform: Site["platform"]) {
@@ -136,7 +124,6 @@ export function accountMatchesCheckinFilters(
   account: Pick<
     SiteAccount,
     | "enabled"
-    | "auto_sync"
     | "auto_checkin"
     | "last_sync_status"
     | "last_checkin_at"
@@ -168,17 +155,11 @@ export function buildCheckinSummary(
   for (const site of sites ?? []) {
     for (const account of site.accounts ?? []) {
       const status = deriveCheckinStatus(site, account, now);
-      if (status) {
-        summary.total += 1;
-        summary[status] += 1;
-      }
-
-      if (siteAccountHasActiveSyncFailure(site, account)) {
-        if (!status) {
-          summary.total += 1;
-        }
-        summary.sync_failed += 1;
-      }
+      recordCheckinSummaryAccount(
+        summary,
+        status,
+        siteAccountHasActiveSyncFailure(site, account),
+      );
     }
   }
 
