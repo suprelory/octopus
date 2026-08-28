@@ -2,9 +2,12 @@ package helper
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -88,7 +91,7 @@ func TestFetchModelsAppliesPerRequestTimeout(t *testing.T) {
 				Type:     testCase.channelType,
 				BaseUrls: []model.BaseUrl{{URL: server.URL, Delay: 0}},
 				Keys:     []model.ChannelKey{{Enabled: true, ChannelKey: "managed-key"}},
-			}, 150*time.Millisecond)
+			}, 150*time.Millisecond, 5*time.Second)
 			elapsed := time.Since(start)
 
 			if err == nil {
@@ -122,7 +125,7 @@ func TestFetchModelsBoundsEachPageSeparately(t *testing.T) {
 		Type:     outbound.OutboundTypeAnthropic,
 		BaseUrls: []model.BaseUrl{{URL: server.URL, Delay: 0}},
 		Keys:     []model.ChannelKey{{Enabled: true, ChannelKey: "managed-key"}},
-	}, 300*time.Millisecond)
+	}, 300*time.Millisecond, 2*time.Second)
 	if err != nil {
 		t.Fatalf("fetchModels returned error: %v", err)
 	}
@@ -131,5 +134,142 @@ func TestFetchModelsBoundsEachPageSeparately(t *testing.T) {
 	}
 	if pages != 2 {
 		t.Fatalf("expected 2 upstream requests, got %d", pages)
+	}
+}
+
+func TestFetchModelsRejectsRepeatedGeminiPageToken(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":[{"name":"models/gemini-test"}],"nextPageToken":"repeated-token"}`))
+	}))
+	defer server.Close()
+
+	models, err := fetchModels(context.Background(), model.Channel{
+		Type:     outbound.OutboundTypeGemini,
+		BaseUrls: []model.BaseUrl{{URL: server.URL, Delay: 0}},
+		Keys:     []model.ChannelKey{{Enabled: true, ChannelKey: "managed-key"}},
+	}, time.Second, 5*time.Second)
+	if err == nil || !strings.Contains(err.Error(), "repeated page token") {
+		t.Fatalf("expected a repeated page token error, got %v", err)
+	}
+	if models != nil {
+		t.Fatalf("expected no partial result, got %v", models)
+	}
+	if got := requests.Load(); got != 2 {
+		t.Fatalf("expected pagination to stop after 2 requests, got %d", got)
+	}
+}
+
+func TestFetchModelsRejectsInvalidAnthropicCursor(t *testing.T) {
+	testCases := []struct {
+		name             string
+		response         string
+		expectedError    string
+		expectedRequests int32
+	}{
+		{
+			name:             "missing last id",
+			response:         `{"data":[{"id":"claude-test"}],"has_more":true}`,
+			expectedError:    "omitted last_id",
+			expectedRequests: 1,
+		},
+		{
+			name:             "repeated last id",
+			response:         `{"data":[{"id":"claude-test"}],"has_more":true,"last_id":"repeated-id"}`,
+			expectedError:    "repeated last_id",
+			expectedRequests: 2,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			var requests atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(testCase.response))
+			}))
+			defer server.Close()
+
+			models, err := fetchModels(context.Background(), model.Channel{
+				Type:     outbound.OutboundTypeAnthropic,
+				BaseUrls: []model.BaseUrl{{URL: server.URL, Delay: 0}},
+				Keys:     []model.ChannelKey{{Enabled: true, ChannelKey: "managed-key"}},
+			}, time.Second, 5*time.Second)
+			if err == nil || !strings.Contains(err.Error(), testCase.expectedError) {
+				t.Fatalf("expected %q error, got %v", testCase.expectedError, err)
+			}
+			if models != nil {
+				t.Fatalf("expected no partial result, got %v", models)
+			}
+			if got := requests.Load(); got != testCase.expectedRequests {
+				t.Fatalf("expected %d requests, got %d", testCase.expectedRequests, got)
+			}
+		})
+	}
+}
+
+func TestFetchModelsLimitsPaginationPages(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page := requests.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"models":[{"name":"models/gemini-%d"}],"nextPageToken":"token-%d"}`, page, page)
+	}))
+	defer server.Close()
+
+	models, err := fetchModels(context.Background(), model.Channel{
+		Type:     outbound.OutboundTypeGemini,
+		BaseUrls: []model.BaseUrl{{URL: server.URL, Delay: 0}},
+		Keys:     []model.ChannelKey{{Enabled: true, ChannelKey: "managed-key"}},
+	}, time.Second, 5*time.Second)
+	if err == nil || !strings.Contains(err.Error(), "100-page limit") {
+		t.Fatalf("expected a page limit error, got %v", err)
+	}
+	if models != nil {
+		t.Fatalf("expected no partial result, got %v", models)
+	}
+	if got := requests.Load(); got != modelFetchMaxPages {
+		t.Fatalf("expected %d requests, got %d", modelFetchMaxPages, got)
+	}
+}
+
+func TestFetchModelsAppliesOperationTimeoutAcrossPages(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page := requests.Add(1)
+		timer := time.NewTimer(100 * time.Millisecond)
+		defer timer.Stop()
+		select {
+		case <-r.Context().Done():
+			return
+		case <-timer.C:
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"data":[{"id":"claude-%d"}],"has_more":true,"last_id":"cursor-%d"}`, page, page)
+	}))
+	defer server.Close()
+
+	start := time.Now()
+	models, err := fetchModels(context.Background(), model.Channel{
+		Type:     outbound.OutboundTypeAnthropic,
+		BaseUrls: []model.BaseUrl{{URL: server.URL, Delay: 0}},
+		Keys:     []model.ChannelKey{{Enabled: true, ChannelKey: "managed-key"}},
+	}, time.Second, 250*time.Millisecond)
+	elapsed := time.Since(start)
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected the operation deadline to stop pagination, got %v", err)
+	}
+	if models != nil {
+		t.Fatalf("expected no partial result, got %v", models)
+	}
+	if got := requests.Load(); got < 2 {
+		t.Fatalf("expected multiple individually responsive pages before timeout, got %d request(s)", got)
+	}
+	if elapsed >= time.Second {
+		t.Fatalf("operation timeout did not bound pagination (took %s)", elapsed)
 	}
 }

@@ -26,25 +26,37 @@ const modelResponseBodyLimit = 32 << 20
 // base URL in a loop. Paginated listings get this bound per page, not per call.
 const modelFetchRequestTimeout = 60 * time.Second
 
+// modelFetchOperationTimeout bounds the complete model-listing operation,
+// including every page and any protocol fallback. Per-request timeouts alone do
+// not stop a broken upstream from returning an endless sequence of pages.
+const modelFetchOperationTimeout = 5 * time.Minute
+
+// modelFetchMaxPages limits retained pagination state and protects callers from
+// upstreams that keep advertising new cursors indefinitely.
+const modelFetchMaxPages = 100
+
 func FetchModels(ctx context.Context, request model.Channel) ([]string, error) {
-	return fetchModels(ctx, request, modelFetchRequestTimeout)
+	return fetchModels(ctx, request, modelFetchRequestTimeout, modelFetchOperationTimeout)
 }
 
-// fetchModels takes the per-request bound explicitly so tests can shorten it
-// without mutating package state.
-func fetchModels(ctx context.Context, request model.Channel, requestTimeout time.Duration) ([]string, error) {
-	client, err := ChannelHTTPClientWithContext(ctx, &request)
+// fetchModels takes both bounds explicitly so tests can shorten them without
+// mutating package state.
+func fetchModels(ctx context.Context, request model.Channel, requestTimeout, operationTimeout time.Duration) ([]string, error) {
+	operationCtx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+
+	client, err := ChannelHTTPClientWithContext(operationCtx, &request)
 	if err != nil {
 		return nil, err
 	}
 	var fetchModel []string
 	switch request.Type {
 	case outbound.OutboundTypeAnthropic:
-		fetchModel, err = fetchAnthropicModels(client, ctx, request, requestTimeout)
+		fetchModel, err = fetchAnthropicModels(client, operationCtx, request, requestTimeout)
 	case outbound.OutboundTypeGemini:
-		fetchModel, err = fetchGeminiModels(client, ctx, request, requestTimeout)
+		fetchModel, err = fetchGeminiModels(client, operationCtx, request, requestTimeout)
 	default:
-		fetchModel, err = fetchOpenAIModels(client, ctx, request, requestTimeout)
+		fetchModel, err = fetchOpenAIModels(client, operationCtx, request, requestTimeout)
 	}
 	if err != nil {
 		return nil, err
@@ -123,8 +135,9 @@ func fetchOpenAIModels(client *http.Client, ctx context.Context, request model.C
 func fetchGeminiModels(client *http.Client, ctx context.Context, request model.Channel, requestTimeout time.Duration) ([]string, error) {
 	var allModels []string
 	pageToken := ""
+	seenPageTokens := map[string]struct{}{pageToken: {}}
 
-	for {
+	for page := 1; page <= modelFetchMaxPages; page++ {
 		currentPageToken := pageToken
 		var result model.GeminiModelList
 		err := doBoundedModelRequest(client, ctx, requestTimeout, func(reqCtx context.Context) (*http.Request, error) {
@@ -158,6 +171,13 @@ func fetchGeminiModels(client *http.Client, ctx context.Context, request model.C
 		if result.NextPageToken == "" {
 			break
 		}
+		if _, seen := seenPageTokens[result.NextPageToken]; seen {
+			return nil, fmt.Errorf("gemini model pagination returned a repeated page token after page %d", page)
+		}
+		if page == modelFetchMaxPages {
+			return nil, fmt.Errorf("gemini model pagination exceeded the %d-page limit", modelFetchMaxPages)
+		}
+		seenPageTokens[result.NextPageToken] = struct{}{}
 		pageToken = result.NextPageToken
 	}
 	if len(allModels) == 0 {
@@ -170,7 +190,8 @@ func fetchGeminiModels(client *http.Client, ctx context.Context, request model.C
 func fetchAnthropicModels(client *http.Client, ctx context.Context, request model.Channel, requestTimeout time.Duration) ([]string, error) {
 	var allModels []string
 	var afterID string
-	for {
+	seenAfterIDs := map[string]struct{}{afterID: {}}
+	for page := 1; page <= modelFetchMaxPages; page++ {
 		currentAfterID := afterID
 		var result model.AnthropicModelList
 		err := doBoundedModelRequest(client, ctx, requestTimeout, func(reqCtx context.Context) (*http.Request, error) {
@@ -204,7 +225,16 @@ func fetchAnthropicModels(client *http.Client, ctx context.Context, request mode
 		if !result.HasMore {
 			break
 		}
-
+		if result.LastID == "" {
+			return nil, fmt.Errorf("anthropic model pagination omitted last_id after page %d", page)
+		}
+		if _, seen := seenAfterIDs[result.LastID]; seen {
+			return nil, fmt.Errorf("anthropic model pagination returned a repeated last_id after page %d", page)
+		}
+		if page == modelFetchMaxPages {
+			return nil, fmt.Errorf("anthropic model pagination exceeded the %d-page limit", modelFetchMaxPages)
+		}
+		seenAfterIDs[result.LastID] = struct{}{}
 		afterID = result.LastID
 	}
 	if len(allModels) == 0 {
