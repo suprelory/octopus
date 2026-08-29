@@ -1,5 +1,4 @@
 import * as React from 'react';
-import * as motion from 'motion/react-client';
 
 import {
   TooltipProvider as TooltipProviderPrimitive,
@@ -34,13 +33,11 @@ function TooltipTrigger({ ...props }: TooltipTriggerProps) {
 
 type TooltipContentProps = Omit<TooltipContentPrimitiveProps, 'asChild'> & {
   children: React.ReactNode;
-  layout?: boolean | 'position' | 'size' | 'preserve-aspect';
 };
 
 function TooltipContent({
   className,
   children,
-  layout = 'preserve-aspect',
   ...props
 }: TooltipContentProps) {
   return (
@@ -51,9 +48,15 @@ function TooltipContent({
       )}
       {...props}
     >
-      <motion.div className="overflow-hidden px-3 py-1.5 text-xs text-balance">
-        <motion.div layout={layout}>{children}</motion.div>
-      </motion.div>
+      {/*
+        Plain divs: the inner one previously carried `layout="preserve-aspect"`,
+        which mounts a projection node per tooltip and re-measures on update. The
+        content is static once shown, and the shared `layoutId` on the overlay
+        already animates the box between triggers.
+      */}
+      <div className="overflow-hidden px-3 py-1.5 text-xs text-balance">
+        <div>{children}</div>
+      </div>
       <TooltipArrowPrimitive
         className="fill-muted size-3 data-[side='bottom']:translate-y-[1px] data-[side='right']:translate-x-[1px] data-[side='left']:translate-x-[-1px] data-[side='top']:translate-y-[-1px]"
         tipRadius={2}

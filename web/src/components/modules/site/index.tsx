@@ -1962,7 +1962,6 @@ export function Site() {
     <div className="page-scroll-area">
       <PageWrapper
         className="space-y-4"
-        childLayout={false}
         animateChildren={false}
       >
         <CheckinPanel

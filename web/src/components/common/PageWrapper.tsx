@@ -7,7 +7,6 @@ import { EASING } from '@/lib/animations/fluid-transitions';
 interface PageWrapperProps {
   children: ReactNode;
   className?: string;
-  childLayout?: boolean;
   animateChildren?: boolean;
 }
 
@@ -25,16 +24,21 @@ function getDiminishingDelay(index: number): number {
 /**
  * 通用页面包装器，为页面内容添加流体动画效果
  * 使用递减延迟策略，避免元素过多时动画时间过长
+ *
+ * 子元素只做入场动画，不做 layout 动画。此前每个子元素都带 `layout`，
+ * 而 `MeasureLayout` 在未传 `layoutDependency` 时每次更新都会调用
+ * `willUpdate()` 重新测量 —— 这些页面又靠 React Query 每 30s 刷新，
+ * 于是每张卡片都在主线程上反复 measure，却没有任何位置变化需要补间。
  */
-export function PageWrapper({ children, className = 'space-y-6', childLayout = true, animateChildren = true }: PageWrapperProps) {
+export function PageWrapper({ children, className = 'space-y-6', animateChildren = true }: PageWrapperProps) {
   const childArray = Children.toArray(children);
 
   if (!animateChildren) {
-    return <motion.div className={className}>{children}</motion.div>;
+    return <div className={className}>{children}</div>;
   }
 
   return (
-    <motion.div className={className}>
+    <div className={className}>
       <AnimatePresence>
         {childArray.map((child, index) => {
           const key = isValidElement(child) ? child.key : null;
@@ -54,13 +58,12 @@ export function PageWrapper({ children, className = 'space-y-6', childLayout = t
                 ease: EASING.easeOutExpo,
                 delay: getDiminishingDelay(index),
               }}
-              layout={childLayout}
             >
               {child}
             </motion.div>
           );
         })}
       </AnimatePresence>
-    </motion.div>
+    </div>
   );
 }

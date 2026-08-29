@@ -183,20 +183,29 @@ html.dark,
     isolation: isolate;
   }
 
+  /*
+    纯装饰性背景光斑。原实现是 radial-gradient + filter: blur(40px)，但渐变
+    本身已经是平滑过渡，模糊它几乎不改变观感，代价却是浏览器要为每个光斑
+    栅格化一个独立的模糊层。这里保持原有尺寸与锚点，改用多级停靠点做衰减，
+    并把原来的 opacity: 0.6 直接烘进颜色的 alpha —— 省掉一层合成上下文。
+  */
   body::before,
   body::after {
     content: '';
     position: absolute;
     border-radius: 9999px;
-    filter: blur(40px);
-    opacity: 0.6;
     z-index: -1;
   }
 
   body::before {
     width: 300px;
     height: 300px;
-    background: radial-gradient(circle at 30% 20%, oklch(0.68 0.05 150) 0%, transparent 70%);
+    background: radial-gradient(circle at 30% 20%,
+        oklch(0.68 0.05 150 / 0.6) 0%,
+        oklch(0.68 0.05 150 / 0.34) 35%,
+        oklch(0.68 0.05 150 / 0.12) 60%,
+        oklch(0.68 0.05 150 / 0.03) 80%,
+        transparent 95%);
     top: 10%;
     right: 10%;
   }
@@ -204,7 +213,12 @@ html.dark,
   body::after {
     width: 250px;
     height: 250px;
-    background: radial-gradient(circle at 60% 40%, oklch(0.82 0.03 200) 0%, transparent 70%);
+    background: radial-gradient(circle at 60% 40%,
+        oklch(0.82 0.03 200 / 0.6) 0%,
+        oklch(0.82 0.03 200 / 0.34) 35%,
+        oklch(0.82 0.03 200 / 0.12) 60%,
+        oklch(0.82 0.03 200 / 0.03) 80%,
+        transparent 95%);
     bottom: 10%;
     left: 5%;
   }

@@ -4,7 +4,6 @@ import * as React from 'react';
 import {
   motion,
   AnimatePresence,
-  LayoutGroup,
   type Transition,
   type HTMLMotionProps,
 } from 'motion/react';
@@ -167,7 +166,16 @@ function TooltipProvider({
         referenceElRef,
       }}
     >
-      <LayoutGroup>{children}</LayoutGroup>
+      {/*
+        No `LayoutGroup` here. It would create a `nodeGroup`, whose `dirtyAll`
+        marks every member `isLayoutDirty` whenever any one of them animates —
+        and `updateLayout` only re-measures when that flag is set. Since this
+        provider wraps the whole authenticated app, one tooltip opening forced
+        the navbar indicator, tab underlines and search box to re-measure too.
+        Shared-layout matching does not need it: `getStack` resolves `layoutId`
+        off the *root* projection node, not off the group.
+      */}
+      {children}
       <TooltipOverlay />
     </GlobalTooltipProvider>
   );
