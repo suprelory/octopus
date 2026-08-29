@@ -2,7 +2,6 @@
 
 import { useId, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { motion } from 'motion/react';
 import { ExternalLink, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +15,7 @@ import {
 } from '@/components/animate-ui/components/animate/tabs';
 import { useGroupList } from '@/api/endpoints/group';
 import { CopyIconButton } from '@/components/common/CopyButton';
+import { OVERLAY_ENTRANCE } from '@/lib/animations/css-entrances';
 import { cn } from '@/lib/utils';
 import type { APIKey } from '@/api/endpoints/apikey';
 import { OverlayPortal } from './OverlayPortal';
@@ -160,12 +160,10 @@ function OptionalModelSelect({
 }
 
 export function APIKeyExportOverlay({
-    layoutId,
     apiKey,
     baseUrl,
     onClose,
 }: {
-    layoutId: string;
     apiKey: APIKey;
     baseUrl: string;
     onClose: () => void;
@@ -223,14 +221,15 @@ export function APIKeyExportOverlay({
 
     return (
         <OverlayPortal onClose={onClose}>
-            <motion.div
-                layoutId={layoutId}
+            <div
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby={titleId}
                 data-slot="dialog-content"
-                className="fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 bg-card p-5 rounded-3xl border border-border max-h-[80vh] overflow-auto"
-                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                className={cn(
+                    'fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 bg-card p-5 rounded-3xl border border-border max-h-[80vh] overflow-auto',
+                    OVERLAY_ENTRANCE,
+                )}
             >
                 <h3 id={titleId} className="text-sm font-semibold text-card-foreground line-clamp-1 mb-3">
                     {t('apiKey.export.title')} · {apiKey.name}
@@ -385,7 +384,7 @@ export function APIKeyExportOverlay({
                         checkIconClassName="size-4"
                     />
                 </div>
-            </motion.div>
+            </div>
         </OverlayPortal>
     );
 }

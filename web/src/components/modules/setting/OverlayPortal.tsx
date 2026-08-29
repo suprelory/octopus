@@ -2,7 +2,8 @@
 
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { motion } from 'motion/react';
+import { BACKDROP_ENTRANCE } from '@/lib/animations/css-entrances';
+import { cn } from '@/lib/utils';
 
 // Key 卡片编辑/统计/导出浮层的共用顶层容器。
 // 浮层原先 absolute 定位在卡片内，超出设置页 overflow-y-auto 容器顶边的部分
@@ -22,13 +23,12 @@ export function OverlayPortal({ onClose, children }: { onClose: () => void; chil
 
     return createPortal(
         <>
-            <motion.div
+            {/* 淡入用 CSS keyframes 而非 motion：调用方已不再包 AnimatePresence，
+                退出动画本就不会播放，改成 CSS 后淡入也不必占用主线程。 */}
+            <div
                 data-slot="dialog-overlay"
                 aria-hidden="true"
-                className="fixed inset-0 z-50 bg-white/40 backdrop-blur-xs dark:bg-black/40"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
+                className={cn('fixed inset-0 z-50 bg-white/40 backdrop-blur-xs dark:bg-black/40', BACKDROP_ENTRANCE)}
                 onClick={onClose}
             />
             {children}

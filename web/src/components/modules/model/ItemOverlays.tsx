@@ -1,9 +1,10 @@
 'use client';
 
 import { Check, Loader, Trash2, X } from 'lucide-react';
-import { motion } from 'motion/react';
 import { useTranslations } from 'next-intl';
 import { Input } from '@/components/ui/input';
+import { OVERLAY_ENTRANCE } from '@/lib/animations/css-entrances';
+import { cn } from '@/lib/utils';
 
 type EditValues = {
     input: string;
@@ -13,25 +14,19 @@ type EditValues = {
 };
 
 type ModelDeleteOverlayProps = {
-    layoutId: string;
     isPending: boolean;
     onCancel: () => void;
     onConfirm: () => void;
 };
 
 export function ModelDeleteOverlay({
-    layoutId,
     isPending,
     onCancel,
     onConfirm,
 }: ModelDeleteOverlayProps) {
     const t = useTranslations('model.overlay');
     return (
-        <motion.div
-            layoutId={layoutId}
-            className="absolute inset-0 flex items-center justify-center gap-3 bg-destructive p-4 rounded-2xl"
-            transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-        >
+        <div className={cn('absolute inset-0 flex items-center justify-center gap-3 bg-destructive p-4 rounded-2xl', OVERLAY_ENTRANCE)}>
             <button
                 type="button"
                 onClick={onCancel}
@@ -53,12 +48,11 @@ export function ModelDeleteOverlay({
                 )}
                 {isPending ? t('deleting') : t('confirmDelete')}
             </button>
-        </motion.div>
+        </div>
     );
 }
 
 type ModelEditOverlayProps = {
-    layoutId: string;
     modelName: string;
     brandColor: string;
     editValues: EditValues;
@@ -69,7 +63,6 @@ type ModelEditOverlayProps = {
 };
 
 export function ModelEditOverlay({
-    layoutId,
     modelName,
     brandColor,
     editValues,
@@ -80,11 +73,7 @@ export function ModelEditOverlay({
 }: ModelEditOverlayProps) {
     const t = useTranslations('model.overlay');
     return (
-        <motion.div
-            layoutId={layoutId}
-            className="absolute inset-x-0 top-0 z-20 flex flex-col rounded-xl border border-border bg-card p-5 shadow-sm"
-            transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-        >
+        <div className={cn('absolute inset-x-0 top-0 z-20 flex flex-col rounded-xl border border-border bg-card p-5 shadow-sm', OVERLAY_ENTRANCE)}>
             <h3 className="text-sm font-semibold text-card-foreground line-clamp-1 mb-3">
                 {modelName}
             </h3>
@@ -153,6 +142,6 @@ export function ModelEditOverlay({
                     {t('save')}
                 </button>
             </div>
-        </motion.div>
+        </div>
     );
 }

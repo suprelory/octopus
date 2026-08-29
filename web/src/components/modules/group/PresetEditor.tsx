@@ -106,20 +106,10 @@ export function PresetEditorContent({ preset }: PresetEditorContentProps) {
                             <p className="text-sm text-muted-foreground">{preset.name}</p>
                         </div>
                     </div>
-                    <MorphingDialogClose
-                        className="relative right-0 top-0 p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                        variants={{
-                            initial: { opacity: 0, scale: 0.8 },
-                            animate: { opacity: 1, scale: 1 },
-                            exit: { opacity: 0, scale: 0.8 },
-                        }}
-                    />
+                    <MorphingDialogClose className="relative right-0 top-0 p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" />
                 </header>
             </MorphingDialogTitle>
-            <MorphingDialogDescription
-                disableLayoutAnimation
-                className="relative flex-1 min-h-0 overflow-hidden"
-            >
+            <MorphingDialogDescription className="relative flex-1 min-h-0 overflow-hidden">
                 <GroupEditor
                     key={`preset-${preset.id}`}
                     initial={{

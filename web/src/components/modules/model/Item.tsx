@@ -1,14 +1,14 @@
 'use client';
 
-import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pencil, Trash2, ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
 import { useTranslations } from 'next-intl';
 import { useUpdateModel, useDeleteModel, type LLMInfo } from '@/api/endpoints/model';
 import { getModelIcon } from '@/lib/model-icons';
 import { toast } from '@/components/common/Toast';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/animate-ui/components/animate/tooltip';
 import { ModelDeleteOverlay, ModelEditOverlay } from './ItemOverlays';
+import { useIsClient } from '@/hooks/useIsClient';
 import { cn } from '@/lib/utils';
 import { createPortal } from 'react-dom';
 
@@ -19,13 +19,11 @@ interface ModelItemProps {
 
 export const ModelItem = memo(function ModelItem({ model, layout = 'grid' }: ModelItemProps) {
     const t = useTranslations('model');
+    const isClient = useIsClient();
     const isListLayout = layout === 'list';
     const [isEditOpen, setIsEditOpen] = useState(false);
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [overlayRect, setOverlayRect] = useState<{ top: number; left: number; width: number } | null>(null);
-    const instanceId = useId();
-    const editLayoutId = `edit-btn-${model.name}-${instanceId}`;
-    const deleteLayoutId = `delete-btn-${model.name}-${instanceId}`;
     const cardRef = useRef<HTMLElement | null>(null);
     const editButtonRef = useRef<HTMLButtonElement | null>(null);
     const editOverlayRef = useRef<HTMLDivElement | null>(null);
@@ -65,7 +63,7 @@ export const ModelItem = memo(function ModelItem({ model, layout = 'grid' }: Mod
             cache_read: model.cache_read.toString(),
             cache_write: model.cache_write.toString(),
         });
-        // Ensure first open already has anchor geometry so layout animation can run.
+        // Measure before opening so the overlay is anchored on its first paint.
         updateOverlayRect();
         setIsEditOpen(true);
     };
@@ -139,8 +137,6 @@ export const ModelItem = memo(function ModelItem({ model, layout = 'grid' }: Mod
         };
     }, [isEditOpen, updateOverlayRect, closeEdit]);
 
-    const shouldRenderEditPortal = isEditOpen || overlayRect !== null;
-
     return (
         <article
             ref={cardRef}
@@ -200,9 +196,8 @@ export const ModelItem = memo(function ModelItem({ model, layout = 'grid' }: Mod
                     (isEditOpen || confirmDelete) && 'invisible pointer-events-none'
                 )}
             >
-                <motion.button
+                <button
                     ref={editButtonRef}
-                    layoutId={editLayoutId}
                     type="button"
                     onClick={handleEditClick}
                     disabled={isEditOpen || confirmDelete}
@@ -210,10 +205,9 @@ export const ModelItem = memo(function ModelItem({ model, layout = 'grid' }: Mod
                     title={t('card.edit')}
                 >
                     <Pencil className="size-4" />
-                </motion.button>
+                </button>
 
-                <motion.button
-                    layoutId={deleteLayoutId}
+                <button
                     type="button"
                     onClick={handleDeleteClick}
                     disabled={isEditOpen || confirmDelete}
@@ -221,48 +215,40 @@ export const ModelItem = memo(function ModelItem({ model, layout = 'grid' }: Mod
                     title={t('card.delete')}
                 >
                     <Trash2 className="size-4" />
-                </motion.button>
+                </button>
             </div>
 
-            <AnimatePresence>
-                {confirmDelete && (
-                    <ModelDeleteOverlay
-                        layoutId={deleteLayoutId}
-                        isPending={deleteModel.isPending}
-                        onCancel={handleCancelDelete}
-                        onConfirm={handleConfirmDelete}
-                    />
-                )}
-            </AnimatePresence>
+            {confirmDelete && (
+                <ModelDeleteOverlay
+                    isPending={deleteModel.isPending}
+                    onCancel={handleCancelDelete}
+                    onConfirm={handleConfirmDelete}
+                />
+            )}
 
-            {shouldRenderEditPortal && typeof document !== 'undefined'
+            {isEditOpen && overlayRect && isClient
                 ? createPortal(
-                    <AnimatePresence onExitComplete={() => setOverlayRect(null)}>
-                        {isEditOpen && overlayRect && (
-                            <div
-                                ref={editOverlayRef}
-                                className="fixed z-[90]"
-                                style={{
-                                    top: `${overlayRect.top}px`,
-                                    left: `${overlayRect.left}px`,
-                                    width: `${overlayRect.width}px`,
-                                }}
-                            >
-                                <div className="relative">
-                                    <ModelEditOverlay
-                                        layoutId={editLayoutId}
-                                        modelName={model.name}
-                                        brandColor={brandColor}
-                                        editValues={editValues}
-                                        isPending={updateModel.isPending}
-                                        onChange={setEditValues}
-                                        onCancel={handleCancelEdit}
-                                        onSave={handleSaveEdit}
-                                    />
-                                </div>
-                            </div>
-                        )}
-                    </AnimatePresence>,
+                    <div
+                        ref={editOverlayRef}
+                        className="fixed z-[90]"
+                        style={{
+                            top: `${overlayRect.top}px`,
+                            left: `${overlayRect.left}px`,
+                            width: `${overlayRect.width}px`,
+                        }}
+                    >
+                        <div className="relative">
+                            <ModelEditOverlay
+                                modelName={model.name}
+                                brandColor={brandColor}
+                                editValues={editValues}
+                                isPending={updateModel.isPending}
+                                onChange={setEditValues}
+                                onCancel={handleCancelEdit}
+                                onSave={handleSaveEdit}
+                            />
+                        </div>
+                    </div>,
                     document.body
                 )
                 : null}

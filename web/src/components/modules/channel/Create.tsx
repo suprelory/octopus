@@ -101,17 +101,10 @@ export function CreateDialogContent() {
             <MorphingDialogTitle className="shrink-0">
                 <header className="mb-6 flex items-center justify-between">
                     <h2 className="text-2xl font-bold text-card-foreground">{t('dialogTitle')}</h2>
-                    <MorphingDialogClose
-                        className="relative right-0 top-0"
-                        variants={{
-                            initial: { opacity: 0, scale: 0.8 },
-                            animate: { opacity: 1, scale: 1 },
-                            exit: { opacity: 0, scale: 0.8 }
-                        }}
-                    />
+                    <MorphingDialogClose className="relative right-0 top-0" />
                 </header>
             </MorphingDialogTitle>
-            <MorphingDialogDescription disableLayoutAnimation className="flex-1 min-h-0 overflow-auto">
+            <MorphingDialogDescription className="flex-1 min-h-0 overflow-auto">
                 <ChannelForm
                     formData={formData}
                     onFormDataChange={setFormData}

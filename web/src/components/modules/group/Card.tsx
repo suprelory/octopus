@@ -27,6 +27,7 @@ import {
     useMorphingDialog,
 } from '@/components/ui/morphing-dialog';
 import { cn } from '@/lib/utils';
+import { OVERLAY_ENTRANCE_FROM_RIGHT } from '@/lib/animations/css-entrances';
 import { getGroupIcon } from '@/lib/model-icons';
 import { GroupEditor, type GroupEditorValues } from './Editor';
 import { MemberList, type SelectedMember } from './ItemList';
@@ -445,7 +446,7 @@ export function GroupCard({ group }: { group: Group }) {
                                         onDragFinish={() => setIsDragging(false)}
                                         autoScrollOnAdd={false}
                                         showWeight={group.mode === GroupMode.Weighted}
-                                        layoutScope={`list-item-${group.id ?? 'unknown'}`}
+                                        dropScope={`list-item-${group.id ?? 'unknown'}`}
                                     />
                                 </div>
                             </section>
@@ -510,51 +511,44 @@ export function GroupCard({ group }: { group: Group }) {
                                     {!confirmDelete ? (
                                         <Tooltip side="top" sideOffset={10} align="center">
                                             <TooltipTrigger asChild>
-                                                <motion.button
-                                                    layoutId={`delete-btn-group-${group.id}`}
+                                                <button
                                                     type="button"
                                                     onClick={() => setConfirmDelete(true)}
                                                     className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                                                 >
                                                     <Trash2 className="size-4" />
-                                                </motion.button>
+                                                </button>
                                             </TooltipTrigger>
                                             <TooltipContent>{t('detail.actions.delete')}</TooltipContent>
                                         </Tooltip>
                                     ) : null}
 
-                                    <AnimatePresence>
-                                        {confirmDelete ? (
-                                            <motion.div
-                                                layoutId={`delete-btn-group-${group.id}`}
-                                                className="absolute inset-y-0 right-0 flex items-center gap-2 rounded-lg bg-destructive px-2"
-                                                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                                    {confirmDelete ? (
+                                        <div className={cn('absolute inset-y-0 right-0 flex items-center gap-2 rounded-lg bg-destructive px-2', OVERLAY_ENTRANCE_FROM_RIGHT)}>
+                                            <button
+                                                type="button"
+                                                onClick={() => setConfirmDelete(false)}
+                                                className="flex size-7 items-center justify-center rounded-lg bg-destructive-foreground/20 text-destructive-foreground transition-colors hover:bg-destructive-foreground/30"
                                             >
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setConfirmDelete(false)}
-                                                    className="flex size-7 items-center justify-center rounded-lg bg-destructive-foreground/20 text-destructive-foreground transition-colors hover:bg-destructive-foreground/30"
-                                                >
-                                                    <X className="size-4" />
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    disabled={deleteGroup.isPending}
-                                                    onClick={() => {
-                                                        if (!group.id) return;
-                                                        deleteGroup.mutate(group.id, {
-                                                            onSuccess: () => toast.success(t('toast.deleted')),
-                                                            onError: (error) => toast.error(t('toast.deleteFailed'), { description: error.message }),
-                                                        });
-                                                    }}
-                                                    className="flex h-7 items-center gap-2 rounded-lg bg-destructive-foreground px-3 text-sm font-semibold text-destructive transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                                                >
-                                                    <Trash2 className="size-3.5" />
-                                                    {t('detail.actions.confirmDelete')}
-                                                </button>
-                                            </motion.div>
-                                        ) : null}
-                                    </AnimatePresence>
+                                                <X className="size-4" />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                disabled={deleteGroup.isPending}
+                                                onClick={() => {
+                                                    if (!group.id) return;
+                                                    deleteGroup.mutate(group.id, {
+                                                        onSuccess: () => toast.success(t('toast.deleted')),
+                                                        onError: (error) => toast.error(t('toast.deleteFailed'), { description: error.message }),
+                                                    });
+                                                }}
+                                                className="flex h-7 items-center gap-2 rounded-lg bg-destructive-foreground px-3 text-sm font-semibold text-destructive transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                                            >
+                                                <Trash2 className="size-3.5" />
+                                                {t('detail.actions.confirmDelete')}
+                                            </button>
+                                        </div>
+                                    ) : null}
                                 </div>
                             </div>
                         </div>

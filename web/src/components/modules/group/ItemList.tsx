@@ -9,8 +9,8 @@ import {
     type DraggableProvided,
     type DropResult,
 } from '@hello-pangea/dnd';
-import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
+import { OVERLAY_ENTRANCE } from '@/lib/animations/css-entrances';
 import { getModelIcon } from '@/lib/model-icons';
 import type { LLMChannel } from '@/api/endpoints/model';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/animate-ui/components/animate/tooltip';
@@ -43,7 +43,6 @@ function MemberItem({
     index,
     showWeight = false,
     showConfirmDelete = true,
-    layoutScope,
     dnd,
     isDragging,
 }: {
@@ -54,7 +53,6 @@ function MemberItem({
     index: number;
     showWeight?: boolean;
     showConfirmDelete?: boolean;
-    layoutScope?: string;
     dnd: MemberItemDnd;
     isDragging: boolean;
 }) {
@@ -140,44 +138,34 @@ function MemberItem({
                 )}
 
                 {(!showConfirmDelete || !confirmDelete) && (
-                    <motion.button
-                        layoutId={`delete-btn-member-${layoutScope ?? 'default'}-${member.id}`}
+                    <button
                         type="button"
                         onClick={() => showConfirmDelete ? setConfirmDelete(true) : onRemove(member.id)}
                         className="relative rounded-md p-2 transition-colors hover:bg-destructive/10 hover:text-destructive md:p-1.5"
-                        initial={false}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ duration: 0.15 }}
                         style={{ pointerEvents: 'auto' }}
                     >
                         <X className="size-3.5 md:size-3" />
-                    </motion.button>
+                    </button>
                 )}
 
-                <AnimatePresence>
-                    {showConfirmDelete && confirmDelete && (
-                        <motion.div
-                            layoutId={`delete-btn-member-${layoutScope ?? 'default'}-${member.id}`}
-                            className="absolute inset-0 flex items-center justify-center gap-2 bg-destructive p-1.5 rounded-lg"
-                            transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                {showConfirmDelete && confirmDelete && (
+                    <div className={cn('absolute inset-0 flex items-center justify-center gap-2 bg-destructive p-1.5 rounded-lg', OVERLAY_ENTRANCE)}>
+                        <button
+                            type="button"
+                            onClick={() => setConfirmDelete(false)}
+                            className="flex h-6 w-6 items-center justify-center rounded-md bg-destructive-foreground/20 text-destructive-foreground transition-all hover:bg-destructive-foreground/30 active:scale-95"
                         >
-                            <button
-                                type="button"
-                                onClick={() => setConfirmDelete(false)}
-                                className="flex h-6 w-6 items-center justify-center rounded-md bg-destructive-foreground/20 text-destructive-foreground transition-all hover:bg-destructive-foreground/30 active:scale-95"
-                            >
-                                <X className="h-3 w-3" />
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => onRemove(member.id)}
-                                className="flex-1 h-6 flex items-center justify-center gap-1.5 rounded-md bg-destructive-foreground text-destructive text-xs font-semibold transition-all hover:bg-destructive-foreground/90 active:scale-[0.98]"
-                            >
-                                <Trash2 className="h-3 w-3" />
-                            </button>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
+                            <X className="h-3 w-3" />
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => onRemove(member.id)}
+                            className="flex-1 h-6 flex items-center justify-center gap-1.5 rounded-md bg-destructive-foreground text-destructive text-xs font-semibold transition-all hover:bg-destructive-foreground/90 active:scale-[0.98]"
+                        >
+                            <Trash2 className="h-3 w-3" />
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -212,7 +200,8 @@ export interface MemberListProps {
      * Defaults to true.
      */
     showConfirmDelete?: boolean;
-    layoutScope?: string;
+    /** Distinguishes this list's drop target when several are mounted at once. */
+    dropScope?: string;
 }
 
 export function MemberList({
@@ -227,10 +216,10 @@ export function MemberList({
     removingIds = new Set(),
     showWeight = false,
     showConfirmDelete = true,
-    layoutScope: externalLayoutScope,
+    dropScope: externalDropScope,
 }: MemberListProps) {
-    const internalLayoutScope = useId();
-    const layoutScope = externalLayoutScope ?? internalLayoutScope;
+    const internalDropScope = useId();
+    const dropScope = externalDropScope ?? internalDropScope;
 
     const scrollContainerRef = useRef<HTMLDivElement | null>(null);
     const prevMemberCountRef = useRef<number>(0);
@@ -312,7 +301,7 @@ export function MemberList({
                     onDragStart={() => onDragStart?.()}
                     onDragEnd={handleDragEnd}
                 >
-                    <Droppable droppableId={`members-${layoutScope}`}>
+                    <Droppable droppableId={`members-${dropScope}`}>
                         {(droppableProvided) => (
                             <div
                                 ref={droppableProvided.innerRef}
@@ -335,7 +324,6 @@ export function MemberList({
                                                 index={index}
                                                 showWeight={showWeight}
                                                 showConfirmDelete={showConfirmDelete}
-                                                layoutScope={layoutScope}
                                                 dnd={{
                                                     innerRef: draggableProvided.innerRef,
                                                     draggableProps: draggableProvided.draggableProps,

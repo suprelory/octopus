@@ -202,14 +202,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                             站点投影
                         </Badge>
                     ) : null}
-                    <MorphingDialogClose
-                        className="relative top-0 right-0"
-                        variants={{
-                            initial: { opacity: 0, scale: 0.8 },
-                            animate: { opacity: 1, scale: 1 },
-                            exit: { opacity: 0, scale: 0.8 }
-                        }}
-                    />
+                    <MorphingDialogClose className="relative top-0 right-0" />
                 </header>
             </MorphingDialogTitle>
 

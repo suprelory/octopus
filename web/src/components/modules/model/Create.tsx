@@ -49,14 +49,7 @@ export function CreateDialogContent() {
             <MorphingDialogTitle>
                 <header className="mb-5 flex items-center justify-between">
                     <h2 className="text-2xl font-bold text-card-foreground">{t('title')}</h2>
-                    <MorphingDialogClose
-                        className="relative right-0 top-0"
-                        variants={{
-                            initial: { opacity: 0, scale: 0.8 },
-                            animate: { opacity: 1, scale: 1 },
-                            exit: { opacity: 0, scale: 0.8 },
-                        }}
-                    />
+                    <MorphingDialogClose className="relative right-0 top-0" />
                 </header>
             </MorphingDialogTitle>
             <MorphingDialogDescription>
