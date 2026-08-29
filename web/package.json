@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "devs": "next dev --experimental-https --experimental-https-key /workplace/code/octopus/build/localhost-key.pem --experimental-https-cert /workplace/code/octopus/build/localhost.pem",
-    "build": "next build",
+    "build": "node -e \"require('node:fs').rmSync('out', { recursive: true, force: true })\" && next build",
     "start": "next start",
     "lint": "eslint",
     "test": "node --test \"tests/*.test.mjs\""

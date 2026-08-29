@@ -10,6 +10,9 @@
  * is contradictory (web.dev's richer-install-ui docs say PNG/JPEG only, MDN
  * shows an `image/webp` example), so this only changes the encoder settings.
  *
+ * Already palette-encoded PNGs are treated as optimized so repeated runs do
+ * not rewrite committed assets.
+ *
  * Run with: node scripts/optimize-screenshots.mjs
  */
 import { createRequire } from 'node:module';
@@ -42,7 +45,14 @@ let after = 0;
 for (const file of files.sort()) {
     const full = path.join(dir, file);
     const original = await readFile(full);
-    const { width, height } = await sharp(original).metadata();
+    const { width, height, isPalette } = await sharp(original).metadata();
+
+    if (isPalette) {
+        console.log(`${file.padEnd(24)} already palette-encoded, skipped`);
+        before += original.length;
+        after += original.length;
+        continue;
+    }
 
     const optimized = await sharp(original)
         // palette quantisation is what actually shrinks UI screenshots: they use
