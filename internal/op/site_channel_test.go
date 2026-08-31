@@ -72,6 +72,74 @@ func TestSiteChannelResetAccountRoutesRestoresDetectedMetadataRoute(t *testing.T
 	}
 }
 
+func TestSiteChannelResetAccountRoutesPrioritizesRemovedEvidence(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+	site := &model.Site{
+		Name:     "site-channel-reset-priority-site",
+		Platform: model.SitePlatformNewAPI,
+		BaseURL:  "https://example.com",
+		Enabled:  true,
+	}
+	if err := SiteCreate(site, ctx); err != nil {
+		t.Fatalf("SiteCreate failed: %v", err)
+	}
+	account := &model.SiteAccount{
+		SiteID:         site.ID,
+		Name:           "site-channel-reset-priority-account",
+		CredentialType: model.SiteCredentialTypeAccessToken,
+		AccessToken:    "token",
+		Enabled:        true,
+	}
+	if err := SiteAccountCreate(account, ctx); err != nil {
+		t.Fatalf("SiteAccountCreate failed: %v", err)
+	}
+	supportedPayload := model.SiteModelRouteMetadata{
+		Source:         "/api/pricing",
+		RouteSupported: true,
+		RouteType:      model.SiteModelRouteTypeOpenAIChat,
+		SupportedEndpointTypes: []string{
+			"/v1/chat/completions",
+		},
+	}.Marshal()
+	rows := []model.SiteModel{
+		{
+			SiteAccountID:   account.ID,
+			GroupKey:        model.SiteDefaultGroupKey,
+			ModelName:       "doubao-legacy-route",
+			RouteType:       model.SiteModelRouteType("volcengine"),
+			RouteRawPayload: supportedPayload,
+		},
+		{
+			SiteAccountID:   account.ID,
+			GroupKey:        model.SiteDefaultGroupKey,
+			ModelName:       "doubao-manual-compatible",
+			RouteType:       model.SiteModelRouteTypeOpenAIChat,
+			RouteRawPayload: supportedPayload,
+		},
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&rows).Error; err != nil {
+		t.Fatalf("create site models failed: %v", err)
+	}
+
+	if err := SiteChannelResetAccountRoutes(site.ID, account.ID, ctx); err != nil {
+		t.Fatalf("SiteChannelResetAccountRoutes failed: %v", err)
+	}
+	var reloaded []model.SiteModel
+	if err := dbpkg.GetDB().WithContext(ctx).Where("site_account_id = ?", account.ID).Find(&reloaded).Error; err != nil {
+		t.Fatalf("reload site models failed: %v", err)
+	}
+	byName := make(map[string]model.SiteModel, len(reloaded))
+	for _, row := range reloaded {
+		byName[row.ModelName] = row
+	}
+	if got := byName["doubao-legacy-route"]; got.RouteType != model.SiteModelRouteTypeUnknown {
+		t.Fatalf("expected old route type to remain unsupported, got %+v", got)
+	}
+	if got := byName["doubao-manual-compatible"]; got.RouteType != model.SiteModelRouteTypeOpenAIChat {
+		t.Fatalf("expected explicit supported metadata to win for compatible model, got %+v", got)
+	}
+}
+
 func TestUpdateSiteSourceKeysMarksExistingTokenAsManual(t *testing.T) {
 	ctx := setupSiteOpTestDB(t)
 

@@ -273,3 +273,24 @@ func TestFetchModelsAppliesOperationTimeoutAcrossPages(t *testing.T) {
 		t.Fatalf("operation timeout did not bound pagination (took %s)", elapsed)
 	}
 }
+
+func TestFetchModelsRejectsUnsupportedChannelBeforeHTTP(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	models, err := fetchModels(context.Background(), model.Channel{
+		Type:     outbound.OutboundTypeUnsupported,
+		BaseUrls: []model.BaseUrl{{URL: server.URL}},
+		Keys:     []model.ChannelKey{{Enabled: true, ChannelKey: "legacy-key"}},
+	}, time.Second, time.Second)
+	if err == nil || !strings.Contains(err.Error(), "unsupported channel type") {
+		t.Fatalf("expected unsupported channel error, got models=%v err=%v", models, err)
+	}
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("expected unsupported channel to fail before HTTP, got %d request(s)", got)
+	}
+}

@@ -183,3 +183,149 @@ func TestMergeSiteModelRouteDetectionsPrefersDetectedOverGuessed(t *testing.T) {
 		t.Fatalf("expected guessed detection to not replace explicit detection, got %q", merged["vendor-chat-x"].RouteType)
 	}
 }
+
+func TestBuildSiteModelRouteDetectionRejectsRemovedVolcengineRoutes(t *testing.T) {
+	tests := []struct {
+		name                   string
+		modelName              string
+		supportedEndpointTypes []string
+	}{
+		{
+			name:                   "doubao model",
+			modelName:              "doubao-seed-1-6",
+			supportedEndpointTypes: []string{"/v1/chat/completions"},
+		},
+		{
+			name:                   "ark endpoint",
+			modelName:              "vendor-model",
+			supportedEndpointTypes: []string{"ark"},
+		},
+		{
+			name:                   "volcengine endpoint",
+			modelName:              "vendor-model-2",
+			supportedEndpointTypes: []string{"/api/volcengine/v1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			detection, ok := buildSiteModelRouteDetection(
+				tt.modelName,
+				nil,
+				tt.supportedEndpointTypes,
+				"/api/pricing",
+				map[string]struct{}{tt.modelName: {}},
+			)
+			if !ok {
+				t.Fatal("expected removed route detection to be retained")
+			}
+			if detection.RouteType != model.SiteModelRouteTypeUnknown {
+				t.Fatalf("expected removed route to be unknown, got %q", detection.RouteType)
+			}
+			metadata, ok := model.ParseSiteModelRouteMetadata(detection.RouteRawPayload)
+			if !ok {
+				t.Fatal("expected unsupported route metadata to parse")
+			}
+			if metadata.RouteSupported || metadata.RouteType != model.SiteModelRouteTypeUnknown {
+				t.Fatalf("expected unsupported metadata, got %+v", metadata)
+			}
+			if metadata.UnsupportedReason == "" {
+				t.Fatal("expected a removal reason")
+			}
+		})
+	}
+}
+
+func TestHasRemovedVolcengineEndpointRecognizesArkHostVariants(t *testing.T) {
+	tests := []struct {
+		name   string
+		values []string
+		want   bool
+	}{
+		{name: "volces host", values: []string{"https://cn-beijing.volces.com/api/v3"}, want: true},
+		{name: "bytedance host", values: []string{"https://api.bytedance.com/v1"}, want: true},
+		{name: "ark host", values: []string{"https://ark.cn-beijing.volces.com/api/v3"}, want: true},
+		{name: "similar host", values: []string{"https://notvolces.example.com/v1"}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := hasRemovedVolcengineEndpoint(tt.values); got != tt.want {
+				t.Fatalf("hasRemovedVolcengineEndpoint(%v) = %t, want %t", tt.values, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildSiteModelRouteDetectionDoesNotTreatSimilarMarkersAsRemoved(t *testing.T) {
+	tests := []struct {
+		name                   string
+		modelName              string
+		supportedEndpointTypes []string
+	}{
+		{name: "spark model", modelName: "spark-chat", supportedEndpointTypes: []string{"spark"}},
+		{name: "unrelated volcengine substring", modelName: "vendor-model", supportedEndpointTypes: []string{"notvolcengine"}},
+		{name: "unrelated doubao substring", modelName: "notdoubao-model", supportedEndpointTypes: []string{"chat/completions"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			detection, ok := buildSiteModelRouteDetection(
+				tt.modelName,
+				nil,
+				tt.supportedEndpointTypes,
+				"/api/pricing",
+				map[string]struct{}{tt.modelName: {}},
+			)
+			if !ok {
+				t.Fatal("expected supported route detection to be retained")
+			}
+			if detection.RouteType == model.SiteModelRouteTypeUnknown {
+				t.Fatalf("similar marker must not become unsupported: %+v", detection)
+			}
+			metadata, parsed := model.ParseSiteModelRouteMetadata(detection.RouteRawPayload)
+			if !parsed || !metadata.RouteSupported {
+				t.Fatalf("expected supported metadata, got parsed=%t metadata=%+v", parsed, metadata)
+			}
+		})
+	}
+}
+
+func TestMergeSiteModelRouteDetectionsKeepsRemovedRouteUnsupported(t *testing.T) {
+	guessed, ok := buildSiteModelRouteDetection(
+		"vendor-model",
+		[]string{"default"},
+		nil,
+		"/api/pricing",
+		nil,
+	)
+	if !ok {
+		t.Fatal("expected guessed detection to be produced")
+	}
+	removed, ok := buildSiteModelRouteDetection(
+		"vendor-model",
+		nil,
+		[]string{"ark"},
+		"/api/available_model",
+		nil,
+	)
+	if !ok {
+		t.Fatal("expected removed detection to be produced")
+	}
+
+	merged := mergeSiteModelRouteDetections(
+		map[string]siteModelRouteDetection{"vendor-model": guessed},
+		map[string]siteModelRouteDetection{"vendor-model": removed},
+	)
+	metadata, ok := model.ParseSiteModelRouteMetadata(merged["vendor-model"].RouteRawPayload)
+	if !ok || metadata.RouteSupported {
+		t.Fatalf("expected removed detection to replace guessed route, got ok=%t metadata=%+v", ok, metadata)
+	}
+
+	merged = mergeSiteModelRouteDetections(
+		map[string]siteModelRouteDetection{"vendor-model": removed},
+		map[string]siteModelRouteDetection{"vendor-model": guessed},
+	)
+	metadata, ok = model.ParseSiteModelRouteMetadata(merged["vendor-model"].RouteRawPayload)
+	if !ok || metadata.RouteSupported {
+		t.Fatalf("expected removed detection to resist later supported guess, got ok=%t metadata=%+v", ok, metadata)
+	}
+}

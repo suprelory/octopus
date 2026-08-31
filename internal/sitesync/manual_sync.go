@@ -862,7 +862,6 @@ func isKnownManualRouteType(routeType model.SiteModelRouteType) bool {
 		model.SiteModelRouteTypeOpenAIResponse,
 		model.SiteModelRouteTypeAnthropic,
 		model.SiteModelRouteTypeGemini,
-		model.SiteModelRouteTypeVolcengine,
 		model.SiteModelRouteTypeOpenAIEmbedding,
 		model.SiteModelRouteTypeUnknown:
 		return true

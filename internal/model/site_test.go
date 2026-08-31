@@ -1,6 +1,9 @@
 package model
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestNormalizeComparableSiteTokenValue(t *testing.T) {
 	tests := []struct {
@@ -108,6 +111,42 @@ func TestNormalizeSiteRouteBaseURLs(t *testing.T) {
 	}
 	if got[0].RouteType != SiteModelRouteTypeAnthropic || got[0].BaseURL != "https://example.com/anthropic/v1" {
 		t.Fatalf("unexpected normalized entry: %+v", got[0])
+	}
+}
+
+func TestNormalizeSiteRouteBaseURLsDropsRemovedVolcengineOverrides(t *testing.T) {
+	items := []SiteRouteBaseURL{
+		{RouteType: SiteModelRouteType("volcengine"), BaseURL: "https://example.com/ark"},
+		{RouteType: SiteModelRouteType("ark"), BaseURL: "https://example.com/ark-v2"},
+		{RouteType: SiteModelRouteTypeOpenAIChat, BaseURL: "https://example.com/v1"},
+	}
+	got := NormalizeSiteRouteBaseURLs(items)
+	if len(got) != 1 || got[0].RouteType != SiteModelRouteTypeOpenAIChat {
+		t.Fatalf("expected only supported base URL override to remain, got %+v", got)
+	}
+}
+
+func TestResolveRouteBaseURLDoesNotReuseRemovedOverrideForUnknownRoute(t *testing.T) {
+	site := &Site{RouteBaseURLs: []SiteRouteBaseURL{
+		{RouteType: SiteModelRouteType("volcengine"), BaseURL: "https://example.com/ark"},
+	}}
+	if _, ok := site.ResolveRouteBaseURL(SiteModelRouteTypeUnknown); ok {
+		t.Fatal("expected removed route override not to resolve for unknown route")
+	}
+}
+
+func TestRemovedRouteTypesNormalizeToUnknownAndDoNotComposeBindingSuffix(t *testing.T) {
+	for _, routeType := range []SiteModelRouteType{"volcengine", "ARK"} {
+		if got := NormalizeSiteModelRouteType(routeType); got != SiteModelRouteTypeUnknown {
+			t.Fatalf("expected %q to normalize to unknown, got %q", routeType, got)
+		}
+		base, parsed := ParseSiteChannelBindingKey("group::" + strings.ToLower(string(routeType)))
+		if base != "group" || parsed != SiteModelRouteTypeUnknown {
+			t.Fatalf("expected removed binding suffix to parse as unknown, got base=%q route=%q", base, parsed)
+		}
+	}
+	if got := ComposeSiteChannelBindingKey("group", SiteModelRouteTypeUnknown, true); got != "group" {
+		t.Fatalf("expected unknown route to avoid a projected suffix, got %q", got)
 	}
 }
 

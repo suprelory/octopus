@@ -30,8 +30,7 @@ func TestPlanRequestForModelMatchesLegacyPlannerWithoutMutatingRequest(t *testin
 		outboundType OutboundType
 	}{
 		{name: "gemini family", model: "gemini-3-pro", outboundType: OutboundTypeGemini},
-		{name: "volcengine reasoning", model: "doubao-seed-1-8-251228", outboundType: OutboundTypeVolcengine},
-		{name: "volcengine unsupported reasoning", model: "unsupported-doubao", outboundType: OutboundTypeVolcengine},
+		{name: "legacy unsupported outbound", model: "legacy-model", outboundType: OutboundTypeUnsupported},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			modelOverridden := request.Clone()
@@ -381,9 +380,9 @@ func TestPlanRequestReportsResponsesBuilderDrops(t *testing.T) {
 		t.Fatalf("OpenAI Responses should preserve metadata: %#v", openAIDecision)
 	}
 
-	volcDecision := PlanRequest(request, OutboundTypeVolcengine, false)
-	for _, field := range append(commonLosses, "metadata") {
-		assertCapabilityLoss(t, volcDecision, field, LossActionDrop)
+	unsupportedDecision := PlanRequest(request, OutboundTypeUnsupported, false)
+	if !unsupportedDecision.Rejected() {
+		t.Fatalf("legacy unsupported outbound type must be rejected: %#v", unsupportedDecision)
 	}
 }
 

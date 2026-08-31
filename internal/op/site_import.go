@@ -329,7 +329,7 @@ func extractMetAPIAccounts(payload rawImportObject) ([]metAPIImportAccountData, 
 		if accountID <= 0 || modelName == "" {
 			continue
 		}
-		manualModelsByAccountID[accountID] = append(manualModelsByAccountID[accountID], model.SiteModel{
+		item := model.SiteModel{
 			GroupKey:       model.SiteDefaultGroupKey,
 			ModelName:      modelName,
 			Source:         "metapi",
@@ -337,7 +337,9 @@ func extractMetAPIAccounts(payload rawImportObject) ([]metAPIImportAccountData, 
 			RouteSource:    model.SiteModelRouteSourceSyncInferred,
 			ManualOverride: false,
 			Disabled:       false,
-		})
+		}
+		normalizeImportedSiteModelRoute(&item)
+		manualModelsByAccountID[accountID] = append(manualModelsByAccountID[accountID], item)
 	}
 
 	disabledModelsBySiteID := make(map[int][]string)
@@ -509,14 +511,16 @@ func buildMetAPIDisabledModels(modelNames []string) []model.SiteModel {
 			continue
 		}
 		seen[key] = struct{}{}
-		result = append(result, model.SiteModel{
+		item := model.SiteModel{
 			GroupKey:    model.SiteDefaultGroupKey,
 			ModelName:   modelName,
 			Source:      "metapi",
 			RouteType:   model.InferSiteModelRouteType(modelName),
 			RouteSource: model.SiteModelRouteSourceSyncInferred,
 			Disabled:    true,
-		})
+		}
+		normalizeImportedSiteModelRoute(&item)
+		result = append(result, item)
 	}
 	return result
 }
@@ -771,6 +775,7 @@ func prepareMetAPIImportedModels(accountID int, models []model.SiteModel) []mode
 		item.GroupKey = groupKey
 		item.ModelName = modelName
 		item.Source = firstNonEmptyString(item.Source, "metapi")
+		normalizeImportedSiteModelRoute(&item)
 		if strings.TrimSpace(string(item.RouteType)) == "" {
 			item.RouteType = model.InferSiteModelRouteType(modelName)
 		} else {
@@ -1110,6 +1115,9 @@ func detectSupportedPlatform(values ...any) (model.SitePlatform, bool) {
 		if strings.Contains(combined, hint) {
 			return "", true
 		}
+	}
+	if model.ContainsRemovedSiteModelRouteMarker(combined) {
+		return "", true
 	}
 
 	switch {

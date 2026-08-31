@@ -62,6 +62,74 @@ func TestApplyPersistedRouteStateGuessesLegacyUnknownRoute(t *testing.T) {
 	}
 }
 
+func TestApplyPersistedRouteStateKeepsRemovedRouteUnsupportedWithoutMetadata(t *testing.T) {
+	existing := &model.SiteModel{
+		ModelName:       "doubao-seed-1-6",
+		RouteType:       model.SiteModelRouteType("volcengine"),
+		RouteSource:     model.SiteModelRouteSourceSyncInferred,
+		RouteRawPayload: "",
+	}
+	item := &model.SiteModel{ModelName: "doubao-seed-1-6"}
+
+	applyPersistedRouteState(item, existing, time.Unix(1711929600, 0))
+
+	if item.RouteType != model.SiteModelRouteTypeUnknown {
+		t.Fatalf("expected removed route to remain unknown, got %q", item.RouteType)
+	}
+	metadata, ok := model.ParseSiteModelRouteMetadata(item.RouteRawPayload)
+	if !ok || metadata.RouteSupported {
+		t.Fatalf("expected unsupported metadata to be synthesized, got ok=%t metadata=%+v", ok, metadata)
+	}
+}
+
+func TestApplyPersistedRouteStateNormalizesMetadataWhenRemovedEvidenceWins(t *testing.T) {
+	existing := &model.SiteModel{
+		ModelName:       "gpt-4o",
+		RouteType:       model.SiteModelRouteType("volcengine"),
+		RouteSource:     model.SiteModelRouteSourceSyncInferred,
+		RouteRawPayload: `{"kind":"site_route_metadata","version":1,"route_supported":true,"route_type":"volcengine","supported_endpoint_types":["ark"]}`,
+	}
+	item := &model.SiteModel{
+		ModelName: "gpt-4o",
+		RouteRawPayload: model.SiteModelRouteMetadata{
+			RouteSupported: true,
+			RouteType:      model.SiteModelRouteTypeOpenAIChat,
+		}.Marshal(),
+	}
+
+	applyPersistedRouteState(item, existing, time.Unix(1711929600, 0))
+
+	if item.RouteType != model.SiteModelRouteTypeUnknown {
+		t.Fatalf("expected removed route evidence to win, got %q", item.RouteType)
+	}
+	metadata, ok := model.ParseSiteModelRouteMetadata(item.RouteRawPayload)
+	if !ok {
+		t.Fatal("expected normalized route metadata to parse")
+	}
+	if metadata.RouteSupported || metadata.RouteGuessed || metadata.RouteType != model.SiteModelRouteTypeUnknown {
+		t.Fatalf("expected removed route metadata to be unsupported and unknown, got %+v", metadata)
+	}
+	if metadata.UnsupportedReason == "" {
+		t.Fatal("expected removed route metadata to include an unsupported reason")
+	}
+}
+
+func TestApplyPersistedRouteStateDoesNotTreatSparkAsArk(t *testing.T) {
+	existing := &model.SiteModel{
+		ModelName:       "spark-chat",
+		RouteType:       model.SiteModelRouteTypeUnknown,
+		RouteSource:     model.SiteModelRouteSourceSyncInferred,
+		RouteRawPayload: `{"kind":"site_route_metadata","version":1,"route_supported":false,"unsupported_reason":"spark endpoint unavailable"}`,
+	}
+	item := &model.SiteModel{ModelName: "spark-chat"}
+
+	applyPersistedRouteState(item, existing, time.Unix(1711929600, 0))
+
+	if item.RouteType != model.SiteModelRouteTypeOpenAIChat {
+		t.Fatalf("expected non-Ark model to retain normal Chat inference, got %q", item.RouteType)
+	}
+}
+
 func TestApplyPersistedRouteStateKeepsManualOverrideUntouched(t *testing.T) {
 	existing := &model.SiteModel{
 		ModelName:      "vendor-embedding-x",
@@ -78,6 +146,61 @@ func TestApplyPersistedRouteStateKeepsManualOverrideUntouched(t *testing.T) {
 	}
 	if !item.ManualOverride {
 		t.Fatalf("expected manual override flag to be preserved")
+	}
+}
+
+func TestApplyPersistedRouteStateClearsLegacyManualOverride(t *testing.T) {
+	existing := &model.SiteModel{
+		ModelName:      "legacy-ark-model",
+		RouteType:      model.SiteModelRouteType("volcengine"),
+		RouteSource:    model.SiteModelRouteSourceManualOverride,
+		ManualOverride: true,
+	}
+	item := &model.SiteModel{ModelName: "legacy-ark-model"}
+
+	applyPersistedRouteState(item, existing, time.Unix(1711929600, 0))
+
+	if item.RouteType != model.SiteModelRouteTypeUnknown || item.ManualOverride {
+		t.Fatalf("expected legacy manual route to be cleared, got %+v", item)
+	}
+	if item.RouteSource != model.SiteModelRouteSourceSyncInferred {
+		t.Fatalf("expected legacy route source to become sync_inferred, got %q", item.RouteSource)
+	}
+	metadata, ok := model.ParseSiteModelRouteMetadata(item.RouteRawPayload)
+	if !ok || metadata.RouteSupported {
+		t.Fatalf("expected unsupported metadata for legacy manual route, got ok=%t metadata=%+v", ok, metadata)
+	}
+}
+
+func TestApplyPersistedRouteStatePreservesExplicitManualDoubaoRoute(t *testing.T) {
+	existing := &model.SiteModel{
+		ModelName:      "doubao-openai-compatible",
+		RouteType:      model.SiteModelRouteTypeAnthropic,
+		RouteSource:    model.SiteModelRouteSourceManualOverride,
+		ManualOverride: true,
+	}
+	item := &model.SiteModel{ModelName: "doubao-openai-compatible"}
+
+	applyPersistedRouteState(item, existing, time.Unix(1711929600, 0))
+
+	if item.RouteType != model.SiteModelRouteTypeAnthropic || !item.ManualOverride {
+		t.Fatalf("expected explicit manual route to survive model-name marker, got %+v", item)
+	}
+}
+
+func TestApplyPersistedRouteStateDoesNotPreserveRuntimeLegacyModel(t *testing.T) {
+	existing := &model.SiteModel{
+		ModelName:       "doubao-seed-1-6",
+		RouteType:       model.SiteModelRouteTypeOpenAIChat,
+		RouteSource:     model.SiteModelRouteSourceRuntimeLearned,
+		RouteRawPayload: "",
+	}
+	item := &model.SiteModel{ModelName: "doubao-seed-1-6", RouteType: model.SiteModelRouteTypeOpenAIChat}
+
+	applyPersistedRouteState(item, existing, time.Unix(1711929600, 0))
+
+	if item.RouteType != model.SiteModelRouteTypeUnknown || item.ManualOverride {
+		t.Fatalf("expected runtime legacy route to become unsupported, got %+v", item)
 	}
 }
 

@@ -783,6 +783,29 @@ func SiteAvailableModels(siteID int, ctx context.Context) ([]string, error) {
 		if trimmed == "" {
 			continue
 		}
+		if model.HasRemovedSiteModelRouteEvidence(row) {
+			continue
+		}
+		metadata, hasMetadata := model.ParseSiteModelRouteMetadata(row.RouteRawPayload)
+		if hasMetadata && !metadata.RouteSupported {
+			continue
+		}
+		routeType := row.RouteType
+		if strings.TrimSpace(string(routeType)) == "" {
+			if hasMetadata && model.IsProjectedSiteModelRouteType(metadata.RouteType) {
+				routeType = metadata.RouteType
+			} else {
+				routeType = model.InferSiteModelRouteType(trimmed)
+			}
+		} else {
+			routeType = model.NormalizeSiteModelRouteType(routeType)
+		}
+		if !model.IsProjectedSiteModelRouteType(routeType) {
+			continue
+		}
+		if metadata, ok := model.ParseSiteModelRouteMetadata(row.RouteRawPayload); ok && !metadata.RouteSupported {
+			continue
+		}
 		if _, ok := seen[trimmed]; ok {
 			continue
 		}
@@ -794,9 +817,13 @@ func SiteAvailableModels(siteID int, ctx context.Context) ([]string, error) {
 }
 
 func SiteModelRouteUpdate(accountID int, groupKey string, modelName string, routeType model.SiteModelRouteType, source model.SiteModelRouteSource, manualOverride bool, routeRawPayload string, ctx context.Context) error {
+	normalizedRouteType, err := validateSiteModelRouteType(routeType)
+	if err != nil {
+		return err
+	}
 	now := time.Now()
 	updates := map[string]any{
-		"route_type":        model.NormalizeSiteModelRouteType(routeType),
+		"route_type":        normalizedRouteType,
 		"route_source":      model.NormalizeSiteModelRouteSource(source, manualOverride),
 		"manual_override":   manualOverride,
 		"route_raw_payload": strings.TrimSpace(routeRawPayload),
@@ -809,9 +836,13 @@ func SiteModelRouteUpdate(accountID int, groupKey string, modelName string, rout
 }
 
 func SiteModelRouteUpdateIfNotManual(accountID int, groupKey string, modelName string, routeType model.SiteModelRouteType, source model.SiteModelRouteSource, routeRawPayload string, ctx context.Context) (bool, error) {
+	normalizedRouteType, err := validateSiteModelRouteType(routeType)
+	if err != nil {
+		return false, err
+	}
 	now := time.Now()
 	updates := map[string]any{
-		"route_type":        model.NormalizeSiteModelRouteType(routeType),
+		"route_type":        normalizedRouteType,
 		"route_source":      model.NormalizeSiteModelRouteSource(source, false),
 		"manual_override":   false,
 		"route_raw_payload": strings.TrimSpace(routeRawPayload),
@@ -825,6 +856,17 @@ func SiteModelRouteUpdateIfNotManual(accountID int, groupKey string, modelName s
 		return false, result.Error
 	}
 	return result.RowsAffected > 0, nil
+}
+
+func validateSiteModelRouteType(routeType model.SiteModelRouteType) (model.SiteModelRouteType, error) {
+	if model.IsRemovedSiteModelRouteType(routeType) {
+		return model.SiteModelRouteTypeUnknown, fmt.Errorf("unsupported site model route type: %s", routeType)
+	}
+	normalized := model.NormalizeSiteModelRouteType(routeType)
+	if !model.IsProjectedSiteModelRouteType(normalized) {
+		return model.SiteModelRouteTypeUnknown, fmt.Errorf("unsupported site model route type: %s", routeType)
+	}
+	return normalized, nil
 }
 
 func SiteModelDisabledUpdate(accountID int, groupKey string, modelName string, disabled bool, ctx context.Context) error {

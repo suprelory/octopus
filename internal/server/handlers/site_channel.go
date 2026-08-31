@@ -2,10 +2,8 @@ package handlers
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/bestruirui/octopus/internal/apperror"
@@ -181,7 +179,8 @@ func updateSiteChannelModelRoutes(c *gin.Context) {
 	}
 	for _, item := range req {
 		if err := op.SiteModelRouteUpdate(accountID, item.GroupKey, item.ModelName, item.RouteType, model.SiteModelRouteSourceManualOverride, true, item.RouteRawPayload, c.Request.Context()); err != nil {
-			resp.ErrorWithAppError(c, http.StatusInternalServerError, apperror.Wrap(op.CodeSiteChannelRouteUpdateFailed, "site channel route update failed", err).WithStatus(http.StatusInternalServerError))
+			status := siteChannelMutationErrorStatus(err)
+			resp.ErrorWithAppError(c, status, apperror.Wrap(op.CodeSiteChannelRouteUpdateFailed, "site channel route update failed", err).WithStatus(status))
 			return
 		}
 	}
@@ -308,7 +307,8 @@ func resetSiteChannelModelRoutes(c *gin.Context) {
 		return
 	}
 	if err := op.SiteChannelResetAccountRoutes(siteID, accountID, c.Request.Context()); err != nil {
-		resp.ErrorWithAppError(c, http.StatusInternalServerError, apperror.Wrap(op.CodeSiteChannelRouteUpdateFailed, "site channel route update failed", err).WithStatus(http.StatusInternalServerError))
+		status := siteChannelMutationErrorStatus(err)
+		resp.ErrorWithAppError(c, status, apperror.Wrap(op.CodeSiteChannelRouteUpdateFailed, "site channel route update failed", err).WithStatus(status))
 		return
 	}
 	if err := reprojectSiteChannelAccount(c.Request.Context(), accountID); err != nil {
@@ -324,24 +324,7 @@ func resetSiteChannelModelRoutes(c *gin.Context) {
 }
 
 func siteChannelMutationErrorStatus(err error) int {
-	var appErr *apperror.Error
-	if errors.As(err, &appErr) && appErr != nil && appErr.Status > 0 {
-		return appErr.Status
-	}
-	message := strings.ToLower(err.Error())
-	switch {
-	case strings.Contains(message, "not found"):
-		return http.StatusNotFound
-	case strings.Contains(message, "required"),
-		strings.Contains(message, "invalid"),
-		strings.Contains(message, "duplicate"),
-		strings.Contains(message, "already exists"),
-		strings.Contains(message, "json object"),
-		strings.Contains(message, "unsupported"):
-		return http.StatusBadRequest
-	default:
-		return http.StatusInternalServerError
-	}
+	return mutationErrorStatus(err)
 }
 
 func parseSiteChannelIDs(c *gin.Context) (int, int, bool) {

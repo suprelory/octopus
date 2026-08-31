@@ -10,7 +10,6 @@ export type SiteModelRouteType =
     | 'openai_response'
     | 'anthropic'
     | 'gemini'
-    | 'volcengine'
     | 'openai_embedding';
 
 export type SiteModelRouteSource =
@@ -189,13 +188,16 @@ const SITE_MODEL_ROUTE_TYPES = new Set<SiteModelRouteType>([
     'openai_response',
     'anthropic',
     'gemini',
-    'volcengine',
     'openai_embedding',
 ]);
 
 function normalizeSiteModelRouteType(value: string | null | undefined): SiteModelRouteType {
-    if (value && SITE_MODEL_ROUTE_TYPES.has(value as SiteModelRouteType)) {
-        return value as SiteModelRouteType;
+    const normalizedValue = value?.trim().toLowerCase();
+    if (normalizedValue === 'volcengine' || normalizedValue === 'ark') {
+        return 'unknown';
+    }
+    if (normalizedValue && SITE_MODEL_ROUTE_TYPES.has(normalizedValue as SiteModelRouteType)) {
+        return normalizedValue as SiteModelRouteType;
     }
     return 'unknown';
 }

@@ -34,7 +34,7 @@ func TestEndpointCapabilities(t *testing.T) {
 	if SupportsRequestType(OutboundTypeOpenAIEmbedding, model.RequestTypeChat) {
 		t.Fatal("embedding endpoint must not accept chat requests")
 	}
-	for _, typ := range []OutboundType{OutboundTypeOpenAIChat, OutboundTypeOpenAIResponse, OutboundTypeAnthropic, OutboundTypeGemini, OutboundTypeVolcengine} {
+	for _, typ := range []OutboundType{OutboundTypeOpenAIChat, OutboundTypeOpenAIResponse, OutboundTypeAnthropic, OutboundTypeGemini} {
 		if !SupportsRequestType(typ, model.RequestTypeResponses) {
 			t.Fatalf("%v must accept canonical Responses operations", typ)
 		}
@@ -45,8 +45,11 @@ func TestEndpointCapabilities(t *testing.T) {
 	if !SupportsNativeFormat(OutboundTypeOpenAIResponse, model.APIFormatOpenAIResponse) {
 		t.Fatal("OpenAI Responses endpoint must support native Responses input")
 	}
-	if SupportsNativeFormat(OutboundTypeVolcengine, model.APIFormatOpenAIResponse) {
-		t.Fatal("Volcengine Responses-compatible endpoint must not claim byte-stable native passthrough")
+	if _, ok := Descriptor(OutboundTypeUnsupported); ok || Get(OutboundTypeUnsupported) != nil {
+		t.Fatal("legacy unsupported outbound type must not have a descriptor or factory")
+	}
+	if OutboundTypeUnsupported != 4 || OutboundTypeOpenAIEmbedding != 5 {
+		t.Fatalf("legacy outbound values changed: unsupported=%d embedding=%d", OutboundTypeUnsupported, OutboundTypeOpenAIEmbedding)
 	}
 }
 

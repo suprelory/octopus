@@ -82,7 +82,7 @@ func GroupGetEnabledMap(name string, ctx context.Context) (model.Group, error) {
 	enabledItems := make([]model.GroupItem, 0, len(group.Items))
 	for _, item := range group.Items {
 		channel, ok := channelCache.Get(item.ChannelID)
-		if !ok || !channel.Enabled {
+		if !ok || !channel.Enabled || !supportedChannelType(channel.Type) {
 			continue
 		}
 		enabledItems = append(enabledItems, item)
@@ -111,6 +111,9 @@ func GroupCreate(group *model.Group, ctx context.Context) error {
 }
 
 func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (*model.Group, error) {
+	if req == nil {
+		return nil, fmt.Errorf("group update request is nil")
+	}
 	oldGroup, ok := groupCache.Get(req.ID)
 	if !ok {
 		return nil, fmt.Errorf("group not found")
@@ -200,6 +203,12 @@ func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (*model.Gro
 
 	// 批量新增 items
 	if len(req.ItemsToAdd) > 0 {
+		for _, item := range req.ItemsToAdd {
+			if _, err := validateChannelReference(item.ChannelID); err != nil {
+				tx.Rollback()
+				return nil, fmt.Errorf("failed to validate group item channel: %w", err)
+			}
+		}
 		newItems := make([]model.GroupItem, len(req.ItemsToAdd))
 		for i, item := range req.ItemsToAdd {
 			newItems[i] = model.GroupItem{
@@ -279,8 +288,14 @@ func GroupDel(id int, ctx context.Context) error {
 }
 
 func GroupItemAdd(item *model.GroupItem, ctx context.Context) error {
+	if item == nil {
+		return fmt.Errorf("group item is nil")
+	}
 	if _, ok := groupCache.Get(item.GroupID); !ok {
 		return fmt.Errorf("group not found")
+	}
+	if _, err := validateChannelReference(item.ChannelID); err != nil {
+		return err
 	}
 
 	if err := db.GetDB().WithContext(ctx).Create(item).Error; err != nil {
@@ -309,6 +324,9 @@ func GroupItemBatchAdd(groupID int, items []model.GroupIDAndLLMName, ctx context
 	for _, it := range items {
 		if it.ChannelID == 0 || it.ModelName == "" {
 			continue
+		}
+		if _, err := validateChannelReference(it.ChannelID); err != nil {
+			return err
 		}
 		k := fmt.Sprintf("%d|%s", it.ChannelID, it.ModelName)
 		if _, exists := seen[k]; exists {
@@ -357,6 +375,12 @@ func GroupItemBatchAdd(groupID int, items []model.GroupIDAndLLMName, ctx context
 }
 
 func GroupItemUpdate(item *model.GroupItem, ctx context.Context) error {
+	if item == nil {
+		return fmt.Errorf("group item is nil")
+	}
+	if _, err := validateChannelReference(item.ChannelID); err != nil {
+		return err
+	}
 	if err := db.GetDB().WithContext(ctx).Model(item).
 		Select("ModelName", "Priority", "Weight").
 		Updates(item).Error; err != nil {

@@ -151,6 +151,7 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 
 	err := conn.Transaction(func(tx *gorm.DB) error {
 		channelIDMap := make(map[int]int)
+		unsupportedChannelIDs := make(map[int]struct{})
 		proxyConfigIDMap := make(map[int]int)
 		siteIDMap := make(map[int]int)
 		accountIDMap := make(map[int]int)
@@ -207,6 +208,12 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		for i := range dump.Channels {
 			ch := dump.Channels[i]
 			oldID := ch.ID
+			if !supportedChannelType(ch.Type) {
+				// Legacy Volcengine channels remain available for historical
+				// references, but an imported backup must never reactivate them.
+				ch.Enabled = false
+				unsupportedChannelIDs[oldID] = struct{}{}
+			}
 			ch.ID = 0
 			ch.Keys = nil
 			ch.Stats = nil
@@ -214,25 +221,96 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 
 			var existing model.Channel
 			if err := tx.Where("name = ?", ch.Name).First(&existing).Error; err == nil {
-				channelIDMap[oldID] = existing.ID
-				continue
+				// A channel name is only a safe deduplication key when the
+				// protocol identity agrees. In particular, mapping a retired
+				// Volcengine row onto a supported channel with the same name would
+				// attach its historical statistics to the wrong adapter.
+				if existing.Type == ch.Type ||
+					(!supportedChannelType(existing.Type) && !supportedChannelType(ch.Type)) {
+					channelIDMap[oldID] = existing.ID
+					if !supportedChannelType(ch.Type) {
+						if err := tx.Model(&existing).Update("enabled", false).Error; err != nil {
+							return fmt.Errorf("import channels: %w", err)
+						}
+					}
+					continue
+				}
+				oldName := ch.Name
+				ch.Name = uniqueChannelName(ch.Name, tx)
+				log.Warnw("channel name conflict with different protocol during import",
+					"old_id", oldID,
+					"existing_id", existing.ID,
+					"old_name", oldName,
+					"new_name", ch.Name,
+					"existing_type", existing.Type,
+					"import_type", ch.Type,
+				)
 			} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 				return fmt.Errorf("import channels: %w", err)
 			}
 			if err := tx.Omit("Keys", "Stats").Create(&ch).Error; err != nil {
 				return fmt.Errorf("import channels: %w", err)
 			}
+			if _, unsupported := unsupportedChannelIDs[oldID]; unsupported {
+				// GORM may apply the model's default:true tag when inserting a
+				// zero-valued Enabled field, so enforce the retired state explicitly.
+				if err := tx.Model(&model.Channel{}).Where("id = ?", ch.ID).Update("enabled", false).Error; err != nil {
+					return fmt.Errorf("import channels: %w", err)
+				}
+			}
 			channelIDMap[oldID] = ch.ID
 			res.RowsAffected["channels"]++
+		}
+
+		type resolvedImportChannel struct {
+			ID        int
+			Exists    bool
+			Supported bool
+		}
+		resolvedChannels := make(map[int]resolvedImportChannel)
+		resolveImportedChannel := func(sourceID int) (resolvedImportChannel, error) {
+			if sourceID <= 0 {
+				return resolvedImportChannel{}, nil
+			}
+			if cached, ok := resolvedChannels[sourceID]; ok {
+				return cached, nil
+			}
+
+			targetID := sourceID
+			if remappedID, ok := channelIDMap[sourceID]; ok {
+				targetID = remappedID
+			}
+			var channel model.Channel
+			if err := tx.Select("id", "type").Where("id = ?", targetID).First(&channel).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					resolvedChannels[sourceID] = resolvedImportChannel{}
+					return resolvedImportChannel{}, nil
+				}
+				return resolvedImportChannel{}, err
+			}
+			_, sourceUnsupported := unsupportedChannelIDs[sourceID]
+			resolved := resolvedImportChannel{
+				ID:        channel.ID,
+				Exists:    true,
+				Supported: !sourceUnsupported && supportedChannelType(channel.Type),
+			}
+			resolvedChannels[sourceID] = resolved
+			return resolved, nil
 		}
 
 		// 3. ChannelKeys (remap channel_id, dedup by channel_id+channel_key)
 		for i := range dump.ChannelKeys {
 			key := dump.ChannelKeys[i]
-			key.ID = 0
-			if newID, ok := channelIDMap[key.ChannelID]; ok {
-				key.ChannelID = newID
+			resolved, err := resolveImportedChannel(key.ChannelID)
+			if err != nil {
+				return fmt.Errorf("import channel_keys: resolve channel: %w", err)
 			}
+			if !resolved.Supported {
+				log.Warnw("skip missing or unsupported channel key during import", "channel_id", key.ChannelID)
+				continue
+			}
+			key.ID = 0
+			key.ChannelID = resolved.ID
 			var existing model.ChannelKey
 			if err := tx.Where("channel_id = ? AND channel_key = ?", key.ChannelID, key.ChannelKey).First(&existing).Error; err == nil {
 				continue
@@ -252,6 +330,10 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 			site.ID = 0
 			site.Accounts = nil
 			remapProxyConfigID(&site.ProxyMode, &site.ProxyConfigID, proxyConfigIDMap)
+			if model.IsRemovedSiteModelRouteType(site.DefaultRouteType) {
+				site.DefaultRouteType = model.SiteModelRouteTypeOpenAIChat
+			}
+			site.RouteBaseURLs = model.NormalizeSiteRouteBaseURLs(site.RouteBaseURLs)
 
 			// Preserve the path in base_url (e.g. https://opencode.ai/zen/v1):
 			// native backups already hold full, canonical URLs. Only trim like
@@ -348,6 +430,7 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		// 8. SiteModels (remap site_account_id, dedup by uniqueIndex)
 		for i := range dump.SiteModels {
 			m := dump.SiteModels[i]
+			normalizeImportedSiteModelRoute(&m)
 			m.ID = 0
 			if newID, ok := accountIDMap[m.SiteAccountID]; ok {
 				m.SiteAccountID = newID
@@ -367,6 +450,14 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		// 9. SiteChannelBindings (remap all FKs, dedup by both unique constraints)
 		for i := range dump.SiteChannelBindings {
 			binding := dump.SiteChannelBindings[i]
+			resolved, err := resolveImportedChannel(binding.ChannelID)
+			if err != nil {
+				return fmt.Errorf("import site_channel_bindings: resolve channel: %w", err)
+			}
+			if !resolved.Supported {
+				log.Warnw("skip missing or unsupported site channel binding during import", "channel_id", binding.ChannelID)
+				continue
+			}
 			binding.ID = 0
 			if newID, ok := siteIDMap[binding.SiteID]; ok {
 				binding.SiteID = newID
@@ -379,9 +470,7 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 					binding.SiteUserGroupID = &newID
 				}
 			}
-			if newID, ok := channelIDMap[binding.ChannelID]; ok {
-				binding.ChannelID = newID
-			}
+			binding.ChannelID = resolved.ID
 
 			var existing model.SiteChannelBinding
 			if err := tx.Where("site_account_id = ? AND group_key = ?", binding.SiteAccountID, binding.GroupKey).First(&existing).Error; err == nil {
@@ -425,13 +514,18 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		// 11. GroupItems (remap group_id+channel_id, dedup by uniqueIndex)
 		for i := range dump.GroupItems {
 			item := dump.GroupItems[i]
+			resolved, err := resolveImportedChannel(item.ChannelID)
+			if err != nil {
+				return fmt.Errorf("import group_items: resolve channel: %w", err)
+			}
+			if !resolved.Supported {
+				continue
+			}
 			item.ID = 0
 			if newID, ok := groupIDMap[item.GroupID]; ok {
 				item.GroupID = newID
 			}
-			if newID, ok := channelIDMap[item.ChannelID]; ok {
-				item.ChannelID = newID
-			}
+			item.ChannelID = resolved.ID
 			var existing model.GroupItem
 			if err := tx.Where("group_id = ? AND channel_id = ? AND model_name = ?", item.GroupID, item.ChannelID, item.ModelName).First(&existing).Error; err == nil {
 				continue
@@ -496,16 +590,19 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 				res.RowsAffected["stats_hourly"] = n
 			}
 
-			// StatsModel: remap ChannelID, clear ID. Skip orphaned rows whose channel
-			// is not present in the dump, otherwise SQLite foreign keys can fail.
+			// StatsModel: remap ChannelID and retain statistics for historical channels.
+			// Only truly orphaned rows are skipped.
 			filteredStatsModel := make([]model.StatsModel, 0, len(dump.StatsModel))
 			for _, row := range dump.StatsModel {
-				newID, ok := channelIDMap[row.ChannelID]
-				if !ok {
+				resolved, err := resolveImportedChannel(row.ChannelID)
+				if err != nil {
+					return fmt.Errorf("import stats_model: resolve channel: %w", err)
+				}
+				if !resolved.Exists {
 					continue
 				}
 				row.ID = 0
-				row.ChannelID = newID
+				row.ChannelID = resolved.ID
 				filteredStatsModel = append(filteredStatsModel, row)
 			}
 			if n, err := createDoNothing(tx, filteredStatsModel); err != nil {
@@ -514,15 +611,18 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 				res.RowsAffected["stats_model"] = n
 			}
 
-			// StatsChannel: remap ChannelID (which is the PK). Skip orphaned rows whose
-			// channel is not present in the dump, otherwise SQLite foreign keys can fail.
+			// StatsChannel: remap ChannelID (which is the PK) while retaining historical
+			// statistics for retired channels.
 			filteredStatsChannel := make([]model.StatsChannel, 0, len(dump.StatsChannel))
 			for _, row := range dump.StatsChannel {
-				newID, ok := channelIDMap[row.ChannelID]
-				if !ok {
+				resolved, err := resolveImportedChannel(row.ChannelID)
+				if err != nil {
+					return fmt.Errorf("import stats_channel: resolve channel: %w", err)
+				}
+				if !resolved.Exists {
 					continue
 				}
-				row.ChannelID = newID
+				row.ChannelID = resolved.ID
 				filteredStatsChannel = append(filteredStatsChannel, row)
 			}
 			if n, err := createUpsertAll(tx, filteredStatsChannel, []clause.Column{{Name: "channel_id"}}); err != nil {
@@ -590,6 +690,43 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		)
 	}
 	return res, nil
+}
+
+func normalizeImportedSiteModelRoute(item *model.SiteModel) {
+	if item == nil {
+		return
+	}
+
+	rawRouteType := item.RouteType
+	normalizedRouteType := model.NormalizeSiteModelRouteType(rawRouteType)
+	legacyRoute := model.IsRemovedSiteModelRouteType(rawRouteType)
+	legacyMetadata := model.ContainsRemovedSiteModelRouteMarker(item.RouteRawPayload)
+	manualSupportedRoute := item.ManualOverride &&
+		!legacyRoute &&
+		!legacyMetadata &&
+		model.IsProjectedSiteModelRouteType(normalizedRouteType)
+	legacyModel := model.ContainsRemovedSiteModelRouteMarker(item.ModelName) && !manualSupportedRoute
+
+	if !legacyRoute && !legacyMetadata && !legacyModel {
+		item.RouteType = normalizedRouteType
+		item.RouteSource = model.NormalizeSiteModelRouteSource(item.RouteSource, item.ManualOverride)
+		return
+	}
+
+	metadata, ok := model.ParseSiteModelRouteMetadata(item.RouteRawPayload)
+	if !ok {
+		metadata = &model.SiteModelRouteMetadata{}
+	}
+	metadata.RouteSupported = false
+	metadata.RouteGuessed = false
+	metadata.RouteType = model.SiteModelRouteTypeUnknown
+	if strings.TrimSpace(metadata.UnsupportedReason) == "" {
+		metadata.UnsupportedReason = "Volcengine/Ark route support has been removed"
+	}
+	item.RouteType = model.SiteModelRouteTypeUnknown
+	item.RouteSource = model.SiteModelRouteSourceSyncInferred
+	item.ManualOverride = false
+	item.RouteRawPayload = metadata.Marshal()
 }
 
 func migrateLegacyDumpProxyFields(dump *model.DBDump) {
@@ -690,6 +827,24 @@ func uniqueProxyConfigName(baseName string, tx *gorm.DB) string {
 		}
 		candidate = fmt.Sprintf("%s (%d)", baseName, index)
 		index++
+	}
+}
+
+func uniqueChannelName(baseName string, tx *gorm.DB) string {
+	baseName = strings.TrimSpace(baseName)
+	if baseName == "" {
+		baseName = "imported-channel"
+	}
+	candidate := baseName
+	for index := 2; ; index++ {
+		var count int64
+		if err := tx.Model(&model.Channel{}).Where("name = ?", candidate).Count(&count).Error; err != nil {
+			return candidate
+		}
+		if count == 0 {
+			return candidate
+		}
+		candidate = fmt.Sprintf("%s (%d)", baseName, index)
 	}
 }
 

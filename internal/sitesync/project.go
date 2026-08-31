@@ -78,11 +78,11 @@ func ProjectAccount(ctx context.Context, accountID int) ([]int, error) {
 		if !siteModelBelongsToProjectedGroup(item, groupKey) {
 			continue
 		}
-		if strings.TrimSpace(string(item.RouteType)) == "" {
-			item.RouteType = model.InferSiteModelRouteType(item.ModelName)
-		} else {
-			item.RouteType = model.NormalizeSiteModelRouteType(item.RouteType)
+		routeType, projectable := projectableSiteModelRouteType(item)
+		if !projectable {
+			continue
 		}
+		item.RouteType = routeType
 		modelsByGroup[groupKey] = append(modelsByGroup[groupKey], item)
 	}
 	for groupKey, items := range modelsByGroup {
@@ -519,6 +519,8 @@ func platformOutboundType(site *model.Site) outbound.OutboundType {
 			return outbound.OutboundTypeAnthropic
 		case model.SiteModelRouteTypeGemini:
 			return outbound.OutboundTypeGemini
+		case model.SiteModelRouteTypeUnknown:
+			return outbound.OutboundTypeUnsupported
 		default:
 			return outbound.OutboundTypeOpenAIChat
 		}
@@ -538,20 +540,61 @@ func shouldSplitByOutboundType(site *model.Site) bool {
 func partitionSiteModelsByRouteType(items []model.SiteModel, split bool, site *model.Site) map[model.SiteModelRouteType][]model.SiteModel {
 	if !split {
 		routeType := model.SiteModelRouteTypeFromOutboundType(platformOutboundType(site))
-		if len(items) == 0 {
+		if len(items) == 0 || !model.IsProjectedSiteModelRouteType(routeType) {
 			return map[model.SiteModelRouteType][]model.SiteModel{}
 		}
-		return map[model.SiteModelRouteType][]model.SiteModel{routeType: items}
+		projectable := make([]model.SiteModel, 0, len(items))
+		for _, item := range items {
+			// Explicitly unsupported route metadata and retired provider rows must
+			// not be silently folded into the site's default OpenAI Chat channel.
+			if _, ok := projectableSiteModelRouteType(item); !ok {
+				continue
+			}
+			projectable = append(projectable, item)
+		}
+		if len(projectable) == 0 {
+			return map[model.SiteModelRouteType][]model.SiteModel{}
+		}
+		return map[model.SiteModelRouteType][]model.SiteModel{routeType: projectable}
 	}
 	buckets := make(map[model.SiteModelRouteType][]model.SiteModel)
 	for _, item := range items {
-		routeType := model.NormalizeSiteModelRouteType(item.RouteType)
-		if !model.IsProjectedSiteModelRouteType(routeType) {
+		routeType, ok := projectableSiteModelRouteType(item)
+		if !ok {
 			continue
 		}
 		buckets[routeType] = append(buckets[routeType], item)
 	}
 	return buckets
+}
+
+// projectableSiteModelRouteType resolves a persisted model's route without
+// allowing historical Volcengine/Ark rows to fall back to OpenAI Chat. Empty
+// route values retain the existing model-name inference for ordinary models;
+// explicit supported metadata is preferred when it is available.
+func projectableSiteModelRouteType(item model.SiteModel) (model.SiteModelRouteType, bool) {
+	if model.HasRemovedSiteModelRouteEvidence(item) {
+		return model.SiteModelRouteTypeUnknown, false
+	}
+	metadata, hasMetadata := model.ParseSiteModelRouteMetadata(item.RouteRawPayload)
+	if hasMetadata && !metadata.RouteSupported {
+		return model.SiteModelRouteTypeUnknown, false
+	}
+
+	routeType := item.RouteType
+	if strings.TrimSpace(string(routeType)) == "" {
+		if hasMetadata && model.IsProjectedSiteModelRouteType(metadata.RouteType) {
+			routeType = metadata.RouteType
+		} else {
+			routeType = model.InferSiteModelRouteType(item.ModelName)
+		}
+	} else {
+		routeType = model.NormalizeSiteModelRouteType(routeType)
+	}
+	if !model.IsProjectedSiteModelRouteType(routeType) {
+		return model.SiteModelRouteTypeUnknown, false
+	}
+	return routeType, true
 }
 
 func compactSiteModels(items []model.SiteModel) []model.SiteModel {
@@ -652,8 +695,14 @@ func rewriteManagedGroupItemsForAccount(ctx context.Context, siteRecord *model.S
 		}
 		key := model.NormalizeSiteGroupKey(item.GroupKey) + "\x00" + strings.TrimSpace(item.ModelName)
 		activeModelKeys[key] = struct{}{}
-		routeType := model.NormalizeSiteModelRouteType(item.RouteType)
-		if !split || model.IsProjectedSiteModelRouteType(routeType) {
+		routeType, projectable := projectableSiteModelRouteType(item)
+		if !projectable {
+			continue
+		}
+		if !split {
+			routeType = model.SiteModelRouteTypeFromOutboundType(platformOutboundType(siteRecord))
+		}
+		if model.IsProjectedSiteModelRouteType(routeType) {
 			modelRouteMap[key] = routeType
 		}
 	}

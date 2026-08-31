@@ -106,7 +106,7 @@ func TestProjectAccountSupportsAllConfiguredRouteBuckets(t *testing.T) {
 
 	extraModels := []model.SiteModel{
 		{SiteAccountID: account.ID, GroupKey: model.SiteDefaultGroupKey, ModelName: "text-embedding-3-large", Source: "sync", RouteType: model.SiteModelRouteTypeOpenAIEmbedding},
-		{SiteAccountID: account.ID, GroupKey: model.SiteDefaultGroupKey, ModelName: "doubao-seed-1-6", Source: "sync", RouteType: model.SiteModelRouteTypeVolcengine},
+		{SiteAccountID: account.ID, GroupKey: model.SiteDefaultGroupKey, ModelName: "doubao-seed-1-6", Source: "sync", RouteType: model.SiteModelRouteType("volcengine")},
 	}
 	if err := dbpkg.GetDB().WithContext(ctx).Create(&extraModels).Error; err != nil {
 		t.Fatalf("create extra site models failed: %v", err)
@@ -116,20 +116,78 @@ func TestProjectAccountSupportsAllConfiguredRouteBuckets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProjectAccount returned error: %v", err)
 	}
-	if len(channelIDs) != 5 {
-		t.Fatalf("expected 5 managed channels for 5 route buckets, got %d", len(channelIDs))
+	if len(channelIDs) != 4 {
+		t.Fatalf("expected 4 managed channels after removing unsupported route bucket, got %d", len(channelIDs))
 	}
 
 	channelsByGroup := loadProjectedChannelsByGroupKey(t, ctx, account.ID)
-	if len(channelsByGroup) != 5 {
-		t.Fatalf("expected 5 bindings, got %d", len(channelsByGroup))
+	if len(channelsByGroup) != 4 {
+		t.Fatalf("expected 4 bindings after removing unsupported route bucket, got %d", len(channelsByGroup))
 	}
 
 	assertProjectedChannel(t, channelsByGroup, "default", outbound.OutboundTypeOpenAIChat, "gpt-4o-mini", false)
 	assertProjectedChannel(t, channelsByGroup, "default::anthropic", outbound.OutboundTypeAnthropic, "claude-3-5-sonnet", true)
 	assertProjectedChannel(t, channelsByGroup, "default::gemini", outbound.OutboundTypeGemini, "gemini-2.0-flash", true)
-	assertProjectedChannel(t, channelsByGroup, "default::volcengine", outbound.OutboundTypeVolcengine, "doubao-seed-1-6", true)
 	assertProjectedChannel(t, channelsByGroup, "default::openai-embedding", outbound.OutboundTypeOpenAIEmbedding, "text-embedding-3-large", true)
+	if _, ok := channelsByGroup["default::volcengine"]; ok {
+		t.Fatal("legacy Volcengine route must not create a projected channel")
+	}
+}
+
+func TestProjectAccountDoesNotInferRemovedModelNameAsChat(t *testing.T) {
+	ctx := setupProjectTestDB(t)
+	_, account := createProjectionFixture(t, ctx)
+
+	legacy := model.SiteModel{
+		SiteAccountID: account.ID,
+		GroupKey:      model.SiteDefaultGroupKey,
+		ModelName:     "doubao-seed-1-6",
+		Source:        "sync",
+		RouteType:     model.SiteModelRouteTypeOpenAIChat,
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&legacy).Error; err != nil {
+		t.Fatalf("create legacy site model failed: %v", err)
+	}
+	// Simulate a pre-route-metadata row whose zero route value was filled by the
+	// database default during insertion.
+	if err := dbpkg.GetDB().WithContext(ctx).Model(&model.SiteModel{}).
+		Where("id = ?", legacy.ID).Update("route_type", "").Error; err != nil {
+		t.Fatalf("clear legacy route type failed: %v", err)
+	}
+
+	if _, err := ProjectAccount(ctx, account.ID); err != nil {
+		t.Fatalf("ProjectAccount returned error: %v", err)
+	}
+	channelsByGroup := loadProjectedChannelsByGroupKey(t, ctx, account.ID)
+	if got := channelsByGroup[model.SiteDefaultGroupKey].Model; got != "gpt-4o-mini" {
+		t.Fatalf("expected legacy model to stay out of Chat projection, got %q", got)
+	}
+}
+
+func TestProjectAccountAllowsExplicitManualRouteForProviderNamedModel(t *testing.T) {
+	ctx := setupProjectTestDB(t)
+	_, account := createProjectionFixture(t, ctx)
+
+	manual := model.SiteModel{
+		SiteAccountID:  account.ID,
+		GroupKey:       model.SiteDefaultGroupKey,
+		ModelName:      "doubao-openai-compatible",
+		Source:         "manual",
+		RouteType:      model.SiteModelRouteTypeOpenAIChat,
+		RouteSource:    model.SiteModelRouteSourceManualOverride,
+		ManualOverride: true,
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&manual).Error; err != nil {
+		t.Fatalf("create manually routed site model failed: %v", err)
+	}
+
+	if _, err := ProjectAccount(ctx, account.ID); err != nil {
+		t.Fatalf("ProjectAccount returned error: %v", err)
+	}
+	channelsByGroup := loadProjectedChannelsByGroupKey(t, ctx, account.ID)
+	if got := channelsByGroup[model.SiteDefaultGroupKey].Model; got != "doubao-openai-compatible,gpt-4o-mini" {
+		t.Fatalf("expected explicit manual route to remain projectable, got %q", got)
+	}
 }
 
 func TestProjectAccountRewritesGroupItemsBeforeRemovingStaleManagedBindings(t *testing.T) {
@@ -1174,7 +1232,6 @@ func assertProjectedChannel(t *testing.T, channelsByGroup map[string]model.Chann
 		"default":                   "Projection Site/Primary Account/default-Chat",
 		"default::anthropic":        "Projection Site/Primary Account/default-Anthropic",
 		"default::gemini":           "Projection Site/Primary Account/default-Gemini",
-		"default::volcengine":       "Projection Site/Primary Account/default-Volcengine",
 		"default::openai-embedding": "Projection Site/Primary Account/default-Embedding",
 	}
 	if expectedName, ok := expectedNames[groupKey]; ok && channel.Name != expectedName {

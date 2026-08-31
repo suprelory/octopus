@@ -91,8 +91,6 @@ export function routeTypeLabel(routeType: SiteModelRouteType) {
             return 'Anthropic';
         case 'gemini':
             return 'Gemini';
-        case 'volcengine':
-            return 'Volcengine';
         case 'openai_embedding':
             return 'OpenAI Embedding';
         default:

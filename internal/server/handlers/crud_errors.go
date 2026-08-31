@@ -1,17 +1,47 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/bestruirui/octopus/internal/apperror"
 )
 
 func channelError(code string, message string, err error) *apperror.Error {
-	return apperror.Wrap(code, message, err).WithStatus(http.StatusInternalServerError)
+	return apperror.Wrap(code, message, err).WithStatus(mutationErrorStatus(err))
+}
+
+// mutationErrorStatus maps validation-like operation errors to a client error
+// while keeping unexpected failures at 500. Operation packages intentionally
+// return plain errors, so this is the handler boundary where their status is
+// translated into HTTP semantics.
+func mutationErrorStatus(err error) int {
+	if err == nil {
+		return http.StatusInternalServerError
+	}
+	var appErr *apperror.Error
+	if errors.As(err, &appErr) && appErr != nil && appErr.Status > 0 {
+		return appErr.Status
+	}
+	message := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(message, "not found"):
+		return http.StatusNotFound
+	case strings.Contains(message, "required"),
+		strings.Contains(message, "invalid"),
+		strings.Contains(message, "duplicate"),
+		strings.Contains(message, "already exists"),
+		strings.Contains(message, "json object"),
+		strings.Contains(message, "unsupported"):
+		return http.StatusBadRequest
+	default:
+		return http.StatusInternalServerError
+	}
 }
 
 func groupError(code string, message string, err error) *apperror.Error {
-	return apperror.Wrap(code, message, err).WithStatus(http.StatusInternalServerError)
+	return apperror.Wrap(code, message, err).WithStatus(mutationErrorStatus(err))
 }
 
 func modelError(code string, message string, err error) *apperror.Error {

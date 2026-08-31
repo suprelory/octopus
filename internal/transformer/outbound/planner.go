@@ -123,22 +123,6 @@ var adapterLossPolicies = map[OutboundType]AdapterLossPolicy{
 			lossFieldWebSearchOptions: {Action: LossActionDrop},
 		},
 	},
-	OutboundTypeVolcengine: {
-		Fields: map[string]AdapterFieldPolicy{
-			lossFieldAudio:            {Action: LossActionDrop},
-			lossFieldFrequencyPenalty: {Action: LossActionDrop},
-			lossFieldLogitBias:        {Action: LossActionDrop},
-			lossFieldLogprobs:         {Action: LossActionDrop},
-			lossFieldMetadata:         {Action: LossActionDrop},
-			lossFieldPrediction:       {Action: LossActionDrop},
-			lossFieldPresencePenalty:  {Action: LossActionDrop},
-			lossFieldSeed:             {Action: LossActionDrop},
-			lossFieldStopSequences:    {Action: LossActionDrop},
-			lossFieldTopK:             {Action: LossActionDrop},
-			lossFieldUser:             {Action: LossActionDrop},
-			lossFieldWebSearchOptions: {Action: LossActionDrop},
-		},
-	},
 	OutboundTypeAnthropic: {
 		Fields: map[string]AdapterFieldPolicy{
 			lossFieldAudio:            {Action: LossActionDrop},
@@ -622,11 +606,6 @@ func evaluateFeature(req *model.InternalLLMRequest, effectiveModel string, outbo
 				reportLoss(decision, change.Field, action, change.Reason)
 			}
 		}
-		if outboundType == OutboundTypeVolcengine {
-			if _, ok := supportedVolcengineReasoningModels[effectiveModel]; !ok {
-				degrade(decision, "reasoning", "Volcengine endpoint drops reasoning configuration for this model")
-			}
-		}
 	case FeatureTools:
 		for index, tool := range req.Tools {
 			if supportsToolType(outboundType, tool) {
@@ -641,19 +620,13 @@ func evaluateFeature(req *model.InternalLLMRequest, effectiveModel string, outbo
 	}
 }
 
-var supportedVolcengineReasoningModels = map[string]struct{}{
-	"doubao-seed-1-8-251228":      {},
-	"doubao-seed-1-6-lite-251015": {},
-	"doubao-seed-1-6-251015":      {},
-}
-
 func supportsToolType(outboundType OutboundType, tool model.Tool) bool {
 	typ := strings.ToLower(strings.TrimSpace(tool.Type))
 	if typ == "" || typ == "function" {
 		return true
 	}
 	switch outboundType {
-	case OutboundTypeOpenAIResponse, OutboundTypeVolcengine:
+	case OutboundTypeOpenAIResponse:
 		return typ == "image_generation"
 	case OutboundTypeGemini:
 		return slices.Contains([]string{"server_search", "code_execution", "url_context"}, typ)
@@ -691,7 +664,7 @@ func evaluateMultimodal(req *model.InternalLLMRequest, outboundType OutboundType
 				}
 				continue
 			}
-			if outboundType == OutboundTypeAnthropic || outboundType == OutboundTypeOpenAIResponse || outboundType == OutboundTypeVolcengine {
+			if outboundType == OutboundTypeAnthropic || outboundType == OutboundTypeOpenAIResponse {
 				degrade(decision, "modalities", fmt.Sprintf("output modality %q is not supported by %s", modality, outboundType))
 			}
 		}
@@ -711,7 +684,7 @@ func evaluateReasoning(req *model.InternalLLMRequest, outboundType OutboundType,
 		degradeIf(req.AdaptiveThinking, "adaptive_thinking")
 		degradeIf(req.EnableThinking != nil, "enable_thinking")
 		degradeIf(usesSummary, "reasoning_summary")
-	case OutboundTypeOpenAIResponse, OutboundTypeVolcengine:
+	case OutboundTypeOpenAIResponse:
 		degradeIf(req.AdaptiveThinking, "adaptive_thinking")
 		degradeIf(req.EnableThinking != nil, "enable_thinking")
 		degradeIf(req.Thinking != nil, "thinking")
@@ -732,9 +705,9 @@ func supportsContentPart(outboundType OutboundType, typ string) bool {
 	case "", "text", "image_url":
 		return true
 	case "input_audio":
-		return outboundType == OutboundTypeOpenAIChat || outboundType == OutboundTypeOpenAIResponse || outboundType == OutboundTypeVolcengine || outboundType == OutboundTypeGemini
+		return outboundType == OutboundTypeOpenAIChat || outboundType == OutboundTypeOpenAIResponse || outboundType == OutboundTypeGemini
 	case "file":
-		return outboundType == OutboundTypeOpenAIResponse || outboundType == OutboundTypeVolcengine || outboundType == OutboundTypeGemini
+		return outboundType == OutboundTypeOpenAIResponse || outboundType == OutboundTypeGemini
 	case "document":
 		return outboundType == OutboundTypeAnthropic || outboundType == OutboundTypeGemini
 	case "server_tool_use", "server_tool_result":

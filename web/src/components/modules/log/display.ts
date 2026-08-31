@@ -51,6 +51,7 @@ function normalizeEndpointType(value: string) {
     if (normalized === 'anthropic') return 'messages';
     if (normalized === 'embedding' || normalized === 'openai_embedding') return 'embeddings';
     if (normalized === 'image') return 'images';
+    if (normalized === 'volcengine' || normalized === 'ark') return 'unsupported';
     return normalized;
 }
 
@@ -61,7 +62,7 @@ function inferEndpointType(modelNames: string[]) {
     if (names.some((name) => name.includes('moderation'))) return 'moderations';
     if (names.some((name) => name.includes('claude'))) return 'messages';
     if (names.some((name) => name.includes('gemini') || name.includes('gemma'))) return 'gemini';
-    if (names.some((name) => name.includes('doubao') || name.includes('volcengine') || name.includes('ark-'))) return 'volcengine';
+    if (names.some((name) => name.includes('doubao') || name.includes('volcengine') || name.includes('ark-'))) return 'unsupported';
     if (names.some((name) => name.includes('deepseek'))) return 'deepseek';
     if (names.some((name) => name.includes('mimo'))) return 'mimo';
     return names.length > 0 ? 'chat' : '';
@@ -89,11 +90,11 @@ function inferRequestTypeKey(endpointType: string, modelNames: string[], request
     if (endpoint === 'responses') return 'responses';
     if (endpoint === 'messages') return 'anthropicMessages';
     if (endpoint === 'gemini') return 'gemini';
-    if (endpoint === 'volcengine') return 'volcengine';
+    if (endpoint === 'unsupported') return 'unsupported';
     if (endpoint === 'mimo' || names.some((name) => name.includes('mimo'))) return 'mimoChat';
     if (names.some((name) => name.includes('claude'))) return 'anthropicMessages';
     if (names.some((name) => name.includes('gemini'))) return 'gemini';
-    if (names.some((name) => name.includes('doubao') || name.includes('volcengine'))) return 'volcengine';
+    if (names.some((name) => name.includes('doubao') || name.includes('volcengine'))) return 'unsupported';
     return streaming ? 'streamingChat' : 'chat';
 }
 

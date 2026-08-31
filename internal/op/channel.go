@@ -44,6 +44,11 @@ func normalizeChannelProxyFields(channel *model.Channel) {
 	if channel == nil {
 		return
 	}
+	if !supportedChannelType(channel.Type) {
+		// Legacy channels are retained for audit/statistics, but an invalid or
+		// removed protocol can never be exposed as enabled at runtime.
+		channel.Enabled = false
+	}
 	if channel.ProxyMode == "" {
 		channel.ProxyMode = model.ProxyUsageModeDirect
 	}
@@ -57,6 +62,9 @@ func normalizeChannelProxyFields(channel *model.Channel) {
 func ChannelCreate(channel *model.Channel, ctx context.Context) error {
 	if channel == nil {
 		return fmt.Errorf("channel is nil")
+	}
+	if _, ok := model2.Descriptor(channel.Type); !ok {
+		return fmt.Errorf("unsupported channel type: %d", channel.Type)
 	}
 	if channel.ProxyMode == "" {
 		channel.ProxyMode = model.ProxyUsageModeDirect
@@ -236,10 +244,24 @@ func ChannelUpdate(req *model.ChannelUpdateRequest, ctx context.Context) (*model
 		updates.Name = *req.Name
 	}
 	if req.Type != nil {
+		if _, ok := model2.Descriptor(*req.Type); !ok {
+			tx.Rollback()
+			return nil, fmt.Errorf("unsupported channel type: %d", *req.Type)
+		}
 		selectFields = append(selectFields, "type")
 		updates.Type = *req.Type
 	}
 	if req.Enabled != nil {
+		if *req.Enabled {
+			candidateType := existingChannel.Type
+			if req.Type != nil {
+				candidateType = *req.Type
+			}
+			if _, ok := model2.Descriptor(candidateType); !ok {
+				tx.Rollback()
+				return nil, fmt.Errorf("unsupported channel type: %d cannot be enabled", candidateType)
+			}
+		}
 		selectFields = append(selectFields, "enabled")
 		updates.Enabled = *req.Enabled
 	}
@@ -410,6 +432,11 @@ func ChannelEnabled(id int, enabled bool, ctx context.Context) error {
 	} else if managed {
 		return fmt.Errorf("managed site channel is read-only; please enable or disable it from the site account")
 	}
+	if enabled {
+		if _, supported := model2.Descriptor(oldChannel.Type); !supported {
+			return fmt.Errorf("unsupported channel type: %d cannot be enabled", oldChannel.Type)
+		}
+	}
 	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).Update("enabled", enabled).Error; err != nil {
 		return err
 	}
@@ -424,6 +451,11 @@ func ChannelEnabledManaged(id int, enabled bool, ctx context.Context) error {
 	oldChannel, ok := channelCache.Get(id)
 	if !ok {
 		return fmt.Errorf("channel not found")
+	}
+	if enabled {
+		if _, supported := model2.Descriptor(oldChannel.Type); !supported {
+			return fmt.Errorf("unsupported channel type: %d cannot be enabled", oldChannel.Type)
+		}
 	}
 	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).Update("enabled", enabled).Error; err != nil {
 		return err
@@ -540,7 +572,14 @@ func ChannelLLMList(ctx context.Context) ([]model.LLMChannel, error) {
 	accountCache := make(map[int]*model.SiteAccount)
 
 	models := []model.LLMChannel{}
-	for _, channel := range channelsByID {
+	for _, cachedChannel := range channelsByID {
+		channel := cachedChannel
+		normalizeChannelProxyFields(&channel)
+		if !supportedChannelType(channel.Type) {
+			// The model picker is a routing input, so retired/unknown protocols
+			// must not be offered even when their historical channel row remains.
+			continue
+		}
 		var binding *model.SiteChannelBinding
 		if item, ok := bindingMap[channel.ID]; ok {
 			copy := item
@@ -589,6 +628,8 @@ func ChannelLLMList(ctx context.Context) ([]model.LLMChannel, error) {
 				endpointType = "anthropic"
 			case model2.OutboundTypeGemini:
 				endpointType = "gemini"
+			case model2.OutboundTypeUnsupported:
+				endpointType = "unsupported"
 			default:
 				endpointType = "openai"
 			}

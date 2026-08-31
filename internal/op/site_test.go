@@ -923,6 +923,81 @@ func TestSiteImportMetAPIInvalidJSONUsesStableMessage(t *testing.T) {
 	}
 }
 
+func TestSiteImportRejectsRemovedVolcenginePlatforms(t *testing.T) {
+	tests := []struct {
+		name     string
+		platform string
+		baseURL  string
+	}{
+		{name: "volcengine platform", platform: "volcengine", baseURL: "https://api.example.com"},
+		{name: "ark platform", platform: "ark", baseURL: "https://api.example.com"},
+		{name: "ark endpoint", platform: "openai-compatible", baseURL: "https://ark.cn-beijing.volces.com/api/v3"},
+		{name: "doubao endpoint", platform: "openai-compatible", baseURL: "https://doubao.example.com/v1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, ok := resolveImportedPlatform(tt.platform, tt.baseURL); ok {
+				t.Fatalf("resolveImportedPlatform accepted removed provider %q at %q", tt.platform, tt.baseURL)
+			}
+			if _, ok := resolveImportedProfilePlatform(tt.platform, tt.baseURL); ok {
+				t.Fatalf("resolveImportedProfilePlatform accepted removed provider %q at %q", tt.platform, tt.baseURL)
+			}
+		})
+	}
+
+	if _, ok := resolveImportedPlatform("openai-compatible", "https://spark.example.com/v1"); !ok {
+		t.Fatal("provider detection must not treat spark as the removed Ark provider")
+	}
+	if _, ok := resolveImportedPlatform("openai-compatible", "https://notvolces.example.com/v1"); !ok {
+		t.Fatal("provider detection must not treat an embedded volces substring as the removed provider")
+	}
+}
+
+func TestPrepareMetAPIImportedModelsRetiresRemovedRoutes(t *testing.T) {
+	items := prepareMetAPIImportedModels(42, []model.SiteModel{
+		{
+			GroupKey:  model.SiteDefaultGroupKey,
+			ModelName: "doubao-seed-1-6",
+			RouteType: model.InferSiteModelRouteType("doubao-seed-1-6"),
+		},
+		{
+			GroupKey:       model.SiteDefaultGroupKey,
+			ModelName:      "doubao-openai-compatible",
+			RouteType:      model.SiteModelRouteTypeAnthropic,
+			RouteSource:    model.SiteModelRouteSourceManualOverride,
+			ManualOverride: true,
+		},
+		{
+			GroupKey:  model.SiteDefaultGroupKey,
+			ModelName: "gpt-4o",
+			RouteType: model.SiteModelRouteTypeOpenAIChat,
+		},
+	})
+
+	byName := make(map[string]model.SiteModel, len(items))
+	for _, item := range items {
+		byName[item.ModelName] = item
+	}
+
+	removed := byName["doubao-seed-1-6"]
+	if removed.RouteType != model.SiteModelRouteTypeUnknown || removed.ManualOverride {
+		t.Fatalf("expected removed model route to be unsupported, got %+v", removed)
+	}
+	metadata, ok := model.ParseSiteModelRouteMetadata(removed.RouteRawPayload)
+	if !ok || metadata.RouteSupported {
+		t.Fatalf("expected unsupported route metadata for removed model, got ok=%t metadata=%+v", ok, metadata)
+	}
+
+	manual := byName["doubao-openai-compatible"]
+	if manual.RouteType != model.SiteModelRouteTypeAnthropic || !manual.ManualOverride || manual.RouteSource != model.SiteModelRouteSourceManualOverride {
+		t.Fatalf("expected supported manual route to remain intact, got %+v", manual)
+	}
+
+	if supported := byName["gpt-4o"]; supported.RouteType != model.SiteModelRouteTypeOpenAIChat || supported.ManualOverride {
+		t.Fatalf("expected regular imported model to retain inferred Chat route, got %+v", supported)
+	}
+}
+
 func TestSiteModelRouteUpdateIfNotManualHonorsManualOverride(t *testing.T) {
 	ctx := setupSiteOpTestDB(t)
 
@@ -1011,6 +1086,76 @@ func TestSiteModelRouteUpdateIfNotManualHonorsManualOverride(t *testing.T) {
 	}
 	if learnedRow.RouteRawPayload != "mismatch" {
 		t.Fatalf("expected learned payload to be recorded, got %q", learnedRow.RouteRawPayload)
+	}
+}
+
+func TestSiteAvailableModelsExcludesUnsupportedRoutes(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+	site, account := createSiteOpTestSiteAccount(t, ctx, "available-model-site", "available-model-account")
+	unsupportedPayload := model.SiteModelRouteMetadata{
+		RouteSupported:    false,
+		UnsupportedReason: "Volcengine/Ark route support has been removed",
+	}.Marshal()
+	rows := []model.SiteModel{
+		{SiteAccountID: account.ID, GroupKey: model.SiteDefaultGroupKey, ModelName: "gpt-4o", RouteType: model.SiteModelRouteTypeOpenAIChat},
+		{SiteAccountID: account.ID, GroupKey: model.SiteDefaultGroupKey, ModelName: "doubao-seed-1-6", RouteType: model.SiteModelRouteTypeUnknown},
+		{SiteAccountID: account.ID, GroupKey: model.SiteDefaultGroupKey, ModelName: "legacy-metadata", RouteType: model.SiteModelRouteTypeOpenAIChat, RouteRawPayload: unsupportedPayload},
+		{SiteAccountID: account.ID, GroupKey: model.SiteDefaultGroupKey, ModelName: "disabled-model", RouteType: model.SiteModelRouteTypeOpenAIChat, Disabled: true},
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&rows).Error; err != nil {
+		t.Fatalf("create site models failed: %v", err)
+	}
+
+	models, err := SiteAvailableModels(site.ID, ctx)
+	if err != nil {
+		t.Fatalf("SiteAvailableModels failed: %v", err)
+	}
+	if len(models) != 1 || models[0] != "gpt-4o" {
+		t.Fatalf("expected only supported available model, got %+v", models)
+	}
+}
+
+func TestSiteAvailableModelsDoesNotInferRemovedModelNameAsChat(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+	site, account := createSiteOpTestSiteAccount(t, ctx, "available-legacy-site", "available-legacy-account")
+	rows := []model.SiteModel{
+		{SiteAccountID: account.ID, GroupKey: model.SiteDefaultGroupKey, ModelName: "gpt-4o", RouteType: model.SiteModelRouteTypeOpenAIChat},
+		{SiteAccountID: account.ID, GroupKey: model.SiteDefaultGroupKey, ModelName: "doubao-seed-1-6", RouteType: model.SiteModelRouteTypeOpenAIChat},
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&rows).Error; err != nil {
+		t.Fatalf("create site models failed: %v", err)
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Model(&model.SiteModel{}).
+		Where("site_account_id = ? AND model_name = ?", account.ID, "doubao-seed-1-6").
+		Update("route_type", "").Error; err != nil {
+		t.Fatalf("clear legacy route type failed: %v", err)
+	}
+
+	models, err := SiteAvailableModels(site.ID, ctx)
+	if err != nil {
+		t.Fatalf("SiteAvailableModels failed: %v", err)
+	}
+	if len(models) != 1 || models[0] != "gpt-4o" {
+		t.Fatalf("expected only supported model, got %+v", models)
+	}
+}
+
+func TestSiteAvailableModelsKeepsExplicitManualProviderNamedRoute(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+	site, account := createSiteOpTestSiteAccount(t, ctx, "available-manual-site", "available-manual-account")
+	rows := []model.SiteModel{
+		{SiteAccountID: account.ID, GroupKey: model.SiteDefaultGroupKey, ModelName: "doubao-openai-compatible", RouteType: model.SiteModelRouteTypeOpenAIChat, RouteSource: model.SiteModelRouteSourceManualOverride, ManualOverride: true},
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&rows).Error; err != nil {
+		t.Fatalf("create manually routed site model failed: %v", err)
+	}
+
+	models, err := SiteAvailableModels(site.ID, ctx)
+	if err != nil {
+		t.Fatalf("SiteAvailableModels failed: %v", err)
+	}
+	if len(models) != 1 || models[0] != "doubao-openai-compatible" {
+		t.Fatalf("expected explicit manual route to remain available, got %+v", models)
 	}
 }
 

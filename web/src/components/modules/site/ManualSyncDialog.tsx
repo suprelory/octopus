@@ -62,7 +62,6 @@ const ROUTE_LABELS: Record<string, string> = {
   openai_response: "Responses",
   anthropic: "Claude",
   gemini: "Gemini",
-  volcengine: "Volcengine",
   openai_embedding: "Embedding",
   unknown: "Unknown",
 };

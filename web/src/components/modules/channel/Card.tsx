@@ -6,7 +6,7 @@ import {
 } from '@/components/ui/morphing-dialog';
 import { CheckCircle2, DollarSign, Key, Layers, MessageSquare, XCircle } from 'lucide-react';
 import { type StatsMetricsFormatted } from '@/api/endpoints/stats';
-import { type Channel, useEnableChannel } from '@/api/endpoints/channel';
+import { ChannelType, type Channel, useEnableChannel } from '@/api/endpoints/channel';
 import { CardContent } from './CardContent';
 import { useTranslations } from 'next-intl';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/animate-ui/components/animate/tooltip';
@@ -70,7 +70,7 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
                         <Switch
                             checked={channel.enabled}
                             onCheckedChange={handleEnableChange}
-                            disabled={enableChannel.isPending || channel.managed}
+                            disabled={enableChannel.isPending || channel.managed || channel.type === ChannelType.Unsupported}
                             onClick={(e) => e.stopPropagation()}
                         />
                     </header>

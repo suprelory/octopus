@@ -29,7 +29,6 @@ func FuzzCrossProtocolRequestIsolation(f *testing.F) {
 			outbound.OutboundTypeOpenAIResponse,
 			outbound.OutboundTypeAnthropic,
 			outbound.OutboundTypeGemini,
-			outbound.OutboundTypeVolcengine,
 			outbound.OutboundTypeOpenAIEmbedding,
 		}
 		inAdapter := inbound.Get(inboundTypes[int(inboundSelector)%len(inboundTypes)])

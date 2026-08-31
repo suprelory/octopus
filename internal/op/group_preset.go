@@ -62,6 +62,9 @@ func GroupPresetCreate(groupID int, name string, ctx context.Context) (*model.Gr
 	if err != nil {
 		return nil, err
 	}
+	if err := validatePresetItems(items); err != nil {
+		return nil, err
+	}
 	preset := model.GroupPreset{
 		GroupID:           groupID,
 		Name:              name,
@@ -130,6 +133,9 @@ func GroupPresetClone(presetID int, newName string, ctx context.Context) (*model
 
 	items := make([]model.GroupPresetItem, len(source.Items))
 	copy(items, source.Items)
+	if err := validatePresetItems(items); err != nil {
+		return nil, err
+	}
 
 	clone := model.GroupPreset{
 		GroupID:           source.GroupID,
@@ -171,6 +177,9 @@ func mirrorPresetToActiveGroupTx(tx *gorm.DB, preset *model.GroupPreset) (groupI
 			return 0, nil
 		}
 		return 0, fmt.Errorf("failed to find owning group: %w", err)
+	}
+	if err := validatePresetItems(preset.Items); err != nil {
+		return group.ID, err
 	}
 
 	// 镜像字段
@@ -270,6 +279,14 @@ func syncActivePresetTx(tx *gorm.DB, groupID int) error {
 // GroupPresetUpdate 直接编辑预设内容
 // 若该预设是某 Group 的 active，同事务内把改动镜像到该 Group 的实时配置 + items
 func GroupPresetUpdate(presetID int, req *model.GroupPresetUpdateRequest, ctx context.Context) (*model.GroupPreset, error) {
+	if req == nil {
+		return nil, fmt.Errorf("preset update request is nil")
+	}
+	if req.Items != nil {
+		if err := validatePresetItems(*req.Items); err != nil {
+			return nil, err
+		}
+	}
 	var preset model.GroupPreset
 	var mirrorGroupID int
 
@@ -361,6 +378,9 @@ func GroupPresetActivate(presetID int, ctx context.Context) error {
 	if _, ok := groupCache.Get(preset.GroupID); !ok {
 		return fmt.Errorf("group not found")
 	}
+	if err := validatePresetItems(preset.Items); err != nil {
+		return err
+	}
 
 	// 校验渠道存在
 	missing := make([]int, 0)
@@ -444,6 +464,15 @@ func GroupPresetActivate(presetID int, ctx context.Context) error {
 		return fmt.Errorf("failed to refresh cache: %w", err)
 	}
 	resetBalancerStateForGroup(preset.GroupID)
+	return nil
+}
+
+func validatePresetItems(items []model.GroupPresetItem) error {
+	for _, item := range items {
+		if _, err := validateChannelReference(item.ChannelID); err != nil {
+			return fmt.Errorf("preset item channel %d: %w", item.ChannelID, err)
+		}
+	}
 	return nil
 }
 

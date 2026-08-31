@@ -55,6 +55,54 @@ func TestParseSiteModelRouteMetadataUnsupported(t *testing.T) {
 	}
 }
 
+func TestParseSiteModelRouteMetadataRetiresVolcengineRoute(t *testing.T) {
+	raw := `{"kind":"site_route_metadata","version":1,"source":"/api/pricing","route_supported":true,"route_type":"volcengine","supported_endpoint_types":["ark"]}`
+	metadata, ok := ParseSiteModelRouteMetadata(raw)
+	if !ok {
+		t.Fatal("expected legacy Volcengine metadata to remain readable")
+	}
+	if metadata.RouteSupported || metadata.RouteType != SiteModelRouteTypeUnknown {
+		t.Fatalf("expected legacy route to become unsupported/unknown, got %+v", metadata)
+	}
+	if metadata.UnsupportedReason == "" {
+		t.Fatal("expected legacy route removal reason to be retained")
+	}
+	if normalized := metadata.Marshal(); normalized == raw {
+		t.Fatal("expected legacy metadata to be normalized on marshal")
+	}
+}
+
+func TestParseSiteModelRouteMetadataRetainsRemovedEvidenceWhenUnsupported(t *testing.T) {
+	raw := `{"kind":"site_route_metadata","version":1,"route_supported":false,"route_type":"volcengine","supported_endpoint_types":["https://ark.cn-beijing.volces.com/api/v3"]}`
+	metadata, ok := ParseSiteModelRouteMetadata(raw)
+	if !ok {
+		t.Fatal("expected legacy unsupported metadata to remain readable")
+	}
+	if metadata.RouteSupported || metadata.RouteType != SiteModelRouteTypeUnknown {
+		t.Fatalf("expected unsupported/unknown route, got %+v", metadata)
+	}
+	if metadata.UnsupportedReason == "" {
+		t.Fatal("expected removed route reason to be synthesized")
+	}
+}
+
+func TestContainsRemovedSiteModelRouteMarkerUsesTokenBoundaries(t *testing.T) {
+	tests := []struct {
+		value string
+		want  bool
+	}{
+		{value: "https://ark.cn-beijing.volces.com/api/v3", want: true},
+		{value: "bytedance endpoint", want: true},
+		{value: "notvolcengine/notdoubao", want: false},
+		{value: "spark endpoint", want: false},
+	}
+	for _, tt := range tests {
+		if got := ContainsRemovedSiteModelRouteMarker(tt.value); got != tt.want {
+			t.Fatalf("ContainsRemovedSiteModelRouteMarker(%q) = %t, want %t", tt.value, got, tt.want)
+		}
+	}
+}
+
 func TestParseSiteModelRouteMetadataRejectsArbitraryPayload(t *testing.T) {
 	if _, ok := ParseSiteModelRouteMetadata("mismatch"); ok {
 		t.Fatalf("expected non-json payload to be rejected")

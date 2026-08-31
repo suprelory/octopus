@@ -382,9 +382,22 @@ func buildSiteModelRouteDetection(
 
 	supportedEndpointTypes = dedupeStringsPreserveOrder(supportedEndpointTypes)
 	enableGroups = model.NormalizeSiteModelRouteMetadataGroupKeys(enableGroups)
+	removedEndpoint := hasRemovedVolcengineEndpoint(supportedEndpointTypes)
+	removedModel := isRemovedVolcengineModel(modelName)
 	heuristicEndpointTypes := inferHeuristicEndpointTypes(modelName, supportedEndpointTypes)
-	if len(supportedEndpointTypes) == 0 && len(enableGroups) == 0 && len(heuristicEndpointTypes) == 0 {
+	if !removedEndpoint && !removedModel && len(supportedEndpointTypes) == 0 && len(enableGroups) == 0 && len(heuristicEndpointTypes) == 0 {
 		return siteModelRouteDetection{}, false
+	}
+	if removedEndpoint || removedModel {
+		metadata := model.SiteModelRouteMetadata{
+			Source:                 strings.TrimSpace(source),
+			RouteSupported:         false,
+			EnableGroups:           enableGroups,
+			SupportedEndpointTypes: supportedEndpointTypes,
+			HeuristicEndpointTypes: heuristicEndpointTypes,
+			UnsupportedReason:      "Volcengine/Ark route support has been removed",
+		}
+		return siteModelRouteDetection{RouteType: model.SiteModelRouteTypeUnknown, RouteRawPayload: metadata.Marshal()}, true
 	}
 
 	knownRouteTypes := normalizeSupportedRouteTypes(append(append([]string{}, supportedEndpointTypes...), heuristicEndpointTypes...))
@@ -478,7 +491,6 @@ func pickPreferredDetectedRouteType(modelName string, values []model.SiteModelRo
 	switch nativeRouteType {
 	case model.SiteModelRouteTypeAnthropic,
 		model.SiteModelRouteTypeGemini,
-		model.SiteModelRouteTypeVolcengine,
 		model.SiteModelRouteTypeOpenAIEmbedding:
 		for _, value := range values {
 			if value == nativeRouteType {
@@ -492,7 +504,6 @@ func pickPreferredDetectedRouteType(modelName string, values []model.SiteModelRo
 		model.SiteModelRouteTypeOpenAIResponse,
 		model.SiteModelRouteTypeOpenAIChat,
 		model.SiteModelRouteTypeGemini,
-		model.SiteModelRouteTypeVolcengine,
 		model.SiteModelRouteTypeOpenAIEmbedding,
 	}
 	for _, preferred := range fallbackOrder {
@@ -516,8 +527,6 @@ func detectedRouteTypePriority(routeType model.SiteModelRouteType) int {
 		return 2
 	case model.SiteModelRouteTypeGemini:
 		return 3
-	case model.SiteModelRouteTypeVolcengine:
-		return 4
 	case model.SiteModelRouteTypeOpenAIChat:
 		return 5
 	default:
@@ -555,10 +564,6 @@ func mapSupportedEndpointType(value string) (model.SiteModelRouteType, bool) {
 		strings.Contains(normalized, ":streamgeneratecontent"),
 		strings.Contains(normalized, ":counttokens"):
 		return model.SiteModelRouteTypeGemini, true
-	case normalized == "volcengine",
-		normalized == "ark",
-		strings.Contains(normalized, "volcengine"):
-		return model.SiteModelRouteTypeVolcengine, true
 	case normalized == "chat",
 		normalized == "chat_completions",
 		normalized == "chat/completions",
@@ -570,6 +575,19 @@ func mapSupportedEndpointType(value string) (model.SiteModelRouteType, bool) {
 	default:
 		return "", false
 	}
+}
+
+func hasRemovedVolcengineEndpoint(values []string) bool {
+	for _, value := range values {
+		if model.ContainsRemovedSiteModelRouteMarker(value) {
+			return true
+		}
+	}
+	return false
+}
+
+func isRemovedVolcengineModel(modelName string) bool {
+	return model.ContainsRemovedSiteModelRouteMarker(modelName)
 }
 
 func normalizeStringList(value any) []string {
@@ -659,8 +677,17 @@ func shouldReplaceSiteModelRouteDetection(
 	if !existingOK {
 		return nextOK
 	}
-	if !nextOK || !nextMetadata.RouteSupported {
+	if !nextOK {
 		return false
+	}
+	if !existingMetadata.RouteSupported && isRemovedRouteMetadata(existingMetadata) {
+		return false
+	}
+	if !nextMetadata.RouteSupported && isRemovedRouteMetadata(nextMetadata) {
+		return true
+	}
+	if !nextMetadata.RouteSupported {
+		return existingMetadata.RouteSupported
 	}
 	if !existingMetadata.RouteSupported {
 		return true

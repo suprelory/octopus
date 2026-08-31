@@ -42,6 +42,9 @@ func FetchModels(ctx context.Context, request model.Channel) ([]string, error) {
 // fetchModels takes both bounds explicitly so tests can shorten them without
 // mutating package state.
 func fetchModels(ctx context.Context, request model.Channel, requestTimeout, operationTimeout time.Duration) ([]string, error) {
+	if _, ok := outbound.Descriptor(request.Type); !ok {
+		return nil, fmt.Errorf("unsupported channel type: %d", request.Type)
+	}
 	operationCtx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 

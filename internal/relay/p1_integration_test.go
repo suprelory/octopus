@@ -73,7 +73,7 @@ func TestHandlerRecordsDegradedCapabilityTrace(t *testing.T) {
 	}
 }
 
-func TestPlanRelayCapabilityUsesCandidateModelWithoutMutatingRequest(t *testing.T) {
+func TestPlanRelayCapabilityRejectsRemovedOutboundTypeWithoutMutatingRequest(t *testing.T) {
 	request := &transformerModel.InternalLLMRequest{
 		Model:           "group-alias",
 		RequestType:     transformerModel.RequestTypeResponses,
@@ -81,19 +81,15 @@ func TestPlanRelayCapabilityUsesCandidateModelWithoutMutatingRequest(t *testing.
 		RawAPIFormat:    transformerModel.APIFormatOpenAIResponse,
 	}
 	relayRequest := &relayRequest{internalRequest: request}
-	channel := &dbmodel.Channel{Type: outbound.OutboundTypeVolcengine}
-	decision := planRelayCapability(relayRequest, channel, outbound.Get(channel.Type), "doubao-seed-1-8-251228")
-	if decision.Status != outbound.CapabilitySupported {
-		t.Fatalf("candidate model should support reasoning: %#v", decision)
+	channel := &dbmodel.Channel{Type: outbound.OutboundTypeUnsupported}
+	decision := planRelayCapability(relayRequest, channel, outbound.Get(channel.Type), "legacy-model")
+	if !decision.Rejected() {
+		t.Fatalf("removed outbound type should be rejected: %#v", decision)
 	}
 	if request.Model != "group-alias" {
 		t.Fatalf("planner mutated base request model to %q", request.Model)
 	}
 
-	decision = planRelayCapability(relayRequest, channel, outbound.Get(channel.Type), "unsupported-doubao")
-	if decision.Status != outbound.CapabilityDegraded || !slices.Contains(decision.DegradedFields, "reasoning") {
-		t.Fatalf("unsupported candidate model should be degraded: %#v", decision)
-	}
 	if decision = planRelayCapability(relayRequest, nil, nil, "model"); !decision.Rejected() {
 		t.Fatalf("nil channel should be rejected: %#v", decision)
 	}

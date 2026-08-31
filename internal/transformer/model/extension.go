@@ -8,19 +8,17 @@ import (
 type ProviderExtensionNamespace string
 
 const (
-	ProviderExtensionNamespaceCommon     ProviderExtensionNamespace = "common"
-	ProviderExtensionNamespaceAnthropic  ProviderExtensionNamespace = "anthropic"
-	ProviderExtensionNamespaceGemini     ProviderExtensionNamespace = "gemini"
-	ProviderExtensionNamespaceOpenAI     ProviderExtensionNamespace = "openai"
-	ProviderExtensionNamespaceVolcengine ProviderExtensionNamespace = "volcengine"
+	ProviderExtensionNamespaceCommon    ProviderExtensionNamespace = "common"
+	ProviderExtensionNamespaceAnthropic ProviderExtensionNamespace = "anthropic"
+	ProviderExtensionNamespaceGemini    ProviderExtensionNamespace = "gemini"
+	ProviderExtensionNamespaceOpenAI    ProviderExtensionNamespace = "openai"
 )
 
 type ProviderExtensions struct {
-	Common     *CommonExtension     `json:"common,omitempty"`
-	Anthropic  *AnthropicExtension  `json:"anthropic,omitempty"`
-	Gemini     *GeminiExtension     `json:"gemini,omitempty"`
-	OpenAI     *OpenAIExtension     `json:"openai,omitempty"`
-	Volcengine *VolcengineExtension `json:"volcengine,omitempty"`
+	Common    *CommonExtension    `json:"common,omitempty"`
+	Anthropic *AnthropicExtension `json:"anthropic,omitempty"`
+	Gemini    *GeminiExtension    `json:"gemini,omitempty"`
+	OpenAI    *OpenAIExtension    `json:"openai,omitempty"`
 }
 
 type CommonExtension struct {
@@ -63,10 +61,6 @@ type OpenAIResponsesOptions struct {
 	ReasoningGenerateSummary *string         `json:"reasoning_generate_summary,omitempty"`
 	RawInputItems            json.RawMessage `json:"raw_input_items,omitempty"`
 	RawTools                 json.RawMessage `json:"raw_tools,omitempty"`
-}
-
-type VolcengineExtension struct {
-	Raw json.RawMessage `json:"raw,omitempty"`
 }
 
 func cloneRawMessage(raw json.RawMessage) json.RawMessage {
@@ -139,9 +133,6 @@ func CloneProviderExtensions(ext *ProviderExtensions) *ProviderExtensions {
 			RawResponseItems:             cloneRawMessage(ext.OpenAI.RawResponseItems),
 			Responses:                    cloneOpenAIResponsesOptions(ext.OpenAI.Responses),
 		}
-	}
-	if ext.Volcengine != nil {
-		cloned.Volcengine = &VolcengineExtension{Raw: cloneRawMessage(ext.Volcengine.Raw)}
 	}
 	return cloned
 }

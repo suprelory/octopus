@@ -104,7 +104,29 @@ func SiteChannelResetAccountRoutes(siteID int, accountID int, ctx context.Contex
 		for _, row := range rows {
 			routeType := model.InferSiteModelRouteType(row.ModelName)
 			routeRawPayload := ""
-			if metadata, ok := model.ParseSiteModelRouteMetadata(row.RouteRawPayload); ok {
+			metadata, hasMetadata := model.ParseSiteModelRouteMetadata(row.RouteRawPayload)
+			explicitSupportedMetadata := hasMetadata && metadata.RouteSupported &&
+				model.IsProjectedSiteModelRouteType(metadata.RouteType) &&
+				!model.ContainsRemovedSiteModelRouteMarker(row.RouteRawPayload)
+			legacyEvidence := model.IsRemovedSiteModelRouteType(row.RouteType) ||
+				model.ContainsRemovedSiteModelRouteMarker(row.RouteRawPayload)
+			if legacyEvidence || (model.ContainsRemovedSiteModelRouteMarker(row.ModelName) && !explicitSupportedMetadata) {
+				routeType = model.SiteModelRouteTypeUnknown
+				if hasMetadata {
+					metadata.RouteSupported = false
+					metadata.RouteGuessed = false
+					metadata.RouteType = model.SiteModelRouteTypeUnknown
+					if strings.TrimSpace(metadata.UnsupportedReason) == "" {
+						metadata.UnsupportedReason = "Volcengine/Ark route support has been removed"
+					}
+					routeRawPayload = metadata.Marshal()
+				} else {
+					routeRawPayload = (&model.SiteModelRouteMetadata{
+						RouteSupported:    false,
+						UnsupportedReason: "Volcengine/Ark route support has been removed",
+					}).Marshal()
+				}
+			} else if hasMetadata {
 				routeType = metadata.RouteType
 				routeRawPayload = row.RouteRawPayload
 			}
@@ -216,12 +238,12 @@ func buildSiteChannelGroups(ctx context.Context, site model.Site, account model.
 	for _, binding := range account.ChannelBindings {
 		baseKey, _ := model.ParseSiteChannelBindingKey(binding.GroupKey)
 		group := ensureSiteChannelGroup(groups, baseKey, baseKey)
-		group.HasProjectedChannel = true
-		group.ProjectedChannelIDs = append(group.ProjectedChannelIDs, binding.ChannelID)
 		channel, err := ChannelGet(binding.ChannelID, ctx)
-		if err != nil {
+		if err != nil || !supportedChannelType(channel.Type) {
 			continue
 		}
+		group.HasProjectedChannel = true
+		group.ProjectedChannelIDs = append(group.ProjectedChannelIDs, binding.ChannelID)
 		if _, ok := projectedChannels[binding.ChannelID]; ok {
 			continue
 		}
@@ -432,6 +454,13 @@ func UpdateSiteProjectedChannelSettings(siteID int, accountID int, req []model.S
 	}
 	valid := make(map[int]struct{}, len(bindings))
 	for _, binding := range bindings {
+		channel, err := validateChannelReference(binding.ChannelID)
+		if err != nil {
+			return err
+		}
+		if !supportedChannelType(channel.Type) {
+			return fmt.Errorf("unsupported channel type: %d", channel.Type)
+		}
 		valid[binding.ChannelID] = struct{}{}
 	}
 

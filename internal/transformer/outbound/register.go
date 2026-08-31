@@ -5,7 +5,6 @@ import (
 	outAnthropic "github.com/bestruirui/octopus/internal/transformer/outbound/anthropic"
 	"github.com/bestruirui/octopus/internal/transformer/outbound/gemini"
 	"github.com/bestruirui/octopus/internal/transformer/outbound/openai"
-	"github.com/bestruirui/octopus/internal/transformer/outbound/volcengine"
 )
 
 type OutboundType int
@@ -15,7 +14,9 @@ const (
 	OutboundTypeOpenAIResponse
 	OutboundTypeAnthropic
 	OutboundTypeGemini
-	OutboundTypeVolcengine
+	// OutboundTypeUnsupported preserves the legacy Volcengine value (4) so
+	// persisted channel rows remain distinguishable from embeddings (5).
+	OutboundTypeUnsupported
 	OutboundTypeOpenAIEmbedding
 )
 
@@ -89,13 +90,6 @@ var protocolDescriptors = map[OutboundType]ProtocolDescriptor{
 		RequestTypes: requestTypes(model.RequestTypeChat, model.RequestTypeResponses),
 		Transport:    "http",
 		Factory:      func() model.Outbound { return &gemini.MessagesOutbound{} },
-	},
-	OutboundTypeVolcengine: {
-		Name:         "volcengine_responses",
-		APIFormat:    model.APIFormatOpenAIResponse,
-		RequestTypes: requestTypes(model.RequestTypeChat, model.RequestTypeResponses),
-		Transport:    "http",
-		Factory:      func() model.Outbound { return &volcengine.ResponseOutbound{} },
 	},
 	OutboundTypeOpenAIEmbedding: {
 		Name:         "openai_embeddings",
@@ -177,8 +171,8 @@ func (t OutboundType) String() string {
 		return "anthropic"
 	case OutboundTypeGemini:
 		return "gemini"
-	case OutboundTypeVolcengine:
-		return "volcengine"
+	case OutboundTypeUnsupported:
+		return "unsupported"
 	case OutboundTypeOpenAIEmbedding:
 		return "embedding"
 	default:

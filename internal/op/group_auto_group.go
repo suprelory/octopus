@@ -20,6 +20,9 @@ func GroupAutoGroupConfigGet(ctx context.Context) (*model.GroupAutoGroupConfig, 
 
 	channelIDs := make([]int, 0, len(channels))
 	for _, channel := range channels {
+		if !supportedChannelType(channel.Type) {
+			continue
+		}
 		channelIDs = append(channelIDs, channel.ID)
 	}
 	bindingMap, err := SiteChannelBindingMapByChannelIDs(channelIDs, ctx)
@@ -30,6 +33,9 @@ func GroupAutoGroupConfigGet(ctx context.Context) (*model.GroupAutoGroupConfig, 
 	globalMode := ProjectedChannelGlobalAutoGroupMode()
 	sources := make([]model.GroupAutoGroupSource, 0, len(channels))
 	for _, channel := range channels {
+		if !supportedChannelType(channel.Type) {
+			continue
+		}
 		models := splitChannelModelNames(channel.Model, channel.CustomModel)
 		binding, managed := bindingMap[channel.ID]
 		effective := channel.AutoGroup
@@ -89,8 +95,12 @@ func GroupAutoGroupConfigUpdate(req *model.GroupAutoGroupConfigUpdateRequest, ct
 			return nil, newGroupAutoGroupBadRequestError(fmt.Sprintf("duplicate channel: %d", item.ChannelID))
 		}
 		seen[item.ChannelID] = struct{}{}
-		if _, ok := channelCache.Get(item.ChannelID); !ok {
+		channel, ok := channelCache.Get(item.ChannelID)
+		if !ok {
 			return nil, newGroupAutoGroupNotFoundError(fmt.Sprintf("channel not found: %d", item.ChannelID))
+		}
+		if !supportedChannelType(channel.Type) {
+			return nil, newGroupAutoGroupBadRequestError(fmt.Sprintf("unsupported channel type: %d", channel.Type))
 		}
 		if item.AutoGroup == nil {
 			continue
@@ -138,10 +148,14 @@ func ChannelAutoGroupUpdate(channelID int, mode model.AutoGroupType, ctx context
 	if !mode.Valid() {
 		return newGroupAutoGroupBadRequestError("invalid auto group type")
 	}
-	if _, ok := channelCache.Get(channelID); !ok {
-		return newGroupAutoGroupNotFoundError("channel not found")
+	channel, err := validateChannelReference(channelID)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "not found") {
+			return newGroupAutoGroupNotFoundError(err.Error())
+		}
+		return newGroupAutoGroupBadRequestError(err.Error())
 	}
-	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", channelID).Update("auto_group", mode).Error; err != nil {
+	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", channel.ID).Update("auto_group", mode).Error; err != nil {
 		return err
 	}
 	return channelRefreshCacheByID(channelID, ctx)
@@ -167,6 +181,9 @@ func RunGroupAutoGroup(channelIDs []int, ctx context.Context) error {
 			if !ok {
 				return newGroupAutoGroupNotFoundError(fmt.Sprintf("channel not found: %d", id))
 			}
+			if !supportedChannelType(channel.Type) {
+				return newGroupAutoGroupBadRequestError(fmt.Sprintf("unsupported channel type: %d", channel.Type))
+			}
 			targets[id] = channel
 		}
 	}
@@ -182,6 +199,9 @@ func RunGroupAutoGroup(channelIDs []int, ctx context.Context) error {
 	globalMode := ProjectedChannelGlobalAutoGroupMode()
 
 	for id, channel := range targets {
+		if !supportedChannelType(channel.Type) {
+			continue
+		}
 		_, managed := bindingMap[id]
 		mode := channel.AutoGroup
 		if managed && globalMode != model.AutoGroupTypeNone {
@@ -252,8 +272,8 @@ func channelEndpointType(channelType outboundmodel.OutboundType) string {
 		return string(model.SiteModelRouteTypeAnthropic)
 	case outboundmodel.OutboundTypeGemini:
 		return string(model.SiteModelRouteTypeGemini)
-	case outboundmodel.OutboundTypeVolcengine:
-		return string(model.SiteModelRouteTypeVolcengine)
+	case outboundmodel.OutboundTypeUnsupported:
+		return string(model.SiteModelRouteTypeUnknown)
 	case outboundmodel.OutboundTypeOpenAIEmbedding:
 		return string(model.SiteModelRouteTypeOpenAIEmbedding)
 	default:

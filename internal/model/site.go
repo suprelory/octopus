@@ -68,7 +68,6 @@ const (
 	SiteModelRouteTypeOpenAIResponse  SiteModelRouteType = "openai_response"
 	SiteModelRouteTypeAnthropic       SiteModelRouteType = "anthropic"
 	SiteModelRouteTypeGemini          SiteModelRouteType = "gemini"
-	SiteModelRouteTypeVolcengine      SiteModelRouteType = "volcengine"
 	SiteModelRouteTypeOpenAIEmbedding SiteModelRouteType = "openai_embedding"
 	SiteModelRouteTypeUnknown         SiteModelRouteType = "unknown"
 )
@@ -104,8 +103,16 @@ func (s *Site) ResolveRouteBaseURL(routeType SiteModelRouteType) (string, bool) 
 	if s == nil {
 		return "", false
 	}
+	normalizedRouteType := NormalizeSiteModelRouteType(routeType)
+	if !IsProjectedSiteModelRouteType(normalizedRouteType) {
+		return "", false
+	}
 	for _, item := range s.RouteBaseURLs {
-		if item.RouteType != routeType {
+		if IsRemovedSiteModelRouteType(item.RouteType) {
+			continue
+		}
+		itemRouteType := NormalizeSiteModelRouteType(item.RouteType)
+		if !IsProjectedSiteModelRouteType(itemRouteType) || itemRouteType != normalizedRouteType {
 			continue
 		}
 		trimmed := strings.TrimRight(strings.TrimSpace(item.BaseURL), "/")
@@ -126,9 +133,10 @@ func NormalizeSiteRouteBaseURLs(items []SiteRouteBaseURL) []SiteRouteBaseURL {
 	seen := make(map[SiteModelRouteType]struct{}, len(items))
 	result := make([]SiteRouteBaseURL, 0, len(items))
 	for _, item := range items {
-		routeType := SiteModelRouteType(strings.TrimSpace(string(item.RouteType)))
+		rawRouteType := strings.TrimSpace(string(item.RouteType))
+		routeType := NormalizeSiteModelRouteType(item.RouteType)
 		baseURL := strings.TrimRight(strings.TrimSpace(item.BaseURL), "/")
-		if routeType == "" || baseURL == "" {
+		if rawRouteType == "" || !IsProjectedSiteModelRouteType(routeType) || baseURL == "" {
 			continue
 		}
 		if _, ok := seen[routeType]; ok {
@@ -652,18 +660,76 @@ func IsReadySiteToken(token SiteToken) bool {
 }
 
 func NormalizeSiteModelRouteType(routeType SiteModelRouteType) SiteModelRouteType {
-	switch routeType {
+	normalized := SiteModelRouteType(strings.ToLower(strings.TrimSpace(string(routeType))))
+	switch normalized {
 	case SiteModelRouteTypeOpenAIChat,
 		SiteModelRouteTypeOpenAIResponse,
 		SiteModelRouteTypeAnthropic,
 		SiteModelRouteTypeGemini,
-		SiteModelRouteTypeVolcengine,
 		SiteModelRouteTypeOpenAIEmbedding,
 		SiteModelRouteTypeUnknown:
-		return routeType
+		return normalized
+	case SiteModelRouteType("volcengine"), SiteModelRouteType("ark"):
+		// Keep legacy values recognizable without allowing them to route.
+		return SiteModelRouteTypeUnknown
 	default:
 		return SiteModelRouteTypeOpenAIChat
 	}
+}
+
+// IsRemovedSiteModelRouteType identifies route values that belonged to the
+// retired Volcengine/Ark adapter. It is intentionally separate from
+// NormalizeSiteModelRouteType so migrations and metadata readers can preserve
+// the fact that a historical value was removed instead of treating it as Chat.
+func IsRemovedSiteModelRouteType(routeType SiteModelRouteType) bool {
+	switch strings.ToLower(strings.TrimSpace(string(routeType))) {
+	case "volcengine", "ark":
+		return true
+	default:
+		return false
+	}
+}
+
+// IsExplicitlySupportedSiteModelRoute reports whether a model carrying a
+// retired-provider name has an intentional, valid manual route override. A
+// name marker alone is not enough to reject a user-selected OpenAI,
+// Anthropic, or Gemini route, but historical route types and payload evidence
+// always take precedence over that override.
+func IsExplicitlySupportedSiteModelRoute(item SiteModel) bool {
+	if !item.ManualOverride || IsRemovedSiteModelRouteType(item.RouteType) {
+		return false
+	}
+	routeType := NormalizeSiteModelRouteType(item.RouteType)
+	if !IsProjectedSiteModelRouteType(routeType) || ContainsRemovedSiteModelRouteMarker(item.RouteRawPayload) {
+		return false
+	}
+	if metadata, ok := ParseSiteModelRouteMetadata(item.RouteRawPayload); ok {
+		if !metadata.RouteSupported || !IsProjectedSiteModelRouteType(metadata.RouteType) {
+			return false
+		}
+		if ContainsRemovedSiteModelRouteMarker(metadata.UnsupportedReason) {
+			return false
+		}
+		for _, endpoint := range append(append([]string{}, metadata.SupportedEndpointTypes...), metadata.NormalizedEndpointTypes...) {
+			if ContainsRemovedSiteModelRouteMarker(endpoint) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// HasRemovedSiteModelRouteEvidence identifies persisted model rows that came
+// from the retired Volcengine/Ark route. It is deliberately conservative for
+// model names: an explicit manual override may reuse a provider-branded model
+// name on a currently supported protocol.
+func HasRemovedSiteModelRouteEvidence(item SiteModel) bool {
+	if IsRemovedSiteModelRouteType(item.RouteType) ||
+		ContainsRemovedSiteModelRouteMarker(item.RouteRawPayload) {
+		return true
+	}
+	return ContainsRemovedSiteModelRouteMarker(item.ModelName) &&
+		!IsExplicitlySupportedSiteModelRoute(item)
 }
 
 func IsProjectedSiteModelRouteType(routeType SiteModelRouteType) bool {
@@ -672,7 +738,6 @@ func IsProjectedSiteModelRouteType(routeType SiteModelRouteType) bool {
 		SiteModelRouteTypeOpenAIResponse,
 		SiteModelRouteTypeAnthropic,
 		SiteModelRouteTypeGemini,
-		SiteModelRouteTypeVolcengine,
 		SiteModelRouteTypeOpenAIEmbedding:
 		return true
 	default:
@@ -717,8 +782,6 @@ func SiteModelRouteTypeSuffix(routeType SiteModelRouteType) string {
 		return "anthropic"
 	case SiteModelRouteTypeGemini:
 		return "gemini"
-	case SiteModelRouteTypeVolcengine:
-		return "volcengine"
 	case SiteModelRouteTypeOpenAIEmbedding:
 		return "openai-embedding"
 	default:
@@ -734,8 +797,6 @@ func SiteModelRouteTypeName(routeType SiteModelRouteType) string {
 		return "Anthropic"
 	case SiteModelRouteTypeGemini:
 		return "Gemini"
-	case SiteModelRouteTypeVolcengine:
-		return "Volcengine"
 	case SiteModelRouteTypeOpenAIEmbedding:
 		return "OpenAI Embedding"
 	case SiteModelRouteTypeUnknown:
@@ -755,8 +816,6 @@ func CompactSiteModelRouteTypeName(routeType SiteModelRouteType) string {
 		return "Anthropic"
 	case SiteModelRouteTypeGemini:
 		return "Gemini"
-	case SiteModelRouteTypeVolcengine:
-		return "Volcengine"
 	case SiteModelRouteTypeOpenAIEmbedding:
 		return "Embedding"
 	case SiteModelRouteTypeUnknown:
@@ -789,8 +848,8 @@ func ParseSiteChannelBindingKey(groupKey string) (string, SiteModelRouteType) {
 		return baseKey, SiteModelRouteTypeAnthropic
 	case "gemini":
 		return baseKey, SiteModelRouteTypeGemini
-	case "volcengine":
-		return baseKey, SiteModelRouteTypeVolcengine
+	case "volcengine", "ark":
+		return baseKey, SiteModelRouteTypeUnknown
 	case "openai-embedding":
 		return baseKey, SiteModelRouteTypeOpenAIEmbedding
 	default:
@@ -815,10 +874,10 @@ func (t SiteModelRouteType) ToOutboundType() outbound.OutboundType {
 		return outbound.OutboundTypeAnthropic
 	case SiteModelRouteTypeGemini:
 		return outbound.OutboundTypeGemini
-	case SiteModelRouteTypeVolcengine:
-		return outbound.OutboundTypeVolcengine
 	case SiteModelRouteTypeOpenAIEmbedding:
 		return outbound.OutboundTypeOpenAIEmbedding
+	case SiteModelRouteTypeUnknown:
+		return outbound.OutboundTypeUnsupported
 	default:
 		return outbound.OutboundTypeOpenAIChat
 	}
@@ -832,10 +891,10 @@ func SiteModelRouteTypeFromOutboundType(t outbound.OutboundType) SiteModelRouteT
 		return SiteModelRouteTypeAnthropic
 	case outbound.OutboundTypeGemini:
 		return SiteModelRouteTypeGemini
-	case outbound.OutboundTypeVolcengine:
-		return SiteModelRouteTypeVolcengine
 	case outbound.OutboundTypeOpenAIEmbedding:
 		return SiteModelRouteTypeOpenAIEmbedding
+	case outbound.OutboundTypeUnsupported:
+		return SiteModelRouteTypeUnknown
 	default:
 		return SiteModelRouteTypeOpenAIChat
 	}
@@ -905,6 +964,9 @@ func (s *Site) Normalize() {
 	}
 	s.Tags = NormalizeSiteTags(s.Tags)
 	s.RouteBaseURLs = NormalizeSiteRouteBaseURLs(s.RouteBaseURLs)
+	if s.DefaultRouteType != "" {
+		s.DefaultRouteType = NormalizeSiteModelRouteType(s.DefaultRouteType)
+	}
 	s.normalizeLegacyAPIPlatform()
 }
 
@@ -930,7 +992,7 @@ func (s *Site) normalizeLegacyAPIPlatform() {
 
 func (s *Site) ResolveDefaultRouteType() SiteModelRouteType {
 	if s.DefaultRouteType != "" {
-		return s.DefaultRouteType
+		return NormalizeSiteModelRouteType(s.DefaultRouteType)
 	}
 	return SiteModelRouteTypeOpenAIChat
 }
@@ -945,6 +1007,9 @@ func (s *Site) Validate() error {
 	}
 	if err := s.Platform.Validate(); err != nil {
 		return err
+	}
+	if s.DefaultRouteType == SiteModelRouteTypeUnknown {
+		return fmt.Errorf("site default route type is unsupported")
 	}
 	if err := s.ProxyMode.Validate(false); err != nil {
 		return err

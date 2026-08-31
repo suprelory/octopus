@@ -257,7 +257,9 @@ export function ChannelForm({
                             <SelectItem className='rounded-xl' value={String(ChannelType.OpenAIResponse)}>{t('typeOpenAIResponse')}</SelectItem>
                             <SelectItem className='rounded-xl' value={String(ChannelType.Anthropic)}>{t('typeAnthropic')}</SelectItem>
                             <SelectItem className='rounded-xl' value={String(ChannelType.Gemini)}>{t('typeGemini')}</SelectItem>
-                            <SelectItem className='rounded-xl' value={String(ChannelType.Volcengine)}>{t('typeVolcengine')}</SelectItem>
+                            {formData.type === ChannelType.Unsupported ? (
+                                <SelectItem className='rounded-xl' value={String(ChannelType.Unsupported)} disabled>{t('typeUnsupported')}</SelectItem>
+                            ) : null}
                             <SelectItem className='rounded-xl' value={String(ChannelType.OpenAIEmbedding)}>{t('typeOpenAIEmbedding')}</SelectItem>
                         </SelectContent>
                     </Select>
@@ -370,7 +372,7 @@ export function ChannelForm({
                         variant="ghost"
                         size="sm"
                         onClick={handleRefreshModels}
-                        disabled={!formData.base_urls?.[0]?.url || !effectiveKey || fetchModel.isPending}
+                        disabled={formData.type === ChannelType.Unsupported || !formData.base_urls?.[0]?.url || !effectiveKey || fetchModel.isPending}
                         className="h-6 px-2 text-xs text-muted-foreground/50 hover:text-muted-foreground hover:bg-transparent"
                     >
                         <RefreshCw className={`h-3 w-3 mr-1 ${fetchModel.isPending ? 'animate-spin' : ''}`} />

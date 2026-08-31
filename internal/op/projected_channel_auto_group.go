@@ -29,6 +29,9 @@ func ProjectedChannelGlobalAutoGroupEnabled() bool {
 }
 
 func EffectiveProjectedChannelAutoGroup(channel model.Channel) model.AutoGroupType {
+	if !supportedChannelType(channel.Type) {
+		return model.AutoGroupTypeNone
+	}
 	if mode := ProjectedChannelGlobalAutoGroupMode(); mode != model.AutoGroupTypeNone {
 		return mode
 	}
@@ -36,7 +39,7 @@ func EffectiveProjectedChannelAutoGroup(channel model.Channel) model.AutoGroupTy
 }
 
 func ChannelAutoGroupWithMode(channel *model.Channel, autoGroup model.AutoGroupType, ctx context.Context) {
-	if channel == nil || autoGroup == model.AutoGroupTypeNone {
+	if channel == nil || autoGroup == model.AutoGroupTypeNone || !supportedChannelType(channel.Type) {
 		return
 	}
 	groups, err := GroupList(ctx)
@@ -137,6 +140,9 @@ func AutoGroupAllProjectedChannels(ctx context.Context) error {
 	}
 	for id, channel := range channels {
 		if _, ok := bindingMap[id]; !ok {
+			continue
+		}
+		if !supportedChannelType(channel.Type) {
 			continue
 		}
 		ChannelAutoGroupWithMode(&channel, mode, ctx)
