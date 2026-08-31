@@ -405,6 +405,28 @@ func TestPlanRequestReportsGeminiTopLogprobsClamp(t *testing.T) {
 	}
 }
 
+func TestPlanRequestReportsGeminiMultimodalWireDrops(t *testing.T) {
+	request := &model.InternalLLMRequest{
+		RequestType:  model.RequestTypeChat,
+		RawAPIFormat: model.APIFormatOpenAIChatCompletion,
+		Model:        "gemini-2.5-pro",
+		Messages: []model.Message{{
+			Role: "user",
+			Content: model.MessageContent{MultipleContent: []model.MessageContentPart{
+				{Type: "image_url", ImageURL: &model.ImageURL{URL: "https://example.com/image.png"}},
+				{Type: "file", File: &model.File{FileID: "file-abc123"}},
+			}},
+		}},
+	}
+
+	decision := PlanRequest(request, OutboundTypeGemini, false)
+	if decision.Status != CapabilityDegraded {
+		t.Fatalf("status = %s, want degraded: %#v", decision.Status, decision)
+	}
+	assertCapabilityLoss(t, decision, "messages[0].content[0]", LossActionDrop)
+	assertCapabilityLoss(t, decision, "messages[0].content[1]", LossActionDrop)
+}
+
 func TestPlanRequestReportsAnthropicAndGeminiBuilderDrops(t *testing.T) {
 	frequencyPenalty := 0.2
 	presencePenalty := 0.3

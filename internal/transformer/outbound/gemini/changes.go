@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/bestruirui/octopus/internal/transformer/model"
+	"github.com/bestruirui/octopus/internal/utils/xurl"
 )
 
 func prepareGeminiRequest(request *model.InternalLLMRequest, effectiveModel string) (*model.InternalLLMRequest, model.AlternationReport) {
@@ -28,15 +29,132 @@ func (o *MessagesOutbound) DescribeRequestChanges(request *model.InternalLLMRequ
 	prepared, alternation := prepareGeminiRequest(request, effectiveModel)
 	changes := alternation.RequestChanges("Gemini")
 	for messageIndex, message := range prepared.Messages {
-		for partIndex, part := range message.Content.MultipleContent {
-			if strings.EqualFold(strings.TrimSpace(part.Type), "document") {
-				field := fmt.Sprintf("messages[%d].content[%d]", messageIndex, partIndex)
-				_, documentChanges, _ := planGeminiDocumentConversion(part.Document, prepared, field)
-				changes = append(changes, documentChanges...)
+		changes = append(changes, describeGeminiMessageChanges(message, messageIndex, prepared)...)
+	}
+	return changes
+}
+
+// describeGeminiMessageChanges mirrors the content branches in
+// convertLLMToGeminiRequest. It intentionally reports only losses that the
+// generic planner cannot infer from the part type alone (for example, an
+// image_url whose value is an external URL rather than a base64 data URL).
+func describeGeminiMessageChanges(message model.Message, messageIndex int, request *model.InternalLLMRequest) []model.RequestTransformationChange {
+	changes := make([]model.RequestTransformationChange, 0)
+	role := strings.ToLower(strings.TrimSpace(message.Role))
+	if role == "" {
+		role = "user"
+	} else if role == "model" {
+		role = "assistant"
+	}
+	if role != "system" && role != "developer" && role != "user" && role != "assistant" && role != "tool" {
+		return []model.RequestTransformationChange{geminiChange(
+			fmt.Sprintf("messages[%d]", messageIndex),
+			model.RequestTransformationDrop,
+			fmt.Sprintf("Gemini drops messages with unsupported role %q", message.Role),
+		)}
+	}
+	for partIndex, part := range message.Content.MultipleContent {
+		field := fmt.Sprintf("messages[%d].content[%d]", messageIndex, partIndex)
+		typ := strings.ToLower(strings.TrimSpace(part.Type))
+
+		switch role {
+		case "system", "developer", "assistant":
+			// Gemini's systemInstruction and assistant conversion paths only
+			// consume the scalar Content field. Structured parts are silently
+			// ignored; report the supported-looking types here so the planner
+			// does not claim they survive the wire conversion.
+			switch typ {
+			case "", "text", "image_url", "input_audio", "file", "document":
+				changes = append(changes, geminiChange(field, model.RequestTransformationDrop,
+					fmt.Sprintf("Gemini drops structured %s content in %s messages", typOrText(typ), role)))
 			}
+		case "user":
+			switch typ {
+			case "image_url":
+				_, partChanges, _ := planGeminiImageURLConversion(part.ImageURL, field)
+				changes = append(changes, partChanges...)
+			case "input_audio":
+				if part.Audio == nil {
+					changes = append(changes, geminiChange(field, model.RequestTransformationDrop,
+						"Gemini drops an input_audio content part with no audio source"))
+				}
+			case "file":
+				_, partChanges, _ := planGeminiFileConversion(part.File, field)
+				changes = append(changes, partChanges...)
+			case "document":
+				_, partChanges, _ := planGeminiDocumentConversion(part.Document, request, field)
+				changes = append(changes, partChanges...)
+			case "":
+				changes = append(changes, geminiChange(field, model.RequestTransformationDrop,
+					"Gemini drops an untyped content part"))
+			}
+		case "tool":
+			// Tool messages are converted through functionResponse and their
+			// structured content is flattened by the tool-result builder.
 		}
 	}
 	return changes
+}
+
+func typOrText(typ string) string {
+	if typ == "" {
+		return "untyped"
+	}
+	return typ
+}
+
+func geminiChange(field string, action model.RequestTransformationAction, reason string) model.RequestTransformationChange {
+	return model.RequestTransformationChange{Field: field, Action: action, Reason: reason}
+}
+
+// planGeminiImageURLConversion is the single source of truth for image_url
+// handling in both the planner and the wire builder. Gemini generateContent
+// accepts inlineData, not arbitrary OpenAI-style image URLs.
+func planGeminiImageURLConversion(image *model.ImageURL, field string) (*model.GeminiPart, []model.RequestTransformationChange, string) {
+	if image == nil || strings.TrimSpace(image.URL) == "" {
+		return nil, []model.RequestTransformationChange{geminiChange(field, model.RequestTransformationDrop,
+			"Gemini drops an image_url content part with no image source")}, "Gemini drops an image_url content part with no image source"
+	}
+	dataURL := xurl.ParseDataURL(image.URL)
+	if dataURL == nil || !dataURL.IsBase64 {
+		return nil, []model.RequestTransformationChange{geminiChange(field, model.RequestTransformationDrop,
+			"Gemini only represents image_url content as a base64 data URL and drops external or non-base64 URLs")}, "Gemini only represents image_url content as a base64 data URL and drops external or non-base64 URLs"
+	}
+	if strings.TrimSpace(dataURL.Data) == "" {
+		return nil, []model.RequestTransformationChange{geminiChange(field, model.RequestTransformationDrop,
+			"Gemini drops an image_url content part with an empty data URL payload")}, "Gemini drops an image_url content part with an empty data URL payload"
+	}
+	return &model.GeminiPart{InlineData: &model.GeminiBlob{
+		MimeType: dataURL.MediaType,
+		Data:     dataURL.Data,
+	}}, nil, ""
+}
+
+// planGeminiFileConversion is the single source of truth for OpenAI-style
+// file parts. File IDs and arbitrary file URLs belong to OpenAI's file store
+// and cannot be dereferenced by Gemini's generateContent endpoint.
+func planGeminiFileConversion(file *model.File, field string) (*model.GeminiPart, []model.RequestTransformationChange, string) {
+	if file == nil {
+		return nil, []model.RequestTransformationChange{geminiChange(field, model.RequestTransformationDrop,
+			"Gemini drops a file content part with no file source")}, "Gemini drops a file content part with no file source"
+	}
+	if strings.TrimSpace(file.FileData) == "" {
+		return nil, []model.RequestTransformationChange{geminiChange(field, model.RequestTransformationDrop,
+			"Gemini cannot dereference OpenAI file_id or file_url references and drops the file content part")}, "Gemini cannot dereference OpenAI file_id or file_url references and drops the file content part"
+	}
+	dataURL := xurl.ParseDataURL(file.FileData)
+	if dataURL == nil || !dataURL.IsBase64 {
+		return nil, []model.RequestTransformationChange{geminiChange(field, model.RequestTransformationDrop,
+			"Gemini only represents file content as a base64 data URL and drops non-base64 file data")}, "Gemini only represents file content as a base64 data URL and drops non-base64 file data"
+	}
+	if strings.TrimSpace(dataURL.Data) == "" {
+		return nil, []model.RequestTransformationChange{geminiChange(field, model.RequestTransformationDrop,
+			"Gemini drops a file content part with an empty data URL payload")}, "Gemini drops a file content part with an empty data URL payload"
+	}
+	return &model.GeminiPart{InlineData: &model.GeminiBlob{
+		MimeType: dataURL.MediaType,
+		Data:     dataURL.Data,
+	}}, nil, ""
 }
 
 func planGeminiDocumentConversion(doc *model.DocumentSource, req *model.InternalLLMRequest, field string) (*model.GeminiPart, []model.RequestTransformationChange, string) {

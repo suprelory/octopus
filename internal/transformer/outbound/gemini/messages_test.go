@@ -833,6 +833,98 @@ func TestDescribeRequestChangesReportsEmptyGeminiDocuments(t *testing.T) {
 	}
 }
 
+func TestDescribeRequestChangesReportsUnsupportedGeminiMultimodalSources(t *testing.T) {
+	request := &model.InternalLLMRequest{
+		Model: "gemini-2.5-pro",
+		Messages: []model.Message{
+			{
+				Role: "user",
+				Content: model.MessageContent{
+					MultipleContent: []model.MessageContentPart{
+						{Type: "image_url", ImageURL: &model.ImageURL{URL: "https://example.com/image.png"}},
+						{Type: "file", File: &model.File{FileID: "file-abc123"}},
+						{Type: "file", File: &model.File{FileURL: "https://example.com/report.pdf"}},
+						{Type: "image_url"},
+						{Type: "image_url", ImageURL: &model.ImageURL{URL: "data:image/png;base64,AAAA"}},
+						{Type: "file", File: &model.File{FileData: "data:application/pdf;base64,BBBB"}},
+					},
+				},
+			},
+		},
+	}
+
+	changes := (&MessagesOutbound{}).DescribeRequestChanges(request, request.Model)
+	if len(changes) != 4 {
+		t.Fatalf("expected four dropped multimodal sources, got %+v", changes)
+	}
+	wantFields := map[string]bool{
+		"messages[0].content[0]": true,
+		"messages[0].content[1]": true,
+		"messages[0].content[2]": true,
+		"messages[0].content[3]": true,
+	}
+	for _, change := range changes {
+		if !wantFields[change.Field] {
+			t.Errorf("unexpected change: %+v", change)
+		}
+		if change.Action != model.RequestTransformationDrop {
+			t.Errorf("change %q action = %q, want drop", change.Field, change.Action)
+		}
+		delete(wantFields, change.Field)
+	}
+	if len(wantFields) != 0 {
+		t.Errorf("missing changes for fields: %v", wantFields)
+	}
+
+	prepared, _ := prepareGeminiRequest(request, request.Model)
+	wire := convertLLMToGeminiRequest(prepared)
+	if len(wire.Contents) != 1 || len(wire.Contents[0].Parts) != 2 {
+		t.Fatalf("expected only valid data URLs on the Gemini wire, got %+v", wire.Contents)
+	}
+	if wire.Contents[0].Parts[0].InlineData == nil || wire.Contents[0].Parts[1].InlineData == nil {
+		t.Fatalf("expected valid image/file data URLs to survive, got %+v", wire.Contents[0].Parts)
+	}
+}
+
+func TestDescribeRequestChangesReportsIgnoredGeminiStructuredRoles(t *testing.T) {
+	request := &model.InternalLLMRequest{
+		Model: "gemini-2.5-pro",
+		Messages: []model.Message{
+			{Role: "system", Content: model.MessageContent{MultipleContent: []model.MessageContentPart{
+				{Type: "text", Text: stringPtr("system detail")},
+				{Type: "image_url", ImageURL: &model.ImageURL{URL: "data:image/png;base64,AAAA"}},
+			}}},
+			{Role: "user", Content: model.MessageContent{Content: stringPtr("question")}},
+			{Role: "assistant", Content: model.MessageContent{MultipleContent: []model.MessageContentPart{
+				{Type: "text", Text: stringPtr("structured answer")},
+				{Type: "document", Document: &model.DocumentSource{Type: "text", Text: "answer source"}},
+			}}},
+		},
+	}
+
+	changes := (&MessagesOutbound{}).DescribeRequestChanges(request, request.Model)
+	if len(changes) != 4 {
+		t.Fatalf("expected four ignored structured-role parts, got %+v", changes)
+	}
+	for _, change := range changes {
+		if change.Action != model.RequestTransformationDrop {
+			t.Errorf("change %q action = %q, want drop", change.Field, change.Action)
+		}
+		if !strings.HasPrefix(change.Field, "messages[") || !strings.Contains(change.Field, ".content[") {
+			t.Errorf("unexpected structured-role field %q", change.Field)
+		}
+	}
+
+	prepared, _ := prepareGeminiRequest(request, request.Model)
+	wire := convertLLMToGeminiRequest(prepared)
+	if wire.SystemInstruction == nil || len(wire.SystemInstruction.Parts) != 0 {
+		t.Fatalf("expected structured system parts to be absent, got %+v", wire.SystemInstruction)
+	}
+	if len(wire.Contents) < 2 || len(wire.Contents[len(wire.Contents)-1].Parts) != 0 {
+		t.Fatalf("expected structured assistant parts to be absent, got %+v", wire.Contents)
+	}
+}
+
 // TestConvertGeminiRequestCandidateCount verifies G-M8: a numeric value
 // in TransformerMetadata["gemini_candidate_count"] populates
 // generationConfig.candidateCount. Non-positive / invalid values leave

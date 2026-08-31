@@ -17,7 +17,6 @@ import (
 	"github.com/bestruirui/octopus/internal/transformer/httpio"
 	"github.com/bestruirui/octopus/internal/transformer/model"
 	"github.com/bestruirui/octopus/internal/utils/log"
-	"github.com/bestruirui/octopus/internal/utils/xurl"
 	"github.com/samber/lo"
 )
 
@@ -615,7 +614,13 @@ func convertLLMToGeminiRequest(request *model.InternalLLMRequest) *model.GeminiG
 	toolCallNamesByID := map[string]string{}
 
 	for _, msg := range request.Messages {
-		switch msg.Role {
+		role := strings.ToLower(strings.TrimSpace(msg.Role))
+		if role == "" {
+			role = "user"
+		} else if role == "model" {
+			role = "assistant"
+		}
+		switch role {
 		case "system", "developer":
 			// Collect system messages into system instruction
 			if systemInstruction == nil {
@@ -642,7 +647,7 @@ func convertLLMToGeminiRequest(request *model.InternalLLMRequest) *model.GeminiG
 
 			if msg.Content.MultipleContent != nil {
 				for _, part := range msg.Content.MultipleContent {
-					switch part.Type {
+					switch strings.ToLower(strings.TrimSpace(part.Type)) {
 					case "text":
 						if part.Text != nil {
 							content.Parts = append(content.Parts, &model.GeminiPart{
@@ -650,15 +655,12 @@ func convertLLMToGeminiRequest(request *model.InternalLLMRequest) *model.GeminiG
 							})
 						}
 					case "image_url":
-						// get mime type from url extension
-						dataurl := xurl.ParseDataURL(part.ImageURL.URL)
-						if dataurl != nil && dataurl.IsBase64 {
-							content.Parts = append(content.Parts, &model.GeminiPart{
-								InlineData: &model.GeminiBlob{
-									MimeType: dataurl.MediaType,
-									Data:     dataurl.Data,
-								},
-							})
+						partOut, _, warning := planGeminiImageURLConversion(part.ImageURL, "")
+						if warning != "" {
+							log.Warnf("gemini: %s", warning)
+						}
+						if partOut != nil {
+							content.Parts = append(content.Parts, partOut)
 						}
 					case "input_audio":
 						if part.Audio != nil {
@@ -668,18 +670,16 @@ func convertLLMToGeminiRequest(request *model.InternalLLMRequest) *model.GeminiG
 									Data:     part.Audio.Data,
 								},
 							})
+						} else {
+							log.Warnf("gemini: drops an input_audio content part with no audio source")
 						}
 					case "file":
-						if part.File != nil {
-							dataurl := xurl.ParseDataURL(part.File.FileData)
-							if dataurl != nil && dataurl.IsBase64 {
-								content.Parts = append(content.Parts, &model.GeminiPart{
-									InlineData: &model.GeminiBlob{
-										MimeType: dataurl.MediaType,
-										Data:     dataurl.Data,
-									},
-								})
-							}
+						partOut, _, warning := planGeminiFileConversion(part.File, "")
+						if warning != "" {
+							log.Warnf("gemini: %s", warning)
+						}
+						if partOut != nil {
+							content.Parts = append(content.Parts, partOut)
 						}
 					case "document":
 						if p := convertDocumentToGeminiPart(part.Document, request); p != nil {
