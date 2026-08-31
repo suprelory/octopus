@@ -131,13 +131,63 @@ func documentTextHint(doc *DocumentSource) string {
 // OpenAI tolerates repeated roles and there is no value in paying the copy
 // cost.
 func EnforceAlternation(msgs []Message, provider AlternationProvider) []Message {
+	result, _ := EnforceAlternationWithReport(msgs, provider)
+	return result
+}
+
+// AlternationReport records provider-required structural changes made by
+// EnforceAlternationWithReport.
+type AlternationReport struct {
+	InsertedLeadingUser      bool
+	MergedRuns               int
+	MovedInstructionMessages int
+}
+
+func (r AlternationReport) Changed() bool {
+	return r.InsertedLeadingUser || r.MergedRuns > 0 || r.MovedInstructionMessages > 0
+}
+
+func (r AlternationReport) RequestChanges(provider string) []RequestTransformationChange {
+	provider = strings.TrimSpace(provider)
+	if provider == "" {
+		provider = "target provider"
+	}
+	changes := make([]RequestTransformationChange, 0, 3)
+	if r.InsertedLeadingUser {
+		changes = append(changes, RequestTransformationChange{
+			Field:  "messages",
+			Action: RequestTransformationRepair,
+			Reason: provider + " inserts a synthetic user turn before an assistant-first conversation",
+		})
+	}
+	if r.MergedRuns > 0 {
+		changes = append(changes, RequestTransformationChange{
+			Field:  "messages",
+			Action: RequestTransformationTranslate,
+			Reason: provider + " merges consecutive messages with the same effective role",
+		})
+	}
+	if r.MovedInstructionMessages > 0 {
+		changes = append(changes, RequestTransformationChange{
+			Field:  "messages",
+			Action: RequestTransformationRepair,
+			Reason: provider + " moves system or developer messages before conversational turns",
+		})
+	}
+	return changes
+}
+
+// EnforceAlternationWithReport applies the same rewrite as EnforceAlternation
+// and returns a compact report suitable for capability planning.
+func EnforceAlternationWithReport(msgs []Message, provider AlternationProvider) ([]Message, AlternationReport) {
+	var report AlternationReport
 	if len(msgs) == 0 {
-		return msgs
+		return msgs, report
 	}
 	switch provider {
 	case AlternationProviderAnthropic, AlternationProviderGemini:
 	default:
-		return msgs
+		return msgs, report
 	}
 
 	// Copy system / developer messages through unchanged, collecting the
@@ -150,24 +200,30 @@ func EnforceAlternation(msgs []Message, provider AlternationProvider) []Message 
 	out := make([]Message, 0, len(msgs)+1)
 	pending := make([]Message, 0, len(msgs))
 	roles := make([]rolePos, 0, len(msgs))
+	seenConversation := false
 
 	for _, msg := range msgs {
 		if msg.Role == "system" || msg.Role == "developer" {
+			if seenConversation {
+				report.MovedInstructionMessages++
+			}
 			out = append(out, msg)
 			continue
 		}
+		seenConversation = true
 		effective := effectiveRole(msg.Role, provider)
 		pending = append(pending, msg)
 		roles = append(roles, rolePos{role: effective, idx: len(pending) - 1})
 	}
 
 	if len(pending) == 0 {
-		return out
+		return out, report
 	}
 
 	// Anthropic requires the first conversational turn to be user. Insert a
 	// (continued) pivot user turn if the conversation opens with assistant.
 	if provider == AlternationProviderAnthropic && roles[0].role == "assistant" {
+		report.InsertedLeadingUser = true
 		pivot := makeContinuedUserPivot()
 		pending = append([]Message{pivot}, pending...)
 		roles = append([]rolePos{{role: "user", idx: 0}}, roles...)
@@ -189,6 +245,7 @@ func EnforceAlternation(msgs []Message, provider AlternationProvider) []Message 
 		if j-runStart == 1 {
 			merged = append(merged, pending[roles[runStart].idx])
 		} else {
+			report.MergedRuns++
 			group := make([]Message, 0, j-runStart)
 			for k := runStart; k < j; k++ {
 				group = append(group, pending[roles[k].idx])
@@ -199,7 +256,7 @@ func EnforceAlternation(msgs []Message, provider AlternationProvider) []Message 
 	}
 
 	out = append(out, merged...)
-	return out
+	return out, report
 }
 
 // effectiveRole normalises Message.Role to the two-role alphabet

@@ -264,6 +264,29 @@ func TestConvertToAnthropicRequestUsesUserFallbackForMetadata(t *testing.T) {
 	}
 }
 
+func TestConvertToAnthropicRequestMapsDeveloperToSystem(t *testing.T) {
+	developer := "follow the policy"
+	user := "hello"
+	req := &model.InternalLLMRequest{
+		Model: "claude-sonnet-4-5",
+		Messages: []model.Message{
+			{Role: "developer", Content: model.MessageContent{Content: &developer}},
+			{Role: "user", Content: model.MessageContent{Content: &user}},
+		},
+	}
+
+	out := convertToAnthropicRequest(req)
+	if out.System == nil || len(out.System.MultiplePrompts) != 1 {
+		t.Fatalf("expected developer instruction in Anthropic system prompt, got %+v", out.System)
+	}
+	if got := out.System.MultiplePrompts[0].Text; got != developer {
+		t.Fatalf("system prompt text = %q, want %q", got, developer)
+	}
+	if len(out.Messages) != 1 || out.Messages[0].Role != "user" {
+		t.Fatalf("developer message should not remain in conversation messages: %+v", out.Messages)
+	}
+}
+
 func TestPruneCacheBreakpointsKeepsSystemThenToolsThenMessages(t *testing.T) {
 	req := &anthropicModel.MessageRequest{
 		System: &anthropicModel.SystemPrompt{
@@ -322,6 +345,40 @@ func TestPruneCacheBreakpointsCountsToolUseAndToolResultContent(t *testing.T) {
 	}
 	if parts[4].CacheControl != nil {
 		t.Fatalf("expected fifth breakpoint to be pruned, got %+v", parts[4])
+	}
+}
+
+func TestDescribeRequestChangesReportsPrunedCacheBreakpoint(t *testing.T) {
+	parts := make([]model.MessageContentPart, 0, model.AnthropicMaxCacheBreakpoints+1)
+	for i := 0; i < model.AnthropicMaxCacheBreakpoints+1; i++ {
+		text := "part"
+		parts = append(parts, model.MessageContentPart{
+			Type:         "text",
+			Text:         &text,
+			CacheControl: &model.CacheControl{Type: model.CacheControlTypeEphemeral},
+		})
+	}
+	request := &model.InternalLLMRequest{
+		Model: "claude-sonnet-4-5",
+		Messages: []model.Message{{
+			Role:    "user",
+			Content: model.MessageContent{MultipleContent: parts},
+		}},
+	}
+
+	changes := (&MessageOutbound{}).DescribeRequestChanges(request, request.Model)
+	wantField := "messages[0].content[4].cache_control"
+	if len(changes) != 1 || changes[0].Field != wantField || changes[0].Action != model.RequestTransformationTruncate {
+		t.Fatalf("unexpected cache breakpoint changes: %+v", changes)
+	}
+
+	_, wire, _ := prepareAnthropicRequest(request, request.Model)
+	wireParts := wire.Messages[0].Content.MultipleContent
+	if len(wireParts) != model.AnthropicMaxCacheBreakpoints+1 {
+		t.Fatalf("unexpected wire part count: %d", len(wireParts))
+	}
+	if wireParts[model.AnthropicMaxCacheBreakpoints].CacheControl != nil {
+		t.Fatalf("reported cache breakpoint was not pruned from wire: %+v", wireParts[model.AnthropicMaxCacheBreakpoints])
 	}
 }
 
@@ -732,6 +789,33 @@ func TestTransformRequestPatchesOrphanedToolCalls(t *testing.T) {
 	}
 	if blocks[1].Type != "text" || blocks[1].Text == nil || *blocks[1].Text != followup {
 		t.Fatalf("follow-up content was not preserved after patch: %+v", blocks)
+	}
+}
+
+func TestDescribeRequestChangesReportsOrphanedToolRepair(t *testing.T) {
+	request := &model.InternalLLMRequest{
+		Model: "claude-sonnet-4-5",
+		Messages: []model.Message{
+			{Role: "user", Content: model.MessageContent{Content: stringPtr("start")}},
+			{Role: "assistant", ToolCalls: []model.ToolCall{{
+				ID:       "call_missing",
+				Function: model.FunctionCall{Name: "lookup", Arguments: "{}"},
+			}}},
+			{Role: "user", Content: model.MessageContent{Content: stringPtr("follow up")}},
+		},
+	}
+
+	changes := (&MessageOutbound{}).DescribeRequestChanges(request, request.Model)
+	if len(changes) != 1 || changes[0].Field != "messages" || changes[0].Action != model.RequestTransformationRepair {
+		t.Fatalf("unexpected orphaned-tool repair report: %+v", changes)
+	}
+	_, wire, _ := prepareAnthropicRequest(request, request.Model)
+	if len(wire.Messages) != 3 || wire.Messages[1].Role != "assistant" || wire.Messages[2].Role != "user" {
+		t.Fatalf("expected synthetic tool result in wire message sequence, got %+v", wire.Messages)
+	}
+	blocks := wire.Messages[2].Content.MultipleContent
+	if len(blocks) == 0 || blocks[0].Type != "tool_result" {
+		t.Fatalf("expected synthetic tool_result block, got %+v", blocks)
 	}
 }
 

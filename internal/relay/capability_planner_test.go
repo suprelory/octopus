@@ -77,3 +77,23 @@ func TestPlanRelayCapabilityLazilySharesRequestPlanner(t *testing.T) {
 		t.Fatalf("direct cached decision changed:\nfirst=%#v\nsecond=%#v", first, second)
 	}
 }
+
+func TestRelayCapabilityPlannerSharesEquivalentChannels(t *testing.T) {
+	request := &transformerModel.InternalLLMRequest{
+		RequestType:  transformerModel.RequestTypeChat,
+		RawAPIFormat: transformerModel.APIFormatOpenAIChatCompletion,
+		Model:        "request-model",
+	}
+	planner := newRelayCapabilityPlanner(request, nil, false)
+	firstChannel := &dbmodel.Channel{ID: 101, Type: outbound.OutboundTypeAnthropic, PassthroughMode: dbmodel.ChannelPassthroughModeOff}
+	secondChannel := &dbmodel.Channel{ID: 202, Type: outbound.OutboundTypeAnthropic, PassthroughMode: dbmodel.ChannelPassthroughModeOff}
+
+	first := planner.plan(firstChannel, outbound.Get(firstChannel.Type), "claude-3")
+	second := planner.plan(secondChannel, outbound.Get(secondChannel.Type), "claude-3")
+	if len(planner.decisions) != 1 {
+		t.Fatalf("equivalent channels should share one decision, got %d: %+v", len(planner.decisions), planner.decisions)
+	}
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("equivalent channels produced different decisions:\nfirst=%#v\nsecond=%#v", first, second)
+	}
+}

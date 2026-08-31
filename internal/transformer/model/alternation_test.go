@@ -125,3 +125,50 @@ func TestEnforceAlternationPreservesStructuredParts(t *testing.T) {
 		t.Errorf("text part wrong: %+v", parts[1])
 	}
 }
+
+func TestEnforceAlternationWithReportDescribesRepairs(t *testing.T) {
+	msgs := []Message{
+		{Role: "user", Content: MessageContent{Content: ptrStr("first")}},
+		{Role: "system", Content: MessageContent{Content: ptrStr("late system")}},
+		{Role: "user", Content: MessageContent{Content: ptrStr("second")}},
+		{Role: "developer", Content: MessageContent{Content: ptrStr("late developer")}},
+		{Role: "assistant", Content: MessageContent{Content: ptrStr("answer")}},
+	}
+
+	got, report := EnforceAlternationWithReport(msgs, AlternationProviderAnthropic)
+	if report.InsertedLeadingUser {
+		t.Fatal("did not expect a pivot for a user-first conversation")
+	}
+	if report.MergedRuns != 1 || report.MovedInstructionMessages != 2 {
+		t.Fatalf("unexpected alternation report: %+v", report)
+	}
+	if len(got) != 4 {
+		t.Fatalf("expected two instruction messages plus merged conversation, got %d: %+v", len(got), got)
+	}
+	if got[0].Role != "system" || got[1].Role != "developer" {
+		t.Fatalf("instruction messages were not moved to the front: %+v", got)
+	}
+	if got[2].Content.Content == nil || *got[2].Content.Content != "first\n\nsecond" {
+		t.Fatalf("merged user content mismatch: %+v", got[2])
+	}
+
+	changes := report.RequestChanges("Anthropic")
+	if len(changes) != 2 {
+		t.Fatalf("expected merge and move changes, got %+v", changes)
+	}
+	if changes[0].Action != RequestTransformationTranslate || changes[1].Action != RequestTransformationRepair {
+		t.Fatalf("unexpected change actions: %+v", changes)
+	}
+}
+
+func TestEnforceAlternationWithReportDescribesAssistantPivot(t *testing.T) {
+	msgs := []Message{{Role: "assistant", Content: MessageContent{Content: ptrStr("hello")}}}
+	got, report := EnforceAlternationWithReport(msgs, AlternationProviderAnthropic)
+	if !report.InsertedLeadingUser || len(got) != 2 {
+		t.Fatalf("expected a leading pivot, got messages=%+v report=%+v", got, report)
+	}
+	changes := report.RequestChanges("Anthropic")
+	if len(changes) != 1 || changes[0].Field != "messages" || changes[0].Action != RequestTransformationRepair {
+		t.Fatalf("unexpected pivot change: %+v", changes)
+	}
+}

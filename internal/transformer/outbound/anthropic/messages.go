@@ -12,7 +12,6 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/bestruirui/octopus/internal/transformer/compat"
 	"github.com/bestruirui/octopus/internal/transformer/httpio"
 	"github.com/bestruirui/octopus/internal/transformer/model"
 	anthropicModel "github.com/bestruirui/octopus/internal/transformer/protocol/anthropic"
@@ -40,14 +39,7 @@ func (o *MessageOutbound) TransformRequest(ctx context.Context, request *model.I
 	if request == nil {
 		return nil, fmt.Errorf("request is nil")
 	}
-	request = request.Clone()
-
-	request.NormalizeMessages()
-	request.EnforceMessageAlternation(model.AlternationProviderAnthropic)
-	compat.PatchAnthropicRequest(request)
-
-	// Convert to Anthropic request format
-	anthropicReq := convertToAnthropicRequest(request)
+	request, anthropicReq, _ := prepareAnthropicRequest(request, request.Model)
 
 	body, err := json.Marshal(anthropicReq)
 	if err != nil {
@@ -594,6 +586,12 @@ func (o *MessageOutbound) TransformStream(ctx context.Context, eventData []byte)
 
 // convertToAnthropicRequest converts internal LLM request to Anthropic format
 func convertToAnthropicRequest(req *model.InternalLLMRequest) *anthropicModel.MessageRequest {
+	result := convertToAnthropicRequestUnpruned(req)
+	pruneCacheBreakpoints(result)
+	return result
+}
+
+func convertToAnthropicRequestUnpruned(req *model.InternalLLMRequest) *anthropicModel.MessageRequest {
 	result := &anthropicModel.MessageRequest{
 		Model:       req.Model,
 		Temperature: req.Temperature,
@@ -665,11 +663,6 @@ func convertToAnthropicRequest(req *model.InternalLLMRequest) *anthropicModel.Me
 	if tc := convertToolChoice(req.ToolChoice); tc != nil {
 		result.ToolChoice = tc
 	}
-
-	// Cap cache_control breakpoints to Anthropic's per-request ceiling. Excess markers are
-	// silently dropped rather than surfacing a 400 — the request still succeeds, just without
-	// caching on the trimmed blocks.
-	pruneCacheBreakpoints(result)
 
 	return result
 }
@@ -784,7 +777,7 @@ func resolveMaxTokens(req *model.InternalLLMRequest) int64 {
 func convertSystemPrompt(req *model.InternalLLMRequest) *anthropicModel.SystemPrompt {
 	var systemMessages []model.Message
 	for _, msg := range req.Messages {
-		if msg.Role == "system" {
+		if msg.Role == "system" || msg.Role == "developer" {
 			systemMessages = append(systemMessages, msg)
 		}
 	}
@@ -1687,18 +1680,20 @@ func anthropicServerToolBeta(toolType string) string {
 // entries that exceed the provider-enforced ceiling. Anthropic currently allows up to 4
 // breakpoints per request; we keep the first N in encounter order (system → tools → messages)
 // because callers typically mark the most reusable prefixes first.
-func pruneCacheBreakpoints(req *anthropicModel.MessageRequest) {
+func pruneCacheBreakpoints(req *anthropicModel.MessageRequest) []string {
 	if req == nil {
-		return
+		return nil
 	}
 
 	kept := 0
-	keepOrClear := func(cc **anthropicModel.CacheControl) {
+	var dropped []string
+	keepOrClear := func(field string, cc **anthropicModel.CacheControl) {
 		if cc == nil || *cc == nil {
 			return
 		}
 		if kept >= model.AnthropicMaxCacheBreakpoints {
 			*cc = nil
+			dropped = append(dropped, field)
 			return
 		}
 		kept++
@@ -1706,18 +1701,19 @@ func pruneCacheBreakpoints(req *anthropicModel.MessageRequest) {
 
 	if req.System != nil {
 		for i := range req.System.MultiplePrompts {
-			keepOrClear(&req.System.MultiplePrompts[i].CacheControl)
+			keepOrClear(fmt.Sprintf("system[%d].cache_control", i), &req.System.MultiplePrompts[i].CacheControl)
 		}
 	}
 	for i := range req.Tools {
-		keepOrClear(&req.Tools[i].CacheControl)
+		keepOrClear(fmt.Sprintf("tools[%d].cache_control", i), &req.Tools[i].CacheControl)
 	}
 	for i := range req.Messages {
 		msg := &req.Messages[i]
 		for j := range msg.Content.MultipleContent {
-			keepOrClear(&msg.Content.MultipleContent[j].CacheControl)
+			keepOrClear(fmt.Sprintf("messages[%d].content[%d].cache_control", i, j), &msg.Content.MultipleContent[j].CacheControl)
 		}
 	}
+	return dropped
 }
 
 func getThinkingBudget(effort string, budget *int64) *int64 {

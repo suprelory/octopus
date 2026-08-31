@@ -3,6 +3,7 @@ package gemini
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -777,6 +778,58 @@ func TestConvertDocumentToGeminiPartInlineLimitFallback(t *testing.T) {
 	p = convertDocumentToGeminiPart(small, &model.InternalLLMRequest{})
 	if p == nil || p.InlineData == nil || p.InlineData.Data != "AAAA" {
 		t.Errorf("expected small doc to keep inline_data, got %+v", p)
+	}
+}
+
+func TestDescribeRequestChangesMatchesGeminiDocumentDrop(t *testing.T) {
+	orig := geminiInlineDataMaxBytes
+	geminiInlineDataMaxBytes = 100
+	defer func() { geminiInlineDataMaxBytes = orig }()
+
+	request := &model.InternalLLMRequest{
+		Model: "gemini-2.5-pro",
+		Messages: []model.Message{{
+			Role: "user",
+			Content: model.MessageContent{MultipleContent: []model.MessageContentPart{{
+				Type:     "document",
+				Document: &model.DocumentSource{Type: "base64", MediaType: "application/pdf", Data: strings.Repeat("A", 500)},
+			}}},
+		}},
+	}
+
+	changes := (&MessagesOutbound{}).DescribeRequestChanges(request, request.Model)
+	if len(changes) != 1 || changes[0].Field != "messages[0].content[0]" || changes[0].Action != model.RequestTransformationDrop {
+		t.Fatalf("unexpected document changes: %+v", changes)
+	}
+
+	prepared, _ := prepareGeminiRequest(request, request.Model)
+	wire := convertLLMToGeminiRequest(prepared)
+	if len(wire.Contents) != 1 || len(wire.Contents[0].Parts) != 0 {
+		t.Fatalf("expected the oversized document to be absent from wire contents: %+v", wire.Contents)
+	}
+}
+
+func TestDescribeRequestChangesReportsEmptyGeminiDocuments(t *testing.T) {
+	request := &model.InternalLLMRequest{
+		Model: "gemini-2.5-pro",
+		Messages: []model.Message{{
+			Role: "user",
+			Content: model.MessageContent{MultipleContent: []model.MessageContentPart{
+				{Type: "document", Document: &model.DocumentSource{Type: "url"}},
+				{Type: "document"},
+			}},
+		}},
+	}
+
+	changes := (&MessagesOutbound{}).DescribeRequestChanges(request, request.Model)
+	if len(changes) != 2 {
+		t.Fatalf("expected both empty documents to be reported, got %+v", changes)
+	}
+	for index, change := range changes {
+		wantField := fmt.Sprintf("messages[0].content[%d]", index)
+		if change.Field != wantField || change.Action != model.RequestTransformationDrop {
+			t.Errorf("change[%d] = %+v, want field=%q and drop", index, change, wantField)
+		}
 	}
 }
 

@@ -578,6 +578,43 @@ func TestPlanRequestReportsOpenAIChatDocumentTranslation(t *testing.T) {
 	assertCapabilityLoss(t, decision, "messages[0].content[0]", LossActionTranslate)
 }
 
+func TestPlanRequestConsumesAdapterReportedChanges(t *testing.T) {
+	request := &model.InternalLLMRequest{
+		RequestType:  model.RequestTypeChat,
+		RawAPIFormat: model.APIFormatAnthropicMessage,
+		Model:        "gemini-2.5-pro",
+		Messages: []model.Message{{
+			Role: "user",
+			Content: model.MessageContent{MultipleContent: []model.MessageContentPart{{
+				Type:     "document",
+				Document: &model.DocumentSource{Type: "url", URL: "https://example.com/report.pdf", Title: "Report"},
+			}}},
+		}},
+	}
+
+	geminiDecision := PlanRequest(request, OutboundTypeGemini, false)
+	assertCapabilityLoss(t, geminiDecision, "messages[0].content[0]", LossActionTranslate)
+
+	cacheParts := make([]model.MessageContentPart, 0, model.AnthropicMaxCacheBreakpoints+1)
+	for i := 0; i < model.AnthropicMaxCacheBreakpoints+1; i++ {
+		text := "cache-part"
+		cacheParts = append(cacheParts, model.MessageContentPart{
+			Type:         "text",
+			Text:         &text,
+			CacheControl: &model.CacheControl{Type: model.CacheControlTypeEphemeral},
+		})
+	}
+	request = &model.InternalLLMRequest{
+		RequestType:  model.RequestTypeChat,
+		RawAPIFormat: model.APIFormatOpenAIChatCompletion,
+		Model:        "claude-sonnet-4-5",
+		Messages:     []model.Message{{Role: "user", Content: model.MessageContent{MultipleContent: cacheParts}}},
+	}
+
+	anthropicDecision := PlanRequest(request, OutboundTypeAnthropic, false)
+	assertCapabilityLoss(t, anthropicDecision, "messages[0].content[4].cache_control", LossActionTruncate)
+}
+
 func TestCapabilityLossJSONFieldNames(t *testing.T) {
 	payload, err := json.Marshal(CapabilityLoss{Field: "top_k", Action: LossActionDrop, Reason: "not preserved"})
 	if err != nil {

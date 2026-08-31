@@ -50,10 +50,7 @@ func (o *MessagesOutbound) TransformRequest(ctx context.Context, request *model.
 	if request == nil {
 		return nil, fmt.Errorf("request is nil")
 	}
-	request = request.Clone()
-
-	request.NormalizeMessages()
-	request.EnforceMessageAlternation(model.AlternationProviderGemini)
+	request, _ = prepareGeminiRequest(request, request.Model)
 
 	// Convert internal request to Gemini format
 	geminiReq := convertLLMToGeminiRequest(request)
@@ -392,56 +389,11 @@ var geminiInlineDataMaxBytes = 20 * 1024 * 1024
 //  3. otherwise drop the block with a warning so operators can see the
 //     payload is too big for inline transport.
 func convertDocumentToGeminiPart(doc *model.DocumentSource, req *model.InternalLLMRequest) *model.GeminiPart {
-	if doc == nil {
-		return nil
+	part, _, warning := planGeminiDocumentConversion(doc, req, "")
+	if warning != "" {
+		log.Warnf("%s", warning)
 	}
-	switch doc.Type {
-	case "base64":
-		if doc.Data == "" {
-			return nil
-		}
-		mime := doc.MediaType
-		if mime == "" {
-			mime = "application/pdf"
-		}
-		// Estimate the decoded payload size from the base64 string length.
-		// We avoid actually decoding (no benefit over the cheap arithmetic
-		// estimate and decoding allocates).
-		decoded := (len(doc.Data) * 3) / 4
-		if decoded > geminiInlineDataMaxBytes {
-			// Prefer an explicit File API pointer if the caller provided
-			// one, otherwise drop with a warning. G-M10.
-			if uri := lookupGeminiFilesAPIURI(req, mime); uri != "" {
-				log.Warnf("gemini: inline document ~%d bytes exceeds %d; forwarding via fileData(%q)", decoded, geminiInlineDataMaxBytes, uri)
-				return &model.GeminiPart{FileData: &model.GeminiFileData{MimeType: mime, FileURI: uri}}
-			}
-			log.Warnf("gemini: dropping inline document (~%d bytes, mime=%q) — exceeds %d-byte inline limit and no gemini_files_api_uri provided", decoded, mime, geminiInlineDataMaxBytes)
-			return nil
-		}
-		return &model.GeminiPart{
-			InlineData: &model.GeminiBlob{MimeType: mime, Data: doc.Data},
-		}
-	case "url":
-		if doc.URL == "" {
-			return nil
-		}
-		// Gemini FileData supports Google-Cloud-Storage / gs:// URIs, not
-		// arbitrary HTTPS; fall back to a text hint so the user sees the
-		// reference instead of having the block silently dropped.
-		hint := buildDocumentTextHint(doc, "document at "+doc.URL)
-		return &model.GeminiPart{Text: hint}
-	case "text":
-		text := doc.Text
-		if text == "" {
-			text = doc.Data
-		}
-		if text == "" {
-			return nil
-		}
-		return &model.GeminiPart{Text: buildDocumentTextHint(doc, text)}
-	default:
-		return nil
-	}
+	return part
 }
 
 // lookupGeminiFilesAPIURI looks up a pre-uploaded Files API URI that should

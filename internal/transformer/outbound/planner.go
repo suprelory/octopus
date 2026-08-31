@@ -35,15 +35,15 @@ const (
 // LossAction describes what an outbound adapter does when a canonical field
 // cannot be represented exactly. It is deliberately separate from
 // CapabilityStatus: a request can remain routable after a drop or truncation.
-type LossAction string
+type LossAction = model.RequestTransformationAction
 
 const (
-	LossActionPreserve  LossAction = "preserve"
-	LossActionTranslate LossAction = "translate"
-	LossActionDrop      LossAction = "drop"
-	LossActionTruncate  LossAction = "truncate"
-	LossActionRepair    LossAction = "repair"
-	LossActionReject    LossAction = "reject"
+	LossActionPreserve  = model.RequestTransformationPreserve
+	LossActionTranslate = model.RequestTransformationTranslate
+	LossActionDrop      = model.RequestTransformationDrop
+	LossActionTruncate  = model.RequestTransformationTruncate
+	LossActionRepair    = model.RequestTransformationRepair
+	LossActionReject    = model.RequestTransformationReject
 )
 
 // CapabilityLoss is a field-level explanation of a known conversion loss.
@@ -262,6 +262,7 @@ func PlanRequestForModel(req *model.InternalLLMRequest, effectiveModel string, o
 		evaluateFeature(req, effectiveModel, outboundType, SemanticFeature(feature), &decision)
 	}
 	evaluateAdapterFieldLosses(req, outboundType, &decision)
+	evaluateAdapterReportedChanges(req, effectiveModel, outboundType, &decision)
 	evaluateProviderSpecificSemantics(req, outboundType, &decision)
 	evaluateInboundRepairs(req, &decision)
 	decision.DegradedFields = uniqueSorted(decision.DegradedFields)
@@ -272,6 +273,20 @@ func PlanRequestForModel(req *model.InternalLLMRequest, effectiveModel string, o
 		decision.Lossiness = "known"
 	}
 	return decision
+}
+
+func evaluateAdapterReportedChanges(req *model.InternalLLMRequest, effectiveModel string, outboundType OutboundType, decision *CapabilityDecision) {
+	if req == nil || decision == nil {
+		return
+	}
+	adapter := Get(outboundType)
+	reporter, ok := adapter.(model.RequestChangeReporter)
+	if !ok {
+		return
+	}
+	for _, change := range reporter.DescribeRequestChanges(req, effectiveModel) {
+		reportLoss(decision, change.Field, change.Action, change.Reason)
+	}
 }
 
 // supportsOpenAIResponsesRecovery identifies the two Responses paths that

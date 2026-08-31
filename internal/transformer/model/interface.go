@@ -50,6 +50,35 @@ type Outbound interface {
 	TransformError(ctx context.Context, statusCode int, headers http.Header, body []byte) *ResponseError
 }
 
+// RequestTransformationAction describes a deterministic request change made by
+// an outbound adapter while preparing provider wire data.
+type RequestTransformationAction string
+
+const (
+	RequestTransformationPreserve  RequestTransformationAction = "preserve"
+	RequestTransformationTranslate RequestTransformationAction = "translate"
+	RequestTransformationDrop      RequestTransformationAction = "drop"
+	RequestTransformationTruncate  RequestTransformationAction = "truncate"
+	RequestTransformationRepair    RequestTransformationAction = "repair"
+	RequestTransformationReject    RequestTransformationAction = "reject"
+)
+
+// RequestTransformationChange is adapter-owned evidence of a concrete wire
+// transformation. Capability planning consumes these reports so it does not
+// need to independently mirror every provider-specific repair or drop rule.
+type RequestTransformationChange struct {
+	Field  string                      `json:"field"`
+	Action RequestTransformationAction `json:"action"`
+	Reason string                      `json:"reason"`
+}
+
+// RequestChangeReporter is an optional outbound capability. Implementations
+// must treat request as read-only and use the same decision helpers as their
+// wire builder.
+type RequestChangeReporter interface {
+	DescribeRequestChanges(request *InternalLLMRequest, effectiveModel string) []RequestTransformationChange
+}
+
 // These narrow compatibility views remain available to callers that used the
 // former optional contracts. Inbound and Outbound themselves now require the
 // corresponding methods.

@@ -11,11 +11,11 @@ import (
 	"github.com/bestruirui/octopus/internal/transformer/outbound"
 )
 
-// relayCapabilityCacheKey describes every input that can change a decision
-// while one relay request is being processed. The request itself and ingress
-// mode are immutable for the lifetime of the planner.
+// relayCapabilityCacheKey describes every decision input that can vary between
+// candidates while one relay request is being processed. Channel identity is
+// intentionally absent: the decision depends on the effective model, adapter
+// type, passthrough result, and active override semantics, not the database ID.
 type relayCapabilityCacheKey struct {
-	channelID      int
 	effectiveModel string
 	outboundType   outbound.OutboundType
 	passthrough    bool
@@ -71,7 +71,6 @@ func (p *relayCapabilityPlanner) plan(channel *dbmodel.Channel, adapter model.Ou
 	overrideConfigured := channelParamOverrideActive(channel)
 	passthrough := planRelayPassthrough(p.request, p.rawBody, channel, adapter, p.websocketIngress, overrideConfigured)
 	key := relayCapabilityCacheKey{
-		channelID:      channel.ID,
 		effectiveModel: effectiveModel,
 		outboundType:   channel.Type,
 		passthrough:    passthrough,
