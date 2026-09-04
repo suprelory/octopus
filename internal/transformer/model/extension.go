@@ -161,8 +161,6 @@ func (r *InternalLLMRequest) SetGeminiExtensions(ext GeminiExtension) {
 		SpeechConfig:     cloneRawMessage(ext.SpeechConfig),
 	}
 	mergeGeminiExtension(providerExtensions.Gemini, &extCopy)
-	r.GeminiCachedContentRef = providerExtensions.Gemini.CachedContentRef
-	r.GeminiSpeechConfig = cloneRawMessage(providerExtensions.Gemini.SpeechConfig)
 }
 
 func (r *InternalLLMRequest) SetAnthropicExtensions(ext AnthropicExtension) {
@@ -181,8 +179,6 @@ func (r *InternalLLMRequest) SetAnthropicExtensions(ext AnthropicExtension) {
 		ServerTool:   cloneRawMessage(ext.ServerTool),
 	}
 	mergeAnthropicExtension(providerExtensions.Anthropic, &extCopy)
-	r.AnthropicMCPServers = cloneRawMessage(providerExtensions.Anthropic.MCPServers)
-	r.AnthropicContainer = cloneRawMessage(providerExtensions.Anthropic.Container)
 }
 
 func (r *InternalLLMRequest) SetOpenAIExtensions(ext OpenAIExtension) {
@@ -200,14 +196,6 @@ func (r *InternalLLMRequest) SetOpenAIExtensions(ext OpenAIExtension) {
 		Responses:                    cloneOpenAIResponsesOptions(ext.Responses),
 	}
 	mergeOpenAIExtension(providerExtensions.OpenAI, &extCopy)
-	r.OpenAIResponsesPassthroughRequired = providerExtensions.OpenAI.ResponsesPassthroughRequired
-	r.OpenAIResponsesPassthroughReason = strings.TrimSpace(providerExtensions.OpenAI.ResponsesPassthroughReason)
-	if r.OpenAIResponsesPassthroughRequired {
-		r.SetTransformerMetadataValue(TransformerMetadataOpenAIResponsesPassthroughRequired, "true")
-	}
-	if r.OpenAIResponsesPassthroughReason != "" {
-		r.SetTransformerMetadataValue(TransformerMetadataOpenAIResponsesPassthroughReason, r.OpenAIResponsesPassthroughReason)
-	}
 }
 
 func (r *InternalLLMRequest) SetOpenAIRawInputItems(raw json.RawMessage) {
@@ -294,10 +282,7 @@ func (r *InternalLLMRequest) GetGeminiExtensions() GeminiExtension {
 	if r == nil {
 		return GeminiExtension{}
 	}
-	ext := GeminiExtension{
-		CachedContentRef: r.GeminiCachedContentRef,
-		SpeechConfig:     r.GeminiSpeechConfig,
-	}
+	ext := GeminiExtension{}
 	if r.ProviderExtensions != nil && r.ProviderExtensions.Gemini != nil {
 		mergeGeminiExtension(&ext, r.ProviderExtensions.Gemini)
 	}
@@ -308,10 +293,7 @@ func (r *InternalLLMRequest) GetAnthropicExtensions() AnthropicExtension {
 	if r == nil {
 		return AnthropicExtension{}
 	}
-	ext := AnthropicExtension{
-		MCPServers: r.AnthropicMCPServers,
-		Container:  r.AnthropicContainer,
-	}
+	ext := AnthropicExtension{}
 	if r.ProviderExtensions != nil && r.ProviderExtensions.Anthropic != nil {
 		mergeAnthropicExtension(&ext, r.ProviderExtensions.Anthropic)
 	}
@@ -319,31 +301,17 @@ func (r *InternalLLMRequest) GetAnthropicExtensions() AnthropicExtension {
 }
 
 func (r *InternalLLMRequest) HasOpenAIResponsesPassthrough() bool {
-	if r == nil {
-		return false
-	}
-	if r.OpenAIResponsesPassthroughRequired {
-		return true
-	}
-	if r.ProviderExtensions != nil && r.ProviderExtensions.OpenAI != nil && r.ProviderExtensions.OpenAI.ResponsesPassthroughRequired {
-		return true
-	}
-	return r.TransformerMetadataBool(TransformerMetadataOpenAIResponsesPassthroughRequired)
+	return r != nil && r.ProviderExtensions != nil && r.ProviderExtensions.OpenAI != nil && r.ProviderExtensions.OpenAI.ResponsesPassthroughRequired
 }
 
 func (r *InternalLLMRequest) OpenAIResponsesPassthroughReasonTextValue() string {
 	if r == nil {
 		return ""
 	}
-	if reason := strings.TrimSpace(r.OpenAIResponsesPassthroughReason); reason != "" {
-		return reason
-	}
 	if r.ProviderExtensions != nil && r.ProviderExtensions.OpenAI != nil {
-		if reason := strings.TrimSpace(r.ProviderExtensions.OpenAI.ResponsesPassthroughReason); reason != "" {
-			return reason
-		}
+		return strings.TrimSpace(r.ProviderExtensions.OpenAI.ResponsesPassthroughReason)
 	}
-	return r.TransformerMetadataValue(TransformerMetadataOpenAIResponsesPassthroughReason)
+	return ""
 }
 
 func (r *InternalLLMRequest) GetOpenAIExtensions() OpenAIExtension {

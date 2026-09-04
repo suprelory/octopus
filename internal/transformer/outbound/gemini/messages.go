@@ -807,15 +807,8 @@ func convertLLMToGeminiRequest(request *model.InternalLLMRequest) *model.GeminiG
 		config.TopP = request.TopP
 		hasConfig = true
 	}
-	// G-H1 + A-H3 follow-up: prefer the native TopK field; fall back to the
-	// legacy TransformerMetadata hook so older callers still work.
 	if request.TopK != nil {
 		topK := int(*request.TopK)
-		config.TopK = &topK
-		hasConfig = true
-	} else if topKStr := request.TransformerMetadataValue(model.TransformerMetadataGeminiTopK); topKStr != "" {
-		var topK int
-		fmt.Sscanf(topKStr, "%d", &topK)
 		config.TopK = &topK
 		hasConfig = true
 	}

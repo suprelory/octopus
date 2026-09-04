@@ -75,9 +75,6 @@ func normalizeSiteProxyFields(site *model.Site) {
 	if site.ProxyMode != model.ProxyUsageModePool {
 		site.ProxyConfigID = nil
 	}
-	site.Proxy = site.ProxyMode != model.ProxyUsageModeDirect
-	site.UseSystemProxy = site.ProxyMode == model.ProxyUsageModeSystem
-	site.SiteProxy = nil
 	for i := range site.Accounts {
 		normalizeSiteAccountProxyFields(&site.Accounts[i])
 	}
@@ -93,7 +90,6 @@ func normalizeSiteAccountProxyFields(account *model.SiteAccount) {
 	if account.ProxyMode != model.ProxyUsageModePool {
 		account.ProxyConfigID = nil
 	}
-	account.AccountProxy = nil
 }
 
 func SiteCreate(site *model.Site, ctx context.Context) error {

@@ -841,7 +841,6 @@ func upsertImportedAccount(tx *gorm.DB, siteRecord *model.Site, input importedAc
 			PlatformUserID:             input.PlatformUserID,
 			ProxyMode:                  proxyMode,
 			ProxyConfigID:              proxyConfigID,
-			AccountProxy:               nil,
 			Enabled:                    input.Enabled,
 			AutoSync:                   input.AutoSync,
 			AutoCheckin:                input.AutoCheckin,
@@ -867,7 +866,6 @@ func upsertImportedAccount(tx *gorm.DB, siteRecord *model.Site, input importedAc
 			"platform_user_id":              created.PlatformUserID,
 			"proxy_mode":                    created.ProxyMode,
 			"proxy_config_id":               created.ProxyConfigID,
-			"account_proxy":                 nil,
 			"enabled":                       created.Enabled,
 			"auto_sync":                     created.AutoSync,
 			"auto_checkin":                  created.AutoCheckin,
@@ -903,7 +901,6 @@ func upsertImportedAccount(tx *gorm.DB, siteRecord *model.Site, input importedAc
 	merged.PlatformUserID = input.PlatformUserID
 	merged.ProxyMode = proxyMode
 	merged.ProxyConfigID = proxyConfigID
-	merged.AccountProxy = nil
 	merged.AutoCheckin = input.AutoCheckin
 	if err := merged.Validate(); err != nil {
 		return nil, false, false, err
@@ -921,7 +918,6 @@ func upsertImportedAccount(tx *gorm.DB, siteRecord *model.Site, input importedAc
 		"platform_user_id": merged.PlatformUserID,
 		"proxy_mode":       merged.ProxyMode,
 		"proxy_config_id":  merged.ProxyConfigID,
-		"account_proxy":    merged.AccountProxy,
 		"auto_checkin":     merged.AutoCheckin,
 	}
 	if err := tx.Model(&model.SiteAccount{}).Where("id = ?", accountRecord.ID).Updates(updates).Error; err != nil {
@@ -938,7 +934,6 @@ func upsertImportedAccount(tx *gorm.DB, siteRecord *model.Site, input importedAc
 	accountRecord.PlatformUserID = merged.PlatformUserID
 	accountRecord.ProxyMode = merged.ProxyMode
 	accountRecord.ProxyConfigID = merged.ProxyConfigID
-	accountRecord.AccountProxy = merged.AccountProxy
 	accountRecord.AutoCheckin = merged.AutoCheckin
 	return accountRecord, false, true, nil
 }

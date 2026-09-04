@@ -111,7 +111,7 @@ func TestPlanRelayPassthroughMatchesResponsesExecutionGuards(t *testing.T) {
 	if planRelayPassthrough(request, rawBody, channel, adapter, false) {
 		t.Fatal("exact replay must use canonical recovery instead of raw passthrough")
 	}
-	if decision := outbound.PlanRequest(request, channel.Type, false); decision.Rejected() {
+	if decision := outbound.PlanRequestForModel(request, request.Model, channel.Type, false); decision.Rejected() {
 		t.Fatalf("exact replay must remain eligible for canonical recovery: %#v", decision)
 	}
 }
@@ -132,7 +132,7 @@ func TestPlanRelayPassthroughRejectsNativeOnlyWSTransform(t *testing.T) {
 	if passthrough {
 		t.Fatal("WS transform mode must not be planned as native passthrough")
 	}
-	decision := outbound.PlanRequest(request, channel.Type, passthrough)
+	decision := outbound.PlanRequestForModel(request, request.Model, channel.Type, passthrough)
 	if !decision.Rejected() {
 		t.Fatalf("native-only WS transform decision = %#v, want rejected", decision)
 	}
@@ -168,7 +168,7 @@ func TestPlanRelayPassthroughKeepsWSContinuationOnPassthroughTransport(t *testin
 	if planRelayPassthrough(request, rawBody, channel, adapter, false) {
 		t.Fatal("HTTP ingress continuation must stay on the affinity-aware WS transform path")
 	}
-	if decision := outbound.PlanRequest(request, channel.Type, false); decision.Rejected() {
+	if decision := outbound.PlanRequestForModel(request, request.Model, channel.Type, false); decision.Rejected() {
 		t.Fatalf("HTTP continuation must remain eligible for upstream WS recovery: %#v", decision)
 	}
 }

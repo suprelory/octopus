@@ -272,33 +272,7 @@ func TestInternalLLMRequestProviderExtensionViewsUseProviderExtensionsWithoutOve
 	}
 }
 
-func TestInternalLLMRequestProviderExtensionViewsFallbackToCompatibilityMirrors(t *testing.T) {
-	cachedContent := "cachedContents/abc123"
-	req := &InternalLLMRequest{
-		GeminiCachedContentRef: &cachedContent,
-		GeminiSpeechConfig:     json.RawMessage(`{"voiceConfig":{"prebuiltVoiceConfig":{"voiceName":"Zephyr"}}}`),
-		AnthropicMCPServers:    json.RawMessage(`[{"type":"url","url":"https://example.test/mcp"}]`),
-		AnthropicContainer:     json.RawMessage(`{"type":"auto"}`),
-	}
-
-	gemini := req.GetGeminiExtensions()
-	if gemini.CachedContentRef == nil || *gemini.CachedContentRef != cachedContent {
-		t.Fatalf("expected top-level Gemini cached content compatibility field, got %#v", gemini.CachedContentRef)
-	}
-	if !strings.Contains(string(gemini.SpeechConfig), "Zephyr") {
-		t.Fatalf("expected top-level Gemini speech config compatibility field, got %s", gemini.SpeechConfig)
-	}
-
-	anthropic := req.GetAnthropicExtensions()
-	if !strings.Contains(string(anthropic.MCPServers), "example.test/mcp") {
-		t.Fatalf("expected top-level Anthropic mcp_servers compatibility field, got %s", anthropic.MCPServers)
-	}
-	if !strings.Contains(string(anthropic.Container), "auto") {
-		t.Fatalf("expected top-level Anthropic container compatibility field, got %s", anthropic.Container)
-	}
-}
-
-func TestInternalLLMRequestSetProviderExtensionsSynchronizesCompatibilityMirrors(t *testing.T) {
+func TestInternalLLMRequestSetProviderExtensionsPopulatesCanonicalViews(t *testing.T) {
 	cachedContent := "cachedContents/sync"
 	req := &InternalLLMRequest{}
 	req.SetGeminiExtensions(GeminiExtension{
@@ -315,20 +289,19 @@ func TestInternalLLMRequestSetProviderExtensionsSynchronizesCompatibilityMirrors
 	if req.ProviderExtensions == nil || req.ProviderExtensions.OpenAI == nil || req.ProviderExtensions.Gemini == nil || req.ProviderExtensions.Anthropic == nil {
 		t.Fatalf("expected provider extensions to be fully populated, got %#v", req.ProviderExtensions)
 	}
-	if req.GeminiCachedContentRef == nil || *req.GeminiCachedContentRef != cachedContent {
-		t.Fatalf("expected Gemini compatibility mirror to sync, got %#v", req.GeminiCachedContentRef)
+	gemini := req.GetGeminiExtensions()
+	if gemini.CachedContentRef == nil || *gemini.CachedContentRef != cachedContent || !strings.Contains(string(gemini.SpeechConfig), "Nova") {
+		t.Fatalf("unexpected Gemini extension view: %#v", gemini)
 	}
-	if !strings.Contains(string(req.GeminiSpeechConfig), "Nova") {
-		t.Fatalf("expected Gemini speech config mirror to sync, got %s", req.GeminiSpeechConfig)
-	}
-	if !strings.Contains(string(req.AnthropicMCPServers), "example.test/mcp") || !strings.Contains(string(req.AnthropicContainer), "auto") {
-		t.Fatalf("expected Anthropic mirrors to sync, got mcp=%s container=%s", req.AnthropicMCPServers, req.AnthropicContainer)
+	anthropic := req.GetAnthropicExtensions()
+	if !strings.Contains(string(anthropic.MCPServers), "example.test/mcp") || !strings.Contains(string(anthropic.Container), "auto") {
+		t.Fatalf("unexpected Anthropic extension view: %#v", anthropic)
 	}
 	if !strings.Contains(string(req.RawInputItems), "computer_call") {
 		t.Fatalf("expected OpenAI raw input items mirror to sync, got %s", req.RawInputItems)
 	}
 	if !req.HasOpenAIResponsesPassthrough() || req.OpenAIResponsesPassthroughReasonTextValue() != "tool:computer_use" {
-		t.Fatalf("expected OpenAI passthrough mirrors to sync, got required=%t reason=%q", req.HasOpenAIResponsesPassthrough(), req.OpenAIResponsesPassthroughReasonTextValue())
+		t.Fatalf("expected OpenAI extension view to sync, got required=%t reason=%q", req.HasOpenAIResponsesPassthrough(), req.OpenAIResponsesPassthroughReasonTextValue())
 	}
 }
 
@@ -700,32 +673,19 @@ func TestStreamAggregatorMergesChatChunks(t *testing.T) {
 	}
 }
 
-func TestOpenAIResponsesPassthroughTypedFieldsAndMetadataFallback(t *testing.T) {
+func TestOpenAIResponsesPassthroughUsesProviderExtensions(t *testing.T) {
 	req := &InternalLLMRequest{}
 	req.MarkOpenAIResponsesPassthroughRequired("tool:web_search")
 	req.MarkOpenAIResponsesPassthroughRequired("input:computer_call")
-	if !req.OpenAIResponsesPassthroughRequired || !req.HasOpenAIResponsesPassthrough() {
-		t.Fatalf("expected typed passthrough flag")
+	if !req.HasOpenAIResponsesPassthrough() {
+		t.Fatal("expected passthrough flag")
 	}
-	if req.OpenAIResponsesPassthroughReason != "tool:web_search,input:computer_call" {
-		t.Fatalf("unexpected typed passthrough reason: %q", req.OpenAIResponsesPassthroughReason)
+	wantReason := "tool:web_search,input:computer_call"
+	if req.OpenAIResponsesPassthroughReasonTextValue() != wantReason {
+		t.Fatalf("unexpected passthrough reason: %q", req.OpenAIResponsesPassthroughReasonTextValue())
 	}
-	if req.TransformerMetadata[TransformerMetadataOpenAIResponsesPassthroughRequired] != "true" {
-		t.Fatalf("expected metadata compatibility flag")
-	}
-	if req.OpenAIResponsesPassthroughReasonTextValue() != req.OpenAIResponsesPassthroughReason {
-		t.Fatalf("expected new passthrough reason accessor to prefer typed field")
-	}
-	if ext := req.GetOpenAIExtensions(); !ext.ResponsesPassthroughRequired || ext.ResponsesPassthroughReason != req.OpenAIResponsesPassthroughReason {
+	if ext := req.GetOpenAIExtensions(); !ext.ResponsesPassthroughRequired || ext.ResponsesPassthroughReason != wantReason {
 		t.Fatalf("unexpected OpenAI extension view: %#v", ext)
-	}
-
-	legacy := &InternalLLMRequest{TransformerMetadata: map[string]string{
-		TransformerMetadataOpenAIResponsesPassthroughRequired: "true",
-		TransformerMetadataOpenAIResponsesPassthroughReason:   "legacy",
-	}}
-	if !legacy.HasOpenAIResponsesPassthrough() || legacy.OpenAIResponsesPassthroughReasonTextValue() != "legacy" {
-		t.Fatalf("expected metadata fallback on new accessors, got %#v", legacy)
 	}
 
 	providerOnly := &InternalLLMRequest{ProviderExtensions: &ProviderExtensions{OpenAI: &OpenAIExtension{

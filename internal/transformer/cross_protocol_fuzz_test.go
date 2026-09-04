@@ -37,7 +37,7 @@ func FuzzCrossProtocolRequestIsolation(f *testing.F) {
 			return
 		}
 		outType := outboundTypes[int(outboundSelector)%len(outboundTypes)]
-		decision := outbound.PlanRequest(request, outType, false)
+		decision := outbound.PlanRequestForModel(request, request.Model, outType, false)
 		if decision.Rejected() {
 			return
 		}

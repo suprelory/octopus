@@ -138,7 +138,6 @@ func ProjectAccount(ctx context.Context, accountID int) ([]int, error) {
 				CustomModel:   "",
 				ProxyMode:     proxyMode,
 				ProxyConfigID: proxyConfigID,
-				Proxy:         proxyMode != model.ProxyUsageModeDirect,
 				AutoSync:      false,
 				AutoGroup:     model.AutoGroupTypeNone,
 				CustomHeader:  siteRecord.CustomHeader,

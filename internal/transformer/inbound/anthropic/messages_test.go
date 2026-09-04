@@ -414,12 +414,6 @@ func TestTransformRequestCapturesMCPServersAndContainer(t *testing.T) {
 	if !strings.Contains(string(anthropicExt.Container), "cntr-1") {
 		t.Errorf("expected extension container captured, got %s", anthropicExt.Container)
 	}
-	if !strings.Contains(string(req.AnthropicMCPServers), "example.invalid/mcp") {
-		t.Errorf("expected compatibility mcp_servers captured, got %s", req.AnthropicMCPServers)
-	}
-	if !strings.Contains(string(req.AnthropicContainer), "cntr-1") {
-		t.Errorf("expected compatibility container captured, got %s", req.AnthropicContainer)
-	}
 }
 
 func TestTransformRequestPreservesAnthropicUserIDInTransformerMetadataOnly(t *testing.T) {

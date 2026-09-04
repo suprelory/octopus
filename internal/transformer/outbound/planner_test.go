@@ -9,7 +9,7 @@ import (
 	"github.com/bestruirui/octopus/internal/transformer/model"
 )
 
-func TestPlanRequestForModelMatchesLegacyPlannerWithoutMutatingRequest(t *testing.T) {
+func TestPlanRequestForModelUsesEffectiveModelWithoutMutatingRequest(t *testing.T) {
 	request := &model.InternalLLMRequest{
 		RequestType:     model.RequestTypeChat,
 		RawAPIFormat:    model.APIFormatOpenAIChatCompletion,
@@ -18,24 +18,18 @@ func TestPlanRequestForModelMatchesLegacyPlannerWithoutMutatingRequest(t *testin
 	}
 	before := request.Clone()
 
-	legacy := PlanRequest(request, OutboundTypeGemini, false)
-	parameterized := PlanRequestForModel(request, request.Model, OutboundTypeGemini, false)
-	if !reflect.DeepEqual(parameterized, legacy) {
-		t.Fatalf("parameterized planner differs from legacy planner:\nlegacy=%#v\nparameterized=%#v", legacy, parameterized)
-	}
-
 	for _, test := range []struct {
 		name         string
 		model        string
 		outboundType OutboundType
 	}{
 		{name: "gemini family", model: "gemini-3-pro", outboundType: OutboundTypeGemini},
-		{name: "legacy unsupported outbound", model: "legacy-model", outboundType: OutboundTypeUnsupported},
+		{name: "unsupported outbound", model: "legacy-model", outboundType: OutboundTypeUnsupported},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			modelOverridden := request.Clone()
 			modelOverridden.Model = test.model
-			want := PlanRequest(modelOverridden, test.outboundType, false)
+			want := PlanRequestForModel(modelOverridden, modelOverridden.Model, test.outboundType, false)
 			got := PlanRequestForModel(request, test.model, test.outboundType, false)
 			if !reflect.DeepEqual(got, want) {
 				t.Fatalf("parameterized planner differs from cloned request:\nwant=%#v\ngot=%#v", want, got)
@@ -64,7 +58,7 @@ func TestPlanRequestCoversRequestedSemantics(t *testing.T) {
 		StreamOptions:   includeUsage,
 	}
 
-	decision := PlanRequest(req, OutboundTypeAnthropic, false)
+	decision := PlanRequestForModel(req, req.Model, OutboundTypeAnthropic, false)
 	if decision.Status != CapabilityDegraded {
 		t.Fatalf("status = %s, want degraded: %+v", decision.Status, decision)
 	}
@@ -99,13 +93,13 @@ func TestPlanRequestRejectsNativeResponsesSemantics(t *testing.T) {
 	req := &model.InternalLLMRequest{RequestType: model.RequestTypeResponses, RawAPIFormat: model.APIFormatOpenAIResponse, Model: "gpt-5", Messages: []model.Message{{Role: "user"}}}
 	req.MarkOpenAIResponsesPassthroughRequired("tool:web_search")
 	for _, outboundType := range []OutboundType{OutboundTypeOpenAIResponse, OutboundTypeGemini} {
-		decision := PlanRequest(req, outboundType, false)
+		decision := PlanRequestForModel(req, req.Model, outboundType, false)
 		if decision.Status != CapabilityRejected {
 			t.Fatalf("outbound %s status = %s, want rejected", outboundType, decision.Status)
 		}
 	}
 
-	decision := PlanRequest(req, OutboundTypeOpenAIResponse, true)
+	decision := PlanRequestForModel(req, req.Model, OutboundTypeOpenAIResponse, true)
 	if decision.Status != CapabilitySupported || !decision.Passthrough {
 		t.Fatalf("native Responses passthrough decision = %#v, want supported passthrough", decision)
 	}
@@ -166,11 +160,11 @@ func TestPlanRequestAllowsNativeResponsesRecoveryWithoutRawPassthrough(t *testin
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			decision := PlanRequest(tt.request, OutboundTypeOpenAIResponse, false)
+			decision := PlanRequestForModel(tt.request, tt.request.Model, OutboundTypeOpenAIResponse, false)
 			if decision.Rejected() || decision.Passthrough {
 				t.Fatalf("Responses recovery decision = %#v, want canonical non-rejected path", decision)
 			}
-			if decision := PlanRequest(tt.request, OutboundTypeGemini, false); !decision.Rejected() {
+			if decision := PlanRequestForModel(tt.request, tt.request.Model, OutboundTypeGemini, false); !decision.Rejected() {
 				t.Fatalf("non-Responses recovery decision = %#v, want rejected", decision)
 			}
 		})
@@ -187,14 +181,14 @@ func TestPlanRequestRejectsResponsesRecoveryWithoutNativeSidecar(t *testing.T) {
 	request.MarkOpenAIResponsesPassthroughRequired("tool:web_search")
 	request.MarkOpenAIExactReplayRequest()
 
-	if decision := PlanRequest(request, OutboundTypeOpenAIResponse, false); !decision.Rejected() {
+	if decision := PlanRequestForModel(request, request.Model, OutboundTypeOpenAIResponse, false); !decision.Rejected() {
 		t.Fatalf("recovery without raw native tools must remain rejected: %#v", decision)
 	}
 }
 
 func TestPlanRequestNativePassthroughIsLossless(t *testing.T) {
 	req := &model.InternalLLMRequest{RequestType: model.RequestTypeChat, RawAPIFormat: model.APIFormatAnthropicMessage, Model: "claude", Messages: []model.Message{{Role: "user"}}, ResponseFormat: &model.ResponseFormat{Type: "json_schema"}}
-	decision := PlanRequest(req, OutboundTypeAnthropic, true)
+	decision := PlanRequestForModel(req, req.Model, OutboundTypeAnthropic, true)
 	if decision.Status != CapabilitySupported || decision.Lossiness != "none" || !decision.Passthrough {
 		t.Fatalf("unexpected passthrough decision: %+v", decision)
 	}
@@ -214,7 +208,7 @@ func TestPlanRequestDetectsLossyGeminiSchema(t *testing.T) {
 			Schema: &model.Schema{Type: "object", Ref: "#/$defs/item"},
 		},
 	}
-	decision := PlanRequest(req, OutboundTypeGemini, false)
+	decision := PlanRequestForModel(req, req.Model, OutboundTypeGemini, false)
 	if decision.Status != CapabilityDegraded || !slices.Contains(decision.DegradedFields, "response_format.schema") {
 		t.Fatalf("unexpected schema decision: %+v", decision)
 	}
@@ -304,7 +298,7 @@ func TestPlanRequestReportsAdapterFieldLosses(t *testing.T) {
 				TopK:         test.topK,
 				Stop:         test.stop,
 			}
-			decision := PlanRequest(request, test.outboundType, false)
+			decision := PlanRequestForModel(request, request.Model, test.outboundType, false)
 			if decision.Status != test.wantStatus {
 				t.Fatalf("status = %s, want %s: %#v", decision.Status, test.wantStatus, decision)
 			}
@@ -328,7 +322,7 @@ func TestPlanRequestReportsAnthropicThinkingRepairs(t *testing.T) {
 		Temperature:     &temperature,
 	}
 
-	decision := PlanRequest(request, OutboundTypeAnthropic, false)
+	decision := PlanRequestForModel(request, request.Model, OutboundTypeAnthropic, false)
 	if decision.Status != CapabilityDegraded {
 		t.Fatalf("status = %s, want degraded: %#v", decision.Status, decision)
 	}
@@ -372,7 +366,7 @@ func TestPlanRequestReportsResponsesBuilderDrops(t *testing.T) {
 		"web_search_options",
 	}
 
-	openAIDecision := PlanRequest(request, OutboundTypeOpenAIResponse, false)
+	openAIDecision := PlanRequestForModel(request, request.Model, OutboundTypeOpenAIResponse, false)
 	for _, field := range commonLosses {
 		assertCapabilityLoss(t, openAIDecision, field, LossActionDrop)
 	}
@@ -380,7 +374,7 @@ func TestPlanRequestReportsResponsesBuilderDrops(t *testing.T) {
 		t.Fatalf("OpenAI Responses should preserve metadata: %#v", openAIDecision)
 	}
 
-	unsupportedDecision := PlanRequest(request, OutboundTypeUnsupported, false)
+	unsupportedDecision := PlanRequestForModel(request, request.Model, OutboundTypeUnsupported, false)
 	if !unsupportedDecision.Rejected() {
 		t.Fatalf("legacy unsupported outbound type must be rejected: %#v", unsupportedDecision)
 	}
@@ -394,11 +388,11 @@ func TestPlanRequestReportsGeminiTopLogprobsClamp(t *testing.T) {
 		TopLogprobs:  &topLogprobs,
 	}
 
-	decision := PlanRequest(request, OutboundTypeGemini, false)
+	decision := PlanRequestForModel(request, request.Model, OutboundTypeGemini, false)
 	assertCapabilityLoss(t, decision, "top_logprobs", LossActionTruncate)
 
 	topLogprobs = 5
-	decision = PlanRequest(request, OutboundTypeGemini, false)
+	decision = PlanRequestForModel(request, request.Model, OutboundTypeGemini, false)
 	if slices.Contains(decision.DegradedFields, "top_logprobs") {
 		t.Fatalf("in-range top_logprobs should not be degraded: %#v", decision)
 	}
@@ -418,7 +412,7 @@ func TestPlanRequestReportsGeminiMultimodalWireDrops(t *testing.T) {
 		}},
 	}
 
-	decision := PlanRequest(request, OutboundTypeGemini, false)
+	decision := PlanRequestForModel(request, request.Model, OutboundTypeGemini, false)
 	if decision.Status != CapabilityDegraded {
 		t.Fatalf("status = %s, want degraded: %#v", decision.Status, decision)
 	}
@@ -452,7 +446,7 @@ func TestPlanRequestReportsAnthropicAndGeminiBuilderDrops(t *testing.T) {
 		}{Format: "wav", Voice: "alloy"},
 	}
 
-	anthropicDecision := PlanRequest(request, OutboundTypeAnthropic, false)
+	anthropicDecision := PlanRequestForModel(request, request.Model, OutboundTypeAnthropic, false)
 	for _, field := range []string{
 		"audio",
 		"frequency_penalty",
@@ -472,13 +466,13 @@ func TestPlanRequestReportsAnthropicAndGeminiBuilderDrops(t *testing.T) {
 	}
 
 	request.Metadata = map[string]string{"user_id": "anthropic-user"}
-	anthropicDecision = PlanRequest(request, OutboundTypeAnthropic, false)
+	anthropicDecision = PlanRequestForModel(request, request.Model, OutboundTypeAnthropic, false)
 	if slices.Contains(anthropicDecision.DegradedFields, "metadata") {
 		t.Fatalf("Anthropic should preserve metadata.user_id: %#v", anthropicDecision)
 	}
 	assertCapabilityLoss(t, anthropicDecision, "user", LossActionDrop)
 
-	geminiDecision := PlanRequest(request, OutboundTypeGemini, false)
+	geminiDecision := PlanRequestForModel(request, request.Model, OutboundTypeGemini, false)
 	for _, field := range []string{"logit_bias", "prediction", "user", "web_search_options"} {
 		assertCapabilityLoss(t, geminiDecision, field, LossActionDrop)
 	}
@@ -497,28 +491,28 @@ func TestPlanRequestReportsGeminiThinkingChanges(t *testing.T) {
 		Model:           "gemini-2.5-pro",
 		ReasoningBudget: &zero,
 	}
-	decision := PlanRequest(request, OutboundTypeGemini, false)
+	decision := PlanRequestForModel(request, request.Model, OutboundTypeGemini, false)
 	assertCapabilityLoss(t, decision, "reasoning_budget", LossActionRepair)
 
 	huge := int64(1 << 40)
 	request.ReasoningBudget = &huge
-	decision = PlanRequest(request, OutboundTypeGemini, false)
+	decision = PlanRequestForModel(request, request.Model, OutboundTypeGemini, false)
 	assertCapabilityLoss(t, decision, "reasoning_budget", LossActionRepair)
 
 	budget := int64(4096)
 	request.Model = "gemini-3-pro"
 	request.ReasoningBudget = &budget
-	decision = PlanRequest(request, OutboundTypeGemini, false)
+	decision = PlanRequestForModel(request, request.Model, OutboundTypeGemini, false)
 	assertCapabilityLoss(t, decision, "reasoning_budget", LossActionTranslate)
 
 	request.ReasoningBudget = nil
 	request.ReasoningEffort = "medium"
-	decision = PlanRequest(request, OutboundTypeGemini, false)
+	decision = PlanRequestForModel(request, request.Model, OutboundTypeGemini, false)
 	assertCapabilityLoss(t, decision, "reasoning_effort", LossActionRepair)
 
 	request.Model = "gemini-2.5-flash-lite"
 	request.ReasoningEffort = "high"
-	decision = PlanRequest(request, OutboundTypeGemini, false)
+	decision = PlanRequestForModel(request, request.Model, OutboundTypeGemini, false)
 	assertCapabilityLoss(t, decision, "reasoning", LossActionDrop)
 }
 
@@ -532,7 +526,7 @@ func TestPlanRequestGeminiBudgetTakesPrecedenceOverEffort(t *testing.T) {
 		ReasoningEffort: "minimal",
 	}
 
-	decision := PlanRequest(request, OutboundTypeGemini, false)
+	decision := PlanRequestForModel(request, request.Model, OutboundTypeGemini, false)
 	if slices.Contains(decision.DegradedFields, "reasoning_effort") {
 		t.Fatalf("ignored effort was reported as degraded: %#v", decision)
 	}
@@ -545,7 +539,7 @@ func TestPlanRequestReportsGeminiUnknownModalityDrop(t *testing.T) {
 		Modalities:   []string{"text", "video"},
 	}
 
-	decision := PlanRequest(request, OutboundTypeGemini, false)
+	decision := PlanRequestForModel(request, request.Model, OutboundTypeGemini, false)
 	assertCapabilityLoss(t, decision, "modalities", LossActionDrop)
 }
 
@@ -560,7 +554,7 @@ func TestPlanRequestReportsAnthropicRepairs(t *testing.T) {
 		}},
 	}
 
-	decision := PlanRequest(request, OutboundTypeAnthropic, false)
+	decision := PlanRequestForModel(request, request.Model, OutboundTypeAnthropic, false)
 	assertCapabilityLoss(t, decision, "max_tokens", LossActionRepair)
 	assertCapabilityLoss(t, decision, "tool_choice.name", LossActionRepair)
 }
@@ -574,7 +568,7 @@ func TestPlanRequestReportsAnthropicInboundMaxTokensRepair(t *testing.T) {
 		TransformerMetadata: map[string]string{model.TransformerMetadataAnthropicMaxTokensRepairFrom: "0"},
 	}
 
-	decision := PlanRequest(request, OutboundTypeOpenAIChat, false)
+	decision := PlanRequestForModel(request, request.Model, OutboundTypeOpenAIChat, false)
 	assertCapabilityLoss(t, decision, "max_tokens", LossActionRepair)
 }
 
@@ -595,7 +589,7 @@ func TestPlanRequestReportsOpenAIChatDocumentTranslation(t *testing.T) {
 		}},
 	}
 
-	decision := PlanRequest(request, OutboundTypeOpenAIChat, false)
+	decision := PlanRequestForModel(request, request.Model, OutboundTypeOpenAIChat, false)
 	assertCapabilityLoss(t, decision, "messages[0].content[0]", LossActionTranslate)
 }
 
@@ -613,7 +607,7 @@ func TestPlanRequestConsumesAdapterReportedChanges(t *testing.T) {
 		}},
 	}
 
-	geminiDecision := PlanRequest(request, OutboundTypeGemini, false)
+	geminiDecision := PlanRequestForModel(request, request.Model, OutboundTypeGemini, false)
 	assertCapabilityLoss(t, geminiDecision, "messages[0].content[0]", LossActionTranslate)
 
 	cacheParts := make([]model.MessageContentPart, 0, model.AnthropicMaxCacheBreakpoints+1)
@@ -632,7 +626,7 @@ func TestPlanRequestConsumesAdapterReportedChanges(t *testing.T) {
 		Messages:     []model.Message{{Role: "user", Content: model.MessageContent{MultipleContent: cacheParts}}},
 	}
 
-	anthropicDecision := PlanRequest(request, OutboundTypeAnthropic, false)
+	anthropicDecision := PlanRequestForModel(request, request.Model, OutboundTypeAnthropic, false)
 	assertCapabilityLoss(t, anthropicDecision, "messages[0].content[4].cache_control", LossActionTruncate)
 }
 
@@ -695,7 +689,7 @@ func TestPlanRequestReportsKnownFieldLosses(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			test.request.RequestType = model.RequestTypeChat
 			test.request.RawAPIFormat = model.APIFormatOpenAIChatCompletion
-			decision := PlanRequest(test.request, test.outboundType, false)
+			decision := PlanRequestForModel(test.request, test.request.Model, test.outboundType, false)
 			if decision.Status != CapabilityDegraded {
 				t.Fatalf("decision = %#v, want degraded", decision)
 			}

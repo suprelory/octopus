@@ -169,9 +169,7 @@ func splitChannelModelNames(values ...string) []string {
 	return result
 }
 
-// ValidateJSONOverrideObject keeps its historical name for API compatibility,
-// but accepts both the legacy object merge and the structured operation array.
-func ValidateJSONOverrideObject(value string) error {
+func validateParamOverride(value string) error {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
 		return nil

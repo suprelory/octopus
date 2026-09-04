@@ -55,8 +55,6 @@ func normalizeChannelProxyFields(channel *model.Channel) {
 	if channel.ProxyMode != model.ProxyUsageModePool {
 		channel.ProxyConfigID = nil
 	}
-	channel.Proxy = channel.ProxyMode != model.ProxyUsageModeDirect
-	channel.ChannelProxy = nil
 }
 
 func ChannelCreate(channel *model.Channel, ctx context.Context) error {

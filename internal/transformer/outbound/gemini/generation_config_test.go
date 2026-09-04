@@ -77,23 +77,3 @@ func TestConvertLLMToGeminiRequestClampsLogprobs(t *testing.T) {
 		t.Fatalf("expected logprobs clamped to 5, got %d", *gemReq.GenerationConfig.Logprobs)
 	}
 }
-
-// Without TopK native field, legacy metadata hook still wins.
-func TestConvertLLMToGeminiRequestFallsBackToLegacyTopKMetadata(t *testing.T) {
-	req := &model.InternalLLMRequest{
-		Model: "gemini-2.5-pro",
-		TransformerMetadata: map[string]string{
-			"gemini_top_k": "12",
-		},
-		Messages: []model.Message{
-			{Role: "user", Content: model.MessageContent{Content: stringPtr("hi")}},
-		},
-	}
-	gemReq := convertLLMToGeminiRequest(req)
-	if gemReq.GenerationConfig == nil || gemReq.GenerationConfig.TopK == nil {
-		t.Fatalf("expected legacy metadata TopK, got %+v", gemReq.GenerationConfig)
-	}
-	if *gemReq.GenerationConfig.TopK != 12 {
-		t.Fatalf("expected legacy TopK=12, got %d", *gemReq.GenerationConfig.TopK)
-	}
-}

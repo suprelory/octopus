@@ -1,7 +1,6 @@
 package model
 
 import (
-	"encoding/json"
 	"strconv"
 	"strings"
 
@@ -27,12 +26,6 @@ func (t AutoGroupType) Valid() bool {
 }
 
 func ParseAutoGroupSettingValue(value string) (AutoGroupType, bool) {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "false":
-		return AutoGroupTypeNone, true
-	case "true":
-		return AutoGroupTypeFuzzy, true
-	}
 	parsed, err := strconv.Atoi(strings.TrimSpace(value))
 	if err != nil {
 		return AutoGroupTypeNone, false
@@ -84,37 +77,16 @@ type Channel struct {
 	CustomModel     string                 `json:"custom_model"`
 	ProxyMode       ProxyUsageMode         `json:"proxy_mode" gorm:"type:varchar(16);not null;default:'direct'"`
 	ProxyConfigID   *int                   `json:"proxy_config_id"`
-	Proxy           bool                   `json:"-" gorm:"default:false"`
 	AutoSync        bool                   `json:"auto_sync" gorm:"default:false"`
 	AutoGroup       AutoGroupType          `json:"auto_group" gorm:"default:0"`
 	CustomHeader    []CustomHeader         `json:"custom_header" gorm:"serializer:json"`
 	WSMode          ChannelWSMode          `json:"ws_mode" gorm:"type:varchar(16);not null;default:'inherit'"`
 	PassthroughMode ChannelPassthroughMode `json:"passthrough_mode" gorm:"type:varchar(16);not null;default:'auto'"`
 	ParamOverride   *string                `json:"param_override"`
-	ChannelProxy    *string                `json:"-" gorm:"column:channel_proxy"`
 	Stats           *StatsChannel          `json:"stats,omitempty" gorm:"foreignKey:ChannelID"`
 	MatchRegex      *string                `json:"match_regex"`
 	Managed         bool                   `json:"managed" gorm:"-"`
 	ManagedSource   *ManagedChannelSource  `json:"managed_source,omitempty" gorm:"-"`
-}
-
-func (c *Channel) UnmarshalJSON(data []byte) error {
-	type alias Channel
-	aux := struct {
-		*alias
-		Proxy        *bool   `json:"proxy"`
-		ChannelProxy *string `json:"channel_proxy"`
-	}{alias: (*alias)(c)}
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-	if aux.Proxy != nil {
-		c.Proxy = *aux.Proxy
-	}
-	if aux.ChannelProxy != nil {
-		c.ChannelProxy = aux.ChannelProxy
-	}
-	return nil
 }
 
 type ManagedChannelSource struct {
@@ -165,13 +137,11 @@ type ChannelUpdateRequest struct {
 	CustomModel     *string                 `json:"custom_model,omitempty"`
 	ProxyMode       *ProxyUsageMode         `json:"proxy_mode,omitempty"`
 	ProxyConfigID   *int                    `json:"proxy_config_id,omitempty"`
-	Proxy           *bool                   `json:"-"`
 	AutoSync        *bool                   `json:"auto_sync,omitempty"`
 	AutoGroup       *AutoGroupType          `json:"auto_group,omitempty"`
 	CustomHeader    *[]CustomHeader         `json:"custom_header,omitempty"`
 	WSMode          *ChannelWSMode          `json:"ws_mode,omitempty"`
 	PassthroughMode *ChannelPassthroughMode `json:"passthrough_mode,omitempty"`
-	ChannelProxy    *string                 `json:"-"`
 	ParamOverride   *string                 `json:"param_override,omitempty"`
 	MatchRegex      *string                 `json:"match_regex,omitempty"`
 

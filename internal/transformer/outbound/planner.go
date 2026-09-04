@@ -191,25 +191,10 @@ func (d CapabilityDecision) Summary() string {
 	return string(d.Status)
 }
 
-// PlanRequest evaluates protocol-level semantic compatibility before a key is
-// selected or request bytes are sent upstream. Model-family capability remains
-// the provider's responsibility; this planner covers transformations Octopus
-// itself can prove to be native, lossy, or impossible.
-//
-// The legacy entry point plans against req.Model. Callers that route one
-// canonical request to multiple upstream model names should use
-// PlanRequestForModel so they do not need to deep-copy the request merely to
-// replace that one field.
-func PlanRequest(req *model.InternalLLMRequest, outboundType OutboundType, passthrough bool) CapabilityDecision {
-	if req == nil {
-		return PlanRequestForModel(nil, "", outboundType, passthrough)
-	}
-	return PlanRequestForModel(req, req.Model, outboundType, passthrough)
-}
-
-// PlanRequestForModel is the model-parameterized form of PlanRequest. The
-// planner treats req as read-only; effectiveModel is used for the small set of
-// provider-family checks whose result depends on the selected upstream model.
+// PlanRequestForModel evaluates protocol-level semantic compatibility before a
+// key is selected or request bytes are sent upstream. The planner treats req as
+// read-only; effectiveModel is used for provider-family checks whose result
+// depends on the selected upstream model.
 func PlanRequestForModel(req *model.InternalLLMRequest, effectiveModel string, outboundType OutboundType, passthrough bool) CapabilityDecision {
 	decision := CapabilityDecision{Status: CapabilitySupported, Lossiness: "none"}
 	if req == nil {
@@ -316,7 +301,7 @@ func hasRawJSONArray(raw json.RawMessage) bool {
 // PlanRelayOperation evaluates auxiliary endpoints that are proxied without
 // passing through InternalLLMRequest. These decisions still use the relay-wide
 // capability policy and audit trace, while field-level planning remains the
-// responsibility of PlanRequest.
+// responsibility of PlanRequestForModel.
 func PlanRelayOperation(outboundType OutboundType, operation string) CapabilityDecision {
 	decision := CapabilityDecision{
 		Status:        CapabilitySupported,

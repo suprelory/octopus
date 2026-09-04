@@ -27,21 +27,18 @@ const (
 )
 
 const (
-	TransformerMetadataOpenAIResponsesPassthroughRequired = "octopus_openai_responses_passthrough_required"
-	TransformerMetadataOpenAIResponsesPassthroughReason   = "octopus_openai_responses_passthrough_reason"
-	TransformerMetadataWSExecutionMode                    = "octopus_ws_execution_mode"
-	TransformerMetadataWSExecutionModeReplayExact         = "replay_exact"
-	TransformerMetadataAnthropicUserID                    = "anthropic_user_id"
-	TransformerMetadataAnthropicSystemArrayFormat         = "anthropic_system_array_format"
-	TransformerMetadataAnthropicContext1M                 = "anthropic_context_1m"
-	TransformerMetadataAnthropicMaxTokensRepairFrom       = "anthropic_max_tokens_repair_from"
-	TransformerMetadataOpenAIOrganization                 = "openai_organization"
-	TransformerMetadataOpenAIProject                      = "openai_project"
-	TransformerMetadataGeminiFilesAPIURI                  = "gemini_files_api_uri"
-	TransformerMetadataGeminiTopK                         = "gemini_top_k"
-	TransformerMetadataGeminiMediaResolution              = "gemini_media_resolution"
-	TransformerMetadataGeminiCandidateCount               = "gemini_candidate_count"
-	TransformerMetadataGeminiSafetySettings               = "gemini_safety_settings"
+	TransformerMetadataWSExecutionMode              = "octopus_ws_execution_mode"
+	TransformerMetadataWSExecutionModeReplayExact   = "replay_exact"
+	TransformerMetadataAnthropicUserID              = "anthropic_user_id"
+	TransformerMetadataAnthropicSystemArrayFormat   = "anthropic_system_array_format"
+	TransformerMetadataAnthropicContext1M           = "anthropic_context_1m"
+	TransformerMetadataAnthropicMaxTokensRepairFrom = "anthropic_max_tokens_repair_from"
+	TransformerMetadataOpenAIOrganization           = "openai_organization"
+	TransformerMetadataOpenAIProject                = "openai_project"
+	TransformerMetadataGeminiFilesAPIURI            = "gemini_files_api_uri"
+	TransformerMetadataGeminiMediaResolution        = "gemini_media_resolution"
+	TransformerMetadataGeminiCandidateCount         = "gemini_candidate_count"
+	TransformerMetadataGeminiSafetySettings         = "gemini_safety_settings"
 )
 
 // Request is the unified llm request model for AxonHub, to keep compatibility with major app and framework.
@@ -329,64 +326,22 @@ type InternalLLMRequest struct {
 	// stable IR. Prefer exposing new provider-specific behavior through
 	// ProviderExtensions and provider-specific accessors instead of growing more
 	// top-level passthrough fields.
-	// OpenAIResponsesPassthroughRequired is a compatibility mirror for the
-	// OpenAI Responses passthrough flag. New OpenAI-specific call sites should
-	// prefer request.HasOpenAIResponsesPassthrough() / request.GetOpenAIExtensions()
-	// as the primary read path.
-	OpenAIResponsesPassthroughRequired bool `json:"-"`
-	// OpenAIResponsesPassthroughReason is a compatibility mirror for the
-	// passthrough reason text. New OpenAI-specific call sites should prefer
-	// request.OpenAIResponsesPassthroughReasonTextValue() /
-	// request.GetOpenAIExtensions() as the primary read path.
-	OpenAIResponsesPassthroughReason string          `json:"-"`
-	PreviousResponseID               *string         `json:"-"`
-	Background                       *bool           `json:"-"`
-	Prompt                           json.RawMessage `json:"-"`
-	ResponsesPromptCacheKey          *string         `json:"-"`
-	PromptCacheRetention             *string         `json:"-"`
-	MaxToolCalls                     *int64          `json:"-"`
-	Conversation                     json.RawMessage `json:"-"`
-	ContextManagement                json.RawMessage `json:"-"`
-	ResponsesStreamOptions           json.RawMessage `json:"-"`
-	ReasoningSummary                 *string         `json:"-"`
-	ReasoningGenerateSummary         *string         `json:"-"`
+	PreviousResponseID       *string         `json:"-"`
+	Background               *bool           `json:"-"`
+	Prompt                   json.RawMessage `json:"-"`
+	ResponsesPromptCacheKey  *string         `json:"-"`
+	PromptCacheRetention     *string         `json:"-"`
+	MaxToolCalls             *int64          `json:"-"`
+	Conversation             json.RawMessage `json:"-"`
+	ContextManagement        json.RawMessage `json:"-"`
+	ResponsesStreamOptions   json.RawMessage `json:"-"`
+	ReasoningSummary         *string         `json:"-"`
+	ReasoningGenerateSummary *string         `json:"-"`
 	// RawInputItems preserves original Responses input items when the request cannot
 	// be losslessly normalized into Messages. Relay replay/exact-replay depends on
 	// this top-level field directly and it remains the authoritative runtime
 	// source even when ProviderExtensions also carries a compatibility mirror.
 	RawInputItems json.RawMessage `json:"-"`
-
-	// Gemini-specific pass-through fields (only meaningful for Gemini outbound).
-	//
-	// GeminiCachedContentRef is a compatibility mirror for the Gemini cached
-	// content reference. New Gemini-specific call sites should prefer
-	// ProviderExtensions.Gemini / request.GetGeminiExtensions() as the primary
-	// access path.
-	// Ref: https://ai.google.dev/gemini-api/docs/caching
-	GeminiCachedContentRef *string `json:"-"`
-
-	// GeminiSpeechConfig is a compatibility mirror for Gemini's raw
-	// speechConfig passthrough. New Gemini-specific call sites should prefer
-	// ProviderExtensions.Gemini / request.GetGeminiExtensions() as the primary
-	// access path. Left as raw JSON because the schema is deeply nested and
-	// shared with the Live API. G-H11.
-	GeminiSpeechConfig json.RawMessage `json:"-"`
-
-	// Anthropic-specific pass-through fields (only meaningful for
-	// Anthropic outbound).
-	//
-	// AnthropicMCPServers is a compatibility mirror for Anthropic's raw
-	// `mcp_servers` passthrough. New Anthropic-specific call sites should prefer
-	// ProviderExtensions.Anthropic / request.GetAnthropicExtensions() as the
-	// primary access path. Triggers the mcp-client-2025-11-20 beta header
-	// automatically. A-H6.
-	AnthropicMCPServers json.RawMessage `json:"-"`
-
-	// AnthropicContainer is a compatibility mirror for Anthropic's raw
-	// `container` passthrough. New Anthropic-specific call sites should prefer
-	// ProviderExtensions.Anthropic / request.GetAnthropicExtensions() as the
-	// primary access path. A-H6.
-	AnthropicContainer json.RawMessage `json:"-"`
 
 	// ProviderExtensions stores provider-specific request hints that are not part
 	// of the core cross-provider request model. It is internal-only.

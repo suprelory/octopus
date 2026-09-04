@@ -5,6 +5,28 @@ import (
 	"time"
 )
 
+func TestParseAutoGroupSettingValueAcceptsOnlyNumericModes(t *testing.T) {
+	for _, test := range []struct {
+		value string
+		want  AutoGroupType
+		valid bool
+	}{
+		{value: "0", want: AutoGroupTypeNone, valid: true},
+		{value: " 1 ", want: AutoGroupTypeFuzzy, valid: true},
+		{value: "2", want: AutoGroupTypeExact, valid: true},
+		{value: "3", want: AutoGroupTypeRegex, valid: true},
+		{value: "true", valid: false},
+		{value: "false", valid: false},
+		{value: "", valid: false},
+		{value: "4", valid: false},
+	} {
+		got, valid := ParseAutoGroupSettingValue(test.value)
+		if valid != test.valid || valid && got != test.want {
+			t.Errorf("ParseAutoGroupSettingValue(%q) = (%d, %t), want (%d, %t)", test.value, got, valid, test.want, test.valid)
+		}
+	}
+}
+
 func TestGetChannelKeyPrefersPreferredKeyID(t *testing.T) {
 	channel := &Channel{
 		Keys: []ChannelKey{

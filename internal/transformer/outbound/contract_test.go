@@ -21,7 +21,7 @@ func TestPlannerSupportedFeaturesReachWireBody(t *testing.T) {
 			Function: model.Function{Name: "lookup", Parameters: json.RawMessage(`{"type":"object"}`)},
 		}},
 	}
-	decision := PlanRequest(req, OutboundTypeOpenAIChat, false)
+	decision := PlanRequestForModel(req, req.Model, OutboundTypeOpenAIChat, false)
 	if decision.Status != CapabilitySupported {
 		t.Fatalf("planner rejected supported function tool: %#v", decision)
 	}

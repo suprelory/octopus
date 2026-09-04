@@ -31,19 +31,18 @@ func (m GroupMode) Normalize() GroupMode {
 }
 
 type Group struct {
-	ID                     int         `json:"id" gorm:"primaryKey"`
-	Name                   string      `json:"name" gorm:"unique;not null"`
-	Mode                   GroupMode   `json:"mode" gorm:"not null"`
-	MatchRegex             string      `json:"match_regex"`
-	FirstTokenTimeOut      int         `json:"first_token_time_out"`               // 单个渠道首个Token响应超时时间(秒)
-	SessionKeepTime        int         `json:"session_keep_time"`                  // Responses 续接状态保留时间(秒)，0 使用默认值
-	RetryEnabled           bool        `json:"retry_enabled" gorm:"default:false"` // 启用同通道重试；限流且有备用渠道时优先切换
-	MaxRetries             int         `json:"max_retries" gorm:"default:3"`       // 兼容字段：同通道最大尝试次数（包含首次请求）
-	EmptyResponseDetection bool        `json:"-"`                                  // 兼容旧数据库列；运行时使用全局设置
-	Pinned                 bool        `json:"pinned" gorm:"default:false;index"`  // 置顶
-	PinnedAt               *time.Time  `json:"pinned_at,omitempty"`                // 置顶时间，置顶时写入，取消置顶时置空
-	ActivePresetID         *int        `json:"active_preset_id,omitempty"`         // 当前激活的预设ID，仅 UI 标记，不参与路由
-	Items                  []GroupItem `json:"items,omitempty" gorm:"foreignKey:GroupID"`
+	ID                int         `json:"id" gorm:"primaryKey"`
+	Name              string      `json:"name" gorm:"unique;not null"`
+	Mode              GroupMode   `json:"mode" gorm:"not null"`
+	MatchRegex        string      `json:"match_regex"`
+	FirstTokenTimeOut int         `json:"first_token_time_out"`               // 单个渠道首个Token响应超时时间(秒)
+	SessionKeepTime   int         `json:"session_keep_time"`                  // Responses 续接状态保留时间(秒)，0 使用默认值
+	RetryEnabled      bool        `json:"retry_enabled" gorm:"default:false"` // 启用同通道重试；限流且有备用渠道时优先切换
+	MaxRetries        int         `json:"max_retries" gorm:"default:3"`       // 兼容字段：同通道最大尝试次数（包含首次请求）
+	Pinned            bool        `json:"pinned" gorm:"default:false;index"`  // 置顶
+	PinnedAt          *time.Time  `json:"pinned_at,omitempty"`                // 置顶时间，置顶时写入，取消置顶时置空
+	ActivePresetID    *int        `json:"active_preset_id,omitempty"`         // 当前激活的预设ID，仅 UI 标记，不参与路由
+	Items             []GroupItem `json:"items,omitempty" gorm:"foreignKey:GroupID"`
 }
 
 type GroupItem struct {
@@ -58,19 +57,18 @@ type GroupItem struct {
 // GroupPreset 分组的路由配置预设（命名快照）
 // 切换预设 = 用此快照覆盖 Group 的实时 Mode/超时/重试/regex + group_items 表
 type GroupPreset struct {
-	ID                     int               `json:"id" gorm:"primaryKey"`
-	GroupID                int               `json:"group_id" gorm:"not null;index:idx_group_preset_name,unique"`
-	Name                   string            `json:"name" gorm:"not null;index:idx_group_preset_name,unique"`
-	Mode                   GroupMode         `json:"mode" gorm:"not null"`
-	MatchRegex             string            `json:"match_regex"`
-	FirstTokenTimeOut      int               `json:"first_token_time_out"`
-	SessionKeepTime        int               `json:"session_keep_time"`
-	RetryEnabled           bool              `json:"retry_enabled"`
-	MaxRetries             int               `json:"max_retries"`
-	EmptyResponseDetection bool              `json:"-"` // 兼容旧数据库列；不再属于预设配置
-	Items                  []GroupPresetItem `json:"items" gorm:"serializer:json;type:text"`
-	CreatedAt              time.Time         `json:"created_at"`
-	UpdatedAt              time.Time         `json:"updated_at"`
+	ID                int               `json:"id" gorm:"primaryKey"`
+	GroupID           int               `json:"group_id" gorm:"not null;index:idx_group_preset_name,unique"`
+	Name              string            `json:"name" gorm:"not null;index:idx_group_preset_name,unique"`
+	Mode              GroupMode         `json:"mode" gorm:"not null"`
+	MatchRegex        string            `json:"match_regex"`
+	FirstTokenTimeOut int               `json:"first_token_time_out"`
+	SessionKeepTime   int               `json:"session_keep_time"`
+	RetryEnabled      bool              `json:"retry_enabled"`
+	MaxRetries        int               `json:"max_retries"`
+	Items             []GroupPresetItem `json:"items" gorm:"serializer:json;type:text"`
+	CreatedAt         time.Time         `json:"created_at"`
+	UpdatedAt         time.Time         `json:"updated_at"`
 }
 
 // GroupPresetItem 预设中的渠道-模型条目（JSON 序列化为 Items 字段）

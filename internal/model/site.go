@@ -180,9 +180,6 @@ type Site struct {
 	EnabledSet         bool               `json:"-" gorm:"-"`
 	ProxyMode          ProxyUsageMode     `json:"proxy_mode" gorm:"type:varchar(16);not null;default:'direct'"`
 	ProxyConfigID      *int               `json:"proxy_config_id"`
-	Proxy              bool               `json:"-" gorm:"default:false"`
-	SiteProxy          *string            `json:"-" gorm:"column:site_proxy"`
-	UseSystemProxy     bool               `json:"-" gorm:"default:false"`
 	ExternalCheckinURL *string            `json:"external_checkin_url"`
 	CheckinTimezone    string             `json:"checkin_timezone" gorm:"size:64;not null;default:'Asia/Shanghai'"`
 	CheckinWindowStart string             `json:"checkin_window_start" gorm:"size:5;not null;default:'00:00'"`
@@ -201,13 +198,8 @@ type Site struct {
 
 func (s *Site) UnmarshalJSON(data []byte) error {
 	type alias Site
-	aux := struct {
-		*alias
-		Proxy          *bool   `json:"proxy"`
-		SiteProxy      *string `json:"site_proxy"`
-		UseSystemProxy *bool   `json:"use_system_proxy"`
-	}{alias: (*alias)(s)}
-	if err := json.Unmarshal(data, &aux); err != nil {
+	aux := (*alias)(s)
+	if err := json.Unmarshal(data, aux); err != nil {
 		return err
 	}
 	var raw map[string]json.RawMessage
@@ -215,15 +207,6 @@ func (s *Site) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	_, s.EnabledSet = raw["enabled"]
-	if aux.Proxy != nil {
-		s.Proxy = *aux.Proxy
-	}
-	if aux.SiteProxy != nil {
-		s.SiteProxy = aux.SiteProxy
-	}
-	if aux.UseSystemProxy != nil {
-		s.UseSystemProxy = *aux.UseSystemProxy
-	}
 	return nil
 }
 
@@ -241,7 +224,6 @@ type SiteAccount struct {
 	PlatformUserID             *int                 `json:"platform_user_id"`
 	ProxyMode                  ProxyUsageMode       `json:"proxy_mode" gorm:"type:varchar(16);not null;default:'inherit'"`
 	ProxyConfigID              *int                 `json:"proxy_config_id"`
-	AccountProxy               *string              `json:"-" gorm:"column:account_proxy"`
 	Enabled                    bool                 `json:"enabled" gorm:"default:true"`
 	EnabledSet                 bool                 `json:"-" gorm:"-"`
 	AutoSync                   bool                 `json:"auto_sync" gorm:"default:true"`
@@ -271,11 +253,8 @@ type SiteAccount struct {
 
 func (a *SiteAccount) UnmarshalJSON(data []byte) error {
 	type alias SiteAccount
-	aux := struct {
-		*alias
-		AccountProxy *string `json:"account_proxy"`
-	}{alias: (*alias)(a)}
-	if err := json.Unmarshal(data, &aux); err != nil {
+	aux := (*alias)(a)
+	if err := json.Unmarshal(data, aux); err != nil {
 		return err
 	}
 	var raw map[string]json.RawMessage
@@ -285,9 +264,6 @@ func (a *SiteAccount) UnmarshalJSON(data []byte) error {
 	_, a.EnabledSet = raw["enabled"]
 	_, a.AutoSyncSet = raw["auto_sync"]
 	_, a.AutoCheckinSet = raw["auto_checkin"]
-	if aux.AccountProxy != nil {
-		a.AccountProxy = aux.AccountProxy
-	}
 	return nil
 }
 
@@ -363,9 +339,6 @@ type SiteUpdateRequest struct {
 	ProxyMode          *ProxyUsageMode     `json:"proxy_mode,omitempty"`
 	ProxyConfigID      *int                `json:"proxy_config_id,omitempty"`
 	ProxyConfigIDSet   bool                `json:"-"`
-	Proxy              *bool               `json:"-"`
-	SiteProxy          *string             `json:"-"`
-	UseSystemProxy     *bool               `json:"-"`
 	ExternalCheckinURL *string             `json:"external_checkin_url,omitempty"`
 	ExternalCheckinSet bool                `json:"-"`
 	CheckinTimezone    *string             `json:"checkin_timezone,omitempty"`
@@ -411,7 +384,6 @@ type SiteAccountUpdateRequest struct {
 	ProxyMode                  *ProxyUsageMode     `json:"proxy_mode,omitempty"`
 	ProxyConfigID              *int                `json:"proxy_config_id,omitempty"`
 	ProxyConfigIDSet           bool                `json:"-"`
-	AccountProxy               *string             `json:"-"`
 	Enabled                    *bool               `json:"enabled,omitempty"`
 	AutoSync                   *bool               `json:"auto_sync,omitempty"`
 	AutoCheckin                *bool               `json:"auto_checkin,omitempty"`
@@ -905,14 +877,6 @@ func (t SiteCredentialType) Validate() error {
 func (s *Site) Normalize() {
 	s.Name = strings.TrimSpace(s.Name)
 	s.BaseURL = strings.TrimRight(strings.TrimSpace(s.BaseURL), "/")
-	if s.SiteProxy != nil {
-		trimmed := strings.TrimSpace(*s.SiteProxy)
-		if trimmed == "" {
-			s.SiteProxy = nil
-		} else {
-			s.SiteProxy = &trimmed
-		}
-	}
 	if s.ExternalCheckinURL != nil {
 		trimmed := strings.TrimRight(strings.TrimSpace(*s.ExternalCheckinURL), "/")
 		if trimmed == "" {
@@ -1060,14 +1024,6 @@ func (a *SiteAccount) Normalize() {
 	}
 	if a.PlatformUserID != nil && *a.PlatformUserID <= 0 {
 		a.PlatformUserID = nil
-	}
-	if a.AccountProxy != nil {
-		trimmed := strings.TrimSpace(*a.AccountProxy)
-		if trimmed == "" {
-			a.AccountProxy = nil
-		} else {
-			a.AccountProxy = &trimmed
-		}
 	}
 	if strings.TrimSpace(string(a.ProxyMode)) == "" {
 		a.ProxyMode = ProxyUsageModeInherit

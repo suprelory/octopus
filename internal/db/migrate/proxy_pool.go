@@ -36,6 +36,9 @@ type legacySiteAccountProxyRow struct {
 }
 
 func migrateProxyPool(db *gorm.DB) error {
+	if db == nil {
+		return fmt.Errorf("db is nil")
+	}
 	proxyIDs, err := collectLegacyProxyConfigurations(db)
 	if err != nil {
 		return err
@@ -54,31 +57,39 @@ func migrateProxyPool(db *gorm.DB) error {
 
 func collectLegacyProxyConfigurations(db *gorm.DB) (map[string]int, error) {
 	urls := make([]string, 0)
-	var channels []legacyChannelProxyRow
-	if err := db.Table("channels").Select("id, proxy, channel_proxy").Find(&channels).Error; err != nil {
-		return nil, err
-	}
-	for _, row := range channels {
-		if row.ChannelProxy != nil {
-			urls = append(urls, *row.ChannelProxy)
+	if hasLegacyColumn(db, "channels", "proxy") && hasLegacyColumn(db, "channels", "channel_proxy") {
+		var channels []legacyChannelProxyRow
+		if err := db.Table("channels").Select("channel_proxy").Find(&channels).Error; err != nil {
+			return nil, err
+		}
+		for _, row := range channels {
+			if row.ChannelProxy != nil {
+				urls = append(urls, *row.ChannelProxy)
+			}
 		}
 	}
-	var sites []legacySiteProxyRow
-	if err := db.Table("sites").Select("id, proxy, site_proxy, use_system_proxy").Find(&sites).Error; err != nil {
-		return nil, err
-	}
-	for _, row := range sites {
-		if row.SiteProxy != nil {
-			urls = append(urls, *row.SiteProxy)
+	if hasLegacyColumn(db, "sites", "proxy") &&
+		hasLegacyColumn(db, "sites", "site_proxy") &&
+		hasLegacyColumn(db, "sites", "use_system_proxy") {
+		var sites []legacySiteProxyRow
+		if err := db.Table("sites").Select("site_proxy").Find(&sites).Error; err != nil {
+			return nil, err
+		}
+		for _, row := range sites {
+			if row.SiteProxy != nil {
+				urls = append(urls, *row.SiteProxy)
+			}
 		}
 	}
-	var accounts []legacySiteAccountProxyRow
-	if err := db.Table("site_accounts").Select("id, account_proxy").Find(&accounts).Error; err != nil {
-		return nil, err
-	}
-	for _, row := range accounts {
-		if row.AccountProxy != nil {
-			urls = append(urls, *row.AccountProxy)
+	if hasLegacyColumn(db, "site_accounts", "account_proxy") {
+		var accounts []legacySiteAccountProxyRow
+		if err := db.Table("site_accounts").Select("account_proxy").Find(&accounts).Error; err != nil {
+			return nil, err
+		}
+		for _, row := range accounts {
+			if row.AccountProxy != nil {
+				urls = append(urls, *row.AccountProxy)
+			}
 		}
 	}
 
@@ -136,6 +147,9 @@ func nextImportedProxyName(db *gorm.DB) (string, error) {
 }
 
 func migrateChannelProxyFields(db *gorm.DB, proxyIDs map[string]int) error {
+	if !hasLegacyColumn(db, "channels", "proxy") || !hasLegacyColumn(db, "channels", "channel_proxy") {
+		return nil
+	}
 	var rows []legacyChannelProxyRow
 	if err := db.Table("channels").Select("id, proxy, channel_proxy").Find(&rows).Error; err != nil {
 		return err
@@ -158,6 +172,11 @@ func migrateChannelProxyFields(db *gorm.DB, proxyIDs map[string]int) error {
 }
 
 func migrateSiteProxyFields(db *gorm.DB, proxyIDs map[string]int) error {
+	if !hasLegacyColumn(db, "sites", "proxy") ||
+		!hasLegacyColumn(db, "sites", "site_proxy") ||
+		!hasLegacyColumn(db, "sites", "use_system_proxy") {
+		return nil
+	}
 	var rows []legacySiteProxyRow
 	if err := db.Table("sites").Select("id, proxy, site_proxy, use_system_proxy").Find(&rows).Error; err != nil {
 		return err
@@ -184,6 +203,9 @@ func migrateSiteProxyFields(db *gorm.DB, proxyIDs map[string]int) error {
 }
 
 func migrateSiteAccountProxyFields(db *gorm.DB, proxyIDs map[string]int) error {
+	if !hasLegacyColumn(db, "site_accounts", "account_proxy") {
+		return nil
+	}
 	var rows []legacySiteAccountProxyRow
 	if err := db.Table("site_accounts").Select("id, account_proxy").Find(&rows).Error; err != nil {
 		return err
@@ -213,4 +235,8 @@ func legacyProxyID(value *string, proxyIDs map[string]int) (int, bool) {
 	}
 	id, ok := proxyIDs[normalized]
 	return id, ok
+}
+
+func hasLegacyColumn(db *gorm.DB, table, column string) bool {
+	return db != nil && db.Migrator().HasTable(table) && db.Migrator().HasColumn(table, column)
 }

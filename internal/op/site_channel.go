@@ -433,7 +433,7 @@ func UpdateSiteProjectedChannelSettings(siteID int, accountID int, req []model.S
 		if !isValidAutoGroupType(item.AutoGroup) {
 			return fmt.Errorf("invalid auto group type")
 		}
-		if err := ValidateJSONOverrideObject(item.ParamOverride); err != nil {
+		if err := validateParamOverride(item.ParamOverride); err != nil {
 			return err
 		}
 		channelIDs = append(channelIDs, item.ChannelID)
