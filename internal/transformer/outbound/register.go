@@ -40,10 +40,6 @@ type ProtocolDescriptor struct {
 	Factory            func() model.Outbound
 }
 
-// EndpointCapability remains as a source-compatible alias for callers that
-// used the pre-descriptor registry name.
-type EndpointCapability = ProtocolDescriptor
-
 func (c ProtocolDescriptor) Supports(requestType model.RequestType) bool {
 	_, ok := c.RequestTypes[requestType]
 	return ok
@@ -100,9 +96,6 @@ var protocolDescriptors = map[OutboundType]ProtocolDescriptor{
 	},
 }
 
-// endpointCapabilities is retained for package-local quality matrix callers.
-var endpointCapabilities = protocolDescriptors
-
 func requestTypes(types ...model.RequestType) map[model.RequestType]struct{} {
 	result := make(map[model.RequestType]struct{}, len(types))
 	for _, requestType := range types {
@@ -132,23 +125,18 @@ func Descriptor(outboundType OutboundType) (ProtocolDescriptor, bool) {
 	return descriptor, ok
 }
 
-func Capabilities(outboundType OutboundType) (EndpointCapability, bool) {
-	capability, ok := Descriptor(outboundType)
-	return capability, ok
-}
-
 func SupportsRequestType(outboundType OutboundType, requestType model.RequestType) bool {
-	capability, ok := Capabilities(outboundType)
+	capability, ok := Descriptor(outboundType)
 	return ok && capability.Supports(requestType)
 }
 
 func SupportsAPIFormat(outboundType OutboundType, format model.APIFormat) bool {
-	capability, ok := Capabilities(outboundType)
+	capability, ok := Descriptor(outboundType)
 	return ok && capability.APIFormat == format
 }
 
 func SupportsNativeFormat(outboundType OutboundType, format model.APIFormat) bool {
-	capability, ok := Capabilities(outboundType)
+	capability, ok := Descriptor(outboundType)
 	if !ok {
 		return false
 	}

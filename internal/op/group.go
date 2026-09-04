@@ -56,14 +56,6 @@ func GroupListModel(ctx context.Context) ([]string, error) {
 	return models, nil
 }
 
-func GroupGet(id int, ctx context.Context) (*model.Group, error) {
-	group, ok := groupCache.Get(id)
-	if !ok {
-		return nil, fmt.Errorf("group not found")
-	}
-	return &group, nil
-}
-
 func GroupGetEnabledMap(name string, ctx context.Context) (model.Group, error) {
 	generation := groupResolutionVersion.Load()
 	if entry, ok := enabledGroupCache.Get(name); ok && entry.generation == generation {
@@ -371,43 +363,6 @@ func GroupItemBatchAdd(groupID int, items []model.GroupIDAndLLMName, ctx context
 		return err
 	}
 	resetBalancerStateForGroup(groupID)
-	return nil
-}
-
-func GroupItemUpdate(item *model.GroupItem, ctx context.Context) error {
-	if item == nil {
-		return fmt.Errorf("group item is nil")
-	}
-	if _, err := validateChannelReference(item.ChannelID); err != nil {
-		return err
-	}
-	if err := db.GetDB().WithContext(ctx).Model(item).
-		Select("ModelName", "Priority", "Weight").
-		Updates(item).Error; err != nil {
-		return err
-	}
-
-	if err := groupRefreshCacheByID(item.GroupID, ctx); err != nil {
-		return err
-	}
-	resetBalancerStateForGroup(item.GroupID)
-	return nil
-}
-
-func GroupItemDel(id int, ctx context.Context) error {
-	var item model.GroupItem
-	if err := db.GetDB().WithContext(ctx).First(&item, id).Error; err != nil {
-		return fmt.Errorf("group item not found")
-	}
-
-	if err := db.GetDB().WithContext(ctx).Delete(&item).Error; err != nil {
-		return err
-	}
-
-	if err := groupRefreshCacheByID(item.GroupID, ctx); err != nil {
-		return err
-	}
-	resetBalancerStateForGroup(item.GroupID)
 	return nil
 }
 

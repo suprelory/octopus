@@ -6,7 +6,7 @@ import (
 	"github.com/bestruirui/octopus/internal/transformer/model"
 )
 
-func TestEndpointCapabilities(t *testing.T) {
+func TestProtocolDescriptorCapabilities(t *testing.T) {
 	tests := []struct {
 		name        string
 		outbound    OutboundType

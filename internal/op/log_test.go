@@ -39,7 +39,7 @@ func TestRelayLogAddQueuesWithoutDBWrite(t *testing.T) {
 
 	logCount := relayLogBatchSize + 5
 	for i := 0; i < logCount; i++ {
-		if err := RelayLogAdd(ctx, model.RelayLog{Time: time.Now().Unix(), RequestModelName: "gpt-4o-mini", Success: true}); err != nil {
+		if err := RelayLogAdd(model.RelayLog{Time: time.Now().Unix(), RequestModelName: "gpt-4o-mini", Success: true}); err != nil {
 			t.Fatalf("RelayLogAdd failed: %v", err)
 		}
 	}
@@ -241,7 +241,7 @@ func TestRelayLogFlushPendingPersistsQueuedLogs(t *testing.T) {
 	resetRelayLogStateForTest()
 
 	for i := 0; i < 3; i++ {
-		if err := RelayLogAdd(ctx, model.RelayLog{Time: int64(100 + i), RequestModelName: "model", Success: true}); err != nil {
+		if err := RelayLogAdd(model.RelayLog{Time: int64(100 + i), RequestModelName: "model", Success: true}); err != nil {
 			t.Fatalf("RelayLogAdd failed: %v", err)
 		}
 	}

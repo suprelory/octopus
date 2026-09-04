@@ -179,8 +179,6 @@ func processWSResponseCreate(
 		delete(reqBody, "generate")
 	}
 
-	injectWSPreviousResponseID(reqBody, conversationState)
-
 	// Force stream mode
 	reqBody["stream"] = json.RawMessage("true")
 
@@ -378,27 +376,18 @@ func bestEffortWarmupUpstreamWS(
 			continue
 		}
 		sawSupportedCapability = true
-		selectOpts := dbmodel.ChannelKeySelectOptions{
-			ExcludeKeyIDs:   make(map[int]struct{}),
-			PreferredKeyID:  iter.StickyKeyID(),
-			InFlightPenalty: 1,
-		}
+		excludedKeyIDs := make(map[int]struct{})
 
 		for {
-			usedKey, releaseKey := balancer.SelectAndReserveChannelKey(channel, selectOpts)
+			usedKey, releaseKey := selectAndReserveRelayKey(iter, channel, excludedKeyIDs)
 			if usedKey.ChannelKey == "" {
 				break
-			}
-			if iter.SkipCircuitBreak(channel.ID, usedKey.ID, channel.Name) {
-				releaseKey()
-				selectOpts.ExcludeKeyIDs[usedKey.ID] = struct{}{}
-				continue
 			}
 
 			if err := warmupUpstreamWSConnection(ctx, channel, usedKey); err != nil {
 				releaseKey()
 				lastErr = err
-				selectOpts.ExcludeKeyIDs[usedKey.ID] = struct{}{}
+				excludedKeyIDs[usedKey.ID] = struct{}{}
 				continue
 			}
 
@@ -582,28 +571,10 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group, em
 		}
 		sawSupportedCapability = true
 
-		selectOpts := dbmodel.ChannelKeySelectOptions{
-			ExcludeKeyIDs:   make(map[int]struct{}),
-			PreferredKeyID:  req.iter.StickyKeyID(),
-			InFlightPenalty: 1,
-		}
-
-		var usedKey dbmodel.ChannelKey
-		releaseKey := func() {}
-		for {
-			usedKey, releaseKey = balancer.SelectAndReserveChannelKey(channel, selectOpts)
-			if usedKey.ChannelKey == "" {
-				break
-			}
-			if !req.iter.SkipCircuitBreak(channel.ID, usedKey.ID, channel.Name) {
-				break
-			}
-			releaseKey()
-			selectOpts.ExcludeKeyIDs[usedKey.ID] = struct{}{}
-			usedKey = dbmodel.ChannelKey{}
-		}
+		excludedKeyIDs := make(map[int]struct{})
+		usedKey, releaseKey := selectAndReserveRelayKey(req.iter, channel, excludedKeyIDs)
 		if usedKey.ChannelKey == "" {
-			if len(selectOpts.ExcludeKeyIDs) == 0 {
+			if len(excludedKeyIDs) == 0 {
 				req.iter.Skip(channel.ID, 0, channel.Name, "no available key")
 			} else {
 				req.iter.InvalidateCurrentPreference()
@@ -619,6 +590,7 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group, em
 			if attemptNum > 0 {
 				delay := computeAttemptBackoff(attemptNum, result.RetryAt, result.RetryAfter)
 				if !waitBackoff(relayCtx, delay) {
+					releaseKey()
 					if isLocalRelayBudgetExceeded(relayCtx, contextError(relayCtx)) {
 						publicErr := wsPublicError{
 							Status:  http.StatusGatewayTimeout,
@@ -743,11 +715,6 @@ func finalizeWSRelay(ctx context.Context, conn *websocket.Conn, req *relayReques
 	}
 	writeWSError(ctx, conn, 502, "all_channels_failed", "All channels failed")
 	return result
-}
-
-func injectWSPreviousResponseID(reqBody map[string]json.RawMessage, state *wsConversationState) {
-	// Local continuation now prefers exact replay over implicit previous_response_id injection.
-	// Explicit client-supplied previous_response_id is still preserved elsewhere.
 }
 
 func rewriteWSPreviousResponseID(reqBody map[string]json.RawMessage, state *wsConversationState) {

@@ -333,7 +333,7 @@ func RelayLogFlushPending(ctx context.Context) error {
 	}
 }
 
-func RelayLogAdd(ctx context.Context, relayLog model.RelayLog) error {
+func RelayLogAdd(relayLog model.RelayLog) error {
 	enabled, err := SettingGetBool(model.SettingKeyRelayLogKeepEnabled)
 	if err != nil {
 		return err
@@ -349,7 +349,6 @@ func RelayLogAdd(ctx context.Context, relayLog model.RelayLog) error {
 	}
 	relayLogSnapshotLock.RUnlock()
 
-	_ = ctx // kept for API compatibility; DB writes are handled by the background writer.
 	return nil
 }
 

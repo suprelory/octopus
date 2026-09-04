@@ -8,7 +8,7 @@ import (
 )
 
 func TestStaticQualityMatrixCoversEveryCombination(t *testing.T) {
-	want := len(matrixInboundFormats) * len(endpointCapabilities) * len(matrixRequestTypes)
+	want := len(matrixInboundFormats) * len(protocolDescriptors) * len(matrixRequestTypes)
 	matrix := StaticQualityMatrix()
 	if len(matrix) != want {
 		t.Fatalf("matrix entries = %d, want %d", len(matrix), want)

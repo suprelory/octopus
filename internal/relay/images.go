@@ -179,27 +179,10 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 		}
 		sawSupportedCapability = true
 
-		selectOpts := model.ChannelKeySelectOptions{
-			ExcludeKeyIDs:   make(map[int]struct{}),
-			PreferredKeyID:  iter.StickyKeyID(),
-			InFlightPenalty: 1,
-		}
-		var usedKey model.ChannelKey
-		releaseKey := func() {}
-		for {
-			usedKey, releaseKey = balancer.SelectAndReserveChannelKey(channel, selectOpts)
-			if usedKey.ChannelKey == "" {
-				break
-			}
-			if !iter.SkipCircuitBreak(channel.ID, usedKey.ID, channel.Name) {
-				break
-			}
-			releaseKey()
-			selectOpts.ExcludeKeyIDs[usedKey.ID] = struct{}{}
-			usedKey = model.ChannelKey{}
-		}
+		excludedKeyIDs := make(map[int]struct{})
+		usedKey, releaseKey := selectAndReserveRelayKey(iter, channel, excludedKeyIDs)
 		if usedKey.ChannelKey == "" {
-			if len(selectOpts.ExcludeKeyIDs) == 0 {
+			if len(excludedKeyIDs) == 0 {
 				iter.Skip(channel.ID, 0, channel.Name, "no available key")
 			} else {
 				iter.InvalidateCurrentPreference()
@@ -478,7 +461,7 @@ func (m *imagesRelayMetrics) saveLog(ctx context.Context, success bool, err erro
 	}
 	relayLog.Success = success
 
-	if logErr := op.RelayLogAdd(ctx, relayLog); logErr != nil {
+	if logErr := op.RelayLogAdd(relayLog); logErr != nil {
 		log.Warnf("failed to save relay log: %v", logErr)
 	}
 }

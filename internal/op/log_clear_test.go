@@ -78,7 +78,7 @@ func TestRelayLogClearResetsBuffers(t *testing.T) {
 	resetRelayLogStateForTest()
 
 	for i := 0; i < 5; i++ {
-		if err := RelayLogAdd(ctx, model.RelayLog{Time: time.Now().Unix(), RequestModelName: "gpt-4o", Success: true}); err != nil {
+		if err := RelayLogAdd(model.RelayLog{Time: time.Now().Unix(), RequestModelName: "gpt-4o", Success: true}); err != nil {
 			t.Fatalf("RelayLogAdd failed: %v", err)
 		}
 	}
@@ -239,7 +239,7 @@ func TestRelayLogFlushStillDrainsDuringClear(t *testing.T) {
 	// Queue new logs after the cutoff and drain them. They must remain flushable
 	// during the purge and must not be consumed by one of its later batches.
 	for i := 0; i < 10; i++ {
-		if err := RelayLogAdd(ctx, model.RelayLog{Time: time.Now().Unix(), RequestModelName: "gpt-4o-mini", Success: true}); err != nil {
+		if err := RelayLogAdd(model.RelayLog{Time: time.Now().Unix(), RequestModelName: "gpt-4o-mini", Success: true}); err != nil {
 			t.Fatalf("RelayLogAdd failed: %v", err)
 		}
 	}

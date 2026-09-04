@@ -79,17 +79,6 @@ type RequestChangeReporter interface {
 	DescribeRequestChanges(request *InternalLLMRequest, effectiveModel string) []RequestTransformationChange
 }
 
-// These narrow compatibility views remain available to callers that used the
-// former optional contracts. Inbound and Outbound themselves now require the
-// corresponding methods.
-type OutboundStreamEventTransformer interface {
-	TransformStreamEvent(ctx context.Context, eventData []byte) ([]StreamEvent, error)
-}
-
-type InboundStreamEventTransformer interface {
-	TransformStreamEvents(ctx context.Context, events []StreamEvent) ([]byte, error)
-}
-
 /*
 请求流程
 非流式

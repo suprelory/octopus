@@ -48,8 +48,8 @@ var matrixRequestTypes = []model.RequestType{
 // shape is fully represented, and conditional means request features decide
 // whether the concrete conversion is degraded.
 func StaticQualityMatrix() []QualityMatrixEntry {
-	types := make([]OutboundType, 0, len(endpointCapabilities))
-	for typ := range endpointCapabilities {
+	types := make([]OutboundType, 0, len(protocolDescriptors))
+	for typ := range protocolDescriptors {
 		types = append(types, typ)
 	}
 	sort.Slice(types, func(i, j int) bool { return types[i] < types[j] })
@@ -57,7 +57,7 @@ func StaticQualityMatrix() []QualityMatrixEntry {
 	entries := make([]QualityMatrixEntry, 0, len(matrixInboundFormats)*len(types)*len(matrixRequestTypes))
 	for _, inboundFormat := range matrixInboundFormats {
 		for _, outboundType := range types {
-			capability := endpointCapabilities[outboundType]
+			capability := protocolDescriptors[outboundType]
 			for _, requestType := range matrixRequestTypes {
 				entries = append(entries, QualityMatrixEntry{
 					InboundFormat:  inboundFormat,
@@ -73,7 +73,7 @@ func StaticQualityMatrix() []QualityMatrixEntry {
 }
 
 func StaticConversionQuality(inboundFormat model.APIFormat, outboundType OutboundType, requestType model.RequestType) ConversionQuality {
-	capability, ok := Capabilities(outboundType)
+	capability, ok := Descriptor(outboundType)
 	if !ok || !capability.Supports(requestType) {
 		return QualityUnsupported
 	}

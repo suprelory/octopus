@@ -218,7 +218,7 @@ func PlanRequestForModel(req *model.InternalLLMRequest, effectiveModel string, o
 
 	decision.RequestType = req.ResolveRequestType()
 	decision.InboundFormat = req.RawAPIFormat
-	capability, ok := Capabilities(outboundType)
+	capability, ok := Descriptor(outboundType)
 	if !ok {
 		return rejectDecision(decision, fmt.Sprintf("unsupported outbound type %d", outboundType))
 	}
