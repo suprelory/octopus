@@ -9,7 +9,7 @@ import (
 	"github.com/bestruirui/octopus/internal/transformer/outbound"
 )
 
-func TestShouldSplitByOutboundTypeForcesSplitWhenRouteBaseURLsConfigured(t *testing.T) {
+func TestShouldSplitForAccountForcesSplitWhenRouteBaseURLsConfigured(t *testing.T) {
 	tests := []struct {
 		name           string
 		site           *model.Site
@@ -88,9 +88,9 @@ func TestShouldSplitByOutboundTypeForcesSplitWhenRouteBaseURLsConfigured(t *test
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			actual := shouldSplitByOutboundType(tt.site)
+			actual := shouldSplitForAccount(&model.SiteAccount{}, tt.site)
 			if actual != tt.expectedSplit {
-				t.Errorf("shouldSplitByOutboundType() = %v, want %v (reason: %s)", actual, tt.expectedSplit, tt.expectedReason)
+				t.Errorf("shouldSplitForAccount() = %v, want %v (reason: %s)", actual, tt.expectedSplit, tt.expectedReason)
 			}
 		})
 	}

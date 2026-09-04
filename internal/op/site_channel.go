@@ -14,10 +14,6 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-func SiteChannelList(ctx context.Context) ([]model.SiteChannelCard, error) {
-	return SiteChannelListWithOptions(ctx, SiteChannelListOptions{IncludeHistory: true})
-}
-
 type SiteChannelListOptions struct {
 	IncludeHistory bool
 }
@@ -201,7 +197,7 @@ func buildSiteChannelCardWithHistories(ctx context.Context, site model.Site, his
 }
 
 func buildSiteChannelGroups(ctx context.Context, site model.Site, account model.SiteAccount, historyMap map[string]*model.SiteModelHistorySummary) []model.SiteChannelGroup {
-	split := siteChannelShouldSplitByOutboundType(site)
+	split := model.ShouldSplitSiteChannelRoutes(site.Platform)
 	groups := make(map[string]*model.SiteChannelGroup)
 	projectedChannels := make(map[int]*model.Channel)
 	for _, group := range account.UserGroups {
@@ -820,19 +816,11 @@ func summarizeSiteRoutes(groups []model.SiteChannelGroup) []model.SiteRouteSumma
 	return result
 }
 
-func siteChannelShouldSplitByOutboundType(site model.Site) bool {
-	return model.ShouldSplitSiteChannelRoutes(site.Platform)
-}
-
-func siteChannelCompositeBindingKey(groupKey string, routeType model.SiteModelRouteType, split bool) string {
-	return model.ComposeSiteChannelBindingKey(groupKey, routeType, split)
-}
-
 func findProjectedChannelID(bindings []model.SiteChannelBinding, groupKey string, routeType model.SiteModelRouteType, split bool) (int, bool) {
 	if !model.IsProjectedSiteModelRouteType(routeType) {
 		return 0, false
 	}
-	targetKey := siteChannelCompositeBindingKey(groupKey, routeType, split)
+	targetKey := model.ComposeSiteChannelBindingKey(groupKey, routeType, split)
 	for _, binding := range bindings {
 		if model.NormalizeSiteGroupKey(binding.GroupKey) == targetKey {
 			return binding.ChannelID, true

@@ -40,13 +40,6 @@ func newCandidateSnapshot(ctx context.Context, group dbmodel.Group) *candidateSn
 	return snapshot
 }
 
-func (s *candidateSnapshot) Group() dbmodel.Group {
-	if s == nil {
-		return dbmodel.Group{}
-	}
-	return s.group
-}
-
 func (s *candidateSnapshot) Channel(id int) (*dbmodel.Channel, error) {
 	if s == nil {
 		return nil, fmt.Errorf("candidate snapshot is nil")

@@ -7,14 +7,13 @@ import (
 )
 
 const (
-	CodeCommonInvalidJSON       = "common.invalid_json"
-	CodeCommonInvalidParam      = "common.invalid_param"
-	CodeCommonValidationFailed  = "common.validation_failed"
-	CodeCommonBadRequest        = "common.bad_request"
-	CodeCommonNotFound          = "common.not_found"
-	CodeCommonDuplicateResource = "common.duplicate_resource"
-	CodeCommonDatabaseError     = "common.database_error"
-	CodeCommonInternalError     = "common.internal_error"
+	CodeCommonInvalidJSON      = "common.invalid_json"
+	CodeCommonInvalidParam     = "common.invalid_param"
+	CodeCommonValidationFailed = "common.validation_failed"
+	CodeCommonBadRequest       = "common.bad_request"
+	CodeCommonNotFound         = "common.not_found"
+	CodeCommonDatabaseError    = "common.database_error"
+	CodeCommonInternalError    = "common.internal_error"
 
 	CodeAuthUnauthorized          = "auth.unauthorized"
 	CodeAuthForbidden             = "auth.forbidden"
@@ -58,10 +57,6 @@ func Newf(code string, format string, args ...any) *Error {
 
 func Wrap(code string, message string, err error) *Error {
 	return &Error{Code: code, Message: message, Err: err}
-}
-
-func Wrapf(code string, err error, format string, args ...any) *Error {
-	return Wrap(code, fmt.Sprintf(format, args...), err)
 }
 
 func (e *Error) Error() string {

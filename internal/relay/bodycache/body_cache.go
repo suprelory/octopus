@@ -140,20 +140,6 @@ func (b *BodyCache) Size() int64 {
 	return b.size
 }
 
-// IsFile 表示是否落盘到临时文件。
-func (b *BodyCache) IsFile() bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.tmpPath != ""
-}
-
-// TmpPath 返回临时文件路径（仅在 IsFile=true 时有效）。
-func (b *BodyCache) TmpPath() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.tmpPath
-}
-
 // Close 释放资源并删除临时文件（若存在）。可重复调用。
 func (b *BodyCache) Close() error {
 	b.mu.Lock()

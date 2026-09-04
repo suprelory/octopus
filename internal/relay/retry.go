@@ -26,11 +26,6 @@ func parseRetryAt(header string) time.Time {
 	return parseRetryAtAt(header, time.Now())
 }
 
-// ParseRetryAt is the public diagnostic form of parseRetryAt.
-func ParseRetryAt(header string) time.Time {
-	return parseRetryAt(header)
-}
-
 func parseRetryAtAt(header string, now time.Time) time.Time {
 	header = strings.TrimSpace(header)
 	if header == "" {

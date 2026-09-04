@@ -85,12 +85,6 @@ func classifyRelayFailure(statusCode int, err error, retryAt time.Time) FailureC
 	return classifyRelayFailureContext(nil, statusCode, err, retryAt)
 }
 
-// ClassifyRelayFailure exposes the same taxonomy to package-level diagnostics
-// and tests without requiring callers to know the internal context variant.
-func ClassifyRelayFailure(statusCode int, err error, retryAt time.Time) FailureClassification {
-	return classifyRelayFailure(statusCode, err, retryAt)
-}
-
 func classifyRelayFailureContext(ctx context.Context, statusCode int, err error, retryAt time.Time) FailureClassification {
 	if isLocalRelayBudgetExceeded(ctx, err) || isLocalRelayBudgetExceeded(ctx, contextError(ctx)) {
 		return FailureClassification{Class: FailureBudgetExceeded, StatusCode: statusCode, RetryAt: retryAt}

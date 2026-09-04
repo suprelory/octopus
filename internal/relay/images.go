@@ -382,10 +382,6 @@ func (m *imagesRelayMetrics) SetUsageFromImages(actualModel string, u imagesUsag
 	m.Stats.OutputCost = float64(u.OutputTokens) * modelPrice.Output * 1e-6
 }
 
-func (m *imagesRelayMetrics) Save(ctx context.Context, success bool, err error, attempts []model.ChannelAttempt) {
-	m.SaveWithChannelStats(ctx, success, err, attempts, true)
-}
-
 func (m *imagesRelayMetrics) SaveWithChannelStats(ctx context.Context, success bool, err error, attempts []model.ChannelAttempt, updateChannelStats bool) {
 	duration := time.Since(m.StartTime)
 

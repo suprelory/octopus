@@ -61,12 +61,6 @@ func GeminiSignatureScopeFromContext(ctx context.Context) GeminiSignatureScope {
 	return scope
 }
 
-// SaveGeminiThoughtSignature stores Gemini's opaque thoughtSignature without
-// mutating the public tool_use ID that Anthropic clients keep in history.
-func SaveGeminiThoughtSignature(toolCallID, toolName, signature string) {
-	SaveGeminiThoughtSignatureScoped(GeminiSignatureScope{}, toolCallID, toolName, signature)
-}
-
 // SaveGeminiThoughtSignatureScoped stores Gemini's opaque thoughtSignature in
 // an isolation scope. New internal callers should use this form.
 func SaveGeminiThoughtSignatureScoped(scope GeminiSignatureScope, toolCallID, toolName, signature string) {
@@ -114,12 +108,6 @@ func saveGeminiThoughtSignatureScopedAt(scope GeminiSignatureScope, toolCallID, 
 	for _, key := range keys {
 		geminiThoughtSignatureCache.Set(key, entry)
 	}
-}
-
-// RestoreGeminiThoughtSignature returns a cached Gemini thoughtSignature for
-// a tool_use ID previously sent to an Anthropic-compatible client.
-func RestoreGeminiThoughtSignature(toolCallID, toolName string) string {
-	return RestoreGeminiThoughtSignatureScoped(GeminiSignatureScope{}, toolCallID, toolName)
 }
 
 // RestoreGeminiThoughtSignatureScoped only returns signatures stored in the

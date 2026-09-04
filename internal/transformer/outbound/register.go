@@ -180,18 +180,6 @@ func (t OutboundType) String() string {
 	}
 }
 
-// IsEmbeddingChannelType is kept for existing callers; the capability
-// registry is the single source of truth.
-func IsEmbeddingChannelType(channelType OutboundType) bool {
-	return SupportsRequestType(channelType, model.RequestTypeEmbedding)
-}
-
-// IsChatChannelType is kept for existing callers; the capability registry is
-// the single source of truth.
-func IsChatChannelType(channelType OutboundType) bool {
-	return SupportsRequestType(channelType, model.RequestTypeChat)
-}
-
 func Get(outboundType OutboundType) model.Outbound {
 	if descriptor, ok := Descriptor(outboundType); ok && descriptor.Factory != nil {
 		return descriptor.Factory()

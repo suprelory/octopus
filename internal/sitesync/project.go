@@ -522,15 +522,6 @@ func platformOutboundType(site *model.Site) outbound.OutboundType {
 	return outbound.OutboundTypeOpenAIChat
 }
 
-// shouldSplitByOutboundType 判断是否需要按模型端点格式拆分 Channel
-// 当站点配置了协议路径覆盖时，强制启用拆分以确保每个协议使用正确的 base URL
-func shouldSplitByOutboundType(site *model.Site) bool {
-	if site != nil && len(site.RouteBaseURLs) > 0 {
-		return true
-	}
-	return model.ShouldSplitSiteChannelRoutes(site.Platform)
-}
-
 func partitionSiteModelsByRouteType(items []model.SiteModel, split bool, site *model.Site) map[model.SiteModelRouteType][]model.SiteModel {
 	if !split {
 		routeType := model.SiteModelRouteTypeFromOutboundType(platformOutboundType(site))

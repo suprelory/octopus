@@ -226,10 +226,6 @@ func RelayLogPendingLen() int {
 	return len(relayLogPending)
 }
 
-func RelayLogDroppedTotal() uint64 {
-	return relayLogDroppedTotal.Load()
-}
-
 func relayLogDrainPending(ctx context.Context, maxBatches int) error {
 	if maxBatches <= 0 {
 		maxBatches = 1

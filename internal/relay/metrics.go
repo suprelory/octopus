@@ -133,10 +133,6 @@ func (m *RelayMetrics) SetInternalResponse(resp *transformerModel.InternalLLMRes
 	}
 }
 
-func (m *RelayMetrics) Save(ctx context.Context, success bool, err error, attempts []model.ChannelAttempt) {
-	m.SaveWithChannelStats(ctx, success, err, attempts, true)
-}
-
 func (m *RelayMetrics) SaveWithChannelStats(ctx context.Context, success bool, err error, attempts []model.ChannelAttempt, updateChannelStats bool) {
 	duration := time.Since(m.StartTime)
 

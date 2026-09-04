@@ -1,12 +1,10 @@
 package relay
 
 import (
-	"context"
 	"strings"
 
 	"github.com/bestruirui/octopus/internal/helper"
 	dbmodel "github.com/bestruirui/octopus/internal/model"
-	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/transformer/model"
 	"github.com/bestruirui/octopus/internal/transformer/outbound"
 )
@@ -84,14 +82,6 @@ func (p *relayCapabilityPlanner) plan(channel *dbmodel.Channel, adapter model.Ou
 	decorateParamOverrideDecision(&decision, override, overrideConfigured)
 	p.decisions[key] = decision
 	return decision
-}
-
-func (p *relayCapabilityPlanner) rank(ctx context.Context, item dbmodel.GroupItem) int {
-	channel, err := op.ChannelGet(item.ChannelID, ctx)
-	if err != nil || channel == nil || !channel.Enabled {
-		return 3
-	}
-	return p.rankChannel(channel, item)
 }
 
 func (p *relayCapabilityPlanner) rankChannel(channel *dbmodel.Channel, item dbmodel.GroupItem) int {
