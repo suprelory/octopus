@@ -82,14 +82,21 @@ func localRelayErrorClass(err error) (FailureClass, bool) {
 // behaviour. Error envelopes are checked before status codes because providers
 // commonly return quota or model errors with a generic 400/403/500 status.
 func classifyRelayFailure(statusCode int, err error, retryAt time.Time) FailureClassification {
-	return classifyRelayFailureContext(nil, statusCode, err, retryAt)
+	return classifyRelayFailureWithContext(context.Background(), false, statusCode, err, retryAt)
 }
 
 func classifyRelayFailureContext(ctx context.Context, statusCode int, err error, retryAt time.Time) FailureClassification {
-	if isLocalRelayBudgetExceeded(ctx, err) || isLocalRelayBudgetExceeded(ctx, contextError(ctx)) {
+	if ctx == nil {
+		return classifyRelayFailure(statusCode, err, retryAt)
+	}
+	return classifyRelayFailureWithContext(ctx, true, statusCode, err, retryAt)
+}
+
+func classifyRelayFailureWithContext(ctx context.Context, hasRequestContext bool, statusCode int, err error, retryAt time.Time) FailureClassification {
+	if isLocalRelayBudgetExceeded(ctx, err) {
 		return FailureClassification{Class: FailureBudgetExceeded, StatusCode: statusCode, RetryAt: retryAt}
 	}
-	if ctx != nil && ctx.Err() != nil && isClientCancellation(ctx, err) {
+	if hasRequestContext && ctx.Err() != nil && isClientCancellation(ctx, err) {
 		return FailureClassification{Class: FailureClientCanceled, StatusCode: statusCode, RetryAt: retryAt}
 	}
 	if localClass, ok := localRelayErrorClass(err); ok {
@@ -113,7 +120,7 @@ func classifyRelayFailureContext(ctx context.Context, statusCode int, err error,
 	// A context error which is not a downstream cancellation (for example an
 	// upstream deadline) is transient. The caller still handles client context
 	// cancellation separately before reaching this function.
-	if errors.Is(err, context.Canceled) && (ctx == nil || ctx.Err() != nil) {
+	if errors.Is(err, context.Canceled) && (!hasRequestContext || ctx.Err() != nil) {
 		return FailureClassification{Class: FailureClientCanceled, StatusCode: statusCode, RetryAt: retryAt}
 	}
 

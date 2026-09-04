@@ -79,11 +79,11 @@ func resolveFinalAttemptResult(
 	lastResult attemptResult,
 	capabilityErr error,
 	capabilityResult attemptResult,
-) (error, attemptResult) {
+) (attemptResult, error) {
 	if !sawSupportedCapability && capabilityErr != nil {
-		return capabilityErr, capabilityResult
+		return capabilityResult, capabilityErr
 	}
-	return lastErr, lastResult
+	return lastResult, lastErr
 }
 
 func preferCapabilityRejection(
@@ -91,14 +91,14 @@ func preferCapabilityRejection(
 	currentResult attemptResult,
 	candidateErr error,
 	candidateResult attemptResult,
-) (error, attemptResult) {
+) (attemptResult, error) {
 	if candidateErr == nil {
-		return currentErr, currentResult
+		return currentResult, currentErr
 	}
 	if currentErr == nil || capabilityRejectionPriority(candidateResult) > capabilityRejectionPriority(currentResult) {
-		return candidateErr, candidateResult
+		return candidateResult, candidateErr
 	}
-	return currentErr, currentResult
+	return currentResult, currentErr
 }
 
 func capabilityRejectionPriority(result attemptResult) int {

@@ -244,7 +244,7 @@ relayLoop:
 				StatusCode:    http.StatusBadRequest,
 				ProtocolError: relayProtocolError(http.StatusBadRequest, errorCode, message),
 			}
-			capabilityErr, capabilityResult = preferCapabilityRejection(capabilityErr, capabilityResult, candidateErr, candidateResult)
+			capabilityResult, capabilityErr = preferCapabilityRejection(capabilityErr, capabilityResult, candidateErr, candidateResult)
 			continue
 		}
 		sawSupportedCapability = true
@@ -288,7 +288,7 @@ relayLoop:
 				log.Infof("same-channel retry %d/%d for %s, waiting %v",
 					attemptNum, maxSameChannelAttempts-1, channel.Name, delay)
 				if waitErr := failoverBudget.wait(c.Request.Context(), delay); waitErr != nil {
-					if isLocalRelayBudgetExceeded(nil, waitErr) {
+					if isLocalRelayBudgetError(waitErr) {
 						lastErr = waitErr
 						lastResult = relayBudgetAttemptResult(waitErr)
 						log.Warnf("relay failover budget exhausted: %v", waitErr)
@@ -454,7 +454,7 @@ relayLoop:
 
 	// 所有候选通道均失败。Capability 拒绝只有在不存在任何可接受候选时
 	// 才成为最终错误，避免覆盖已经发生的真实上游失败。
-	lastErr, lastResult = resolveFinalAttemptResult(
+	lastResult, lastErr = resolveFinalAttemptResult(
 		sawSupportedCapability,
 		lastErr,
 		lastResult,
@@ -621,8 +621,8 @@ func (ra *relayAttempt) attempt() attemptResult {
 	// the cause translation once at the attempt boundary so HTTP error bodies,
 	// transformed streams, and WS passthrough share the same timeout semantics.
 	if fwdErr != nil &&
-		!isLocalRelayBudgetExceeded(nil, fwdErr) &&
-		!isFirstTokenTimeout(nil, fwdErr) {
+		!isLocalRelayBudgetError(fwdErr) &&
+		!isFirstTokenTimeoutError(fwdErr) {
 		if timeoutErr := ra.firstTokenTimeoutIfNeeded(ra.requestContext(), fwdErr); timeoutErr != nil {
 			fwdErr = timeoutErr
 		}
@@ -694,7 +694,7 @@ func (ra *relayAttempt) attempt() attemptResult {
 			writeStreamProtocolError(ra.requestContext(), ra.getStreamWriter(), ra.inAdapter, responseError)
 		}
 	}
-	firstTokenTimeout := isFirstTokenTimeout(nil, fwdErr)
+	firstTokenTimeout := isFirstTokenTimeoutError(fwdErr)
 	return attemptResult{
 		Success:           false,
 		Written:           written,

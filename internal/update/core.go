@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync/atomic"
-	"syscall"
 
 	"github.com/bestruirui/octopus/internal/utils/log"
 	"github.com/bestruirui/octopus/internal/utils/shutdown"
@@ -209,27 +208,4 @@ func restartExecutable(execPath, stagedPath, backupPath, stagingDir string) {
 		shutdown.Shutdown()
 		os.Exit(0)
 	}
-}
-
-func restartInPlace(execPath, stagedPath, backupPath, stagingDir string) error {
-	if err := activateExecutable(stagedPath, execPath, backupPath); err != nil {
-		return fmt.Errorf("activate update: %w", err)
-	}
-	if err := os.RemoveAll(stagingDir); err != nil {
-		log.Warnf("remove update staging directory %s before restart: %v", stagingDir, err)
-	}
-	log.Infof("restarting: %q %q", execPath, os.Args[1:])
-	shutdown.Shutdown()
-	if err := syscall.Exec(execPath, os.Args, os.Environ()); err != nil {
-		if rollbackErr := os.Rename(backupPath, execPath); rollbackErr != nil {
-			return fmt.Errorf("exec updated executable: %w; restore rollback executable: %v", err, rollbackErr)
-		}
-		if rollbackSyncErr := syncDirectory(filepath.Dir(execPath)); rollbackSyncErr != nil {
-			return fmt.Errorf("exec updated executable: %w; sync restored executable: %v", err, rollbackSyncErr)
-		}
-		if rollbackExecErr := syscall.Exec(execPath, os.Args, os.Environ()); rollbackExecErr != nil {
-			return fmt.Errorf("exec updated executable: %w; exec rollback executable: %v", err, rollbackExecErr)
-		}
-	}
-	return nil
 }

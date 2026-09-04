@@ -58,9 +58,6 @@ func InitDB(dbType, dsn string, debug bool) error {
 		sqlDB.SetConnMaxIdleTime(10 * time.Minute)
 	}
 
-	if err := migrate.BeforeAutoMigrate(db); err != nil {
-		return err
-	}
 	// relay_logs 是表里行最大、最容易踩 OOM 的表。但触发 OOM 的根因是
 	// glebarez (SQLite) 的 AlterColumn 走 recreateTable 全表拷贝；
 	// MySQL/Postgres 的 migrator 用原生 ALTER COLUMN，没有这个问题。

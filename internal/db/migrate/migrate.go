@@ -28,23 +28,10 @@ type MigrationRecord struct {
 	Status  MigrationRecordStatus
 }
 
-var beforeAutoMigrations = make([]Migration, 0)
 var afterAutoMigrations = make([]Migration, 0)
-
-func RegisterBeforeAutoMigration(m Migration) {
-	beforeAutoMigrations = append(beforeAutoMigrations, m)
-}
 
 func RegisterAfterAutoMigration(m Migration) {
 	afterAutoMigrations = append(afterAutoMigrations, m)
-}
-
-func BeforeAutoMigrate(db *gorm.DB) error {
-	if err := runMigrationsWithRecord(db, beforeAutoMigrations); err != nil {
-		return err
-	}
-	beforeAutoMigrations = nil
-	return nil
 }
 
 func AfterAutoMigrate(db *gorm.DB) error {
@@ -122,7 +109,7 @@ func ensureMigrationRecordTable(db *gorm.DB) error {
 	if db.Migrator().HasTable(&MigrationRecord{}) {
 		return nil
 	}
-	// For BeforeAutoMigrate: the record table may not exist yet.
+	// Direct migration runs (including tests) may not have created the record table yet.
 	if err := db.AutoMigrate(&MigrationRecord{}); err != nil {
 		return fmt.Errorf("failed to auto migrate MigrationRecord: %w", err)
 	}

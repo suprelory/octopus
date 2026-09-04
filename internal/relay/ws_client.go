@@ -566,7 +566,7 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group, em
 				StatusCode:    http.StatusBadRequest,
 				ProtocolError: relayProtocolError(http.StatusBadRequest, errorCode, message),
 			}
-			capabilityErr, capabilityResult = preferCapabilityRejection(capabilityErr, capabilityResult, candidateErr, candidateResult)
+			capabilityResult, capabilityErr = preferCapabilityRejection(capabilityErr, capabilityResult, candidateErr, candidateResult)
 			continue
 		}
 		sawSupportedCapability = true
@@ -667,7 +667,7 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group, em
 		lastResult = result
 	}
 
-	lastErr, lastResult = resolveFinalAttemptResult(
+	lastResult, lastErr = resolveFinalAttemptResult(
 		sawSupportedCapability,
 		lastErr,
 		lastResult,

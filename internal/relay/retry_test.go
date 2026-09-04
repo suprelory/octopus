@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -60,6 +61,25 @@ func TestFailureClassificationUsesErrorEnvelopeBeforeStatus(t *testing.T) {
 	classification := classifyRelayFailure(http.StatusBadRequest, responseErr, time.Time{})
 	if classification.Class != FailureQuota || !classification.Retryable || !classification.Record {
 		t.Fatalf("quota classification = %#v", classification)
+	}
+}
+
+func TestFailureClassificationDistinguishesStandaloneAndUpstreamCancellation(t *testing.T) {
+	standalone := classifyRelayFailure(0, context.Canceled, time.Time{})
+	if standalone.Class != FailureClientCanceled {
+		t.Fatalf("standalone cancellation classification = %#v", standalone)
+	}
+
+	upstream := classifyRelayFailureContext(context.Background(), 0, context.Canceled, time.Time{})
+	if upstream.Class != FailureTransient || !upstream.Retryable || !upstream.Record {
+		t.Fatalf("upstream cancellation classification = %#v", upstream)
+	}
+
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	client := classifyRelayFailureContext(canceledCtx, 0, context.Canceled, time.Time{})
+	if client.Class != FailureClientCanceled {
+		t.Fatalf("client cancellation classification = %#v", client)
 	}
 }
 

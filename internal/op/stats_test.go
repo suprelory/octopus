@@ -17,20 +17,15 @@ import (
 func resetStatsTestState(t *testing.T) {
 	t.Helper()
 	statsChannelCache.Clear()
-	statsModelCache.Clear()
 	statsAPIKeyCache.Clear()
 	statsChannelCacheNeedUpdateLock.Lock()
 	statsChannelCacheNeedUpdate = make(map[int]struct{})
 	statsChannelCacheNeedUpdateLock.Unlock()
-	statsModelCacheNeedUpdateLock.Lock()
-	statsModelCacheNeedUpdate = make(map[int]struct{})
-	statsModelCacheNeedUpdateLock.Unlock()
 	statsAPIKeyCacheNeedUpdateLock.Lock()
 	statsAPIKeyCacheNeedUpdate = make(map[int]struct{})
 	statsAPIKeyCacheNeedUpdateLock.Unlock()
 	t.Cleanup(func() {
 		statsChannelCache.Clear()
-		statsModelCache.Clear()
 		statsAPIKeyCache.Clear()
 	})
 }

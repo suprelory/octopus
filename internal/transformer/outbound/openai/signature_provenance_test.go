@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"context"
 	"testing"
 
 	"github.com/bestruirui/octopus/internal/transformer/model"
@@ -116,7 +117,7 @@ func TestResponsesRequestPreservesLegacyOpaqueBytesAndRejectsWrongKind(t *testin
 
 func TestResponsesStreamTagsEncryptedContentAsOpenAI(t *testing.T) {
 	outbound := &ResponseOutbound{}
-	events, err := outbound.TransformStreamEvent(nil, []byte(`{"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","encrypted_content":"openai-signature"}}`))
+	events, err := outbound.TransformStreamEvent(context.Background(), []byte(`{"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","encrypted_content":"openai-signature"}}`))
 	if err != nil {
 		t.Fatalf("TransformStreamEvent() error = %v", err)
 	}

@@ -138,8 +138,7 @@ func (ra *relayAttempt) firstTokenTimeoutIfNeeded(ctx context.Context, err error
 	if ra != nil && ra.firstTokenBudget != nil {
 		budgetCtx = ra.firstTokenBudget.ctx
 	}
-	if isLocalRelayBudgetExceeded(ctx, err) || isLocalRelayBudgetExceeded(ctx, contextError(ctx)) ||
-		isLocalRelayBudgetExceeded(budgetCtx, err) || isLocalRelayBudgetExceeded(budgetCtx, contextError(budgetCtx)) {
+	if isLocalRelayBudgetExceeded(ctx, err) || isLocalRelayBudgetExceeded(budgetCtx, err) {
 		if ra != nil && ra.internalRequest != nil && ra.internalRequest.Stream != nil && *ra.internalRequest.Stream {
 			log.Warnf("relay failover budget exceeded before the first semantic stream event")
 			return newRelayBudgetError("failover timeout exceeded before first semantic stream event")
@@ -147,8 +146,7 @@ func (ra *relayAttempt) firstTokenTimeoutIfNeeded(ctx context.Context, err error
 		log.Warnf("relay failover budget exceeded before the upstream response completed")
 		return newRelayBudgetError("failover timeout exceeded before upstream response completed")
 	}
-	if isFirstTokenTimeout(ctx, err) || isFirstTokenTimeout(ctx, contextError(ctx)) ||
-		isFirstTokenTimeout(budgetCtx, err) || isFirstTokenTimeout(budgetCtx, contextError(budgetCtx)) {
+	if isFirstTokenTimeout(ctx, err) || isFirstTokenTimeout(budgetCtx, err) {
 		if ra != nil && ra.firstTokenTimeOutSec > 0 {
 			log.Warnf("first token timeout (%ds), switching channel", ra.firstTokenTimeOutSec)
 		}

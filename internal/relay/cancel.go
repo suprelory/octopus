@@ -20,8 +20,12 @@ func contextError(ctx context.Context) error {
 	return ctx.Err()
 }
 
+func isLocalRelayBudgetError(err error) bool {
+	return errors.Is(err, errLocalRelayBudgetExceeded)
+}
+
 func isLocalRelayBudgetExceeded(ctx context.Context, err error) bool {
-	if errors.Is(err, errLocalRelayBudgetExceeded) {
+	if isLocalRelayBudgetError(err) {
 		return true
 	}
 	if ctx == nil {
@@ -30,8 +34,12 @@ func isLocalRelayBudgetExceeded(ctx context.Context, err error) bool {
 	return errors.Is(context.Cause(ctx), errLocalRelayBudgetExceeded)
 }
 
+func isFirstTokenTimeoutError(err error) bool {
+	return errors.Is(err, errFirstTokenTimeout)
+}
+
 func isFirstTokenTimeout(ctx context.Context, err error) bool {
-	if errors.Is(err, errFirstTokenTimeout) {
+	if isFirstTokenTimeoutError(err) {
 		return true
 	}
 	if ctx == nil {
@@ -41,8 +49,7 @@ func isFirstTokenTimeout(ctx context.Context, err error) bool {
 }
 
 func isClientCancellation(ctx context.Context, err error) bool {
-	if isLocalRelayBudgetExceeded(ctx, err) || isLocalRelayBudgetExceeded(ctx, contextError(ctx)) ||
-		isFirstTokenTimeout(ctx, err) || isFirstTokenTimeout(ctx, contextError(ctx)) {
+	if isLocalRelayBudgetExceeded(ctx, err) || isFirstTokenTimeout(ctx, err) {
 		return false
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

@@ -42,8 +42,12 @@ func TestRelayLogClearDoesNotBlockFlushLock(t *testing.T) {
 	time.Sleep(relayLogCleanupBatchWait * 2)
 	lockStart := time.Now()
 	relayLogFlushLock.Lock()
+	clearing := relayLogClearing
 	relayLogFlushLock.Unlock()
 	lockWait := time.Since(lockStart)
+	if !clearing {
+		t.Fatal("purge finished before lock contention could be observed")
+	}
 
 	if err := <-clearDone; err != nil {
 		t.Fatalf("RelayLogClear failed: %v", err)

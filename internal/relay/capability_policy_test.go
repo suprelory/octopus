@@ -109,7 +109,7 @@ func TestResolveFinalAttemptResultDoesNotMaskSupportedFailure(t *testing.T) {
 		ProtocolError: relayProtocolError(http.StatusBadRequest, CodeRelayCapabilityRejected, capabilityErr.Error()),
 	}
 
-	gotErr, gotResult := resolveFinalAttemptResult(true, upstreamErr, upstreamResult, capabilityErr, capabilityResult)
+	gotResult, gotErr := resolveFinalAttemptResult(true, upstreamErr, upstreamResult, capabilityErr, capabilityResult)
 	if !errors.Is(gotErr, upstreamErr) || gotResult.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("supported failure was masked: err=%v result=%+v", gotErr, gotResult)
 	}
@@ -123,7 +123,7 @@ func TestResolveFinalAttemptResultUsesCapabilityWhenAllCandidatesReject(t *testi
 		ProtocolError: relayProtocolError(http.StatusBadRequest, CodeRelayCapabilityRejected, capabilityErr.Error()),
 	}
 
-	gotErr, gotResult := resolveFinalAttemptResult(false, nil, attemptResult{}, capabilityErr, capabilityResult)
+	gotResult, gotErr := resolveFinalAttemptResult(false, nil, attemptResult{}, capabilityErr, capabilityResult)
 	if !errors.Is(gotErr, capabilityErr) || gotResult.ProtocolError == nil || gotResult.ProtocolError.Detail.Code != CodeRelayCapabilityRejected {
 		t.Fatalf("capability rejection was not selected: err=%v result=%+v", gotErr, gotResult)
 	}
@@ -143,12 +143,12 @@ func TestPreferCapabilityRejectionUsesStablePriority(t *testing.T) {
 		ProtocolError: relayProtocolError(http.StatusBadRequest, CodeRelayCapabilityRejected, strictErr.Error()),
 	}
 
-	gotErr, gotResult := preferCapabilityRejection(strictErr, strictResult, hardErr, hardResult)
+	gotResult, gotErr := preferCapabilityRejection(strictErr, strictResult, hardErr, hardResult)
 	if !errors.Is(gotErr, hardErr) || gotResult.ProtocolError.Detail.Code != CodeRelayModelNotSupported {
 		t.Fatalf("hard rejection did not replace strict degradation: err=%v result=%+v", gotErr, gotResult)
 	}
 
-	gotErr, gotResult = preferCapabilityRejection(hardErr, hardResult, strictErr, strictResult)
+	gotResult, gotErr = preferCapabilityRejection(hardErr, hardResult, strictErr, strictResult)
 	if !errors.Is(gotErr, hardErr) || gotResult.ProtocolError.Detail.Code != CodeRelayModelNotSupported {
 		t.Fatalf("strict degradation replaced hard rejection: err=%v result=%+v", gotErr, gotResult)
 	}
