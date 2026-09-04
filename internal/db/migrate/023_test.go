@@ -15,17 +15,17 @@ func TestRemoveVolcengineChannelSupport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-		if err := database.AutoMigrate(
-			&model.Channel{},
-			&model.ChannelKey{},
-			&model.Site{},
-			&model.SiteModel{},
-			&model.SiteChannelBinding{},
-			&model.Group{},
-			&model.GroupItem{},
-			&model.GroupPreset{},
-			&model.WSResponseAffinity{},
-		); err != nil {
+	if err := database.AutoMigrate(
+		&model.Channel{},
+		&model.ChannelKey{},
+		&model.Site{},
+		&model.SiteModel{},
+		&model.SiteChannelBinding{},
+		&model.Group{},
+		&model.GroupItem{},
+		&model.GroupPreset{},
+		&model.WSResponseAffinity{},
+	); err != nil {
 		t.Fatalf("auto migrate models: %v", err)
 	}
 
