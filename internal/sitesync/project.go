@@ -296,20 +296,14 @@ func shouldPreserveSystemPausedProjection(group model.SiteUserGroup) bool {
 	if group.ProjectionDisabled {
 		return false
 	}
-	// Missing keys are authoritative credential removals. Clear their projected
-	// channels even when older records still carry projection_suspended=true.
-	if group.ModelSyncStatus == model.SiteGroupModelSyncStatusMissingKey {
-		return false
-	}
-	if group.ProjectionSuspended {
-		return true
-	}
+	// Missing keys and authoritative empty model results clear projected channels,
+	// even when the group still carries projection_suspended=true.
 	switch group.ModelSyncStatus {
-	case model.SiteGroupModelSyncStatusEmpty:
-		return true
-	default:
+	case model.SiteGroupModelSyncStatusMissingKey,
+		model.SiteGroupModelSyncStatusEmpty:
 		return false
 	}
+	return group.ProjectionSuspended
 }
 
 func updateSiteChannelBindingGroup(ctx context.Context, bindingID int, group model.SiteUserGroup) error {

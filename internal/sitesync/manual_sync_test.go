@@ -353,6 +353,87 @@ func TestApplyManualSyncMissingKeyClearsHistoricalProjection(t *testing.T) {
 	}
 }
 
+func TestApplyManualSyncEmptyClearsHistoricalProjection(t *testing.T) {
+	ctx := setupProjectTestDB(t)
+	_, account := createProjectionFixture(t, ctx)
+
+	if _, err := ProjectAccount(ctx, account.ID); err != nil {
+		t.Fatalf("initial ProjectAccount failed: %v", err)
+	}
+	channelsByGroup := loadProjectedChannelsByGroupKey(t, ctx, account.ID)
+	channel := channelsByGroup[model.SiteDefaultGroupKey]
+	if channel.ID == 0 {
+		t.Fatalf("expected initial projected channel")
+	}
+	consumerGroup := &model.Group{Name: "manual-sync-empty", Mode: model.GroupModeFailover}
+	if err := op.GroupCreate(consumerGroup, ctx); err != nil {
+		t.Fatalf("GroupCreate failed: %v", err)
+	}
+	if err := op.GroupItemAdd(&model.GroupItem{
+		GroupID:   consumerGroup.ID,
+		ChannelID: channel.ID,
+		ModelName: "gpt-4o-mini",
+		Priority:  1,
+		Weight:    1,
+	}, ctx); err != nil {
+		t.Fatalf("GroupItemAdd failed: %v", err)
+	}
+
+	req := ManualSyncRequest{
+		Mode:   ManualSyncModeReplace,
+		Format: ManualSyncFormatSnapshot,
+		Snapshot: &ManualSyncSnapshotInput{
+			Models: &map[string][]ManualSyncModelInput{model.SiteDefaultGroupKey: {}},
+		},
+	}
+	preview, err := PreviewManualSync(ctx, account.ID, req)
+	if err != nil {
+		t.Fatalf("PreviewManualSync returned error: %v", err)
+	}
+	if preview.ChannelCountEstimate != 0 || len(preview.Groups) != 1 || preview.Groups[0].WillProject {
+		t.Fatalf("expected empty preview to be non-projectable, got %+v", preview)
+	}
+	req.PreviewFingerprint = preview.PreviewFingerprint
+	result, err := ApplyManualSync(ctx, account.ID, req)
+	if err != nil {
+		t.Fatalf("ApplyManualSync returned error: %v", err)
+	}
+	if result.SyncResult.ModelCount != 0 || result.SyncResult.ChannelCount != 0 || len(result.SyncResult.GroupResults) != 1 || result.SyncResult.GroupResults[0].Status != string(siteGroupSyncStatusEmpty) {
+		t.Fatalf("expected empty apply result without models or projected channels, got %+v", result.SyncResult)
+	}
+
+	var modelCount int64
+	if err := dbpkg.GetDB().WithContext(ctx).Model(&model.SiteModel{}).
+		Where("site_account_id = ? AND group_key = ?", account.ID, model.SiteDefaultGroupKey).
+		Count(&modelCount).Error; err != nil {
+		t.Fatalf("count site models failed: %v", err)
+	}
+	if modelCount != 0 {
+		t.Fatalf("expected empty sync to clear site models, got %d", modelCount)
+	}
+	channelsByGroup = loadProjectedChannelsByGroupKey(t, ctx, account.ID)
+	if len(channelsByGroup) != 0 {
+		t.Fatalf("expected empty sync to clear projected channels, got %+v", channelsByGroup)
+	}
+	if _, err := op.ChannelGet(channel.ID, ctx); err == nil {
+		t.Fatalf("expected empty sync to delete projected channel %d", channel.ID)
+	}
+	items, err := op.GroupItemList(consumerGroup.ID, ctx)
+	if err != nil {
+		t.Fatalf("GroupItemList failed: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected empty sync to clear projected group items, got %+v", items)
+	}
+	var group model.SiteUserGroup
+	if err := dbpkg.GetDB().WithContext(ctx).Where("site_account_id = ? AND group_key = ?", account.ID, model.SiteDefaultGroupKey).First(&group).Error; err != nil {
+		t.Fatalf("query empty group failed: %v", err)
+	}
+	if group.ModelSyncStatus != model.SiteGroupModelSyncStatusEmpty || !group.ProjectionSuspended {
+		t.Fatalf("expected persisted empty status to remain suspended after projection cleanup, got %+v", group)
+	}
+}
+
 func TestManualSyncReplaceTokenSectionKeepsOnlyImportedAndManualTokens(t *testing.T) {
 	siteRecord := &model.Site{ID: 8, Platform: model.SitePlatformNewAPI, Enabled: true}
 	account := &model.SiteAccount{
