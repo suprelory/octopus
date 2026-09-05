@@ -5,8 +5,10 @@ import (
 	"strings"
 
 	dbmodel "github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/relay/balancer"
 	"github.com/bestruirui/octopus/internal/transformer/outbound"
+	"github.com/bestruirui/octopus/internal/utils/log"
 )
 
 // evaluateCapabilityPolicy applies the relay-wide degradation policy to a
@@ -112,5 +114,54 @@ func capabilityRejectionPriority(result attemptResult) int {
 		return 1
 	default:
 		return 0
+	}
+}
+
+type capabilityDegradationPolicy string
+
+const (
+	capabilityPolicyAllow  capabilityDegradationPolicy = "allow"
+	capabilityPolicyWarn   capabilityDegradationPolicy = "warn"
+	capabilityPolicyStrict capabilityDegradationPolicy = "strict"
+)
+
+func getCapabilityDegradationPolicy() capabilityDegradationPolicy {
+	value, err := op.SettingGetString(dbmodel.SettingKeyCapabilityDegradationPolicy)
+	if err != nil {
+		return capabilityPolicyWarn
+	}
+	policy := capabilityDegradationPolicy(strings.ToLower(strings.TrimSpace(value)))
+	switch policy {
+	case capabilityPolicyAllow, capabilityPolicyWarn, capabilityPolicyStrict:
+		return policy
+	default:
+		return capabilityPolicyWarn
+	}
+}
+
+func logRelayCapability(channel *dbmodel.Channel, modelName string, decision outbound.CapabilityDecision, policy capabilityDegradationPolicy) {
+	outbound.RecordCapabilityDecision(decision)
+	if channel == nil {
+		return
+	}
+	log.Debugw("relay.capability_decision",
+		"channel_id", channel.ID,
+		"channel", channel.Name,
+		"model", modelName,
+		"status", decision.Status,
+		"conversion_path", decision.ConversionPath,
+		"required_features", decision.RequiredFeatures,
+		"degraded_fields", decision.DegradedFields,
+		"losses", decision.Losses,
+		"lossiness", decision.Lossiness,
+		"static_quality", decision.StaticQuality,
+		"reasons", decision.Reasons,
+	)
+	if decision.Status == outbound.CapabilityDegraded {
+		if policy == capabilityPolicyWarn {
+			log.Warnw("relay.capability_degraded", "channel_id", channel.ID, "channel", channel.Name, "model", modelName, "fields", decision.DegradedFields, "losses", decision.Losses, "reasons", decision.Reasons)
+		} else if policy == capabilityPolicyAllow {
+			log.Debugw("relay.capability_degraded_allowed", "channel_id", channel.ID, "channel", channel.Name, "model", modelName, "fields", decision.DegradedFields)
+		}
 	}
 }

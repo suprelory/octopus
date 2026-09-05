@@ -151,3 +151,17 @@ func waitBackoff(ctx context.Context, delay time.Duration) bool {
 		return true
 	}
 }
+
+func (ra *relayAttempt) captureRetryAfter(header string) {
+	ra.captureRetryAt(parseRetryAt(header))
+}
+
+func (ra *relayAttempt) captureRetryAt(retryAt time.Time) {
+	ra.retryAt = retryAt
+	ra.retryAfter = 0
+	if !ra.retryAt.IsZero() {
+		if delay := time.Until(ra.retryAt); delay > 0 {
+			ra.retryAfter = delay
+		}
+	}
+}

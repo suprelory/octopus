@@ -135,3 +135,60 @@ func containsString(values []string, target string) bool {
 	}
 	return false
 }
+
+func planRelayCapability(req *relayRequest, channel *dbmodel.Channel, adapter model.Outbound, modelName string) outbound.CapabilityDecision {
+	if req == nil || req.internalRequest == nil {
+		return outbound.PlanRequestForModel(nil, "", outbound.OutboundType(0), false)
+	}
+	if req.capabilityPlanner == nil {
+		// Direct/unit callers may construct relayRequest themselves. Lazily
+		// attach the same request-scoped cache used by the main handlers.
+		req.capabilityPlanner = newRelayCapabilityPlanner(req.internalRequest, req.rawBody, req.c == nil)
+	}
+	return req.capabilityPlanner.plan(channel, adapter, modelName)
+}
+
+func planRelayPassthrough(request *model.InternalLLMRequest, rawBody []byte, channel *dbmodel.Channel, adapter model.Outbound, websocketIngress bool, overrideConfigured ...bool) bool {
+	if request == nil || channel == nil || adapter == nil || len(rawBody) == 0 {
+		return false
+	}
+	if channelParamOverrideActive(channel) || (len(overrideConfigured) > 0 && overrideConfigured[0]) {
+		return false
+	}
+	capable, ok := adapter.(model.PassthroughCapable)
+	if !ok || !capable.CanPassthrough(request.RawAPIFormat) {
+		return false
+	}
+
+	passthrough := channel.AllowsPassthrough()
+	if request.HasOpenAIResponsesPassthrough() && !websocketIngress {
+		passthrough = true
+	}
+	if request.RawAPIFormat != model.APIFormatOpenAIResponse {
+		return passthrough
+	}
+	if request.IsOpenAIExactReplayRequest() {
+		return false
+	}
+	if websocketIngress {
+		return channel.Type == outbound.OutboundTypeOpenAIResponse &&
+			shouldEnableResponsesWS(channel) && effectiveResponsesWSMode(channel) == responsesWSModePassthrough
+	}
+	if requiresUpstreamWSContinuation(request) {
+		return false
+	}
+	return passthrough
+}
+
+func capabilityRank(decision outbound.CapabilityDecision) int {
+	if decision.Rejected() {
+		return 3
+	}
+	if decision.Status == outbound.CapabilityDegraded {
+		return 2
+	}
+	if decision.StaticQuality == outbound.QualityNative {
+		return 0
+	}
+	return 1
+}
