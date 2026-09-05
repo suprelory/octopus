@@ -997,7 +997,7 @@
             "channelList": "投影渠道",
             "empty": "当前分组暂无投影渠道",
             "paramOverride": "参数覆盖 JSON",
-            "paramOverridePlaceholder": "留空表示清除；非空时必须是 JSON 对象，例如：{\"temperature\":0.7,\"max_tokens\":4096}",
+            "paramOverridePlaceholder": "留空表示清除；支持 JSON 对象或操作数组，例如：{\"temperature\":0.7} 或 [{\"op\":\"remove\",\"path\":\"/temperature\"}]",
             "cancel": "取消",
             "save": "保存",
             "saving": "保存中...",

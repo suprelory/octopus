@@ -67,7 +67,9 @@ export function AdvancedSettingsDialog({
             if (!value) continue;
             try {
                 const parsed = JSON.parse(value) as unknown;
-                if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                // The API accepts both merge objects and operation arrays;
+                // it validates the individual operations when saving.
+                if (!parsed || typeof parsed !== 'object') {
                     return false;
                 }
             } catch {

@@ -997,7 +997,7 @@
             "channelList": "投影供應源",
             "empty": "目前分組暫無投影供應源",
             "paramOverride": "參數覆蓋 JSON",
-            "paramOverridePlaceholder": "留空表示清除；非空時必須是 JSON 物件，例如：{\"temperature\":0.7,\"max_tokens\":4096}",
+            "paramOverridePlaceholder": "留空表示清除；支援 JSON 物件或操作陣列，例如：{\"temperature\":0.7} 或 [{\"op\":\"remove\",\"path\":\"/temperature\"}]",
             "cancel": "取消",
             "save": "儲存",
             "saving": "儲存中...",
