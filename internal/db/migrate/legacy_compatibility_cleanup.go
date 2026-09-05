@@ -2,6 +2,7 @@ package migrate
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/bestruirui/octopus/internal/model"
 	"gorm.io/gorm"
@@ -103,8 +104,21 @@ func dropColumnIfPresent(db *gorm.DB, table, column string) error {
 	if !db.Migrator().HasTable(table) || !db.Migrator().HasColumn(table, column) {
 		return nil
 	}
-	// SQLite rebuilds a table when dropping a column and requires the removed
-	// field to remain available in a migration-only schema.
+	if db.Dialector != nil && db.Dialector.Name() == "sqlite" {
+		// glebarez/sqlite implements Migrator.DropColumn by rebuilding the
+		// table. With foreign_keys enabled, dropping a referenced parent table
+		// during that rebuild fails even though SQLite supports native DROP
+		// COLUMN without removing the parent table.
+		var quotedTable, quotedColumn strings.Builder
+		db.Dialector.QuoteTo(&quotedTable, table)
+		db.Dialector.QuoteTo(&quotedColumn, column)
+		if err := db.Exec(fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s", quotedTable.String(), quotedColumn.String())).Error; err != nil {
+			return fmt.Errorf("drop legacy column %s.%s: %w", table, column, err)
+		}
+		return nil
+	}
+	// Other dialects can use GORM's migrator; the migration-only schema keeps
+	// the removed field available for dialects that rebuild tables internally.
 	var migrationModel any
 	switch table {
 	case "groups":
