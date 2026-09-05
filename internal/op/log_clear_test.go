@@ -12,7 +12,7 @@ import (
 	"github.com/bestruirui/octopus/internal/utils/snowflake"
 )
 
-// RelayLogClear must not hold relayLogFlushLock across its batched deletes: the
+// RelayLogClear must not hold relayLogBuffer.flushLock across its batched deletes: the
 // background flusher takes the same lock, so a long purge would stall it until
 // the pending queue overflows and starts dropping logs.
 func TestRelayLogClearDoesNotBlockFlushLock(t *testing.T) {
@@ -41,9 +41,9 @@ func TestRelayLogClearDoesNotBlockFlushLock(t *testing.T) {
 	// flusher would wait for the lock.
 	time.Sleep(relayLogCleanupBatchWait * 2)
 	lockStart := time.Now()
-	relayLogFlushLock.Lock()
-	clearing := relayLogClearing
-	relayLogFlushLock.Unlock()
+	relayLogBuffer.flushLock.Lock()
+	clearing := relayLogBuffer.clearing
+	relayLogBuffer.flushLock.Unlock()
 	lockWait := time.Since(lockStart)
 	if !clearing {
 		t.Fatal("purge finished before lock contention could be observed")
@@ -97,13 +97,13 @@ func TestRelayLogClearResetsBuffers(t *testing.T) {
 	if got := RelayLogPendingLen(); got != 0 {
 		t.Fatalf("expected the pending buffer to be reset, got %d", got)
 	}
-	relayLogRecentLock.Lock()
-	recent := len(relayLogRecent)
-	relayLogRecentLock.Unlock()
+	relayLogBuffer.recentLock.Lock()
+	recent := len(relayLogBuffer.recent)
+	relayLogBuffer.recentLock.Unlock()
 	if recent != 0 {
 		t.Fatalf("expected the recent buffer to be reset, got %d", recent)
 	}
-	if relayLogClearing {
+	if relayLogBuffer.clearing {
 		t.Fatal("expected the clearing flag to be released")
 	}
 }
@@ -152,13 +152,13 @@ func TestRelayLogClearRejectsConcurrentCall(t *testing.T) {
 	}
 	resetRelayLogStateForTest()
 
-	relayLogFlushLock.Lock()
-	relayLogClearing = true
-	relayLogFlushLock.Unlock()
+	relayLogBuffer.flushLock.Lock()
+	relayLogBuffer.clearing = true
+	relayLogBuffer.flushLock.Unlock()
 	t.Cleanup(func() {
-		relayLogFlushLock.Lock()
-		relayLogClearing = false
-		relayLogFlushLock.Unlock()
+		relayLogBuffer.flushLock.Lock()
+		relayLogBuffer.clearing = false
+		relayLogBuffer.flushLock.Unlock()
 	})
 
 	err := RelayLogClear(ctx)
@@ -192,9 +192,9 @@ func TestRelayLogClearReleasesFlagOnCancel(t *testing.T) {
 		t.Fatal("expected the cancelled purge to report an error")
 	}
 
-	relayLogFlushLock.Lock()
-	clearing := relayLogClearing
-	relayLogFlushLock.Unlock()
+	relayLogBuffer.flushLock.Lock()
+	clearing := relayLogBuffer.clearing
+	relayLogBuffer.flushLock.Unlock()
 	if clearing {
 		t.Fatal("expected the clearing flag to be released after cancellation")
 	}
@@ -224,13 +224,13 @@ func TestRelayLogFlushStillDrainsDuringClear(t *testing.T) {
 		clearErr = RelayLogClear(ctx)
 	}()
 
-	// Observing the flag while holding relayLogFlushLock guarantees that clear
+	// Observing the flag while holding relayLogBuffer.flushLock guarantees that clear
 	// has released the lock after establishing its cutoff.
 	deadline := time.Now().Add(2 * time.Second)
 	for {
-		relayLogFlushLock.Lock()
-		clearing := relayLogClearing
-		relayLogFlushLock.Unlock()
+		relayLogBuffer.flushLock.Lock()
+		clearing := relayLogBuffer.clearing
+		relayLogBuffer.flushLock.Unlock()
 		if clearing {
 			break
 		}

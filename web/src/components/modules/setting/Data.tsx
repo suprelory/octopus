@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { AlertTriangle, Calendar, Clock, Database, Download, FileArchive, ScrollText, Trash2, Upload } from 'lucide-react';
+import { Calendar, Clock, Database, ScrollText, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -10,6 +10,7 @@ import { toast } from '@/components/common/Toast';
 import { SettingKey, useExportDB, useImportDB } from '@/api/endpoints/setting';
 import { useClearLogs } from '@/api/endpoints/log';
 import { SETTING_CONTROL_WIDTH, SettingCard, SettingRow, SettingSection, useSettingField, useSettingToggle } from './shared';
+import { DatabaseBackupPanel, type DatabaseExportKind } from './DatabaseBackupPanel';
 
 export function SettingData() {
     const t = useTranslations('setting');
@@ -26,7 +27,7 @@ export function SettingData() {
 
     const [includeStats, setIncludeStats] = useState(true);
     // 常规导出固定 JSON（可导入恢复）；含日志导出为 ZIP 流式归档，单独成按钮
-    const [exportingKind, setExportingKind] = useState<'json' | 'logs' | null>(null);
+    const [exportingKind, setExportingKind] = useState<DatabaseExportKind | null>(null);
 
     const [file, setFile] = useState<File | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -68,7 +69,7 @@ export function SettingData() {
         }
     };
 
-    const onExport = async (kind: 'json' | 'logs') => {
+    const onExport = async (kind: DatabaseExportKind) => {
         setExportingKind(kind);
         try {
             await exportDB.mutateAsync(kind === 'logs'
@@ -124,78 +125,19 @@ export function SettingData() {
                 </Button>
             </SettingRow>
 
-            {/* 备份导出 */}
-            <SettingSection title={t('backup.export.title')} />
-            <div className="space-y-3">
-                <div className="flex items-center justify-between gap-4">
-                    <div className="text-sm text-muted-foreground">{t('backup.export.includeStats')}</div>
-                    <Switch checked={includeStats} onCheckedChange={setIncludeStats} />
-                </div>
-
-                <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full rounded-xl"
-                    onClick={() => onExport('json')}
-                    disabled={exportDB.isPending}
-                >
-                    <Download className="size-4" />
-                    {exportingKind === 'json' ? t('backup.export.exporting') : t('backup.export.button')}
-                </Button>
-
-                {/* 含日志归档：数据量大，ZIP 流式写入，仅供留存，无法导入恢复 */}
-                <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full rounded-xl"
-                    onClick={() => onExport('logs')}
-                    disabled={exportDB.isPending}
-                >
-                    <FileArchive className="size-4" />
-                    {exportingKind === 'logs' ? t('backup.export.exporting') : t('backup.export.withLogsButton')}
-                </Button>
-                <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
-                    <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-destructive" />
-                    {t('backup.export.withLogsWarning')}
-                </p>
-            </div>
-
-            {/* 备份导入 */}
-            <SettingSection title={t('backup.import.title')} />
-            <div className="space-y-3">
-                <Input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="application/json,.json"
-                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                    className="rounded-xl"
-                />
-
-                <Button
-                    type="button"
-                    variant="destructive"
-                    className="w-full rounded-xl"
-                    onClick={onImport}
-                    disabled={importDB.isPending}
-                >
-                    <Upload className="size-4" />
-                    {importDB.isPending ? t('backup.import.importing') : t('backup.import.button')}
-                </Button>
-
-                {rowsAffectedList.length > 0 && (
-                    <div className="mt-2 space-y-1">
-                        <div className="text-xs font-semibold text-card-foreground">{t('backup.import.result')}</div>
-                        <div className="grid grid-cols-2 gap-1 text-xs text-muted-foreground">
-                            {rowsAffectedList.map((it) => (
-                                <div key={it.table} className="flex justify-between gap-2">
-                                    <span className="truncate">{it.table}</span>
-                                    <span className="tabular-nums">{it.count}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-            </div>
+            <DatabaseBackupPanel
+                includeStats={includeStats}
+                onIncludeStatsChange={setIncludeStats}
+                exportingKind={exportingKind}
+                onExport={onExport}
+                exportPending={exportDB.isPending}
+                file={file}
+                fileInputRef={fileInputRef}
+                onFileChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                onImport={onImport}
+                importPending={importDB.isPending}
+                rowsAffectedList={rowsAffectedList}
+            />
         </SettingCard>
     );
 }

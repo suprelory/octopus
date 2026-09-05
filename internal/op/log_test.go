@@ -10,20 +10,20 @@ import (
 )
 
 func resetRelayLogStateForTest() {
-	relayLogPendingLock.Lock()
-	relayLogPending = make([]model.RelayLog, 0, relayLogBatchSize)
-	relayLogPendingBytes = 0
-	relayLogPendingLock.Unlock()
+	relayLogBuffer.pendingLock.Lock()
+	relayLogBuffer.pending = make([]model.RelayLog, 0, relayLogBatchSize)
+	relayLogBuffer.pendingBytes = 0
+	relayLogBuffer.pendingLock.Unlock()
 
-	relayLogRecentLock.Lock()
-	relayLogRecent = make([]model.RelayLog, 0, relayLogRecentMaxSize)
-	relayLogRecentLock.Unlock()
+	relayLogBuffer.recentLock.Lock()
+	relayLogBuffer.recent = make([]model.RelayLog, 0, relayLogRecentMaxSize)
+	relayLogBuffer.recentLock.Unlock()
 
-	relayLogDroppedTotal.Store(0)
-	relayLogLastDropWarn.Store(0)
+	relayLogBuffer.droppedTotal.Store(0)
+	relayLogBuffer.lastDropWarn.Store(0)
 	for {
 		select {
-		case <-relayLogFlushSignal:
+		case <-relayLogBuffer.flushSignal:
 		default:
 			return
 		}
