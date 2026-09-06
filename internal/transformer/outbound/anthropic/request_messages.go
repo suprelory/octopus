@@ -3,6 +3,7 @@ package anthropic
 import (
 	"encoding/json"
 
+	"github.com/bestruirui/octopus/internal/transformer/compat"
 	"github.com/bestruirui/octopus/internal/transformer/model"
 	anthropicModel "github.com/bestruirui/octopus/internal/transformer/protocol/anthropic"
 	"github.com/bestruirui/octopus/internal/utils/xurl"
@@ -166,6 +167,9 @@ func convertAssistantMessage(msg model.Message) []anthropicModel.MessageParam {
 }
 
 func convertAssistantWithToolCalls(msg model.Message) []anthropicModel.MessageParam {
+	if len(msg.Content.MultipleContent) > 0 {
+		return []anthropicModel.MessageParam{{Role: "assistant", Content: convertMultiplePartContent(msg)}}
+	}
 	var blocks []anthropicModel.MessageContentBlock
 
 	// Thinking + redacted_thinking blocks, emitted in their original order so Anthropic
@@ -219,17 +223,15 @@ func convertAssistantWithToolCalls(msg model.Message) []anthropicModel.MessagePa
 }
 
 func buildMessageContent(msg model.Message) anthropicModel.MessageContent {
+	if len(msg.Content.MultipleContent) > 0 {
+		return convertMultiplePartContent(msg)
+	}
 	// Handle simple string content
 	if msg.Content.Content != nil {
 		if msg.CacheControl != nil || hasThinkingContent(msg) {
 			return buildMultipleContentWithThinking(msg)
 		}
 		return anthropicModel.MessageContent{Content: msg.Content.Content}
-	}
-
-	// Handle multiple content parts
-	if len(msg.Content.MultipleContent) > 0 {
-		return convertMultiplePartContent(msg)
 	}
 
 	// Handle reasoning-only messages (no text content, but has thinking/redacted thinking)
@@ -274,6 +276,7 @@ func convertMultiplePartContent(msg model.Message) anthropicModel.MessageContent
 				blocks = append(blocks, anthropicModel.MessageContentBlock{
 					Type:         "text",
 					Text:         part.Text,
+					Citations:    compat.AnthropicCitationsFromModel(part.Citations),
 					CacheControl: convertCacheControl(part.CacheControl),
 				})
 			}
@@ -292,52 +295,16 @@ func convertMultiplePartContent(msg model.Message) anthropicModel.MessageContent
 			if part.ServerToolUse == nil {
 				continue
 			}
-			name := part.ServerToolUse.Name
-			blocks = append(blocks, anthropicModel.MessageContentBlock{
-				Type:         "server_tool_use",
-				ID:           part.ServerToolUse.ID,
-				Name:         &name,
-				Input:        part.ServerToolUse.Input,
-				CacheControl: convertCacheControl(part.CacheControl),
-			})
+			block := compat.AnthropicServerToolUseFromModel(part.ServerToolUse)
+			block.CacheControl = convertCacheControl(part.CacheControl)
+			blocks = append(blocks, block)
 		case "server_tool_result":
 			if part.ServerToolResult == nil {
 				continue
 			}
-			// Server tool result blocks carry a `content` field which may be
-			// a raw text string or an array of sub-blocks; passthrough the
-			// bytes so Anthropic receives the same shape the upstream
-			// model produced.
-			toolUseID := part.ServerToolResult.ToolUseID
-			// BlockType preserves the exact Anthropic wire type seen by the
-			// inbound layer (web_search_tool_result / code_execution_tool_result).
-			// Falling back to web_search_tool_result keeps backwards
-			// compatibility with callers that don't set BlockType.
-			wireType := part.ServerToolResult.BlockType
-			if wireType == "" {
-				wireType = "web_search_tool_result"
-			}
-			var contentWrap *anthropicModel.MessageContent
-			if len(part.ServerToolResult.Content) > 0 {
-				c := anthropicModel.MessageContent{}
-				if err := json.Unmarshal(part.ServerToolResult.Content, &c); err == nil {
-					contentWrap = &c
-				} else {
-					// Fall back to a text string when the payload is a
-					// raw string rather than the structured form.
-					var raw string
-					if err := json.Unmarshal(part.ServerToolResult.Content, &raw); err == nil {
-						contentWrap = &anthropicModel.MessageContent{Content: &raw}
-					}
-				}
-			}
-			blocks = append(blocks, anthropicModel.MessageContentBlock{
-				Type:         wireType,
-				ToolUseID:    &toolUseID,
-				Content:      contentWrap,
-				IsError:      part.ServerToolResult.IsError,
-				CacheControl: convertCacheControl(part.CacheControl),
-			})
+			block := compat.AnthropicServerToolResultFromModel(part.ServerToolResult)
+			block.CacheControl = convertCacheControl(part.CacheControl)
+			blocks = append(blocks, block)
 		}
 	}
 
@@ -421,7 +388,7 @@ func convertDocumentPartToBlock(part model.MessageContentPart) *anthropicModel.M
 		CacheControl: convertCacheControl(part.CacheControl),
 	}
 	if doc.Citations != nil {
-		block.Citations = &anthropicModel.DocumentCitationsControl{Enabled: doc.Citations.Enabled}
+		block.CitationConfig = &anthropicModel.DocumentCitationsControl{Enabled: doc.Citations.Enabled}
 	}
 	return block
 }

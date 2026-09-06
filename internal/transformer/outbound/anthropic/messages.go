@@ -17,12 +17,14 @@ import (
 
 type MessageOutbound struct {
 	// Stream state tracking
-	streamID    string
-	streamModel string
-	streamUsage *model.Usage
-	toolIndex   int
-	toolCalls   map[int]*model.ToolCall
-	initialized bool
+	streamID       string
+	streamModel    string
+	streamUsage    *model.Usage
+	toolIndex      int
+	toolCalls      map[int]*model.ToolCall
+	blockToolCalls map[int]int
+	serverToolUses map[int]*model.ServerToolUseBlock
+	initialized    bool
 }
 
 func (o *MessageOutbound) TransformRequest(ctx context.Context, request *model.InternalLLMRequest, baseUrl, key string) (*http.Request, error) {

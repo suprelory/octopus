@@ -35,6 +35,7 @@ func (i *MessagesInbound) TransformResponse(ctx context.Context, response *model
 
 		if message != nil {
 			var contentBlocks []MessageContentBlock
+			textBlockCitationCount := 0
 
 			// Prefer per-block reasoning provenance when available so multiple thinking /
 			// redacted_thinking blocks from the upstream can be replayed in order. Fall back to
@@ -104,20 +105,18 @@ func (i *MessagesInbound) TransformResponse(ctx context.Context, response *model
 			}
 
 			// Handle regular content
-			if message.Content.Content != nil && *message.Content.Content != "" {
-				contentBlocks = append(contentBlocks, MessageContentBlock{
-					Type: "text",
-					Text: message.Content.Content,
-				})
-			} else if len(message.Content.MultipleContent) > 0 {
+			if len(message.Content.MultipleContent) > 0 {
 				for _, part := range message.Content.MultipleContent {
 					switch part.Type {
 					case "text":
 						if part.Text != nil {
-							contentBlocks = append(contentBlocks, MessageContentBlock{
-								Type: "text",
-								Text: part.Text,
-							})
+							block := MessageContentBlock{
+								Type:      "text",
+								Text:      part.Text,
+								Citations: compat.AnthropicCitationsFromModel(part.Citations),
+							}
+							textBlockCitationCount += len(block.Citations)
+							contentBlocks = append(contentBlocks, block)
 						}
 					case "image_url":
 						if part.ImageURL != nil && part.ImageURL.URL != "" {
@@ -142,8 +141,18 @@ func (i *MessagesInbound) TransformResponse(ctx context.Context, response *model
 								})
 							}
 						}
+					case "server_tool_use":
+						if part.ServerToolUse != nil {
+							contentBlocks = append(contentBlocks, compat.AnthropicServerToolUseFromModel(part.ServerToolUse))
+						}
+					case "server_tool_result":
+						if part.ServerToolResult != nil {
+							contentBlocks = append(contentBlocks, compat.AnthropicServerToolResultFromModel(part.ServerToolResult))
+						}
 					}
 				}
+			} else if message.Content.Content != nil && *message.Content.Content != "" {
+				contentBlocks = append(contentBlocks, MessageContentBlock{Type: "text", Text: message.Content.Content})
 			}
 
 			// Handle tool calls
@@ -184,6 +193,17 @@ func (i *MessagesInbound) TransformResponse(ctx context.Context, response *model
 						emittedSignatureShims++
 					}
 					contentBlocks = append(contentBlocks, block)
+				}
+			}
+
+			// Choice-level citations are a compatibility fallback for providers
+			// that do not attach attribution to individual content parts.
+			if textBlockCitationCount == 0 && len(choice.Citations) > 0 {
+				for index := len(contentBlocks) - 1; index >= 0; index-- {
+					if contentBlocks[index].Type == "text" {
+						contentBlocks[index].Citations = compat.AnthropicCitationsFromModel(choice.Citations)
+						break
+					}
 				}
 			}
 

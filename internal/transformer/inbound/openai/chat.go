@@ -36,7 +36,7 @@ func (i *ChatInbound) TransformResponse(ctx context.Context, response *model.Int
 	// Store the response for later retrieval
 	i.storedResponse = response
 
-	body, err := json.Marshal(response)
+	body, err := json.Marshal(chatResponseForWire(response))
 	if err != nil {
 		return nil, err
 	}
@@ -50,6 +50,7 @@ func (i *ChatInbound) TransformStream(ctx context.Context, stream *model.Interna
 
 	// Store the chunk for aggregation
 	i.streamAggregator.Add(stream)
+	stream = chatResponseForWire(stream)
 
 	var body []byte
 	var err error

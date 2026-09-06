@@ -72,7 +72,13 @@ func (a *StreamAggregator) Response() *InternalLLMResponse {
 	}
 	sort.Ints(indices)
 	for _, idx := range indices {
-		result.Choices = append(result.Choices, *choicesMap[idx])
+		choice := choicesMap[idx]
+		for _, part := range choice.Message.Content.MultipleContent {
+			if part.ServerToolUse != nil {
+				part.ServerToolUse.InputDelta = nil
+			}
+		}
+		result.Choices = append(result.Choices, *choice)
 	}
 	return result
 }
@@ -89,15 +95,7 @@ func mergeChoiceDelta(existingChoice *Choice, choice Choice) {
 		if delta.Role != "" {
 			existingChoice.Message.Role = delta.Role
 		}
-		if delta.Content.Content != nil {
-			if existingChoice.Message.Content.Content == nil {
-				existingChoice.Message.Content.Content = new(string)
-			}
-			*existingChoice.Message.Content.Content += *delta.Content.Content
-		}
-		if len(delta.Content.MultipleContent) > 0 {
-			existingChoice.Message.Content.MultipleContent = append(existingChoice.Message.Content.MultipleContent, delta.Content.MultipleContent...)
-		}
+		mergeMessageContentDelta(&existingChoice.Message.Content, delta.Content)
 		if len(delta.Images) > 0 {
 			existingChoice.Message.Content.MultipleContent = append(existingChoice.Message.Content.MultipleContent, delta.Images...)
 		}
@@ -143,6 +141,9 @@ func mergeChoiceDelta(existingChoice *Choice, choice Choice) {
 		if delta.Refusal != "" {
 			existingChoice.Message.Refusal = delta.Refusal
 		}
+	}
+	if len(choice.Citations) > 0 {
+		existingChoice.Citations = append(existingChoice.Citations, cloneCitations(choice.Citations)...)
 	}
 	if choice.FinishReason != nil {
 		existingChoice.FinishReason = choice.FinishReason

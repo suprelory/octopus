@@ -9,6 +9,7 @@ import (
 
 	"github.com/bestruirui/octopus/internal/transformer/compat"
 	"github.com/bestruirui/octopus/internal/transformer/model"
+	wire "github.com/bestruirui/octopus/internal/transformer/protocol/anthropic"
 	"github.com/bestruirui/octopus/internal/utils/log"
 	"github.com/bestruirui/octopus/internal/utils/tokenizer"
 	"github.com/samber/lo"
@@ -174,9 +175,12 @@ func (i *MessagesInbound) TransformRequest(ctx context.Context, body []byte) (*m
 					contentParts = append(contentParts, model.MessageContentPart{
 						Type:         "text",
 						Text:         block.Text,
+						Citations:    compat.AnthropicCitationsToModel(block.Citations),
 						CacheControl: convertToLLMCacheControl(block.CacheControl),
 					})
-					i.inputToken += int64(tokenizer.CountTokens(*block.Text, chatReq.Model))
+					if block.Text != nil {
+						i.inputToken += int64(tokenizer.CountTokens(*block.Text, chatReq.Model))
+					}
 					hasContent = true
 				case "image":
 					if block.Source != nil {
@@ -259,43 +263,25 @@ func (i *MessagesInbound) TransformRequest(ctx context.Context, body []byte) (*m
 						contentParts = append(contentParts, *part)
 						hasContent = true
 					}
-				case "server_tool_use":
-					contentParts = append(contentParts, model.MessageContentPart{
-						Type: "server_tool_use",
-						ServerToolUse: &model.ServerToolUseBlock{
-							ID:    block.ID,
-							Name:  lo.FromPtr(block.Name),
-							Input: block.Input,
-						},
-						CacheControl: convertToLLMCacheControl(block.CacheControl),
-					})
-					hasContent = true
-				case "web_search_tool_result", "code_execution_tool_result":
-					result := &model.ServerToolResultBlock{
-						ToolUseID: lo.FromPtr(block.ToolUseID),
-						IsError:   block.IsError,
-						BlockType: block.Type,
+				default:
+					if wire.IsServerToolUse(block.Type) {
+						contentParts = append(contentParts, model.MessageContentPart{
+							Type: "server_tool_use", ServerToolUse: compat.AnthropicServerToolUseToModel(block),
+							CacheControl: convertToLLMCacheControl(block.CacheControl),
+						})
+						hasContent = true
+					} else if wire.IsServerToolResult(block.Type) {
+						contentParts = append(contentParts, model.MessageContentPart{
+							Type: "server_tool_result", ServerToolResult: compat.AnthropicServerToolResultToModel(block),
+							CacheControl: convertToLLMCacheControl(block.CacheControl),
+						})
+						hasContent = true
 					}
-					if block.Content != nil {
-						if block.Content.Content != nil {
-							b, _ := json.Marshal(*block.Content.Content)
-							result.Content = b
-						} else if len(block.Content.MultipleContent) > 0 {
-							b, _ := json.Marshal(block.Content.MultipleContent)
-							result.Content = b
-						}
-					}
-					contentParts = append(contentParts, model.MessageContentPart{
-						Type:             "server_tool_result",
-						ServerToolResult: result,
-						CacheControl:     convertToLLMCacheControl(block.CacheControl),
-					})
-					hasContent = true
 				}
 			}
 
 			// Check if it's a simple text-only message (single text block)
-			if len(contentParts) == 1 && contentParts[0].Type == "text" {
+			if len(contentParts) == 1 && contentParts[0].Type == "text" && len(contentParts[0].Citations) == 0 {
 				// Convert single text block to simple content format for compatibility
 				chatMsg.Content = model.MessageContent{
 					Content: contentParts[0].Text,
@@ -497,8 +483,8 @@ func convertDocumentBlockToLLM(block MessageContentBlock) *model.MessageContentP
 		doc.Text = doc.Data
 		doc.Data = ""
 	}
-	if block.Citations != nil {
-		doc.Citations = &model.DocumentCitations{Enabled: block.Citations.Enabled}
+	if block.CitationConfig != nil {
+		doc.Citations = &model.DocumentCitations{Enabled: block.CitationConfig.Enabled}
 	}
 	return &model.MessageContentPart{
 		Type:         "document",

@@ -12,6 +12,7 @@ type StreamEventKind string
 const (
 	StreamEventKindMessageStart      StreamEventKind = "message_start"
 	StreamEventKindContentBlockStart StreamEventKind = "content_block_start"
+	StreamEventKindContentBlockDelta StreamEventKind = "content_block_delta"
 	StreamEventKindContentBlockStop  StreamEventKind = "content_block_stop"
 	StreamEventKindTextDelta         StreamEventKind = "text_delta"
 	StreamEventKindThinkingDelta     StreamEventKind = "thinking_delta"
@@ -26,6 +27,7 @@ const (
 	StreamEventKindImageDelta        StreamEventKind = "image_delta"
 	StreamEventKindAudioDelta        StreamEventKind = "audio_delta"
 	StreamEventKindOpaque            StreamEventKind = "opaque"
+	StreamEventKindCitationDelta     StreamEventKind = "citation_delta"
 )
 
 type StreamEvent struct {
@@ -34,7 +36,10 @@ type StreamEvent struct {
 	ID    string `json:"id,omitempty"`
 	Model string `json:"model,omitempty"`
 	Index int    `json:"index,omitempty"`
-	Role  string `json:"role,omitempty"`
+	// BlockIndex preserves the originating provider content-block index while
+	// Index remains the canonical choice index.
+	BlockIndex *int   `json:"block_index,omitempty"`
+	Role       string `json:"role,omitempty"`
 
 	ContentBlock *StreamContentBlock `json:"content_block,omitempty"`
 	Delta        *StreamDelta        `json:"delta,omitempty"`
@@ -67,8 +72,13 @@ type StreamContentBlock struct {
 	Text string `json:"text,omitempty"`
 	Data string `json:"data,omitempty"`
 
-	Input              json.RawMessage     `json:"input,omitempty"`
-	ProviderExtensions *ProviderExtensions `json:"provider_extensions,omitempty"`
+	Input              json.RawMessage        `json:"input,omitempty"`
+	ToolUseID          string                 `json:"tool_use_id,omitempty"`
+	IsError            *bool                  `json:"is_error,omitempty"`
+	ServerToolUse      *ServerToolUseBlock    `json:"server_tool_use,omitempty"`
+	ServerToolResult   *ServerToolResultBlock `json:"server_tool_result,omitempty"`
+	Citations          []Citation             `json:"citations,omitempty"`
+	ProviderExtensions *ProviderExtensions    `json:"provider_extensions,omitempty"`
 }
 
 // HasSemanticStreamEvents reports whether a canonical event batch contains
@@ -90,7 +100,11 @@ func HasSemanticStreamEvents(events []StreamEvent) bool {
 				return true
 			}
 		case StreamEventKindContentBlockStart:
-			if event.ContentBlock != nil && (event.ContentBlock.Text != "" || event.ContentBlock.Data != "" || event.ContentBlock.Name != "" || len(event.ContentBlock.Input) > 0) {
+			if event.ContentBlock != nil && (event.ContentBlock.Text != "" || event.ContentBlock.Data != "" || event.ContentBlock.Name != "" || len(event.ContentBlock.Input) > 0 || event.ContentBlock.ServerToolUse != nil || event.ContentBlock.ServerToolResult != nil || len(event.ContentBlock.Citations) > 0) {
+				return true
+			}
+		case StreamEventKindContentBlockDelta:
+			if event.Delta != nil && event.Delta.Arguments != "" {
 				return true
 			}
 		case StreamEventKindImageDelta, StreamEventKindAudioDelta:
@@ -99,6 +113,10 @@ func HasSemanticStreamEvents(events []StreamEvent) bool {
 			}
 		case StreamEventKindOpaque:
 			if len(bytes.TrimSpace(event.Opaque)) > 0 {
+				return true
+			}
+		case StreamEventKindCitationDelta:
+			if event.Delta != nil && event.Delta.Citation != nil {
 				return true
 			}
 		}
@@ -114,6 +132,7 @@ type StreamDelta struct {
 	Refusal   string `json:"refusal,omitempty"`
 
 	SignatureSource *OpaqueSignature `json:"signature_source,omitempty"`
+	Citation        *Citation        `json:"citation,omitempty"`
 
 	ProviderExtensions *ProviderExtensions `json:"provider_extensions,omitempty"`
 }
@@ -211,9 +230,7 @@ func StreamEventsFromInternalResponse(response *InternalLLMResponse) []StreamEve
 					}
 				}
 			}
-			if delta.Content.Content != nil && *delta.Content.Content != "" {
-				events = append(events, StreamEvent{Kind: StreamEventKindTextDelta, ID: response.ID, Model: response.Model, Index: choice.Index, Delta: &StreamDelta{Text: *delta.Content.Content}})
-			}
+			events = append(events, streamEventsFromContent(delta.Content, choice.Citations, response.ID, response.Model, choice.Index)...)
 			if delta.Refusal != "" {
 				events = append(events, StreamEvent{Kind: StreamEventKindTextDelta, ID: response.ID, Model: response.Model, Index: choice.Index, Delta: &StreamDelta{Refusal: delta.Refusal}})
 			}
@@ -264,9 +281,11 @@ func InternalResponseFromStreamEvents(events []StreamEvent) *InternalLLMResponse
 	}
 	response := &InternalLLMResponse{Object: "chat.completion.chunk"}
 	choices := make(map[int]*Choice)
+	sawDone := false
 	for _, event := range events {
 		if event.Kind == StreamEventKindDone {
-			return &InternalLLMResponse{Object: "[DONE]"}
+			sawDone = true
+			continue
 		}
 		if event.ID != "" {
 			response.ID = event.ID
@@ -304,11 +323,50 @@ func InternalResponseFromStreamEvents(events []StreamEvent) *InternalLLMResponse
 				choice.Delta.RedactedThinkingBlocks = append(choice.Delta.RedactedThinkingBlocks, event.ContentBlock.Data)
 				choice.Delta.AppendReasoningBlock(ReasoningBlock{Kind: ReasoningBlockKindRedacted, Index: -1, Data: event.ContentBlock.Data})
 			}
+			if event.ContentBlock != nil && (event.ContentBlock.Type == "text" || event.ContentBlock.ServerToolUse != nil || event.ContentBlock.ServerToolResult != nil) {
+				part := MessageContentPart{Type: event.ContentBlock.Type, BlockIndex: event.BlockIndex, Citations: event.ContentBlock.Citations}
+				var text *string
+				if part.Type == "text" {
+					value := event.ContentBlock.Text
+					text = &value
+					part.Text = text
+					choice.Citations = append(choice.Citations, cloneCitations(part.Citations)...)
+				}
+				if event.ContentBlock.ServerToolUse != nil {
+					use := *event.ContentBlock.ServerToolUse
+					if use.BlockType == "" {
+						use.BlockType = event.ContentBlock.Type
+					}
+					part.Type = "server_tool_use"
+					part.ServerToolUse = &use
+				}
+				if event.ContentBlock.ServerToolResult != nil {
+					result := *event.ContentBlock.ServerToolResult
+					if result.BlockType == "" {
+						result.BlockType = event.ContentBlock.Type
+					}
+					part.Type = "server_tool_result"
+					part.ServerToolResult = &result
+				}
+				mergeMessageContentDelta(&choice.Delta.Content, MessageContent{Content: text, MultipleContent: []MessageContentPart{part}})
+			}
+		case StreamEventKindContentBlockDelta:
+			if event.ContentBlock != nil && event.ContentBlock.ServerToolUse != nil && event.Delta != nil {
+				use := *event.ContentBlock.ServerToolUse
+				arguments := event.Delta.Arguments
+				use.InputDelta = &arguments
+				part := MessageContentPart{Type: "server_tool_use", BlockIndex: event.BlockIndex, ServerToolUse: &use}
+				mergeMessageContentDelta(&choice.Delta.Content, MessageContent{MultipleContent: []MessageContentPart{part}})
+			}
 		case StreamEventKindTextDelta:
 			if event.Delta != nil {
 				if event.Delta.Text != "" {
 					text := event.Delta.Text
-					choice.Delta.Content.Content = &text
+					content := MessageContent{Content: &text}
+					if event.BlockIndex != nil {
+						content.MultipleContent = []MessageContentPart{{Type: "text", Text: &text, BlockIndex: event.BlockIndex}}
+					}
+					mergeMessageContentDelta(&choice.Delta.Content, content)
 				}
 				if event.Delta.Refusal != "" {
 					choice.Delta.Refusal = event.Delta.Refusal
@@ -348,6 +406,15 @@ func InternalResponseFromStreamEvents(events []StreamEvent) *InternalLLMResponse
 				}
 				choice.Delta.ToolCalls = MergeToolCallDelta(choice.Delta.ToolCalls, toolCall)
 			}
+		case StreamEventKindCitationDelta:
+			if event.Delta != nil && event.Delta.Citation != nil {
+				citations := []Citation{*event.Delta.Citation}
+				choice.Citations = append(choice.Citations, cloneCitations(citations)...)
+				if event.BlockIndex != nil {
+					part := MessageContentPart{Type: "text", BlockIndex: event.BlockIndex, Citations: citations}
+					mergeMessageContentDelta(&choice.Delta.Content, MessageContent{MultipleContent: []MessageContentPart{part}})
+				}
+			}
 		case StreamEventKindMessageStop:
 			if event.StopReason != "" {
 				reason := event.StopReason.String()
@@ -365,6 +432,9 @@ func InternalResponseFromStreamEvents(events []StreamEvent) *InternalLLMResponse
 		response.Choices = append(response.Choices, *choices[idx])
 	}
 	if len(response.Choices) == 0 && response.Usage == nil && response.Error == nil && len(response.NonChatStreamEvents) == 0 {
+		if sawDone {
+			return &InternalLLMResponse{Object: "[DONE]"}
+		}
 		return nil
 	}
 	return response

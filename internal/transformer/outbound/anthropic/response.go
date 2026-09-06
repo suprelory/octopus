@@ -1,13 +1,12 @@
 package anthropic
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 
+	"github.com/bestruirui/octopus/internal/transformer/compat"
 	"github.com/bestruirui/octopus/internal/transformer/model"
 	anthropicModel "github.com/bestruirui/octopus/internal/transformer/protocol/anthropic"
-	"github.com/samber/lo"
 )
 
 // Response conversion functions
@@ -34,17 +33,22 @@ func convertToLLMResponse(resp *anthropicModel.Message) *model.InternalLLMRespon
 		textParts         []string
 		redactedBlocks    []string
 		reasoningBlocks   []model.ReasoningBlock
+		citations         []model.Citation
 	)
 
-	for _, block := range resp.Content {
+	for blockIndex, block := range resp.Content {
 		switch block.Type {
 		case "text":
-			if block.Text != nil && *block.Text != "" {
+			if block.Text != nil {
 				textParts = append(textParts, *block.Text)
-				content.MultipleContent = append(content.MultipleContent, model.MessageContentPart{
-					Type: "text",
-					Text: block.Text,
-				})
+				part := model.MessageContentPart{
+					Type:       "text",
+					Text:       block.Text,
+					Citations:  compat.AnthropicCitationsToModel(block.Citations),
+					BlockIndex: &blockIndex,
+				}
+				content.MultipleContent = append(content.MultipleContent, part)
+				citations = append(citations, part.Citations...)
 			}
 		case "tool_use":
 			if block.ID != "" && block.Name != nil {
@@ -92,38 +96,23 @@ func convertToLLMResponse(resp *anthropicModel.Message) *model.InternalLLMRespon
 					Provider: "anthropic",
 				})
 			}
-		case "server_tool_use":
-			content.MultipleContent = append(content.MultipleContent, model.MessageContentPart{
-				Type: "server_tool_use",
-				ServerToolUse: &model.ServerToolUseBlock{
-					ID:    block.ID,
-					Name:  lo.FromPtr(block.Name),
-					Input: block.Input,
-				},
-			})
-		case "web_search_tool_result", "code_execution_tool_result":
-			result := &model.ServerToolResultBlock{
-				ToolUseID: lo.FromPtr(block.ToolUseID),
-				IsError:   block.IsError,
+		default:
+			if anthropicModel.IsServerToolUse(block.Type) {
+				content.MultipleContent = append(content.MultipleContent, model.MessageContentPart{
+					Type: "server_tool_use", BlockIndex: &blockIndex,
+					ServerToolUse: compat.AnthropicServerToolUseToModel(block),
+				})
+			} else if anthropicModel.IsServerToolResult(block.Type) {
+				content.MultipleContent = append(content.MultipleContent, model.MessageContentPart{
+					Type: "server_tool_result", BlockIndex: &blockIndex,
+					ServerToolResult: compat.AnthropicServerToolResultToModel(block),
+				})
 			}
-			if block.Content != nil {
-				if block.Content.Content != nil {
-					b, _ := json.Marshal(*block.Content.Content)
-					result.Content = b
-				} else if len(block.Content.MultipleContent) > 0 {
-					b, _ := json.Marshal(block.Content.MultipleContent)
-					result.Content = b
-				}
-			}
-			content.MultipleContent = append(content.MultipleContent, model.MessageContentPart{
-				Type:             "server_tool_result",
-				ServerToolResult: result,
-			})
 		}
 	}
 
 	// If we only have text content, use simple string format
-	if len(textParts) > 0 && len(content.MultipleContent) == len(textParts) {
+	if len(textParts) > 0 && len(content.MultipleContent) == len(textParts) && len(citations) == 0 {
 		allText := strings.Join(textParts, "")
 		content.Content = &allText
 		content.MultipleContent = nil
@@ -150,6 +139,7 @@ func convertToLLMResponse(resp *anthropicModel.Message) *model.InternalLLMRespon
 		Message:      message,
 		FinishReason: convertStopReason(resp.StopReason),
 		StopSequence: resp.StopSequence,
+		Citations:    citations,
 	}
 
 	result.Choices = []model.Choice{choice}

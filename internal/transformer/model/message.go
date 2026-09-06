@@ -257,6 +257,12 @@ type MessageContentPart struct {
 	// json:"-" for the same reason as Document.
 	ServerToolResult *ServerToolResultBlock `json:"-"`
 
+	// Citations attaches provider attribution to this content block. It is
+	// internal-only and is rendered by provider-specific response adapters.
+	Citations []Citation `json:"-"`
+	// BlockIndex identifies the source content block within its message.
+	BlockIndex *int `json:"-"`
+
 	// ProviderExtensions stores provider-specific content-part hints. It is internal-only.
 	ProviderExtensions *ProviderExtensions `json:"-"`
 
@@ -312,18 +318,24 @@ type DocumentCitations struct {
 
 // ServerToolUseBlock captures Anthropic's server_tool_use content block.
 // Unlike a regular tool_use, the tool is invoked by Anthropic's backend
-// (web search, code execution, etc.) and the invocation is already
-// complete by the time the block reaches the client.
+// (web search, code execution, etc.). Input may arrive in streamed fragments;
+// the client does not execute the invocation.
 type ServerToolUseBlock struct {
-	ID    string          `json:"id,omitempty"`
-	Name  string          `json:"name,omitempty"`
-	Input json.RawMessage `json:"input,omitempty"`
+	ID         string          `json:"id,omitempty"`
+	Name       string          `json:"name,omitempty"`
+	Input      json.RawMessage `json:"input,omitempty"`
+	BlockType  string          `json:"-"`
+	Caller     json.RawMessage `json:"caller,omitempty"`
+	ServerName string          `json:"server_name,omitempty"`
+	// InputDelta marks streamed JSON fragments; the aggregator replaces the
+	// start block's placeholder input before concatenating the fragments.
+	InputDelta *string `json:"-"`
 }
 
 // ServerToolResultBlock captures the result of a server-side tool
 // invocation (web_search_tool_result, code_execution_tool_result). The
-// content field mirrors tool_result.content — Anthropic returns either a
-// text string or an array of sub-blocks.
+// content field can be a text string, an object (including errors), or an
+// array of provider-specific sub-blocks.
 type ServerToolResultBlock struct {
 	ToolUseID string          `json:"tool_use_id,omitempty"`
 	Content   json.RawMessage `json:"content,omitempty"`

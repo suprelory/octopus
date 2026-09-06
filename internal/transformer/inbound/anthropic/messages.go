@@ -13,6 +13,10 @@ type MessagesInbound struct {
 	hasTextContentStarted     bool
 	hasThinkingContentStarted bool
 	hasToolContentStarted     bool
+	hasNativeContentStarted   bool
+	openSourceBlockIndex      *int
+	activeToolCallIndex       int
+	nativeContentType         string
 	hasFinished               bool
 	messageStopped            bool
 	messageID                 string

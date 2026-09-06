@@ -191,11 +191,29 @@ type GroundingSupport struct {
 // byte offsets into the generated text. License is optional (Gemini
 // sometimes surfaces the license associated with the cited source).
 type Citation struct {
-	StartIndex int    `json:"start_index,omitempty"`
-	EndIndex   int    `json:"end_index,omitempty"`
-	URI        string `json:"uri,omitempty"`
-	Title      string `json:"title,omitempty"`
-	License    string `json:"license,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	// Raw preserves native location fields, including zero/null and future
+	// citation variants. Only the originating provider may replay it.
+	Raw json.RawMessage `json:"raw,omitempty"`
+	// Type is the provider citation kind (for example char_location or
+	// web_search_result_location). It is empty for legacy Gemini citations.
+	Type              string `json:"type,omitempty"`
+	StartIndex        int    `json:"start_index,omitempty"`
+	EndIndex          int    `json:"end_index,omitempty"`
+	URI               string `json:"uri,omitempty"`
+	Title             string `json:"title,omitempty"`
+	License           string `json:"license,omitempty"`
+	CitedText         string `json:"cited_text,omitempty"`
+	DocumentIndex     int    `json:"document_index,omitempty"`
+	DocumentTitle     string `json:"document_title,omitempty"`
+	StartCharIndex    int    `json:"start_char_index,omitempty"`
+	EndCharIndex      int    `json:"end_char_index,omitempty"`
+	StartPageNumber   int    `json:"start_page_number,omitempty"`
+	EndPageNumber     int    `json:"end_page_number,omitempty"`
+	StartBlockIndex   int    `json:"start_block_index,omitempty"`
+	EndBlockIndex     int    `json:"end_block_index,omitempty"`
+	SearchResultIndex int    `json:"search_result_index,omitempty"`
+	EncryptedIndex    string `json:"encrypted_index,omitempty"`
 }
 
 // URLContextInfo carries per-URL retrieval status for Gemini's urlContext

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/bestruirui/octopus/internal/transformer/compat"
 	"github.com/bestruirui/octopus/internal/transformer/model"
 	anthropicModel "github.com/bestruirui/octopus/internal/transformer/protocol/anthropic"
 	"github.com/samber/lo"
@@ -20,6 +21,8 @@ func (o *MessageOutbound) TransformStreamEvent(ctx context.Context, eventData []
 	}
 	if !o.initialized {
 		o.toolCalls = make(map[int]*model.ToolCall)
+		o.blockToolCalls = make(map[int]int)
+		o.serverToolUses = make(map[int]*model.ServerToolUseBlock)
 		o.toolIndex = -1
 		o.initialized = true
 	}
@@ -55,6 +58,7 @@ func (o *MessageOutbound) TransformStreamEvent(ctx context.Context, eventData []
 		if streamEvent.ContentBlock == nil {
 			return nil, nil
 		}
+		blockIndex := int(lo.FromPtr(streamEvent.Index))
 		switch streamEvent.ContentBlock.Type {
 		case "tool_use":
 			o.toolIndex++
@@ -67,13 +71,33 @@ func (o *MessageOutbound) TransformStreamEvent(ctx context.Context, eventData []
 				},
 			}
 			o.toolCalls[o.toolIndex] = &toolCall
-			events = append(events, model.StreamEvent{Kind: model.StreamEventKindToolCallStart, ID: o.streamID, Model: o.streamModel, Index: 0, ToolCall: &toolCall})
+			o.blockToolCalls[blockIndex] = o.toolIndex
+			events = append(events, model.StreamEvent{Kind: model.StreamEventKindToolCallStart, ID: o.streamID, Model: o.streamModel, Index: 0, BlockIndex: &blockIndex, ToolCall: &toolCall})
 		case "text", "thinking":
-			events = append(events, model.StreamEvent{Kind: model.StreamEventKindContentBlockStart, ID: o.streamID, Model: o.streamModel, Index: 0, ContentBlock: &model.StreamContentBlock{Type: streamEvent.ContentBlock.Type}})
+			events = append(events, model.StreamEvent{Kind: model.StreamEventKindContentBlockStart, ID: o.streamID, Model: o.streamModel, BlockIndex: &blockIndex, ContentBlock: &model.StreamContentBlock{Type: streamEvent.ContentBlock.Type}})
+			if streamEvent.ContentBlock.Text != nil && *streamEvent.ContentBlock.Text != "" {
+				events = append(events, model.StreamEvent{Kind: model.StreamEventKindTextDelta, ID: o.streamID, Model: o.streamModel, BlockIndex: &blockIndex, Delta: &model.StreamDelta{Text: *streamEvent.ContentBlock.Text}})
+			}
+			for _, citation := range compat.AnthropicCitationsToModel(streamEvent.ContentBlock.Citations) {
+				events = append(events, model.StreamEvent{Kind: model.StreamEventKindCitationDelta, ID: o.streamID, Model: o.streamModel, BlockIndex: &blockIndex, Delta: &model.StreamDelta{Citation: &citation}})
+			}
+			if streamEvent.ContentBlock.Thinking != nil && *streamEvent.ContentBlock.Thinking != "" {
+				events = append(events, model.StreamEvent{Kind: model.StreamEventKindThinkingDelta, ID: o.streamID, Model: o.streamModel, BlockIndex: &blockIndex, Delta: &model.StreamDelta{Thinking: *streamEvent.ContentBlock.Thinking}})
+			}
 		case "redacted_thinking":
-			events = append(events, model.StreamEvent{Kind: model.StreamEventKindContentBlockStart, ID: o.streamID, Model: o.streamModel, Index: 0, ContentBlock: &model.StreamContentBlock{Type: "redacted_thinking", Data: streamEvent.ContentBlock.Data}})
-			events = append(events, model.StreamEvent{Kind: model.StreamEventKindContentBlockStop, ID: o.streamID, Model: o.streamModel, Index: 0, ContentBlock: &model.StreamContentBlock{Type: "redacted_thinking"}})
+			events = append(events, model.StreamEvent{Kind: model.StreamEventKindContentBlockStart, ID: o.streamID, Model: o.streamModel, Index: 0, BlockIndex: &blockIndex, ContentBlock: &model.StreamContentBlock{Type: "redacted_thinking", Data: streamEvent.ContentBlock.Data}})
 		default:
+			if anthropicModel.IsServerToolUse(streamEvent.ContentBlock.Type) {
+				use := compat.AnthropicServerToolUseToModel(*streamEvent.ContentBlock)
+				o.serverToolUses[blockIndex] = use
+				events = append(events, model.StreamEvent{Kind: model.StreamEventKindContentBlockStart, ID: o.streamID, Model: o.streamModel, BlockIndex: &blockIndex, ContentBlock: &model.StreamContentBlock{Type: use.BlockType, ID: use.ID, Name: use.Name, Input: use.Input, ServerToolUse: use}})
+				break
+			}
+			if anthropicModel.IsServerToolResult(streamEvent.ContentBlock.Type) {
+				result := compat.AnthropicServerToolResultToModel(*streamEvent.ContentBlock)
+				events = append(events, model.StreamEvent{Kind: model.StreamEventKindContentBlockStart, ID: o.streamID, Model: o.streamModel, Index: 0, BlockIndex: &blockIndex, ContentBlock: &model.StreamContentBlock{Type: streamEvent.ContentBlock.Type, ToolUseID: result.ToolUseID, IsError: result.IsError, ServerToolResult: result}})
+				break
+			}
 			return nil, nil
 		}
 
@@ -84,23 +108,31 @@ func (o *MessageOutbound) TransformStreamEvent(ctx context.Context, eventData []
 		switch *streamEvent.Delta.Type {
 		case "text_delta":
 			if streamEvent.Delta.Text != nil {
-				events = append(events, model.StreamEvent{Kind: model.StreamEventKindTextDelta, ID: o.streamID, Model: o.streamModel, Index: 0, Delta: &model.StreamDelta{Text: *streamEvent.Delta.Text}})
+				events = append(events, model.StreamEvent{Kind: model.StreamEventKindTextDelta, ID: o.streamID, Model: o.streamModel, Index: 0, BlockIndex: lo.ToPtr(int(lo.FromPtr(streamEvent.Index))), Delta: &model.StreamDelta{Text: *streamEvent.Delta.Text}})
 			}
 		case "input_json_delta":
-			if streamEvent.Delta.PartialJSON != nil && o.toolIndex >= 0 {
-				toolCall := model.ToolCall{Index: o.toolIndex, Type: "function", Function: model.FunctionCall{Arguments: *streamEvent.Delta.PartialJSON}}
-				if existing := o.toolCalls[o.toolIndex]; existing != nil {
+			blockIndex := int(lo.FromPtr(streamEvent.Index))
+			if streamEvent.Delta.PartialJSON == nil {
+				break
+			}
+			if use := o.serverToolUses[blockIndex]; use != nil {
+				metadata := *use
+				metadata.Input = nil
+				events = append(events, model.StreamEvent{Kind: model.StreamEventKindContentBlockDelta, ID: o.streamID, Model: o.streamModel, BlockIndex: &blockIndex, ContentBlock: &model.StreamContentBlock{Type: use.BlockType, ServerToolUse: &metadata}, Delta: &model.StreamDelta{Arguments: *streamEvent.Delta.PartialJSON}})
+			} else if toolIndex, ok := o.blockToolCalls[blockIndex]; ok {
+				toolCall := model.ToolCall{Index: toolIndex, Type: "function", Function: model.FunctionCall{Arguments: *streamEvent.Delta.PartialJSON}}
+				if existing := o.toolCalls[toolIndex]; existing != nil {
 					toolCall.ID = existing.ID
 				}
-				events = append(events, model.StreamEvent{Kind: model.StreamEventKindToolCallDelta, ID: o.streamID, Model: o.streamModel, Index: 0, ToolCall: &toolCall, Delta: &model.StreamDelta{Arguments: *streamEvent.Delta.PartialJSON}})
+				events = append(events, model.StreamEvent{Kind: model.StreamEventKindToolCallDelta, ID: o.streamID, Model: o.streamModel, Index: 0, BlockIndex: lo.ToPtr(int(lo.FromPtr(streamEvent.Index))), ToolCall: &toolCall, Delta: &model.StreamDelta{Arguments: *streamEvent.Delta.PartialJSON}})
 			}
 		case "thinking_delta":
 			if streamEvent.Delta.Thinking != nil {
-				events = append(events, model.StreamEvent{Kind: model.StreamEventKindThinkingDelta, ID: o.streamID, Model: o.streamModel, Index: 0, Delta: &model.StreamDelta{Thinking: *streamEvent.Delta.Thinking}})
+				events = append(events, model.StreamEvent{Kind: model.StreamEventKindThinkingDelta, ID: o.streamID, Model: o.streamModel, Index: 0, BlockIndex: lo.ToPtr(int(lo.FromPtr(streamEvent.Index))), Delta: &model.StreamDelta{Thinking: *streamEvent.Delta.Thinking}})
 			}
 		case "signature_delta":
 			if streamEvent.Delta.Signature != nil {
-				events = append(events, model.StreamEvent{Kind: model.StreamEventKindSignatureDelta, ID: o.streamID, Model: o.streamModel, Index: 0, Delta: &model.StreamDelta{
+				events = append(events, model.StreamEvent{Kind: model.StreamEventKindSignatureDelta, ID: o.streamID, Model: o.streamModel, Index: 0, BlockIndex: lo.ToPtr(int(lo.FromPtr(streamEvent.Index))), Delta: &model.StreamDelta{
 					Signature: *streamEvent.Delta.Signature,
 					SignatureSource: &model.OpaqueSignature{
 						Provider: model.SignatureProviderAnthropic,
@@ -108,6 +140,11 @@ func (o *MessageOutbound) TransformStreamEvent(ctx context.Context, eventData []
 						Value:    *streamEvent.Delta.Signature,
 					},
 				}})
+			}
+		case "citations_delta":
+			if streamEvent.Delta.Citation != nil {
+				citation := compat.AnthropicCitationsToModel([]anthropicModel.Citation{*streamEvent.Delta.Citation})[0]
+				events = append(events, model.StreamEvent{Kind: model.StreamEventKindCitationDelta, ID: o.streamID, Model: o.streamModel, Index: 0, BlockIndex: lo.ToPtr(int(lo.FromPtr(streamEvent.Index))), Delta: &model.StreamDelta{Citation: &citation}})
 			}
 		default:
 			return nil, nil
@@ -154,7 +191,9 @@ func (o *MessageOutbound) TransformStreamEvent(ctx context.Context, eventData []
 		appendUsage(o.streamUsage)
 
 	case "content_block_stop":
-		events = append(events, model.StreamEvent{Kind: model.StreamEventKindContentBlockStop, ID: o.streamID, Model: o.streamModel, Index: 0})
+		events = append(events, model.StreamEvent{Kind: model.StreamEventKindContentBlockStop, ID: o.streamID, Model: o.streamModel, Index: 0, BlockIndex: lo.ToPtr(int(lo.FromPtr(streamEvent.Index)))})
+		delete(o.serverToolUses, int(lo.FromPtr(streamEvent.Index)))
+		delete(o.blockToolCalls, int(lo.FromPtr(streamEvent.Index)))
 
 	case "ping":
 		return nil, nil

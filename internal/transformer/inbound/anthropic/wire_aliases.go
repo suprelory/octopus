@@ -21,6 +21,7 @@ type InputSchema = wire.InputSchema
 type MessageParam = wire.MessageParam
 type MessageContent = wire.MessageContent
 type MessageContentBlock = wire.MessageContentBlock
+type Citation = wire.Citation
 type DocumentCitationsControl = wire.DocumentCitationsControl
 type ImageSource = wire.ImageSource
 type StreamEvent = wire.StreamEvent

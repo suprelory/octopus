@@ -390,15 +390,17 @@ type MessageContentBlock struct {
 	Source *ImageSource `json:"source,omitempty"`
 
 	// Document-block metadata (Type == "document").
-	Title     string                    `json:"title,omitempty"`
-	Context   string                    `json:"context,omitempty"`
-	Citations *DocumentCitationsControl `json:"citations,omitempty"`
+	Title          string                    `json:"title,omitempty"`
+	Context        string                    `json:"context,omitempty"`
+	CitationConfig *DocumentCitationsControl `json:"-"`
 
 	// Tool use request
 	// tool_use or server_tool_use
 	ID           string          `json:"id,omitempty"`
 	Name         *string         `json:"name,omitempty"`
 	Input        json.RawMessage `json:"input,omitempty"`
+	Caller       json.RawMessage `json:"caller,omitempty"`
+	ServerName   string          `json:"server_name,omitempty"`
 	CacheControl *CacheControl   `json:"cache_control,omitempty"`
 
 	// Tool result fields
@@ -407,13 +409,44 @@ type MessageContentBlock struct {
 	// Type can be "text" or "image".
 	Content *MessageContent `json:"content,omitempty"`
 	IsError *bool           `json:"is_error,omitempty"`
+
+	// Citations are emitted on text blocks by Anthropic and must also be
+	// accepted on streamed text deltas.
+	Citations []Citation `json:"-"`
+
+	// RawContent preserves provider-specific server-tool result entries (for
+	// example search_result and code_execution_result) that are not represented
+	// by MessageContentBlock fields.
+	RawContent json.RawMessage `json:"-"`
+}
+
+// Citation is the common superset of Anthropic's document and web-search
+// citation locations. Fields not used by a citation type remain omitted.
+type Citation struct {
+	// Raw preserves nulls, zero-valued locations and future citation fields.
+	Raw               json.RawMessage `json:"-"`
+	Type              string          `json:"type,omitempty"`
+	CitedText         string          `json:"cited_text,omitempty"`
+	DocumentIndex     int             `json:"document_index,omitempty"`
+	DocumentTitle     string          `json:"document_title,omitempty"`
+	StartCharIndex    int             `json:"start_char_index,omitempty"`
+	EndCharIndex      int             `json:"end_char_index,omitempty"`
+	StartPageNumber   int             `json:"start_page_number,omitempty"`
+	EndPageNumber     int             `json:"end_page_number,omitempty"`
+	StartBlockIndex   int             `json:"start_block_index,omitempty"`
+	EndBlockIndex     int             `json:"end_block_index,omitempty"`
+	SearchResultIndex int             `json:"search_result_index,omitempty"`
+	EncryptedIndex    string          `json:"encrypted_index,omitempty"`
+	URL               string          `json:"url,omitempty"`
+	Source            string          `json:"source,omitempty"`
+	Title             string          `json:"title,omitempty"`
 }
 
 // DocumentCitationsControl mirrors document.citations on Anthropic document
 // blocks. A single `enabled` flag today; we preserve the struct shape for
 // forward-compatibility as Anthropic extends citation metadata.
 type DocumentCitationsControl struct {
-	Enabled bool `json:"enabled,omitempty"`
+	Enabled bool `json:"enabled"`
 }
 
 // ImageSource represents the `source` sub-object of an Anthropic content
@@ -483,6 +516,8 @@ type StreamDelta struct {
 
 	// Signature will be present if type is "signature_delta".
 	Signature *string `json:"signature,omitempty"`
+
+	Citation *Citation `json:"citation,omitempty"`
 
 	// For "message_delta"
 	// Any of "end_turn", "max_tokens", "stop_sequence", "tool_use", "pause_turn",

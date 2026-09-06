@@ -77,15 +77,26 @@ func (i *MessagesInbound) TransformStreamEvents(ctx context.Context, events []mo
 		i.contentIndex++
 		return nil
 	}
-	startText := func() error {
-		if i.hasTextContentStarted {
-			return nil
-		}
+	startBlock := func(block *MessageContentBlock, sourceIndex *int) error {
 		if err := closeOpenBlock(); err != nil {
 			return err
 		}
-		i.hasTextContentStarted = true
-		startEvent := StreamEvent{Type: "content_block_start", Index: &i.contentIndex, ContentBlock: &MessageContentBlock{Type: "text", Text: lo.ToPtr("")}}
+		switch block.Type {
+		case "text":
+			i.hasTextContentStarted = true
+		case "thinking":
+			i.hasThinkingContentStarted = true
+		case "tool_use":
+			i.hasToolContentStarted = true
+		default:
+			i.hasNativeContentStarted = true
+			i.nativeContentType = block.Type
+		}
+		if sourceIndex != nil {
+			index := *sourceIndex
+			i.openSourceBlockIndex = &index
+		}
+		startEvent := StreamEvent{Type: "content_block_start", Index: &i.contentIndex, ContentBlock: block}
 		data, err := json.Marshal(startEvent)
 		if err != nil {
 			return fmt.Errorf("failed to marshal content_block_start event: %w", err)
@@ -93,45 +104,32 @@ func (i *MessagesInbound) TransformStreamEvents(ctx context.Context, events []mo
 		out = append(out, formatSSEEvent("content_block_start", data))
 		return nil
 	}
-	startThinking := func() error {
-		if i.hasThinkingContentStarted {
+	startText := func(sourceIndex *int) error {
+		if i.hasTextContentStarted && i.matchesSourceBlock(sourceIndex) {
 			return nil
 		}
-		if err := closeOpenBlock(); err != nil {
-			return err
-		}
-		i.hasThinkingContentStarted = true
-		startEvent := StreamEvent{Type: "content_block_start", Index: &i.contentIndex, ContentBlock: &MessageContentBlock{Type: "thinking", Thinking: lo.ToPtr(""), Signature: lo.ToPtr("")}}
-		data, err := json.Marshal(startEvent)
-		if err != nil {
-			return fmt.Errorf("failed to marshal content_block_start event: %w", err)
-		}
-		out = append(out, formatSSEEvent("content_block_start", data))
-		return nil
+		return startBlock(&MessageContentBlock{Type: "text", Text: lo.ToPtr("")}, sourceIndex)
 	}
-	startTool := func(toolCall model.ToolCall) error {
+	startThinking := func(sourceIndex *int) error {
+		if i.hasThinkingContentStarted && i.matchesSourceBlock(sourceIndex) {
+			return nil
+		}
+		return startBlock(&MessageContentBlock{Type: "thinking", Thinking: lo.ToPtr(""), Signature: lo.ToPtr("")}, sourceIndex)
+	}
+	startTool := func(toolCall model.ToolCall, sourceIndex *int) error {
 		if i.toolCallIndices == nil {
 			i.toolCallIndices = make(map[int]bool)
 		}
-		if i.toolCallIndices[toolCall.Index] && i.hasToolContentStarted {
+		if i.toolCallIndices[toolCall.Index] && i.hasToolContentStarted && i.activeToolCallIndex == toolCall.Index && i.matchesSourceBlock(sourceIndex) {
 			return nil
 		}
-		if err := closeOpenBlock(); err != nil {
-			return err
-		}
 		i.toolCallIndices[toolCall.Index] = true
-		i.hasToolContentStarted = true
-		startBlock := &MessageContentBlock{Type: "tool_use", ID: toolCall.ID, Name: &toolCall.Function.Name, Input: json.RawMessage("{}")}
+		i.activeToolCallIndex = toolCall.Index
+		block := &MessageContentBlock{Type: "tool_use", ID: toolCall.ID, Name: &toolCall.Function.Name, Input: json.RawMessage("{}")}
 		if sig := toolCall.GetGeminiExtensions().ThoughtSignature; strings.TrimSpace(sig) != "" {
 			compat.SaveGeminiThoughtSignatureScoped(i.geminiSignatureScope(ctx, i.modelName), toolCall.ID, toolCall.Function.Name, sig)
 		}
-		startEvent := StreamEvent{Type: "content_block_start", Index: &i.contentIndex, ContentBlock: startBlock}
-		data, err := json.Marshal(startEvent)
-		if err != nil {
-			return fmt.Errorf("failed to marshal content_block_start event: %w", err)
-		}
-		out = append(out, formatSSEEvent("content_block_start", data))
-		return nil
+		return startBlock(block, sourceIndex)
 	}
 
 	for _, event := range events {
@@ -153,7 +151,7 @@ func (i *MessagesInbound) TransformStreamEvents(ctx context.Context, events []mo
 			if event.Delta == nil || event.Delta.Text == "" {
 				continue
 			}
-			if err := startText(); err != nil {
+			if err := startText(event.BlockIndex); err != nil {
 				return nil, err
 			}
 			text := event.Delta.Text
@@ -171,7 +169,7 @@ func (i *MessagesInbound) TransformStreamEvents(ctx context.Context, events []mo
 				continue
 			}
 			if event.Delta.Thinking != "" {
-				if err := startThinking(); err != nil {
+				if err := startThinking(event.BlockIndex); err != nil {
 					return nil, err
 				}
 				thinking := event.Delta.Thinking
@@ -183,7 +181,7 @@ func (i *MessagesInbound) TransformStreamEvents(ctx context.Context, events []mo
 				out = append(out, formatSSEEvent("content_block_delta", data))
 			}
 			if signature := anthropicWireStreamSignature(event.Delta); signature != "" {
-				if err := startThinking(); err != nil {
+				if err := startThinking(event.BlockIndex); err != nil {
 					return nil, err
 				}
 				deltaEvent := StreamEvent{Type: "content_block_delta", Index: &i.contentIndex, Delta: &StreamDelta{Type: lo.ToPtr("signature_delta"), Signature: &signature}}
@@ -204,7 +202,7 @@ func (i *MessagesInbound) TransformStreamEvents(ctx context.Context, events []mo
 			if signature == "" {
 				continue
 			}
-			if err := startThinking(); err != nil {
+			if err := startThinking(event.BlockIndex); err != nil {
 				return nil, err
 			}
 			deltaEvent := StreamEvent{Type: "content_block_delta", Index: &i.contentIndex, Delta: &StreamDelta{Type: lo.ToPtr("signature_delta"), Signature: &signature}}
@@ -217,31 +215,86 @@ func (i *MessagesInbound) TransformStreamEvents(ctx context.Context, events []mo
 			if err := ensureStarted(event); err != nil {
 				return nil, err
 			}
-			if event.ContentBlock == nil || event.ContentBlock.Type != "redacted_thinking" || event.ContentBlock.Data == "" {
+			if event.ContentBlock == nil {
 				continue
 			}
-			if err := closeOpenBlock(); err != nil {
+			block := event.ContentBlock
+			var wireBlock MessageContentBlock
+			switch {
+			case block.ServerToolUse != nil:
+				use := *block.ServerToolUse
+				if use.BlockType == "" {
+					use.BlockType = block.Type
+				}
+				wireBlock = compat.AnthropicServerToolUseFromModel(&use)
+			case block.ServerToolResult != nil:
+				result := *block.ServerToolResult
+				if result.BlockType == "" {
+					result.BlockType = block.Type
+				}
+				wireBlock = compat.AnthropicServerToolResultFromModel(&result)
+			case block.Type == "text":
+				wireBlock = MessageContentBlock{Type: "text", Text: &block.Text, Citations: compat.AnthropicCitationsFromModel(block.Citations)}
+			case block.Type == "thinking":
+				if err := startThinking(event.BlockIndex); err != nil {
+					return nil, err
+				}
+				continue
+			case block.Type == "redacted_thinking" && block.Data != "":
+				wireBlock = MessageContentBlock{Type: "redacted_thinking", Data: block.Data}
+			default:
+				continue
+			}
+			if err := startBlock(&wireBlock, event.BlockIndex); err != nil {
 				return nil, err
 			}
-			startEvent := StreamEvent{Type: "content_block_start", Index: &i.contentIndex, ContentBlock: &MessageContentBlock{Type: "redacted_thinking", Data: event.ContentBlock.Data}}
-			data, err := json.Marshal(startEvent)
-			if err != nil {
-				return nil, fmt.Errorf("failed to marshal content_block_start event: %w", err)
+		case model.StreamEventKindContentBlockDelta:
+			if event.ContentBlock == nil || event.ContentBlock.ServerToolUse == nil || event.Delta == nil {
+				continue
 			}
-			out = append(out, formatSSEEvent("content_block_start", data))
-			stopEvent := StreamEvent{Type: "content_block_stop", Index: &i.contentIndex}
-			stopData, err := json.Marshal(stopEvent)
-			if err != nil {
-				return nil, fmt.Errorf("failed to marshal content_block_stop event: %w", err)
+			if err := ensureStarted(event); err != nil {
+				return nil, err
 			}
-			out = append(out, formatSSEEvent("content_block_stop", stopData))
-			i.contentIndex++
+			block := compat.AnthropicServerToolUseFromModel(event.ContentBlock.ServerToolUse)
+			if !i.hasNativeContentStarted || i.nativeContentType != block.Type || !i.matchesSourceBlock(event.BlockIndex) {
+				block.Input = json.RawMessage("{}")
+				if err := startBlock(&block, event.BlockIndex); err != nil {
+					return nil, err
+				}
+			}
+			arguments := event.Delta.Arguments
+			deltaEvent := StreamEvent{Type: "content_block_delta", Index: &i.contentIndex, Delta: &StreamDelta{Type: lo.ToPtr("input_json_delta"), PartialJSON: &arguments}}
+			data, err := json.Marshal(deltaEvent)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal server-tool delta: %w", err)
+			}
+			out = append(out, formatSSEEvent("content_block_delta", data))
+		case model.StreamEventKindCitationDelta:
+			if event.Delta == nil || event.Delta.Citation == nil {
+				continue
+			}
+			citations := compat.AnthropicCitationsFromModel([]model.Citation{*event.Delta.Citation})
+			if len(citations) == 0 {
+				continue
+			}
+			if err := ensureStarted(event); err != nil {
+				return nil, err
+			}
+			if err := startText(event.BlockIndex); err != nil {
+				return nil, err
+			}
+			deltaEvent := StreamEvent{Type: "content_block_delta", Index: &i.contentIndex, Delta: &StreamDelta{Type: lo.ToPtr("citations_delta"), Citation: &citations[0]}}
+			data, err := json.Marshal(deltaEvent)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal citation delta: %w", err)
+			}
+			out = append(out, formatSSEEvent("content_block_delta", data))
 		case model.StreamEventKindToolCallStart:
 			if err := ensureStarted(event); err != nil {
 				return nil, err
 			}
 			if event.ToolCall != nil {
-				if err := startTool(*event.ToolCall); err != nil {
+				if err := startTool(*event.ToolCall, event.BlockIndex); err != nil {
 					return nil, err
 				}
 			}
@@ -252,7 +305,7 @@ func (i *MessagesInbound) TransformStreamEvents(ctx context.Context, events []mo
 			if event.ToolCall == nil {
 				continue
 			}
-			if err := startTool(*event.ToolCall); err != nil {
+			if err := startTool(*event.ToolCall, event.BlockIndex); err != nil {
 				return nil, err
 			}
 			arguments := event.ToolCall.Function.Arguments
@@ -269,6 +322,9 @@ func (i *MessagesInbound) TransformStreamEvents(ctx context.Context, events []mo
 			}
 			out = append(out, formatSSEEvent("content_block_delta", data))
 		case model.StreamEventKindToolCallStop, model.StreamEventKindContentBlockStop:
+			if !i.matchesSourceBlock(event.BlockIndex) {
+				continue
+			}
 			if err := closeOpenBlock(); err != nil {
 				return nil, err
 			}
@@ -332,13 +388,20 @@ func (i *MessagesInbound) TransformStreamEvents(ctx context.Context, events []mo
 }
 
 func (i *MessagesInbound) hasOpenContentBlock() bool {
-	return i.hasTextContentStarted || i.hasThinkingContentStarted || i.hasToolContentStarted
+	return i.hasTextContentStarted || i.hasThinkingContentStarted || i.hasToolContentStarted || i.hasNativeContentStarted
+}
+
+func (i *MessagesInbound) matchesSourceBlock(index *int) bool {
+	return index == nil || i.openSourceBlockIndex == nil || *index == *i.openSourceBlockIndex
 }
 
 func (i *MessagesInbound) resetOpenContentState() {
 	i.hasTextContentStarted = false
 	i.hasThinkingContentStarted = false
 	i.hasToolContentStarted = false
+	i.hasNativeContentStarted = false
+	i.nativeContentType = ""
+	i.openSourceBlockIndex = nil
 }
 
 func (i *MessagesInbound) ensureDefaultStopReason() {
@@ -350,31 +413,6 @@ func (i *MessagesInbound) ensureDefaultStopReason() {
 		stopReason = "tool_use"
 	}
 	i.stopReason = &stopReason
-}
-
-func (i *MessagesInbound) finalizeStreamAtEnd(usage *model.Usage) ([][]byte, error) {
-	if i.messageStopped || !i.hasStarted {
-		return nil, nil
-	}
-
-	var events [][]byte
-	if i.hasOpenContentBlock() {
-		stopEvent := StreamEvent{Type: "content_block_stop", Index: &i.contentIndex}
-		data, err := json.Marshal(stopEvent)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal content_block_stop event: %w", err)
-		}
-		events = append(events, formatSSEEvent("content_block_stop", data))
-		i.resetOpenContentState()
-	}
-
-	i.ensureDefaultStopReason()
-	i.hasFinished = true
-	terminalEvents, err := i.finalizeStreamMessage(usage)
-	if err != nil {
-		return nil, err
-	}
-	return append(events, terminalEvents...), nil
 }
 
 func (i *MessagesInbound) finalizeStreamMessage(usage *model.Usage) ([][]byte, error) {
