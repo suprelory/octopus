@@ -25,6 +25,7 @@ type MessageOutbound struct {
 	blockToolCalls map[int]int
 	serverToolUses map[int]*model.ServerToolUseBlock
 	initialized    bool
+	messageStopped bool
 }
 
 func (o *MessageOutbound) TransformRequest(ctx context.Context, request *model.InternalLLMRequest, baseUrl, key string) (*http.Request, error) {

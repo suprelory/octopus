@@ -17,6 +17,9 @@ func (o *MessageOutbound) TransformStreamEvent(ctx context.Context, eventData []
 		return nil, nil
 	}
 	if bytes.HasPrefix(eventData, []byte("[DONE]")) {
+		if o.messageStopped {
+			return nil, nil
+		}
 		return []model.StreamEvent{{Kind: model.StreamEventKindDone}}, nil
 	}
 	if !o.initialized {
@@ -188,7 +191,14 @@ func (o *MessageOutbound) TransformStreamEvent(ctx context.Context, eventData []
 		}
 
 	case "message_stop":
+		if o.messageStopped {
+			return nil, nil
+		}
+		o.messageStopped = true
 		appendUsage(o.streamUsage)
+		// An explicit terminal marker lets the finalizer infer a missing stop
+		// reason without accepting an incomplete stream that only reached EOF.
+		events = append(events, model.StreamEvent{Kind: model.StreamEventKindDone})
 
 	case "content_block_stop":
 		events = append(events, model.StreamEvent{Kind: model.StreamEventKindContentBlockStop, ID: o.streamID, Model: o.streamModel, Index: 0, BlockIndex: lo.ToPtr(int(lo.FromPtr(streamEvent.Index)))})
