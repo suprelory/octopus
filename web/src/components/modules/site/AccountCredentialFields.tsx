@@ -1,0 +1,294 @@
+'use client';
+
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SiteCredentialType, SitePlatform } from '@/api/endpoints/site';
+import type { AccountFormFieldsProps } from './account-form';
+import { FORM_SECTION_TRANSITION } from './form-motion';
+
+const CREDENTIAL_LABELS: Record<SiteCredentialType, string> = {
+    [SiteCredentialType.UsernamePassword]: '用户名 / 密码',
+    [SiteCredentialType.AccessToken]: 'Access Token',
+    [SiteCredentialType.APIKey]: 'API Key',
+};
+
+function AnimatedFormSection({ children }: { children: ReactNode }) {
+    const contentRef = useRef<HTMLDivElement>(null);
+    const [height, setHeight] = useState<number | 'auto'>('auto');
+
+    const updateHeight = useCallback(() => {
+        const node = contentRef.current;
+        if (!node) return;
+
+        const nextHeight = node.offsetHeight;
+        setHeight((current) => (current === nextHeight ? current : nextHeight));
+    }, []);
+
+    useLayoutEffect(() => {
+        updateHeight();
+    });
+
+    useLayoutEffect(() => {
+        const node = contentRef.current;
+        if (!node || typeof ResizeObserver === 'undefined') return;
+
+        const observer = new ResizeObserver(updateHeight);
+        observer.observe(node);
+        return () => observer.disconnect();
+    }, [updateHeight]);
+
+    return (
+        <motion.div
+            initial={false}
+            animate={{ height }}
+            transition={FORM_SECTION_TRANSITION}
+            className="-mx-1 mb-4 overflow-hidden"
+        >
+            <div ref={contentRef} className="px-1 pb-1">{children}</div>
+        </motion.div>
+    );
+}
+
+export function AccountCredentialFields({ accountForm, setAccountForm, currentPlatform, currentCredentialOptions }: AccountFormFieldsProps & {
+    currentPlatform: SitePlatform;
+    currentCredentialOptions: SiteCredentialType[];
+}) {
+    return (
+        <>
+            <div className="grid gap-4 md:grid-cols-2">
+                <label className="grid gap-2 text-sm">
+                    <span className="font-medium">账号名称</span>
+                    <Input
+                        value={accountForm.name}
+                        onChange={(event) =>
+                            setAccountForm((current) =>
+                                current
+                                    ? { ...current, name: event.target.value }
+                                    : current,
+                            )
+                        }
+                        placeholder="例如：主账号"
+                        className="rounded-xl"
+                    />
+                </label>
+
+                <label className="grid gap-2 text-sm">
+                    <span className="font-medium">凭据类型</span>
+                    <Select
+                        value={accountForm.credential_type}
+                        onValueChange={(value) =>
+                            setAccountForm((current) => {
+                                if (!current) return current;
+                                const nextType = value as SiteCredentialType;
+                                return {
+                                    ...current,
+                                    credential_type: nextType,
+                                    access_token:
+                                        nextType === SiteCredentialType.AccessToken
+                                            ? current.access_token
+                                            : '',
+                                    api_key:
+                                        nextType === SiteCredentialType.APIKey
+                                            ? current.api_key
+                                            : '',
+                                    platform_user_id:
+                                        nextType === SiteCredentialType.AccessToken &&
+                                        currentPlatform === SitePlatform.NewAPI
+                                            ? current.platform_user_id
+                                            : '',
+                                };
+                            })
+                        }
+                    >
+                        <SelectTrigger className="w-full rounded-xl">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-xl">
+                            {currentCredentialOptions.map((value) => (
+                                <SelectItem className="rounded-xl" key={value} value={value}>
+                                    {CREDENTIAL_LABELS[value]}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </label>
+            </div>
+
+            <AnimatedFormSection>
+                <AnimatePresence initial={false} mode="popLayout">
+                    {accountForm.credential_type === SiteCredentialType.UsernamePassword ? (
+                        <motion.div
+                            key={SiteCredentialType.UsernamePassword}
+                            initial={{ opacity: 0, y: -6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -6 }}
+                            transition={FORM_SECTION_TRANSITION}
+                        >
+                            <div className="grid gap-4 md:grid-cols-2">
+                                <label className="grid gap-2 text-sm">
+                                    <span className="font-medium">用户名</span>
+                                    <Input
+                                        value={accountForm.username}
+                                        onChange={(event) =>
+                                            setAccountForm((current) =>
+                                                current
+                                                    ? { ...current, username: event.target.value }
+                                                    : current,
+                                            )
+                                        }
+                                        placeholder="请输入用户名"
+                                        className="rounded-xl"
+                                    />
+                                </label>
+
+                                <label className="grid gap-2 text-sm">
+                                    <span className="font-medium">密码</span>
+                                    <Input
+                                        type="password"
+                                        value={accountForm.password}
+                                        onChange={(event) =>
+                                            setAccountForm((current) =>
+                                                current
+                                                    ? { ...current, password: event.target.value }
+                                                    : current,
+                                            )
+                                        }
+                                        placeholder="请输入密码"
+                                        className="rounded-xl"
+                                    />
+                                </label>
+                            </div>
+                        </motion.div>
+                    ) : accountForm.credential_type === SiteCredentialType.AccessToken ? (
+                        <motion.div
+                            key={SiteCredentialType.AccessToken}
+                            initial={{ opacity: 0, y: -6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -6 }}
+                            transition={FORM_SECTION_TRANSITION}
+                        >
+                            <div className="grid gap-4">
+                                <label className="grid gap-2 text-sm">
+                                    <span className="font-medium">Access Token</span>
+                                    <Input
+                                        value={accountForm.access_token}
+                                        onChange={(event) =>
+                                            setAccountForm((current) =>
+                                                current
+                                                    ? { ...current, access_token: event.target.value }
+                                                    : current,
+                                            )
+                                        }
+                                        placeholder="请输入 Access Token"
+                                        className="rounded-xl"
+                                    />
+                                </label>
+
+                                {currentPlatform === SitePlatform.Sub2API ? (
+                                    <div className="grid gap-2">
+                                        <div className="grid gap-4 md:grid-cols-2">
+                                            <label className="grid gap-2 text-sm">
+                                                <span className="font-medium">Refresh Token</span>
+                                                <Input
+                                                    value={accountForm.refresh_token}
+                                                    onChange={(event) =>
+                                                        setAccountForm((current) =>
+                                                            current
+                                                                ? {
+                                                                      ...current,
+                                                                      refresh_token: event.target.value,
+                                                                  }
+                                                                : current,
+                                                        )
+                                                    }
+                                                    placeholder="可选：请输入 refresh_token"
+                                                    className="rounded-xl"
+                                                />
+                                            </label>
+
+                                            <label className="grid gap-2 text-sm">
+                                                <span className="font-medium">token_expires_at</span>
+                                                <Input
+                                                    value={accountForm.token_expires_at}
+                                                    onChange={(event) =>
+                                                        setAccountForm((current) =>
+                                                            current
+                                                                ? {
+                                                                      ...current,
+                                                                      token_expires_at: event.target.value,
+                                                                  }
+                                                                : current,
+                                                        )
+                                                    }
+                                                    placeholder="可选：F12 中的时间戳或时间字符串"
+                                                    className="rounded-xl"
+                                                />
+                                            </label>
+                                        </div>
+                                        <span className="text-xs text-muted-foreground">
+                                            Sub2API 推荐同时填写 F12 里的 <code>refresh_token</code>{' '}
+                                            与 <code>token_expires_at</code>，会在快过期或 401
+                                            时自动续期。
+                                        </span>
+                                    </div>
+                                ) : null}
+
+                                {currentPlatform === SitePlatform.NewAPI ? (
+                                    <label className="grid gap-2 text-sm">
+                                        <span className="font-medium">Platform User ID</span>
+                                        <Input
+                                            value={accountForm.platform_user_id}
+                                            onChange={(event) =>
+                                                setAccountForm((current) =>
+                                                    current
+                                                        ? {
+                                                              ...current,
+                                                              platform_user_id: event.target.value,
+                                                          }
+                                                        : current,
+                                                )
+                                            }
+                                            placeholder="例如 11494"
+                                            className="rounded-xl"
+                                            required
+                                        />
+                                        <span className="text-xs text-muted-foreground">
+                                            New API 站点同步 token、分组和签到时需要用户
+                                            ID。导入数据会尽量自动填充该值。
+                                        </span>
+                                    </label>
+                                ) : null}
+                            </div>
+                        </motion.div>
+                    ) : (
+                        <motion.div
+                            key={SiteCredentialType.APIKey}
+                            initial={{ opacity: 0, y: -6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -6 }}
+                            transition={FORM_SECTION_TRANSITION}
+                        >
+                            <label className="grid gap-2 text-sm">
+                                <span className="font-medium">API Key</span>
+                                <Input
+                                    value={accountForm.api_key}
+                                    onChange={(event) =>
+                                        setAccountForm((current) =>
+                                            current
+                                                ? { ...current, api_key: event.target.value }
+                                                : current,
+                                        )
+                                    }
+                                    placeholder="请输入 API Key"
+                                    className="rounded-xl"
+                                />
+                            </label>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </AnimatedFormSection>
+        </>
+    );
+}
