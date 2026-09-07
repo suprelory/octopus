@@ -62,7 +62,7 @@ export function SettingReliability() {
                 />
             )}
 
-            {/* HTTP 故障转移预算 */}
+            {/* HTTP/WS 故障转移预算 */}
             <SettingSection title={t('relayBudget.title')} tooltip={t('relayBudget.description')} />
             <NumberFieldRow
                 settingKey={SettingKey.RelayMaxChannelAttempts}

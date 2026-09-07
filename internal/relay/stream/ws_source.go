@@ -28,10 +28,8 @@ func (s *WSSource) ReadEvent(ctx context.Context) ([]byte, error) {
 	return s.reader.ReadEvent(ctx)
 }
 
-// Close releases the WebSocket connection.
+// The relay owns the connection lease: it returns a connection to the pool only
+// after stream validation succeeds. The processor cancels and joins its reader.
 func (s *WSSource) Close() error {
-	if s.reader != nil {
-		s.reader.Close()
-	}
 	return nil
 }

@@ -25,6 +25,9 @@ type ChannelAttempt struct {
 	ChannelName       string                   `json:"channel_name"`
 	ModelName         string                   `json:"model_name"`
 	AdapterType       string                   `json:"adapter_type,omitempty"` // response, chat, anthropic, gemini, embedding, etc.
+	Transport         string                   `json:"transport,omitempty"`
+	WSMode            RelayLogWSMode           `json:"ws_mode,omitempty"`
+	Recovery          RelayLogWSRecovery       `json:"recovery,omitempty"`
 	AttemptNum        int                      `json:"attempt_num"`
 	Status            AttemptStatus            `json:"status"`
 	Duration          int                      `json:"duration"`

@@ -67,10 +67,12 @@ func (r *wsUpstreamReader) ReadEvent(ctx context.Context) ([]byte, error) {
 	var event struct {
 		Type       string          `json:"type"`
 		Status     int             `json:"status"`
+		Code       any             `json:"code"`
+		Message    string          `json:"message"`
 		RetryAfter json.RawMessage `json:"retry_after"`
 		RetryAt    json.RawMessage `json:"retry_at"`
 		Error      *struct {
-			Code       string          `json:"code"`
+			Code       any             `json:"code"`
 			Message    string          `json:"message"`
 			Type       string          `json:"type"`
 			RetryAfter json.RawMessage `json:"retry_after"`
@@ -81,7 +83,7 @@ func (r *wsUpstreamReader) ReadEvent(ctx context.Context) ([]byte, error) {
 			RetryAfter json.RawMessage `json:"retry_after"`
 			RetryAt    json.RawMessage `json:"retry_at"`
 			Error      *struct {
-				Code       string          `json:"code"`
+				Code       any             `json:"code"`
 				Message    string          `json:"message"`
 				Type       string          `json:"type"`
 				RetryAfter json.RawMessage `json:"retry_after"`
@@ -104,23 +106,27 @@ func (r *wsUpstreamReader) ReadEvent(ctx context.Context) ([]byte, error) {
 			} else if r.statusCode < 400 {
 				r.statusCode = http.StatusBadGateway
 			}
-			errCode := ""
-			errMsg := "upstream ws error"
+			errCode, errMsg, errType := normalizeWSUpstreamErrorCode(event.Code), event.Message, ""
+			if errMsg == "" {
+				errMsg = "upstream ws error"
+			}
 			if event.Error != nil {
 				errMsg = event.Error.Message
-				errCode = event.Error.Code
+				errCode = normalizeWSUpstreamErrorCode(event.Error.Code)
+				errType = event.Error.Type
 				r.retryAt = firstRetryDeadline(parseWSRetryDeadline(now, event.Error.RetryAfter, event.Error.RetryAt), r.retryAt)
 			}
 			if event.Response != nil && event.Response.Error != nil {
 				errMsg = event.Response.Error.Message
-				errCode = event.Response.Error.Code
+				errCode = normalizeWSUpstreamErrorCode(event.Response.Error.Code)
+				errType = event.Response.Error.Type
 				r.retryAt = firstRetryDeadline(
 					parseWSRetryDeadline(now, event.Response.Error.RetryAfter, event.Response.Error.RetryAt),
 					parseWSRetryDeadline(now, event.Response.RetryAfter, event.Response.RetryAt),
 					r.retryAt,
 				)
 			}
-			return nil, fmt.Errorf("%s (code=%s, status=%d)", errMsg, errCode, r.statusCode)
+			return nil, &wsUpstreamEventError{Status: r.statusCode, Code: errCode, Type: errType, Message: errMsg, RetryAt: r.retryAt}
 		}
 	}
 

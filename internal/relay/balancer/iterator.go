@@ -440,6 +440,14 @@ func (it *Iterator) HasRemainingDifferentChannelExcept(channelID int, excluded m
 // HasRemainingDifferentChannelMatching also requires accept to approve the
 // candidate channel. A nil predicate accepts every non-excluded channel.
 func (it *Iterator) HasRemainingDifferentChannelMatching(channelID int, excluded map[int]struct{}, accept func(int) bool) bool {
+	return it.HasRemainingDifferentCandidateMatching(channelID, excluded, func(item model.GroupItem) bool {
+		return accept == nil || accept(item.ChannelID)
+	})
+}
+
+// HasRemainingDifferentCandidateMatching lets the relay check model capability
+// and key availability without advancing the iterator or acquiring a probe.
+func (it *Iterator) HasRemainingDifferentCandidateMatching(channelID int, excluded map[int]struct{}, accept func(model.GroupItem) bool) bool {
 	if it == nil {
 		return false
 	}
@@ -451,7 +459,7 @@ func (it *Iterator) HasRemainingDifferentChannelMatching(channelID int, excluded
 		if _, skip := excluded[candidateChannelID]; skip {
 			continue
 		}
-		if accept != nil && !accept(candidateChannelID) {
+		if accept != nil && !accept(it.candidates[index]) {
 			continue
 		}
 		return true
@@ -638,6 +646,12 @@ func valueOrZeroTime(value *time.Time) time.Time {
 // SetAdapterType records the outbound protocol selected for this attempt.
 func (s *AttemptSpan) SetAdapterType(adapterType string) {
 	s.attempt.AdapterType = adapterType
+}
+
+func (s *AttemptSpan) SetTransport(transport string, mode model.RelayLogWSMode, recovery model.RelayLogWSRecovery) {
+	s.attempt.Transport = transport
+	s.attempt.WSMode = mode
+	s.attempt.Recovery = recovery
 }
 
 // SetCapability records the semantic planning decision that authorized this attempt.

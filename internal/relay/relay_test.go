@@ -1210,7 +1210,7 @@ func TestForwardViaWSRedialsFreshRequestAfterStalePooledConnection(t *testing.T)
 		usedKey:      channel.Keys[0],
 	}
 
-	statusCode, err := ra.forwardViaWS(context.Background())
+	statusCode, err := runWSRetryTestAttempt(t, ra)
 	if err != nil {
 		t.Fatalf("expected fresh ws request to recover by redial, got err %v", err)
 	}
@@ -1286,7 +1286,7 @@ func TestForwardViaWSReconnectsContinuationAfterReadFailureBeforeFirstEvent(t *t
 		usedKey:      channel.Keys[0],
 	}
 
-	statusCode, err := ra.forwardViaWS(context.Background())
+	statusCode, err := runWSRetryTestAttempt(t, ra)
 	if err != nil {
 		t.Fatalf("expected continuation ws request to recover by redial, got err %v", err)
 	}

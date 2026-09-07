@@ -135,7 +135,6 @@ func processWSResponseCreate(
 	}
 
 	requestModel = executionRequest.Model
-	emptyResponseDetection := emptyResponseDetectionEnabled()
 	req, group, err := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, clientIP, cloneInternalRequest(executionRequest), originalRequest, preferredSticky, bodyBytes)
 	if err != nil {
 		status := 404
@@ -148,6 +147,7 @@ func processWSResponseCreate(
 		return conversationState
 	}
 
+	emptyResponseDetection := req.execution.emptyResponseDetection
 	autoRestart := conversationState != nil && continuationRequested && conversationState.CanAutoRestart(originalRequest)
 	failedPreviousResponseID := currentPreviousResponseID(originalRequest)
 	log.Debugf("ws relay prepared (apikey=%d, request_model=%s, previous_response_id=%s, auto_replay=%t, preferred_channel=%d, preferred_key=%d)",
@@ -168,21 +168,22 @@ func processWSResponseCreate(
 	if result.Attempt != nil {
 		req = result.Attempt
 	}
-	if result.ResetConversation && autoRestart && !req.streamWriter.Written() {
+	if result.ResetConversation && autoRestart && !result.Written && !result.Canceled && !req.responseCommitted() && req.execution.replayBudget == nil {
 		log.Debugf("ws relay switching to replay (apikey=%d, request_model=%s, failed_previous_response_id=%s, reset_conversation=%t)",
 			apiKeyID, requestModel, failedPreviousResponseID, result.ResetConversation)
 		balancer.DeleteRoutingAffinity(apiKeyID, group.ID, requestModel)
 		replayedRequest := conversationState.BuildReplayRequest(originalRequest)
-		replayReq, replayGroup, replayErr := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, clientIP, replayedRequest, originalRequest, preferredSticky, bodyBytes)
+		replayReq, replayErr := prepareWSReplayRequest(ctx, req, *group, replayedRequest)
 		if replayErr == nil {
 			replayReq.metrics.SetWSMode(dbmodel.RelayLogWSModeReplay)
 			replayReq.metrics.SetWSRecovery(dbmodel.RelayLogWSRecoveryReplay)
 			req = replayReq
-			group = replayGroup
 			result = runWSRelay(ctx, req, group, emptyResponseDetection)
 			if result.Attempt != nil {
 				req = result.Attempt
 			}
+		} else if isLocalRelayBudgetError(replayErr) {
+			result = wsResultFromAttempt(req, relayBudgetAttemptResult(replayErr))
 		}
 	}
 
@@ -192,7 +193,7 @@ func processWSResponseCreate(
 			conversationState = &wsConversationState{DownstreamSessionID: downstreamSessionID}
 		}
 		conversationState.DownstreamSessionID = downstreamSessionID
-		if channelID, keyID := finalChannelKey(req.iter.Attempts()); channelID > 0 {
+		if channelID, keyID := finalChannelKey(req.attempts()); channelID > 0 {
 			conversationState.ChannelID = channelID
 			conversationState.ChannelKeyID = keyID
 		}
@@ -276,7 +277,34 @@ func newWSRelayRequest(
 		candidateSnapshot: candidateSnapshot,
 		rawBody:           rawBody,
 		streamWriter:      NewWSStreamWriter(ctx, conn),
+		capabilityPolicy:  getCapabilityDegradationPolicy(),
+		execution:         newRelayExecution(group, emptyResponseDetectionEnabled()),
 	}, &group, nil
+}
+
+func prepareWSReplayRequest(ctx context.Context, base *relayRequest, group dbmodel.Group, replay *transformerModel.InternalLLMRequest) (*relayRequest, error) {
+	if replay == nil {
+		return nil, fmt.Errorf("conversation cannot be replayed")
+	}
+	if err := base.execution.beginReplay(time.Now()); err != nil {
+		return nil, err
+	}
+	// Only request parsing/ranking state changes between phases. Keep the writer,
+	// original metrics, configuration snapshot and all prior attempt records.
+	base.execution.previousAttempts = base.attempts()
+	base.iter.Close()
+	planner := newRelayCapabilityPlanner(replay, base.rawBody, true)
+	iter := balancer.NewIteratorWithPreferenceAndQuality(group, base.apiKeyID, base.requestModel, nil, func(item dbmodel.GroupItem) int {
+		channel, _ := base.candidateSnapshot.Channel(item.ChannelID)
+		return planner.rankChannel(channel, item)
+	})
+	return &relayRequest{
+		ctx: ctx, inAdapter: base.inAdapter, inboundType: base.inboundType, internalRequest: replay,
+		metrics: base.metrics, apiKeyID: base.apiKeyID, requestModel: base.requestModel,
+		groupID: base.groupID, groupSessionTTL: base.groupSessionTTL, iter: iter,
+		capabilityPolicy: base.capabilityPolicy, capabilityPlanner: planner, candidateSnapshot: base.candidateSnapshot,
+		rawBody: base.rawBody, streamWriter: base.streamWriter, execution: base.execution,
+	}, nil
 }
 
 func rewriteWSPreviousResponseID(reqBody map[string]json.RawMessage, state *wsConversationState) {

@@ -14,6 +14,14 @@ import (
 func (ra *relayAttempt) forward() (int, error) {
 	ctx := ra.requestContext()
 	ctx = ra.startFirstTokenBudget(ctx)
+	if ra.transportRecovery == upstreamRecoveryHTTP {
+		if requiresUpstreamWSContinuation(ra.internalRequest) || ra.internalRequest.HasOpenAIResponsesPassthrough() {
+			return http.StatusConflict, fmt.Errorf("upstream continuation transport unavailable; please restart the conversation")
+		}
+		ra.metrics.SetWSRecovery(dbmodel.RelayLogWSRecoveryDowngrade)
+		ra.transportRecovery = upstreamRecoveryHTTP
+		return ra.forwardViaHTTP(ctx)
+	}
 
 	// 尝试上游 WebSocket（仅 OpenAI Response outbound 类型；必须是客户端 WS 入站且新开关显式启用）
 	if ra.channel.Type == outbound.OutboundTypeOpenAIResponse &&

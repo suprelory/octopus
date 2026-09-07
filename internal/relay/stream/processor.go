@@ -27,6 +27,8 @@ var ErrNoMeaningfulUpstreamPayload = fmt.Errorf("%w: no meaningful payload", Err
 // forcing an early downstream commit merely by filling the bounded buffer.
 var ErrPrecommitLimitExceeded = errors.New("stream semantic precommit limit exceeded")
 
+var ErrDownstreamWrite = errors.New("downstream write failed")
+
 // StreamSource abstracts different event sources (SSE, WebSocket, raw bytes).
 type StreamSource interface {
 	// ReadEvent blocks until the next event is available or returns an error.
@@ -74,6 +76,7 @@ type StreamConfig struct {
 
 	// Callbacks
 	OnFirstToken func()                          // Called when first payload written
+	OnCommit     func()                          // Called before payload delivery becomes uncertain
 	OnFinish     func(ctx context.Context) error // Called on stream end
 
 	// Precommit buffers transformed events until a semantic payload is seen.
@@ -153,8 +156,12 @@ func (p *StreamProcessor) Run() error {
 
 	// Async read from source — use a derived context so we can unblock on any exit.
 	readCtx, readCancel := context.WithCancel(p.config.Context)
-	defer readCancel()
-	defer p.config.Source.Close()
+	readDone := make(chan struct{})
+	defer func() {
+		readCancel()
+		_ = p.config.Source.Close()
+		<-readDone
+	}()
 
 	type readResult struct {
 		data []byte
@@ -162,6 +169,7 @@ func (p *StreamProcessor) Run() error {
 	}
 	results := make(chan readResult, 1)
 	safe.Go("stream-processor-read", func() {
+		defer close(readDone)
 		defer close(results)
 		for {
 			data, err := p.config.Source.ReadEvent(readCtx)
@@ -290,10 +298,22 @@ func (p *StreamProcessor) flushPending() error {
 }
 
 func (p *StreamProcessor) writeOutput(output []byte) error {
-	if _, err := p.config.Writer.Write(output); err != nil {
-		return fmt.Errorf("write error: %w", err)
+	if len(output) == 0 {
+		return nil
+	}
+	// A failed write can still deliver part of a frame or buffered SSE batch.
+	// Commit before writing so no caller can retry an uncertain delivery.
+	if !p.payloadWritten && p.config.OnCommit != nil {
+		p.config.OnCommit()
 	}
 	p.payloadWritten = true
+	n, err := p.config.Writer.Write(output)
+	if err == nil && n != len(output) {
+		err = io.ErrShortWrite
+	}
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrDownstreamWrite, err)
+	}
 	p.config.Writer.Flush()
 	return nil
 }
@@ -301,7 +321,7 @@ func (p *StreamProcessor) writeOutput(output []byte) error {
 // writeHeartbeat sends SSE heartbeat (comment line).
 func (p *StreamProcessor) writeHeartbeat() error {
 	if _, err := p.config.Writer.Write([]byte(":\n\n")); err != nil {
-		return err
+		return fmt.Errorf("%w: %w", ErrDownstreamWrite, err)
 	}
 	p.config.Writer.Flush()
 	return nil

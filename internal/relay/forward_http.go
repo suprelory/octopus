@@ -185,7 +185,11 @@ func (ra *relayAttempt) sendRequest(req *http.Request) (*http.Response, error) {
 	}
 
 	req = ra.attachFirstTokenBudget(req)
+	if err := ra.reserveSubmission(req.Context()); err != nil {
+		return nil, err
+	}
 
+	ra.upstreamTransport = "http"
 	response, err := httpClient.Do(req)
 	if err != nil {
 		if timeoutErr := ra.firstTokenTimeoutIfNeeded(req.Context(), err); timeoutErr != nil {

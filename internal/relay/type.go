@@ -101,6 +101,7 @@ type relayRequest struct {
 	// Shared by iterator ranking and final candidate evaluation for this request.
 	capabilityPlanner *relayCapabilityPlanner
 	candidateSnapshot *candidateSnapshot
+	execution         *relayExecution
 
 	// rawBody 保存客户端原始请求 body，用于同格式（如 Anthropic→Anthropic）直通转发时
 	// 绕过内部模型来回转换，以保证 beta 字段、内容块顺序、thinking 签名等完全透传。
@@ -144,6 +145,9 @@ type relayAttempt struct {
 	upstreamError          *model.ResponseError
 	capabilityDecision     outbound.CapabilityDecision
 	streamFinalizer        *model.StreamFinalizer
+	transportRecovery      upstreamRecovery
+	upstreamTransport      string
+	protocolErrorWritten   bool
 }
 
 // attemptResult 封装单次尝试的结果
@@ -160,4 +164,5 @@ type attemptResult struct {
 	RetryAt           time.Time     // absolute Retry-After deadline
 	Failure           FailureClassification
 	ProtocolError     *model.ResponseError
+	Recovery          upstreamRecovery
 }

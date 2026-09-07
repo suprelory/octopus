@@ -11,8 +11,6 @@ import (
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/relay/balancer"
 	"github.com/bestruirui/octopus/internal/relay/stream"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
-	"github.com/bestruirui/octopus/internal/utils/log"
 )
 
 // attempt 统一管理一次通道尝试的完整生命周期
@@ -25,6 +23,18 @@ func (ra *relayAttempt) attempt() attemptResult {
 
 	// 转发请求
 	statusCode, fwdErr := ra.forward()
+	mode, recoveryMode := dbmodel.RelayLogWSMode(""), dbmodel.RelayLogWSRecovery("")
+	if ra.upstreamTransport == "ws" {
+		mode = defaultWSModeForRequest(ra.internalRequest)
+	}
+	if ra.internalRequest.IsOpenAIExactReplayRequest() {
+		mode, recoveryMode = dbmodel.RelayLogWSModeReplay, dbmodel.RelayLogWSRecoveryReplay
+	} else if ra.transportRecovery == upstreamRecoveryReconnect {
+		recoveryMode = dbmodel.RelayLogWSRecoveryReconnect
+	} else if ra.transportRecovery == upstreamRecoveryHTTP {
+		recoveryMode = dbmodel.RelayLogWSRecoveryDowngrade
+	}
+	span.SetTransport(ra.upstreamTransport, mode, recoveryMode)
 	// Some transports surface a canceled read instead of the cancel cause. Do
 	// the cause translation once at the attempt boundary so HTTP error bodies,
 	// transformed streams, and WS passthrough share the same timeout semantics.
@@ -63,8 +73,8 @@ func (ra *relayAttempt) attempt() attemptResult {
 	}
 
 	// ====== 失败 ======
-	if isClientCancellation(ra.requestContext(), fwdErr) {
-		written := ra.streamPayloadWritten.Load()
+	if isClientCancellation(ra.requestContext(), fwdErr) || errors.Is(fwdErr, stream.ErrDownstreamWrite) {
+		written := ra.responseCommitted()
 		if written {
 			ra.collectResponse()
 		}
@@ -92,17 +102,22 @@ func (ra *relayAttempt) attempt() attemptResult {
 		RequestFailed: 1,
 	})
 
-	// 注意：熔断器记录已移至 Handler() 的同通道重试循环外，
+	// 注意：熔断器记录在公共执行器的同通道重试循环外，
 	// 避免重试期间过早触发熔断
 
-	written := ra.streamPayloadWritten.Load()
+	written := ra.responseCommitted()
 	if written {
 		ra.collectResponse()
-		if responseError := protocolErrorFromAttempt(ra.upstreamError, statusCode, fwdErr); responseError != nil {
+		if responseError := protocolErrorFromAttempt(ra.upstreamError, statusCode, fwdErr); responseError != nil && !ra.protocolErrorWritten {
 			writeStreamProtocolError(ra.requestContext(), ra.getStreamWriter(), ra.inAdapter, responseError)
 		}
 	}
 	firstTokenTimeout := isFirstTokenTimeoutError(fwdErr)
+	var recoveryErr *upstreamRecoveryError
+	recovery := upstreamRecoveryNone
+	if errors.As(fwdErr, &recoveryErr) && !firstTokenTimeout && !isLocalRelayBudgetError(fwdErr) {
+		recovery = recoveryErr.recovery
+	}
 	return attemptResult{
 		Success:           false,
 		Written:           written,
@@ -115,6 +130,7 @@ func (ra *relayAttempt) attempt() attemptResult {
 		RetryAt:           ra.retryAt,
 		Failure:           failure,
 		ProtocolError:     protocolErrorFromAttempt(ra.upstreamError, statusCode, fwdErr),
+		Recovery:          recovery,
 	}
 }
 
@@ -128,104 +144,4 @@ func (ra *relayAttempt) breakerModelName() string {
 		return strings.TrimSpace(ra.internalRequest.Model)
 	}
 	return ""
-}
-
-// runChannelAttempts owns the selected key reservation, including all exits
-// during backoff, request preparation and budget checks.
-func (r *httpRelay) runChannelAttempts(
-	channel *dbmodel.Channel,
-	usedKey dbmodel.ChannelKey,
-	releaseKey func(),
-	modelName string,
-	decision outbound.CapabilityDecision,
-) (result attemptResult, lastAttempt *relayRequest) {
-	defer releaseKey()
-	req := r.request
-	ctx := req.c.Request.Context()
-	isStream := req.internalRequest.Stream != nil && *req.internalRequest.Stream
-
-	if budgetErr := r.budget.reserveChannel(channel.ID, time.Now()); budgetErr != nil {
-		log.Warnf("relay failover budget exhausted: %v", budgetErr)
-		return relayBudgetAttemptResult(budgetErr), nil
-	}
-
-	for attemptNum := 0; attemptNum < r.maxSameChannelAttempts; attemptNum++ {
-		if attemptNum > 0 {
-			// Avoid waiting for Retry-After when no attempt quota remains.
-			if budgetErr := r.budget.attemptError(time.Now()); budgetErr != nil {
-				log.Warnf("relay failover budget exhausted: %v", budgetErr)
-				return relayBudgetAttemptResult(budgetErr), lastAttempt
-			}
-			delay := computeAttemptBackoff(attemptNum, result.RetryAt, result.RetryAfter)
-			log.Infof("same-channel retry %d/%d for %s, waiting %v",
-				attemptNum, r.maxSameChannelAttempts-1, channel.Name, delay)
-			if waitErr := r.budget.wait(ctx, delay); waitErr != nil {
-				if isLocalRelayBudgetError(waitErr) {
-					log.Warnf("relay failover budget exhausted: %v", waitErr)
-					return relayBudgetAttemptResult(waitErr), lastAttempt
-				}
-				log.Debugf("request context canceled during retry backoff")
-				return attemptResult{Canceled: true, Err: waitErr}, lastAttempt
-			}
-		}
-
-		attemptCtx := ctx
-		cancelAttempt := func() {}
-		if !isStream {
-			attemptCtx, cancelAttempt = r.budget.attemptContext(attemptCtx)
-		}
-		attemptRequest, attemptErr := newAttemptRelayRequest(req, attemptCtx, modelName)
-		if attemptErr != nil {
-			cancelAttempt()
-			classified := classifyLocalRelayError(FailureConfiguration, fmt.Errorf("failed to prepare relay attempt: %w", attemptErr))
-			return attemptResult{
-				Err:           classified,
-				StatusCode:    http.StatusInternalServerError,
-				Failure:       FailureClassification{Class: FailureConfiguration, StatusCode: http.StatusInternalServerError},
-				ProtocolError: relayProtocolError(http.StatusInternalServerError, CodeRelayConfiguration, classified.Error()),
-			}, lastAttempt
-		}
-
-		attempt := &relayAttempt{
-			relayRequest:           attemptRequest,
-			outAdapter:             outbound.Get(channel.Type),
-			channel:                channel,
-			usedKey:                usedKey,
-			firstTokenTimeOutSec:   r.group.FirstTokenTimeOut,
-			failoverDeadline:       r.budget.precommitDeadline(),
-			emptyResponseDetection: r.emptyResponseDetection,
-			capabilityDecision:     decision,
-		}
-		if budgetErr := r.budget.reserveAttempt(time.Now()); budgetErr != nil {
-			cancelAttempt()
-			log.Warnf("relay failover budget exhausted: %v", budgetErr)
-			return relayBudgetAttemptResult(budgetErr), lastAttempt
-		}
-
-		result = attempt.attempt()
-		cancelAttempt()
-		lastAttempt = attemptRequest
-		if result.EmptyResponse {
-			log.Warnf("empty response from channel %s (model=%s, stream=%t, retry %d/%d)",
-				channel.Name, modelName, isStream, attemptNum+1, r.maxSameChannelAttempts)
-		}
-		if result.Failure.Class == FailureBudgetExceeded {
-			log.Warnf("relay failover budget exhausted: %v", result.Err)
-			return relayBudgetAttemptResult(result.Err), lastAttempt
-		}
-		switchTime := time.Now()
-		if !result.Written && !result.Canceled && !result.ResetConversation &&
-			result.Failure.Class == FailureRateLimit &&
-			req.iter.HasRemainingDifferentChannelMatching(channel.ID, r.rateLimitedChannels, func(candidateChannelID int) bool {
-				return r.budget.canAttemptChannel(candidateChannelID, switchTime)
-			}) {
-			r.rateLimitedChannels[channel.ID] = struct{}{}
-			log.Infof("channel %s rate limited; switching to a remaining channel without same-channel backoff", channel.Name)
-			break
-		}
-		if result.Success || result.Written || result.Canceled || result.ResetConversation || result.FirstTokenTimeout || !result.Failure.Retryable {
-			break
-		}
-	}
-	return result, lastAttempt
 }

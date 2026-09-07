@@ -72,6 +72,7 @@ func (ra *relayAttempt) handleResponsePassthrough(ctx context.Context, response 
 	if contentType == "" {
 		contentType = "application/json"
 	}
+	ra.commitResponse()
 	ra.c.Data(http.StatusOK, contentType, body)
 
 	return nil
@@ -103,6 +104,7 @@ func (ra *relayAttempt) handleResponse(ctx context.Context, response *http.Respo
 		return contextError(ctx)
 	}
 
+	ra.commitResponse()
 	ra.c.Data(http.StatusOK, "application/json", inResponse)
 	return nil
 }

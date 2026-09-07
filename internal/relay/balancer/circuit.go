@@ -126,6 +126,29 @@ func GetCooldown(tripCount int) time.Duration {
 	return time.Duration(cooldown) * time.Second
 }
 
+// CanAttempt checks availability without claiming a half-open probe. Selection
+// must still call IsTripped immediately before using the key.
+func CanAttempt(channelID, keyID int, modelName string) bool {
+	v, ok := globalBreaker.Load(circuitKey(channelID, keyID, modelName))
+	if !ok {
+		return true
+	}
+	entry := v.(*circuitEntry)
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if entry.State == StateClosed {
+		return true
+	}
+	if entry.State != StateOpen {
+		return false
+	}
+	retryAt := entry.RetryAt
+	if retryAt.IsZero() {
+		retryAt = entry.LastFailureTime.Add(GetCooldown(entry.TripCount))
+	}
+	return !time.Now().Before(retryAt)
+}
+
 // IsTripped 检查通道是否处于熔断状态
 // 返回 tripped=true 表示该通道应被跳过，remaining 为剩余冷却时间
 func IsTripped(channelID, keyID int, modelName string) (tripped bool, remaining time.Duration) {

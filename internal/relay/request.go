@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
@@ -91,16 +90,12 @@ func prepareHTTPRelay(inboundType inbound.InboundType, c *gin.Context) *httpRela
 		candidateSnapshot: candidateSnapshot,
 		rawBody:           rawBody,
 		heartbeat:         heartbeat,
+		execution:         newRelayExecution(group, emptyResponseDetection),
 	}
 	return &httpRelay{
-		request:                request,
-		group:                  group,
-		replayState:            replayState,
-		emptyResponseDetection: emptyResponseDetection,
-		// max_retries includes the initial upstream attempt.
-		maxSameChannelAttempts: sameChannelMaxAttempts(group.RetryEnabled, group.MaxRetries),
-		budget:                 newRelayFailoverBudget(time.Now()),
-		rateLimitedChannels:    make(map[int]struct{}),
+		request:     request,
+		group:       group,
+		replayState: replayState,
 	}
 }
 
@@ -199,5 +194,6 @@ func newAttemptRelayRequest(base *relayRequest, ctx context.Context, modelName s
 		rawBody:           base.rawBody,
 		streamWriter:      base.streamWriter,
 		heartbeat:         base.heartbeat,
+		execution:         base.execution,
 	}, nil
 }

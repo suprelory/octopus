@@ -26,9 +26,9 @@ const (
 	SettingKeyChannelAffinityEnabled           SettingKey = "channel_affinity_enabled"             // 是否优先复用同一 API Key/分组/模型上次成功的渠道
 	SettingKeyChannelAffinityTTLSeconds        SettingKey = "channel_affinity_ttl_seconds"         // 渠道亲和记录 TTL（秒）
 	SettingKeyEmptyResponseDetectionEnabled    SettingKey = "empty_response_detection_enabled"     // 是否全局启用空回检测
-	SettingKeyRelayMaxChannelAttempts          SettingKey = "relay_max_channel_attempts"           // 单个 HTTP 请求最多尝试的候选渠道数
-	SettingKeyRelayMaxTotalAttempts            SettingKey = "relay_max_total_attempts"             // 单个 HTTP 请求最多发起的上游尝试总数
-	SettingKeyRelayFailoverTimeoutSeconds      SettingKey = "relay_failover_timeout_seconds"       // HTTP 故障转移总预算（秒）
+	SettingKeyRelayMaxChannelAttempts          SettingKey = "relay_max_channel_attempts"           // 单个 HTTP 请求或 WS response.create 最多尝试的不同渠道数
+	SettingKeyRelayMaxTotalAttempts            SettingKey = "relay_max_total_attempts"             // 单个逻辑请求的上游发送总数，包含重连重发和 replay
+	SettingKeyRelayFailoverTimeoutSeconds      SettingKey = "relay_failover_timeout_seconds"       // HTTP/WS 提交响应前的故障转移总预算（秒）
 	SettingKeyCapabilityDegradationPolicy      SettingKey = "capability_degradation_policy"        // 能力降级策略：allow/warn/strict
 	SettingKeyResponsesWSEnabled               SettingKey = "responses_ws_enabled"                 // 是否启用 OpenAI Responses WS 上游能力（仅客户端 WS 入站）
 	SettingKeyResponsesWSDefaultMode           SettingKey = "responses_ws_default_mode"            // OpenAI Responses WS 默认模式：off/transform/passthrough

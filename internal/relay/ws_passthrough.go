@@ -10,6 +10,7 @@ import (
 	"time"
 
 	dbmodel "github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/relay/stream"
 	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
 	openaiOutbound "github.com/bestruirui/octopus/internal/transformer/outbound/openai"
 	"github.com/bestruirui/octopus/internal/utils/log"
@@ -58,10 +59,11 @@ func (e *wsUpstreamEventError) Error() string {
 func (ra *relayAttempt) forwardViaWSPassthrough(ctx context.Context) (int, error) {
 	continuation := requiresUpstreamWSContinuation(ra.internalRequest)
 	preferredConnID := ""
-	if continuation {
+	redial := ra.transportRecovery == upstreamRecoveryReconnect
+	if continuation && !redial {
 		preferredConnID, _ = getWSResponseConn(currentPreviousResponseID(ra.internalRequest))
 	}
-	pc := TryUpstreamWSWithPreference(ctx, ra.channel, ra.channel.GetBaseUrl(), ra.usedKey.ChannelKey, ra.usedKey.ID, ra.clientRequestHeaders(), preferredConnID)
+	pc := TryUpstreamWSWithPreference(ctx, ra.channel, ra.channel.GetBaseUrl(), ra.usedKey.ChannelKey, ra.usedKey.ID, ra.clientRequestHeaders(), preferredConnID, redial)
 	if pc == nil {
 		log.Debugf("upstream WS passthrough unavailable for channel %s (key=%d, continuation=%t)", ra.channel.Name, ra.usedKey.ID, continuation)
 		return -1, nil
@@ -73,20 +75,18 @@ func (ra *relayAttempt) forwardViaWSPassthrough(ctx context.Context) (int, error
 		return 0, classifyLocalRelayError(FailureConfiguration, fmt.Errorf("failed to build websocket passthrough request: %w", err))
 	}
 	ra.metrics.SetTransportRequestPayload(payload, ra.internalRequest.Model)
+	if err := ra.reserveSubmission(ctx); err != nil {
+		wsUpstreamPool.Put(pc)
+		return 0, err
+	}
+	if redial {
+		ra.metrics.SetWSRecovery(dbmodel.RelayLogWSRecoveryReconnect)
+	}
+	ra.upstreamTransport = "ws"
 	if err := wsUpstreamPool.SendRaw(ctx, pc, payload); err != nil {
 		log.Warnf("upstream WS passthrough send failed for channel %s: %v", ra.channel.Name, err)
 		wsUpstreamPool.RemoveConn(pc)
-		if isUpstreamWSConnectionBroken(err) {
-			statusCode, redialErr, recovered := ra.retryViaFreshUpstreamWSPassthrough(ctx, payload)
-			if recovered || redialErr != nil {
-				return statusCode, redialErr
-			}
-			if continuation {
-				return http.StatusConflict, fmt.Errorf("upstream continuation transport unavailable; please restart the conversation")
-			}
-		}
-		wsUpstreamPool.RecordWSFailure(ra.channel.ID)
-		return -1, nil
+		return ra.upstreamWSFailure(ctx, 0, err, true)
 	}
 
 	ra.metrics.UsedWS = true
@@ -96,79 +96,24 @@ func (ra *relayAttempt) forwardViaWSPassthrough(ctx context.Context) (int, error
 	}
 	stats, err := ra.handleWSPassthroughStream(ctx, pc)
 	if err != nil {
-		ra.applyWSPassthroughStats(stats)
+		if ra.responseCommitted() {
+			ra.applyWSPassthroughStats(stats)
+		}
 		if stats != nil && stats.Error != nil {
 			ra.captureRetryAt(stats.Error.RetryAt)
 		}
 		wsUpstreamPool.RemoveConn(pc)
-		if continuation && !ra.streamPayloadWritten.Load() && shouldReconnectUpstreamWSBeforeReplay(err) {
-			statusCode, redialErr, recovered := ra.retryViaFreshUpstreamWSPassthrough(ctx, payload)
-			if recovered || redialErr != nil {
-				return statusCode, redialErr
-			}
-		}
-		if continuation && isContinuationTransportFailure(err) {
-			return http.StatusConflict, fmt.Errorf("upstream continuation transport unavailable; please restart the conversation")
-		}
-		if ra.requestContext().Err() == nil {
-			wsUpstreamPool.RecordWSFailure(ra.channel.ID)
-		}
 		statusCode := http.StatusBadGateway
 		if stats != nil && stats.Error != nil && stats.Error.Status > 0 {
 			statusCode = stats.Error.Status
 		}
-		return statusCode, err
+		return ra.upstreamWSFailure(ctx, statusCode, err, false)
 	}
 	wsUpstreamPool.Put(pc)
 	wsUpstreamPool.RecordWSSuccess(ra.channel.ID)
 	ra.applyWSPassthroughStats(stats)
 	ra.recordSuccessfulWSAffinity(pc)
 	return http.StatusOK, nil
-}
-
-func (ra *relayAttempt) retryViaFreshUpstreamWSPassthrough(ctx context.Context, payload []byte) (int, error, bool) {
-	redialed := TryUpstreamWSWithPreference(ctx, ra.channel, ra.channel.GetBaseUrl(), ra.usedKey.ChannelKey, ra.usedKey.ID, ra.clientRequestHeaders(), "", true)
-	if redialed == nil {
-		return 0, nil, false
-	}
-	if err := wsUpstreamPool.SendRaw(ctx, redialed, payload); err != nil {
-		wsUpstreamPool.RemoveConn(redialed)
-		wsUpstreamPool.RecordWSFailure(ra.channel.ID)
-		if requiresUpstreamWSContinuation(ra.internalRequest) {
-			return http.StatusConflict, fmt.Errorf("upstream continuation transport unavailable; please restart the conversation"), true
-		}
-		return -1, nil, true
-	}
-	ra.metrics.UsedWS = true
-	ra.metrics.SetWSExecMode(dbmodel.RelayLogWSExecModePassthrough)
-	if ra.metrics.WSMode == nil {
-		ra.metrics.SetWSMode(defaultWSModeForRequest(ra.internalRequest))
-	}
-	ra.metrics.SetWSRecovery(dbmodel.RelayLogWSRecoveryReconnect)
-	stats, err := ra.handleWSPassthroughStream(ctx, redialed)
-	if err != nil {
-		ra.applyWSPassthroughStats(stats)
-		if stats != nil && stats.Error != nil {
-			ra.captureRetryAt(stats.Error.RetryAt)
-		}
-		wsUpstreamPool.RemoveConn(redialed)
-		if requiresUpstreamWSContinuation(ra.internalRequest) && isContinuationTransportFailure(err) {
-			return http.StatusConflict, fmt.Errorf("upstream continuation transport unavailable; please restart the conversation"), true
-		}
-		if ra.requestContext().Err() == nil {
-			wsUpstreamPool.RecordWSFailure(ra.channel.ID)
-		}
-		statusCode := http.StatusBadGateway
-		if stats != nil && stats.Error != nil && stats.Error.Status > 0 {
-			statusCode = stats.Error.Status
-		}
-		return statusCode, err, true
-	}
-	wsUpstreamPool.Put(redialed)
-	wsUpstreamPool.RecordWSSuccess(ra.channel.ID)
-	ra.applyWSPassthroughStats(stats)
-	ra.recordSuccessfulWSAffinity(redialed)
-	return http.StatusOK, nil, true
 }
 
 func (ra *relayAttempt) buildWSPassthroughRequestPayload() ([]byte, error) {
@@ -234,23 +179,22 @@ func (ra *relayAttempt) handleWSPassthroughStream(ctx context.Context, pc *poole
 		}
 		observeWSPassthroughEvent(stats, data)
 		if stats.Error != nil {
-			if !dropDownstream {
+			if !dropDownstream && ra.responseCommitted() {
 				out := ra.rewriteWSPassthroughDownstreamModel(data)
+				ra.protocolErrorWritten = true
 				if writeErr := writeWSPassthroughDownstream(ctx, writer, out); writeErr != nil {
 					log.Debugf("ws passthrough: failed to forward upstream error frame downstream (channel=%d, key=%d): %v", ra.channel.ID, ra.usedKey.ID, writeErr)
-				} else {
-					ra.streamPayloadWritten.Store(true)
 				}
 			}
 			return stats, stats.Error
 		}
 		if !dropDownstream {
 			out := ra.rewriteWSPassthroughDownstreamModel(data)
+			ra.commitResponse()
 			if writeErr := writeWSPassthroughDownstream(ctx, writer, out); writeErr != nil {
 				if isClientCancellation(ctx, writeErr) || isUpstreamWSConnectionBroken(writeErr) {
 					log.Debugf("ws passthrough downstream write failed; draining upstream (channel=%d, key=%d): %v", ra.channel.ID, ra.usedKey.ID, writeErr)
 					dropDownstream = true
-					ra.streamPayloadWritten.Store(true)
 					if readCtx == ctx && isClientCancellation(ctx, writeErr) {
 						drainCtx, drainCancel := context.WithTimeout(context.Background(), wsPassthroughDrainTimeout)
 						defer drainCancel()
@@ -258,9 +202,8 @@ func (ra *relayAttempt) handleWSPassthroughStream(ctx context.Context, pc *poole
 					}
 					continue
 				}
-				return stats, writeErr
+				return stats, fmt.Errorf("%w: %w", stream.ErrDownstreamWrite, writeErr)
 			}
-			ra.streamPayloadWritten.Store(true)
 			if firstEvent {
 				if ra.metrics != nil {
 					ra.metrics.SetFirstTokenTime(time.Now())
@@ -277,10 +220,7 @@ func (ra *relayAttempt) handleWSPassthroughStream(ctx context.Context, pc *poole
 
 func writeWSPassthroughDownstream(ctx context.Context, writer StreamWriter, out []byte) error {
 	if wsWriter, ok := writer.(*WSStreamWriter); ok {
-		writeCtx, cancel := context.WithTimeout(ctx, wsWriteTimeout)
-		writeErr := wsWriter.conn.Write(writeCtx, websocket.MessageText, out)
-		cancel()
-		return writeErr
+		return wsWriter.writeFrame(ctx, out)
 	}
 	if _, writeErr := writer.Write([]byte("data: " + string(out) + "\n\n")); writeErr != nil {
 		return writeErr
@@ -344,6 +284,8 @@ func observeWSPassthroughEvent(stats *wsPassthroughStats, data []byte) {
 		ID         string          `json:"id"`
 		Model      string          `json:"model"`
 		Status     int             `json:"status"`
+		Code       any             `json:"code"`
+		Message    string          `json:"message"`
 		RetryAfter json.RawMessage `json:"retry_after"`
 		RetryAt    json.RawMessage `json:"retry_at"`
 		Error      *struct {
@@ -426,6 +368,20 @@ func observeWSPassthroughEvent(stats *wsPassthroughStats, data []byte) {
 					parseWSRetryDeadline(now, event.RetryAfter, event.RetryAt),
 				),
 			}
+		}
+	}
+	if stats.Error == nil && isWSStreamErrorEvent(event.Type) {
+		status := event.Status
+		if status < 400 {
+			status = http.StatusBadGateway
+		}
+		message := event.Message
+		if message == "" {
+			message = "upstream ws error"
+		}
+		stats.Error = &wsUpstreamEventError{
+			Status: status, Code: normalizeWSUpstreamErrorCode(event.Code), Message: message,
+			RetryAt: parseWSRetryDeadline(time.Now(), event.RetryAfter, event.RetryAt),
 		}
 	}
 }

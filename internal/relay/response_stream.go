@@ -48,6 +48,7 @@ func (ra *relayAttempt) handleTransformedStream(ctx context.Context, source stre
 		PrecommitMaxEvents: 8,
 		PrecommitMaxBytes:  64 * 1024,
 		AllowEmptyPayload:  ra.allowEmptyPayload(),
+		OnCommit:           ra.commitResponse,
 		OnFirstToken: func() {
 			ra.metrics.SetFirstTokenTime(time.Now())
 			ra.stopFirstTokenTimer()
@@ -64,7 +65,7 @@ func (ra *relayAttempt) handleTransformedStream(ctx context.Context, source stre
 func (ra *relayAttempt) runStreamProcessor(ctx context.Context, processor *stream.StreamProcessor, timeoutCloser io.Closer) error {
 	err := processor.Run()
 	if processor.PayloadWritten() {
-		ra.streamPayloadWritten.Store(true)
+		ra.commitResponse()
 	}
 	if err != nil && strings.Contains(err.Error(), "first token timeout") {
 		if timeoutCloser != nil {
@@ -166,6 +167,7 @@ func (ra *relayAttempt) handleStreamResponsePassthroughV2(ctx context.Context, r
 		PrecommitMaxEvents: precommitMaxEvents,
 		PrecommitMaxBytes:  precommitMaxBytes,
 		AllowEmptyPayload:  ra.allowEmptyPayload(),
+		OnCommit:           ra.commitResponse,
 		OnFirstToken: func() {
 			ra.metrics.SetFirstTokenTime(time.Now())
 			ra.stopFirstTokenTimer()
@@ -238,8 +240,9 @@ func (ra *relayAttempt) finalizeStreamLifecycle(ctx context.Context, writeTail b
 		}
 		if writeTail && len(tail) > 0 {
 			writer := ra.getStreamWriter()
+			ra.commitResponse()
 			if _, writeErr := writer.Write(tail); writeErr != nil {
-				return fmt.Errorf("write stream finalization: %w", writeErr)
+				return fmt.Errorf("%w: %w", stream.ErrDownstreamWrite, writeErr)
 			}
 			writer.Flush()
 		}

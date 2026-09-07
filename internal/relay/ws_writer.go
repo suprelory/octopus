@@ -31,23 +31,28 @@ func (w *WSStreamWriter) Write(data []byte) (int, error) {
 
 	// Extract JSON data from SSE format "data: {...}\n\n"
 	lines := extractSSEDataLines(data)
-	wroteFrame := false
 	for _, line := range lines {
 		if len(line) == 0 {
 			continue
 		}
 		writeCtx, cancel := context.WithTimeout(w.ctx, wsWriteTimeout)
+		w.written = true
 		err := w.conn.Write(writeCtx, websocket.MessageText, line)
 		cancel()
 		if err != nil {
 			return 0, err
 		}
-		wroteFrame = true
-	}
-	if wroteFrame {
-		w.written = true
 	}
 	return len(data), nil
+}
+
+func (w *WSStreamWriter) writeFrame(ctx context.Context, data []byte) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.written = true
+	writeCtx, cancel := context.WithTimeout(ctx, wsWriteTimeout)
+	defer cancel()
+	return w.conn.Write(writeCtx, websocket.MessageText, data)
 }
 
 func (w *WSStreamWriter) Flush() {

@@ -252,21 +252,21 @@
             }
         },
         "relayBudget": {
-            "title": "HTTP Failover Budget",
-            "description": "Limits channel switches, upstream forwarding attempts, and pre-commit elapsed time for one text relay HTTP request to contain failure amplification and tail latency.",
+            "title": "HTTP/WS Failover Budget",
+            "description": "Shared limits for each chat or Responses HTTP request or WS response.create, including reconnects and conversation replay. Each WS turn has its own budget.",
             "maxChannels": {
                 "label": "Max Candidate Channels",
-                "description": "Maximum number of usable candidate channels entered by one request. Disabled, keyless, and capability-incompatible candidates do not count.",
+                "description": "Maximum number of distinct channels receiving an upstream request. Disabled, keyless, and capability-incompatible candidates do not count.",
                 "placeholder": "Default 4"
             },
             "maxAttempts": {
                 "label": "Max Total Upstream Attempts",
-                "description": "Maximum number of upstream forwarding attempts across all candidate channels and same-channel attempts.",
+                "description": "Maximum number of upstream sends across all channels, including failed sends, reconnect resends, and conversation replay.",
                 "placeholder": "Default 12"
             },
             "timeout": {
                 "label": "Failover Timeout (seconds)",
-                "description": "Bounds the full upstream response for non-stream requests. For streams it only applies before the first semantic event and does not truncate a healthy stream after output starts.",
+                "description": "Bounds the full upstream response for non-stream requests and the time before response commitment for streams. Replay also has a 15-second pre-commit limit. Output already in progress is not truncated by these limits.",
                 "placeholder": "Default 300"
             }
         },

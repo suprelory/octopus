@@ -16,7 +16,7 @@ const (
 	defaultSameChannelMaxAttempts      = 3
 )
 
-// relayFailoverBudget bounds the pre-commit work performed for one HTTP relay
+// relayFailoverBudget bounds the pre-commit work performed for one logical relay
 // request. A completed streaming response is intentionally not tied to this
 // deadline: the deadline only applies until the first semantic stream event.
 type relayFailoverBudget struct {

@@ -5,6 +5,23 @@ import (
 	"time"
 )
 
+func TestCandidateLookaheadDoesNotClaimHalfOpenProbe(t *testing.T) {
+	Reset()
+	t.Cleanup(Reset)
+	globalBreaker.Store(circuitKey(1, 2, "model"), &circuitEntry{
+		State: StateOpen, RetryAt: time.Now().Add(-time.Second),
+	})
+	if !CanAttempt(1, 2, "model") || !CanAttempt(1, 2, "model") {
+		t.Fatal("lookahead consumed an available recovery probe")
+	}
+	if tripped, _ := IsTripped(1, 2, "model"); tripped {
+		t.Fatal("selection must still be able to claim the probe")
+	}
+	if CanAttempt(1, 2, "model") {
+		t.Fatal("an active probe must be unavailable to other candidates")
+	}
+}
+
 func TestResetCircuitBreakerByChannelRemovesOnlyTargetChannel(t *testing.T) {
 	Reset()
 	globalBreaker.Store(circuitKey(1, 10, "gpt-4o"), &circuitEntry{
