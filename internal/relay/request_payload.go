@@ -84,8 +84,7 @@ func (ra *relayAttempt) recordTransportRequestPayloadWithModelRequirement(payloa
 	if inspection.Valid {
 		// A valid override may be configured on a transport with a non-JSON body
 		// (multipart images, audio, or a provider-specific binary payload). The
-		// helper deliberately leaves those bytes untouched; do not turn that
-		// compatibility path into a configuration failure.
+		// helper deliberately leaves those bytes untouched.
 		if json.Valid(payload) {
 			var envelope map[string]json.RawMessage
 			if err := json.Unmarshal(payload, &envelope); err == nil && envelope != nil {

@@ -8,7 +8,44 @@ import (
 
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
+	"github.com/bestruirui/octopus/internal/transformer/outbound"
 )
+
+func TestInvalidParamOverrideCannotBypassValidation(t *testing.T) {
+	override := `{invalid`
+	channel := &dbmodel.Channel{
+		Type:            outbound.OutboundTypeOpenAIResponse,
+		PassthroughMode: dbmodel.ChannelPassthroughModeAuto,
+		ParamOverride:   &override,
+	}
+	body := `{"model":"upstream-model","input":"hello"}`
+	internalRequest := &transformerModel.InternalLLMRequest{
+		Model:        "upstream-model",
+		RawAPIFormat: transformerModel.APIFormatOpenAIResponse,
+	}
+	for _, websocket := range []bool{false, true} {
+		if planRelayPassthrough(internalRequest, []byte(body), channel, outbound.Get(channel.Type), websocket) {
+			t.Fatalf("invalid configuration enabled passthrough: websocket=%t", websocket)
+		}
+	}
+	attempt := &relayAttempt{
+		relayRequest: &relayRequest{internalRequest: internalRequest},
+		channel:      channel,
+	}
+	t.Run("http", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
+		err := attempt.applyParamOverride(request)
+		if class, ok := localRelayErrorClass(err); !ok || class != FailureConfiguration {
+			t.Fatalf("expected configuration error, got %v", err)
+		}
+	})
+	t.Run("websocket", func(t *testing.T) {
+		_, err := attempt.applyParamOverridePayload([]byte(body))
+		if class, ok := localRelayErrorClass(err); !ok || class != FailureConfiguration {
+			t.Fatalf("expected configuration error, got %v", err)
+		}
+	})
+}
 
 func TestApplyParamOverrideRejectsRemovingRequiredTopLevelModel(t *testing.T) {
 	override := `[{"op":"replace","path":"","value":{"messages":[]}}]`

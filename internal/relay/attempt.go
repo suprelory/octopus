@@ -126,7 +126,6 @@ func (ra *relayAttempt) attempt() attemptResult {
 		EmptyResponse:     errors.Is(fwdErr, stream.ErrEmptyUpstreamStream),
 		Err:               fmt.Errorf("channel %s failed: %w", ra.channel.Name, fwdErr),
 		StatusCode:        statusCode,
-		RetryAfter:        ra.retryAfter,
 		RetryAt:           ra.retryAt,
 		Failure:           failure,
 		ProtocolError:     protocolErrorFromAttempt(ra.upstreamError, statusCode, fwdErr),

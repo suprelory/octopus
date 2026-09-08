@@ -120,27 +120,6 @@ func (s *Site) Normalize() {
 	if s.DefaultRouteType != "" {
 		s.DefaultRouteType = NormalizeSiteModelRouteType(s.DefaultRouteType)
 	}
-	s.normalizeLegacyAPIPlatform()
-}
-
-func (s *Site) normalizeLegacyAPIPlatform() {
-	switch s.Platform {
-	case "openai":
-		s.Platform = SitePlatformAPI
-		if s.DefaultRouteType == "" {
-			s.DefaultRouteType = SiteModelRouteTypeOpenAIChat
-		}
-	case "claude":
-		s.Platform = SitePlatformAPI
-		if s.DefaultRouteType == "" {
-			s.DefaultRouteType = SiteModelRouteTypeAnthropic
-		}
-	case "gemini":
-		s.Platform = SitePlatformAPI
-		if s.DefaultRouteType == "" {
-			s.DefaultRouteType = SiteModelRouteTypeGemini
-		}
-	}
 }
 
 func (s *Site) Validate() error {

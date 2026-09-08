@@ -34,7 +34,6 @@ export function LogDiagnosticPanel({
     const hasAttempts = (log.attempts?.length ?? 0) > 0;
     const forwardedAttempts = (log.attempts ?? []).filter((attempt) => attempt.status === 'success' || attempt.status === 'failed').length;
     const attemptTargets = siteTargets?.attempt_targets ?? [];
-    const legacyErrorTarget = siteTargets?.legacy_error_target ?? null;
 
     if (!hasError && !hasAttempts) return null;
 
@@ -102,15 +101,6 @@ export function LogDiagnosticPanel({
                                     <p className="text-sm text-destructive whitespace-pre-wrap wrap-break-word pr-8 leading-relaxed">
                                         {sanitizeErrorMessage(log.error)}
                                     </p>
-                                    {!hasAttempts && legacyErrorTarget ? (
-                                        <div className="mt-3 flex justify-end">
-                                            <AttemptDisableButton
-                                                target={legacyErrorTarget}
-                                                pending={isDisablePending(legacyErrorTarget)}
-                                                onDisable={onDisable}
-                                            />
-                                        </div>
-                                    ) : null}
                                 </div>
                             ) : null}
 

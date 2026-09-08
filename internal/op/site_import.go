@@ -134,9 +134,6 @@ func detectSupportedPlatform(values ...any) (model.SitePlatform, bool) {
 			return "", true
 		}
 	}
-	if model.ContainsRemovedSiteModelRouteMarker(combined) {
-		return "", true
-	}
 
 	switch {
 	case strings.Contains(combined, "api.openai.com"):

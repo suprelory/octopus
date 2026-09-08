@@ -11,12 +11,11 @@ import (
 // TestRelayLogEnsureIndexesIdempotent 验证：
 //  1. 头一次跑能把三个性能索引建出来；
 //  2. 重复调用不会报错也不会重复建（幂等）；
-//  3. 关键：迁移路径上不再建索引，依赖这条 op 函数作为唯一入口。
+//  3. 启动路径不建性能索引，由后台任务创建。
 func TestRelayLogEnsureIndexesCreatesAndIsIdempotent(t *testing.T) {
 	ctx := setupSiteOpTestDB(t)
 
-	// 初始 InitDB 完成后，relay_logs 表已经存在（含 success 列，因为 migration 013
-	// 在 InitDB 末尾跑过了），但启动期已不再同步建索引。
+	// InitDB 创建完整的 relay_logs 表，但不在启动期同步建性能索引。
 	for _, name := range []string{
 		"idx_relay_logs_time_id",
 		"idx_relay_logs_success_time_id",

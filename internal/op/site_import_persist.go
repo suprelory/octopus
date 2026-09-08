@@ -158,7 +158,6 @@ func prepareMetAPIImportedModels(accountID int, models []model.SiteModel) []mode
 		item.GroupKey = groupKey
 		item.ModelName = modelName
 		item.Source = firstNonEmptyString(item.Source, "metapi")
-		normalizeImportedSiteModelRoute(&item)
 		if strings.TrimSpace(string(item.RouteType)) == "" {
 			item.RouteType = model.InferSiteModelRouteType(modelName)
 		} else {

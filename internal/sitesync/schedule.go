@@ -87,10 +87,6 @@ func effectiveLastCheckinSuccessAt(account *model.SiteAccount) *time.Time {
 	if account.LastCheckinSuccessAt != nil && !account.LastCheckinSuccessAt.IsZero() {
 		return account.LastCheckinSuccessAt
 	}
-	// Compatibility for rows created before last_checkin_success_at existed.
-	if account.LastCheckinStatus == model.SiteExecutionStatusSuccess && account.LastCheckinAt != nil && !account.LastCheckinAt.IsZero() {
-		return account.LastCheckinAt
-	}
 	return nil
 }
 

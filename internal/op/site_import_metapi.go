@@ -170,7 +170,6 @@ func extractMetAPIAccounts(payload rawImportObject) ([]metAPIImportAccountData, 
 			ManualOverride: false,
 			Disabled:       false,
 		}
-		normalizeImportedSiteModelRoute(&item)
 		manualModelsByAccountID[accountID] = append(manualModelsByAccountID[accountID], item)
 	}
 
@@ -351,7 +350,6 @@ func buildMetAPIDisabledModels(modelNames []string) []model.SiteModel {
 			RouteSource: model.SiteModelRouteSourceSyncInferred,
 			Disabled:    true,
 		}
-		normalizeImportedSiteModelRoute(&item)
 		result = append(result, item)
 	}
 	return result

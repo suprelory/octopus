@@ -33,11 +33,6 @@ const (
 	FailureModelUnsupported
 	FailureAuthentication
 	FailurePermission
-
-	// Compatibility names retained for callers that used the old two-value
-	// taxonomy. They intentionally map to the richer categories.
-	FailureHard          = FailureTransient
-	FailureSoftRateLimit = FailureRateLimit
 )
 
 const (

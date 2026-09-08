@@ -272,8 +272,6 @@ func channelEndpointType(channelType outboundmodel.OutboundType) string {
 		return string(model.SiteModelRouteTypeAnthropic)
 	case outboundmodel.OutboundTypeGemini:
 		return string(model.SiteModelRouteTypeGemini)
-	case outboundmodel.OutboundTypeUnsupported:
-		return string(model.SiteModelRouteTypeUnknown)
 	case outboundmodel.OutboundTypeOpenAIEmbedding:
 		return string(model.SiteModelRouteTypeOpenAIEmbedding)
 	default:

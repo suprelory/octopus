@@ -81,7 +81,7 @@ func TestPlanRelayCapabilityRejectsRemovedOutboundTypeWithoutMutatingRequest(t *
 		RawAPIFormat:    transformerModel.APIFormatOpenAIResponse,
 	}
 	relayRequest := &relayRequest{internalRequest: request}
-	channel := &dbmodel.Channel{Type: outbound.OutboundTypeUnsupported}
+	channel := &dbmodel.Channel{Type: outbound.OutboundType(-1)}
 	decision := planRelayCapability(relayRequest, channel, outbound.Get(channel.Type), "legacy-model")
 	if !decision.Rejected() {
 		t.Fatalf("removed outbound type should be rejected: %#v", decision)

@@ -10,14 +10,11 @@ import (
 type OutboundType int
 
 const (
-	OutboundTypeOpenAIChat OutboundType = iota
-	OutboundTypeOpenAIResponse
-	OutboundTypeAnthropic
-	OutboundTypeGemini
-	// OutboundTypeUnsupported preserves the legacy Volcengine value (4) so
-	// persisted channel rows remain distinguishable from embeddings (5).
-	OutboundTypeUnsupported
-	OutboundTypeOpenAIEmbedding
+	OutboundTypeOpenAIChat      OutboundType = 0
+	OutboundTypeOpenAIResponse  OutboundType = 1
+	OutboundTypeAnthropic       OutboundType = 2
+	OutboundTypeGemini          OutboundType = 3
+	OutboundTypeOpenAIEmbedding OutboundType = 5
 )
 
 const (
@@ -159,8 +156,6 @@ func (t OutboundType) String() string {
 		return "anthropic"
 	case OutboundTypeGemini:
 		return "gemini"
-	case OutboundTypeUnsupported:
-		return "unsupported"
 	case OutboundTypeOpenAIEmbedding:
 		return "embedding"
 	default:

@@ -138,10 +138,9 @@ type relayAttempt struct {
 	usedKey                dbmodel.ChannelKey
 	firstTokenTimeOutSec   int
 	firstTokenBudget       *firstTokenBudget
-	failoverDeadline       time.Time     // 流式请求首个语义事件前的请求级预算截止时间
-	emptyResponseDetection bool          // 空回检测开关（来自全局设置）
-	retryAfter             time.Duration // compatibility duration derived from retryAt
-	retryAt                time.Time     // absolute upstream Retry-After deadline
+	failoverDeadline       time.Time // 流式请求首个语义事件前的请求级预算截止时间
+	emptyResponseDetection bool      // 空回检测开关（来自全局设置）
+	retryAt                time.Time // absolute upstream Retry-After deadline
 	upstreamError          *model.ResponseError
 	capabilityDecision     outbound.CapabilityDecision
 	streamFinalizer        *model.StreamFinalizer
@@ -152,16 +151,15 @@ type relayAttempt struct {
 
 // attemptResult 封装单次尝试的结果
 type attemptResult struct {
-	Success           bool          // 是否成功
-	Written           bool          // 流式响应是否已开始写入（不可重试）
-	Canceled          bool          // 是否由下游请求取消或超时触发
-	ResetConversation bool          // 是否需要立即重置连续会话并停止后续 failover
-	FirstTokenTimeout bool          // 是否由首字超时触发，用于直接切换渠道
-	EmptyResponse     bool          // 是否由空回检测触发（上游 200 但无有效内容）
-	Err               error         // 失败时的错误
-	StatusCode        int           // 上游 HTTP 状态码（0 = 连接错误）
-	RetryAfter        time.Duration // 解析的 Retry-After 值
-	RetryAt           time.Time     // absolute Retry-After deadline
+	Success           bool      // 是否成功
+	Written           bool      // 流式响应是否已开始写入（不可重试）
+	Canceled          bool      // 是否由下游请求取消或超时触发
+	ResetConversation bool      // 是否需要立即重置连续会话并停止后续 failover
+	FirstTokenTimeout bool      // 是否由首字超时触发，用于直接切换渠道
+	EmptyResponse     bool      // 是否由空回检测触发（上游 200 但无有效内容）
+	Err               error     // 失败时的错误
+	StatusCode        int       // 上游 HTTP 状态码（0 = 连接错误）
+	RetryAt           time.Time // absolute Retry-After deadline
 	Failure           FailureClassification
 	ProtocolError     *model.ResponseError
 	Recovery          upstreamRecovery

@@ -23,28 +23,7 @@ func SiteChannelResetAccountRoutes(siteID int, accountID int, ctx context.Contex
 			routeType := model.InferSiteModelRouteType(row.ModelName)
 			routeRawPayload := ""
 			metadata, hasMetadata := model.ParseSiteModelRouteMetadata(row.RouteRawPayload)
-			explicitSupportedMetadata := hasMetadata && metadata.RouteSupported &&
-				model.IsProjectedSiteModelRouteType(metadata.RouteType) &&
-				!model.ContainsRemovedSiteModelRouteMarker(row.RouteRawPayload)
-			legacyEvidence := model.IsRemovedSiteModelRouteType(row.RouteType) ||
-				model.ContainsRemovedSiteModelRouteMarker(row.RouteRawPayload)
-			if legacyEvidence || (model.ContainsRemovedSiteModelRouteMarker(row.ModelName) && !explicitSupportedMetadata) {
-				routeType = model.SiteModelRouteTypeUnknown
-				if hasMetadata {
-					metadata.RouteSupported = false
-					metadata.RouteGuessed = false
-					metadata.RouteType = model.SiteModelRouteTypeUnknown
-					if strings.TrimSpace(metadata.UnsupportedReason) == "" {
-						metadata.UnsupportedReason = "Volcengine/Ark route support has been removed"
-					}
-					routeRawPayload = metadata.Marshal()
-				} else {
-					routeRawPayload = (&model.SiteModelRouteMetadata{
-						RouteSupported:    false,
-						UnsupportedReason: "Volcengine/Ark route support has been removed",
-					}).Marshal()
-				}
-			} else if hasMetadata {
+			if hasMetadata {
 				routeType = metadata.RouteType
 				routeRawPayload = row.RouteRawPayload
 			}

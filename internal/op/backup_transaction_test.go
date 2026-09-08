@@ -7,7 +7,48 @@ import (
 
 	dbpkg "github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/transformer/outbound"
 )
+
+func TestDBImportRejectsInvalidDataWithoutPartialWrites(t *testing.T) {
+	tests := []struct {
+		name   string
+		change func(*model.DBDump)
+		want   string
+	}{
+		{"missing version", func(d *model.DBDump) { d.Version = 0 }, "unsupported dump version"},
+		{"future version", func(d *model.DBDump) { d.Version = dbDumpVersion + 1 }, "unsupported dump version"},
+		{"unsupported channel", func(d *model.DBDump) {
+			d.Channels = append(d.Channels, model.Channel{ID: 2, Name: "invalid-channel", Type: outbound.OutboundType(4)})
+		}, "unsupported channel type"},
+		{"unset group mode", func(d *model.DBDump) { d.Groups[0].Mode = 0 }, "invalid group mode"},
+		{"unsupported group mode", func(d *model.DBDump) { d.Groups[0].Mode = 2 }, "invalid group mode"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := setupBackupTestDB(t)
+			dump := buildTestDump()
+			dump.ProxyConfigurations = []model.ProxyConfiguration{{ID: 1, Name: "imported-proxy", URL: "http://127.0.0.1:8080", Enabled: true}}
+			test.change(dump)
+			result, err := DBImportIncremental(ctx, dump)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("expected %q, got %v", test.want, err)
+			}
+			if result != nil {
+				t.Fatalf("failed import returned success: %+v", result)
+			}
+			for _, row := range []any{&model.ProxyConfiguration{}, &model.Channel{}, &model.ChannelKey{}, &model.Site{}, &model.SiteAccount{}, &model.Group{}, &model.GroupItem{}} {
+				var count int64
+				if err := dbpkg.GetDB().WithContext(ctx).Model(row).Count(&count).Error; err != nil {
+					t.Fatalf("count %T: %v", row, err)
+				}
+				if count != 0 {
+					t.Errorf("failed import left %d rows in %T", count, row)
+				}
+			}
+		})
+	}
+}
 
 func TestDBImportRollsBackEarlierStagesOnFailure(t *testing.T) {
 	for _, table := range []string{"stats_totals", "relay_logs"} {

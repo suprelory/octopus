@@ -40,7 +40,7 @@ func platformOutboundType(site *model.Site) outbound.OutboundType {
 		case model.SiteModelRouteTypeGemini:
 			return outbound.OutboundTypeGemini
 		case model.SiteModelRouteTypeUnknown:
-			return outbound.OutboundTypeUnsupported
+			return -1
 		default:
 			return outbound.OutboundTypeOpenAIChat
 		}
@@ -56,8 +56,7 @@ func partitionSiteModelsByRouteType(items []model.SiteModel, split bool, site *m
 		}
 		projectable := make([]model.SiteModel, 0, len(items))
 		for _, item := range items {
-			// Explicitly unsupported route metadata and retired provider rows must
-			// not be silently folded into the site's default OpenAI Chat channel.
+			// Keep models with unknown routes out of the default channel.
 			if _, ok := projectableSiteModelRouteType(item); !ok {
 				continue
 			}
@@ -79,29 +78,14 @@ func partitionSiteModelsByRouteType(items []model.SiteModel, split bool, site *m
 	return buckets
 }
 
-// projectableSiteModelRouteType resolves a persisted model's route without
-// allowing historical Volcengine/Ark rows to fall back to OpenAI Chat. Empty
-// route values retain the existing model-name inference for ordinary models;
-// explicit supported metadata is preferred when it is available.
+// projectableSiteModelRouteType validates the persisted route and metadata.
 func projectableSiteModelRouteType(item model.SiteModel) (model.SiteModelRouteType, bool) {
-	if model.HasRemovedSiteModelRouteEvidence(item) {
-		return model.SiteModelRouteTypeUnknown, false
-	}
 	metadata, hasMetadata := model.ParseSiteModelRouteMetadata(item.RouteRawPayload)
 	if hasMetadata && !metadata.RouteSupported {
 		return model.SiteModelRouteTypeUnknown, false
 	}
 
-	routeType := item.RouteType
-	if strings.TrimSpace(string(routeType)) == "" {
-		if hasMetadata && model.IsProjectedSiteModelRouteType(metadata.RouteType) {
-			routeType = metadata.RouteType
-		} else {
-			routeType = model.InferSiteModelRouteType(item.ModelName)
-		}
-	} else {
-		routeType = model.NormalizeSiteModelRouteType(routeType)
-	}
+	routeType := model.NormalizeSiteModelRouteType(item.RouteType)
 	if !model.IsProjectedSiteModelRouteType(routeType) {
 		return model.SiteModelRouteTypeUnknown, false
 	}

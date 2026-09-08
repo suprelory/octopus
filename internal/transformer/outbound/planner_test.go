@@ -24,7 +24,7 @@ func TestPlanRequestForModelUsesEffectiveModelWithoutMutatingRequest(t *testing.
 		outboundType OutboundType
 	}{
 		{name: "gemini family", model: "gemini-3-pro", outboundType: OutboundTypeGemini},
-		{name: "unsupported outbound", model: "legacy-model", outboundType: OutboundTypeUnsupported},
+		{name: "unsupported outbound", model: "legacy-model", outboundType: OutboundType(-1)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			modelOverridden := request.Clone()
@@ -374,7 +374,7 @@ func TestPlanRequestReportsResponsesBuilderDrops(t *testing.T) {
 		t.Fatalf("OpenAI Responses should preserve metadata: %#v", openAIDecision)
 	}
 
-	unsupportedDecision := PlanRequestForModel(request, request.Model, OutboundTypeUnsupported, false)
+	unsupportedDecision := PlanRequestForModel(request, request.Model, OutboundType(-1), false)
 	if !unsupportedDecision.Rejected() {
 		t.Fatalf("legacy unsupported outbound type must be rejected: %#v", unsupportedDecision)
 	}

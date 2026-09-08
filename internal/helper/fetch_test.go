@@ -283,7 +283,7 @@ func TestFetchModelsRejectsUnsupportedChannelBeforeHTTP(t *testing.T) {
 	defer server.Close()
 
 	models, err := fetchModels(context.Background(), model.Channel{
-		Type:     outbound.OutboundTypeUnsupported,
+		Type:     outbound.OutboundType(-1),
 		BaseUrls: []model.BaseUrl{{URL: server.URL}},
 		Keys:     []model.ChannelKey{{Enabled: true, ChannelKey: "legacy-key"}},
 	}, time.Second, time.Second)

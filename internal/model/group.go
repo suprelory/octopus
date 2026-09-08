@@ -6,10 +6,8 @@ type GroupMode int
 
 const (
 	GroupModeRoundRobin GroupMode = 1 // 轮询：依次循环选择渠道
-	// 2 was the removed random strategy. Keep the value reserved so persisted
-	// failover and weighted modes remain numerically stable.
-	GroupModeFailover GroupMode = 3 // 故障转移：按优先级选择，失败时降级到下一个
-	GroupModeWeighted GroupMode = 4 // 加权分配：按优权重分配流量
+	GroupModeFailover   GroupMode = 3 // 故障转移：按优先级选择，失败时降级到下一个
+	GroupModeWeighted   GroupMode = 4 // 加权分配：按优权重分配流量
 )
 
 func (m GroupMode) Valid() bool {
@@ -21,15 +19,6 @@ func (m GroupMode) Valid() bool {
 	}
 }
 
-// Normalize maps unset and legacy/unknown modes to the supported default.
-// This keeps imports and older API clients from reintroducing the removed mode.
-func (m GroupMode) Normalize() GroupMode {
-	if m.Valid() {
-		return m
-	}
-	return GroupModeRoundRobin
-}
-
 type Group struct {
 	ID                int         `json:"id" gorm:"primaryKey"`
 	Name              string      `json:"name" gorm:"unique;not null"`
@@ -38,7 +27,7 @@ type Group struct {
 	FirstTokenTimeOut int         `json:"first_token_time_out"`               // 单个渠道首个Token响应超时时间(秒)
 	SessionKeepTime   int         `json:"session_keep_time"`                  // Responses 续接状态保留时间(秒)，0 使用默认值
 	RetryEnabled      bool        `json:"retry_enabled" gorm:"default:false"` // 启用同通道重试；限流且有备用渠道时优先切换
-	MaxRetries        int         `json:"max_retries" gorm:"default:3"`       // 兼容字段：同通道最大尝试次数（包含首次请求）
+	MaxRetries        int         `json:"max_retries" gorm:"default:3"`       // 同通道最大尝试次数（包含首次请求）
 	Pinned            bool        `json:"pinned" gorm:"default:false;index"`  // 置顶
 	PinnedAt          *time.Time  `json:"pinned_at,omitempty"`                // 置顶时间，置顶时写入，取消置顶时置空
 	ActivePresetID    *int        `json:"active_preset_id,omitempty"`         // 当前激活的预设ID，仅 UI 标记，不参与路由
@@ -89,7 +78,7 @@ type GroupUpdateRequest struct {
 	FirstTokenTimeOut *int                     `json:"first_token_time_out,omitempty"` // 仅在超时变更时发送(秒)
 	SessionKeepTime   *int                     `json:"session_keep_time,omitempty"`    // 仅在 Responses 续接状态保留时间变更时发送(秒)
 	RetryEnabled      *bool                    `json:"retry_enabled,omitempty"`        // 启用同通道重试
-	MaxRetries        *int                     `json:"max_retries,omitempty"`          // 兼容字段：同通道最大尝试次数（包含首次请求）
+	MaxRetries        *int                     `json:"max_retries,omitempty"`          // 同通道最大尝试次数（包含首次请求）
 	ItemsToAdd        []GroupItemAddRequest    `json:"items_to_add,omitempty"`         // 新增的 items
 	ItemsToUpdate     []GroupItemUpdateRequest `json:"items_to_update,omitempty"`      // 更新的 items (priority 变更)
 	ItemsToDelete     []int                    `json:"items_to_delete,omitempty"`      // 删除的 item IDs

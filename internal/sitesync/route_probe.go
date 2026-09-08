@@ -382,22 +382,9 @@ func buildSiteModelRouteDetection(
 
 	supportedEndpointTypes = dedupeStringsPreserveOrder(supportedEndpointTypes)
 	enableGroups = model.NormalizeSiteModelRouteMetadataGroupKeys(enableGroups)
-	removedEndpoint := hasRemovedVolcengineEndpoint(supportedEndpointTypes)
-	removedModel := isRemovedVolcengineModel(modelName)
 	heuristicEndpointTypes := inferHeuristicEndpointTypes(modelName, supportedEndpointTypes)
-	if !removedEndpoint && !removedModel && len(supportedEndpointTypes) == 0 && len(enableGroups) == 0 && len(heuristicEndpointTypes) == 0 {
+	if len(supportedEndpointTypes) == 0 && len(enableGroups) == 0 && len(heuristicEndpointTypes) == 0 {
 		return siteModelRouteDetection{}, false
-	}
-	if removedEndpoint || removedModel {
-		metadata := model.SiteModelRouteMetadata{
-			Source:                 strings.TrimSpace(source),
-			RouteSupported:         false,
-			EnableGroups:           enableGroups,
-			SupportedEndpointTypes: supportedEndpointTypes,
-			HeuristicEndpointTypes: heuristicEndpointTypes,
-			UnsupportedReason:      "Volcengine/Ark route support has been removed",
-		}
-		return siteModelRouteDetection{RouteType: model.SiteModelRouteTypeUnknown, RouteRawPayload: metadata.Marshal()}, true
 	}
 
 	knownRouteTypes := normalizeSupportedRouteTypes(append(append([]string{}, supportedEndpointTypes...), heuristicEndpointTypes...))
@@ -577,19 +564,6 @@ func mapSupportedEndpointType(value string) (model.SiteModelRouteType, bool) {
 	}
 }
 
-func hasRemovedVolcengineEndpoint(values []string) bool {
-	for _, value := range values {
-		if model.ContainsRemovedSiteModelRouteMarker(value) {
-			return true
-		}
-	}
-	return false
-}
-
-func isRemovedVolcengineModel(modelName string) bool {
-	return model.ContainsRemovedSiteModelRouteMarker(modelName)
-}
-
 func normalizeStringList(value any) []string {
 	switch typed := value.(type) {
 	case []any:
@@ -679,12 +653,6 @@ func shouldReplaceSiteModelRouteDetection(
 	}
 	if !nextOK {
 		return false
-	}
-	if !existingMetadata.RouteSupported && isRemovedRouteMetadata(existingMetadata) {
-		return false
-	}
-	if !nextMetadata.RouteSupported && isRemovedRouteMetadata(nextMetadata) {
-		return true
 	}
 	if !nextMetadata.RouteSupported {
 		return existingMetadata.RouteSupported

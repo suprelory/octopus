@@ -103,7 +103,6 @@ func HandleResponsesCompact(c *gin.Context) {
 	var capabilityErr error
 	var sawSupportedCapability bool
 	var lastStatusCode int
-	var lastRetryAfter time.Duration
 	var lastRetryAt time.Time
 	var lastFailure FailureClassification
 	var capabilityErrorCode string
@@ -163,14 +162,13 @@ func HandleResponsesCompact(c *gin.Context) {
 
 		var attemptErr error
 		var statusCode int
-		var retryAfter time.Duration
 		var retryAt time.Time
 		var failure FailureClassification
 		var success bool
 
 		for attemptNum := 0; attemptNum < maxSameChannelAttempts; attemptNum++ {
 			if attemptNum > 0 {
-				delay := computeAttemptBackoff(attemptNum, retryAt, retryAfter)
+				delay := computeBackoffUntil(attemptNum, retryAt)
 				if !waitBackoff(c.Request.Context(), delay) {
 					releaseKey()
 					metrics.SaveWithChannelStats(c.Request.Context(), false, context.Canceled, iter.Attempts(), false)
@@ -188,13 +186,6 @@ func HandleResponsesCompact(c *gin.Context) {
 				body,
 				capabilityTrace(decision, capabilityPolicy, channel.Type.String()),
 			)
-			retryAfter = 0
-			if !retryAt.IsZero() {
-				retryAfter = time.Until(retryAt)
-				if retryAfter < 0 {
-					retryAfter = 0
-				}
-			}
 			if attemptErr == nil {
 				success = true
 				break
@@ -230,7 +221,6 @@ func HandleResponsesCompact(c *gin.Context) {
 		iter.InvalidateCurrentPreference()
 		lastErr = attemptErr
 		lastStatusCode = statusCode
-		lastRetryAfter = retryAfter
 		lastRetryAt = retryAt
 		lastFailure = failure
 	}
@@ -251,15 +241,12 @@ func HandleResponsesCompact(c *gin.Context) {
 	finalResult := attemptResult{
 		Err:        finalErr,
 		StatusCode: lastStatusCode,
-		RetryAfter: lastRetryAfter,
 		RetryAt:    lastRetryAt,
 		Failure:    lastFailure,
 	}
 	if lastFailure.Passthrough || isPassthroughStatus(lastStatusCode) {
 		if value := retryAfterHeaderValue(lastRetryAt, time.Now()); value != "" {
 			c.Header("Retry-After", value)
-		} else if lastRetryAfter > 0 {
-			c.Header("Retry-After", retryAfterDurationHeaderValue(lastRetryAfter))
 		}
 		writeCompactFailure(c, finalResult, finalErr)
 		return

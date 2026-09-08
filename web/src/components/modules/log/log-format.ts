@@ -160,14 +160,6 @@ export function formatCompactTokenCount(value: number): string {
     return `${trunc(value / 1000000, 2)}M`;
 }
 
-// 投影渠道命名 "站点/账号/分组-端点后缀"，Anthropic 端点后缀为 -Anthropic。
-// 仅 Anthropic 端点的 input_tokens 不含 cache_read（Anthropic 原生语义），不应做减法；
-// OpenAI/Gemini 等的 input_tokens 已含 cache_read。见 SiteModelRouteType 后缀映射。
-export function usesAnthropicCacheSemantics(adapterType: string, channelName: string): boolean {
-    if (adapterType.trim().toLowerCase() === 'anthropic') return true;
-    return /-Anthropic$/i.test(channelName);
-}
-
 export interface TokenUsageDisplay {
     nonCachedInputTokens: number;
     cacheReadTokens: number;
@@ -177,37 +169,21 @@ export interface TokenUsageDisplay {
 }
 
 export function resolveTokenUsageDisplay({
-    inputTokens,
     outputTokens,
     billInputTokens,
     cacheReadTokens,
     cacheWriteTokens,
-    adapterType,
-    channelName,
 }: {
-    inputTokens: number;
     outputTokens: number;
     billInputTokens: number | null;
     cacheReadTokens: number;
     cacheWriteTokens: number;
-    adapterType: string;
-    channelName: string;
 }): TokenUsageDisplay {
-    const safeInput = Math.max(0, inputTokens);
     const safeOutput = Math.max(0, outputTokens);
     const safeCacheRead = Math.max(0, cacheReadTokens);
     const safeCacheWrite = Math.max(0, cacheWriteTokens);
 
-    // 新日志直接使用后端统一后的非缓存输入口径。旧日志没有 bill_input_tokens 时，
-    // Anthropic 的 input 本身不含缓存；OpenAI/Gemini 的 input 通常包含 cache read。
-    const legacyInputExcludesCache = usesAnthropicCacheSemantics(adapterType, channelName)
-        || safeCacheWrite > 0
-        || safeInput < safeCacheRead;
-    const nonCachedInput = billInputTokens != null
-        ? Math.max(0, billInputTokens)
-        : legacyInputExcludesCache
-            ? safeInput
-            : Math.max(0, safeInput - safeCacheRead);
+    const nonCachedInput = Math.max(0, billInputTokens ?? 0);
     const totalInput = nonCachedInput + safeCacheRead + safeCacheWrite;
 
     return {

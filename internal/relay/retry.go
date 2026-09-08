@@ -47,14 +47,9 @@ func parseRetryAtAt(header string, now time.Time) time.Time {
 	return time.Time{}
 }
 
-// computeBackoff 计算退避时间
-// 优先使用 retryAfter（上游指定的等待时间），否则使用指数退避 + jitter
+// computeBackoff 使用指数退避 + jitter 计算等待时间。
 // retryNum 从 1 开始（第1次重试）
-func computeBackoff(retryNum int, retryAfter time.Duration) time.Duration {
-	if retryAfter > 0 {
-		return retryAfter
-	}
-
+func computeBackoff(retryNum int) time.Duration {
 	// 指数退避: 1s * 2^(retryNum-1)
 	base := time.Second
 	shift := retryNum - 1
@@ -72,8 +67,8 @@ func computeBackoff(retryNum int, retryAfter time.Duration) time.Duration {
 	return delay + jitter
 }
 
-// computeBackoffUntil uses the absolute deadline supplied by an upstream. A
-// deadline in the past is ignored and falls back to local exponential backoff.
+// computeBackoffUntil uses the absolute deadline supplied by an upstream, or
+// local exponential backoff when the upstream has not supplied a deadline.
 func computeBackoffUntil(retryNum int, retryAt time.Time) time.Duration {
 	if !retryAt.IsZero() {
 		delay := time.Until(retryAt)
@@ -88,14 +83,7 @@ func computeBackoffUntil(retryNum int, retryAt time.Time) time.Duration {
 		// signal with a one-second local backoff.
 		return 0
 	}
-	return computeBackoff(retryNum, 0)
-}
-
-func computeAttemptBackoff(retryNum int, retryAt time.Time, retryAfter time.Duration) time.Duration {
-	if !retryAt.IsZero() {
-		return computeBackoffUntil(retryNum, retryAt)
-	}
-	return computeBackoff(retryNum, retryAfter)
+	return computeBackoff(retryNum)
 }
 
 // retryAfterHeaderValue returns the client-facing delta in whole seconds,
@@ -105,20 +93,6 @@ func retryAfterHeaderValue(retryAt time.Time, now time.Time) string {
 		return ""
 	}
 	delay := retryAt.Sub(now)
-	if delay <= 0 {
-		return ""
-	}
-	seconds := int64(delay / time.Second)
-	if delay%time.Second != 0 {
-		seconds++
-	}
-	if seconds < 1 {
-		seconds = 1
-	}
-	return strconv.FormatInt(seconds, 10)
-}
-
-func retryAfterDurationHeaderValue(delay time.Duration) string {
 	if delay <= 0 {
 		return ""
 	}
@@ -158,10 +132,4 @@ func (ra *relayAttempt) captureRetryAfter(header string) {
 
 func (ra *relayAttempt) captureRetryAt(retryAt time.Time) {
 	ra.retryAt = retryAt
-	ra.retryAfter = 0
-	if !ra.retryAt.IsZero() {
-		if delay := time.Until(ra.retryAt); delay > 0 {
-			ra.retryAfter = delay
-		}
-	}
 }

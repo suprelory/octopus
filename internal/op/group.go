@@ -92,7 +92,12 @@ func cloneGroup(group model.Group) model.Group {
 }
 
 func GroupCreate(group *model.Group, ctx context.Context) error {
-	group.Mode = group.Mode.Normalize()
+	if group.Mode == 0 {
+		group.Mode = model.GroupModeRoundRobin
+	}
+	if !group.Mode.Valid() {
+		return fmt.Errorf("invalid group mode: %d", group.Mode)
+	}
 	if err := db.GetDB().WithContext(ctx).Create(group).Error; err != nil {
 		return err
 	}
@@ -105,6 +110,9 @@ func GroupCreate(group *model.Group, ctx context.Context) error {
 func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (*model.Group, error) {
 	if req == nil {
 		return nil, fmt.Errorf("group update request is nil")
+	}
+	if req.Mode != nil && !req.Mode.Valid() {
+		return nil, fmt.Errorf("invalid group mode: %d", *req.Mode)
 	}
 	oldGroup, ok := groupCache.Get(req.ID)
 	if !ok {
@@ -128,7 +136,7 @@ func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (*model.Gro
 	}
 	if req.Mode != nil {
 		selectFields = append(selectFields, "mode")
-		updates.Mode = req.Mode.Normalize()
+		updates.Mode = *req.Mode
 	}
 	if req.MatchRegex != nil {
 		selectFields = append(selectFields, "match_regex")

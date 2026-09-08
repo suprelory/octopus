@@ -7,9 +7,7 @@ import (
 	"github.com/bestruirui/octopus/internal/transformer/outbound"
 )
 
-// validateChannelReference verifies that a channel can still participate in
-// routing. Historical rows for removed providers remain in the database for
-// audit purposes, but they must not be introduced into new group bindings.
+// validateChannelReference validates channels before creating route bindings.
 func validateChannelReference(channelID int) (model.Channel, error) {
 	if channelID <= 0 {
 		return model.Channel{}, fmt.Errorf("channel id is required")

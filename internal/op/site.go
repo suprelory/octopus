@@ -335,9 +335,6 @@ func SiteDel(id int, ctx context.Context) error {
 			if err := tx.Where("site_account_id IN ?", accountIDs).Delete(&model.StatsSiteModelHourly{}).Error; err != nil {
 				return err
 			}
-			if err := deleteLegacySitePricesByAccountIDs(tx, accountIDs); err != nil {
-				return err
-			}
 			if err := tx.Where("id IN ?", accountIDs).Delete(&model.SiteAccount{}).Error; err != nil {
 				return err
 			}

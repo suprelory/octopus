@@ -23,9 +23,6 @@ func (s *dbImportState) importSites() error {
 		site.ID = 0
 		site.Accounts = nil
 		remapProxyConfigID(&site.ProxyMode, &site.ProxyConfigID, proxyConfigIDMap)
-		if model.IsRemovedSiteModelRouteType(site.DefaultRouteType) {
-			site.DefaultRouteType = model.SiteModelRouteTypeOpenAIChat
-		}
 		site.RouteBaseURLs = model.NormalizeSiteRouteBaseURLs(site.RouteBaseURLs)
 
 		// Preserve the path in base_url (e.g. https://opencode.ai/zen/v1):
@@ -154,7 +151,6 @@ func (s *dbImportState) importModels() error {
 	// 8. SiteModels (remap site_account_id, dedup by uniqueIndex)
 	for i := range dump.SiteModels {
 		m := dump.SiteModels[i]
-		normalizeImportedSiteModelRoute(&m)
 		m.ID = 0
 		if newID, ok := accountIDMap[m.SiteAccountID]; ok {
 			m.SiteAccountID = newID
@@ -223,41 +219,4 @@ func (s *dbImportState) importBindings() error {
 		res.RowsAffected["site_channel_bindings"]++
 	}
 	return nil
-}
-
-func normalizeImportedSiteModelRoute(item *model.SiteModel) {
-	if item == nil {
-		return
-	}
-
-	rawRouteType := item.RouteType
-	normalizedRouteType := model.NormalizeSiteModelRouteType(rawRouteType)
-	legacyRoute := model.IsRemovedSiteModelRouteType(rawRouteType)
-	legacyMetadata := model.ContainsRemovedSiteModelRouteMarker(item.RouteRawPayload)
-	manualSupportedRoute := item.ManualOverride &&
-		!legacyRoute &&
-		!legacyMetadata &&
-		model.IsProjectedSiteModelRouteType(normalizedRouteType)
-	legacyModel := model.ContainsRemovedSiteModelRouteMarker(item.ModelName) && !manualSupportedRoute
-
-	if !legacyRoute && !legacyMetadata && !legacyModel {
-		item.RouteType = normalizedRouteType
-		item.RouteSource = model.NormalizeSiteModelRouteSource(item.RouteSource, item.ManualOverride)
-		return
-	}
-
-	metadata, ok := model.ParseSiteModelRouteMetadata(item.RouteRawPayload)
-	if !ok {
-		metadata = &model.SiteModelRouteMetadata{}
-	}
-	metadata.RouteSupported = false
-	metadata.RouteGuessed = false
-	metadata.RouteType = model.SiteModelRouteTypeUnknown
-	if strings.TrimSpace(metadata.UnsupportedReason) == "" {
-		metadata.UnsupportedReason = "Volcengine/Ark route support has been removed"
-	}
-	item.RouteType = model.SiteModelRouteTypeUnknown
-	item.RouteSource = model.SiteModelRouteSourceSyncInferred
-	item.ManualOverride = false
-	item.RouteRawPayload = metadata.Marshal()
 }

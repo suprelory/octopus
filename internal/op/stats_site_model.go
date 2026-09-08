@@ -23,8 +23,7 @@ type channelSiteBinding struct {
 }
 
 // 站点渠道绑定缓存，懒加载，正向命中永久持有；负向命中也缓存，避免每次请求都查 DB。
-// 由于 SiteChannelBinding 的 channel_id 是 uniqueIndex，迁移场景下绑定基本不会重映射，
-// 在站点账号删除时会调用 invalidateSiteBindingCache 清理。
+// 在站点账号或渠道绑定删除时调用 invalidateSiteBindingCache 清理。
 var siteBindingByChannelCache = cache.New[int, channelSiteBinding](16)
 
 // 桶级缓存：以小时桶为粒度累加，由后台任务批量持久化。
@@ -345,10 +344,6 @@ func buildSiteModelSummary(hours []model.StatsSiteModelHourly) *model.SiteModelH
 	latestHour := hours[len(hours)-1].Hour
 	if maxLast > 0 {
 		summary.LastRequestAt = &maxLast
-	} else {
-		// 兼容老数据：fallback 到该 hour 最后一秒
-		latestSec := int64(latestHour+1)*3600 - 1
-		summary.LastRequestAt = &latestSec
 	}
 	spanSeconds := int64((latestHour - earliestHour + 1) * 3600)
 

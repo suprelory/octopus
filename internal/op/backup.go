@@ -26,7 +26,7 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		return nil, fmt.Errorf("empty dump")
 	}
 
-	if dump.Version != 0 && dump.Version != dbDumpVersion {
+	if dump.Version != dbDumpVersion {
 		return nil, fmt.Errorf("unsupported dump version: %d", dump.Version)
 	}
 
@@ -77,34 +77,32 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 // dbImportState belongs to one import transaction. Stages run in dependency order
 // so all foreign-key remapping and writes share the same rollback boundary.
 type dbImportState struct {
-	tx                    *gorm.DB
-	dump                  *model.DBDump
-	result                *model.DBImportResult
-	channelIDs            map[int]int
-	unsupportedChannelIDs map[int]struct{}
-	resolvedChannels      map[int]resolvedImportChannel
-	proxyIDs              map[int]int
-	siteIDs               map[int]int
-	accountIDs            map[int]int
-	userGroupIDs          map[int]int
-	groupIDs              map[int]int
-	apiKeyIDs             map[int]int
+	tx               *gorm.DB
+	dump             *model.DBDump
+	result           *model.DBImportResult
+	channelIDs       map[int]int
+	resolvedChannels map[int]resolvedImportChannel
+	proxyIDs         map[int]int
+	siteIDs          map[int]int
+	accountIDs       map[int]int
+	userGroupIDs     map[int]int
+	groupIDs         map[int]int
+	apiKeyIDs        map[int]int
 }
 
 func newDBImportState(tx *gorm.DB, dump *model.DBDump, result *model.DBImportResult) *dbImportState {
 	return &dbImportState{
-		tx:                    tx,
-		dump:                  dump,
-		result:                result,
-		channelIDs:            make(map[int]int),
-		unsupportedChannelIDs: make(map[int]struct{}),
-		resolvedChannels:      make(map[int]resolvedImportChannel),
-		proxyIDs:              make(map[int]int),
-		siteIDs:               make(map[int]int),
-		accountIDs:            make(map[int]int),
-		userGroupIDs:          make(map[int]int),
-		groupIDs:              make(map[int]int),
-		apiKeyIDs:             make(map[int]int),
+		tx:               tx,
+		dump:             dump,
+		result:           result,
+		channelIDs:       make(map[int]int),
+		resolvedChannels: make(map[int]resolvedImportChannel),
+		proxyIDs:         make(map[int]int),
+		siteIDs:          make(map[int]int),
+		accountIDs:       make(map[int]int),
+		userGroupIDs:     make(map[int]int),
+		groupIDs:         make(map[int]int),
+		apiKeyIDs:        make(map[int]int),
 	}
 }
 

@@ -45,11 +45,15 @@ func TestProtocolDescriptorCapabilities(t *testing.T) {
 	if !SupportsNativeFormat(OutboundTypeOpenAIResponse, model.APIFormatOpenAIResponse) {
 		t.Fatal("OpenAI Responses endpoint must support native Responses input")
 	}
-	if _, ok := Descriptor(OutboundTypeUnsupported); ok || Get(OutboundTypeUnsupported) != nil {
-		t.Fatal("legacy unsupported outbound type must not have a descriptor or factory")
+	for _, invalid := range []OutboundType{-1, 4, 99} {
+		if _, ok := Descriptor(invalid); ok || Get(invalid) != nil {
+			t.Fatalf("invalid outbound type %d has a descriptor or factory", invalid)
+		}
 	}
-	if OutboundTypeUnsupported != 4 || OutboundTypeOpenAIEmbedding != 5 {
-		t.Fatalf("legacy outbound values changed: unsupported=%d embedding=%d", OutboundTypeUnsupported, OutboundTypeOpenAIEmbedding)
+	for want, typ := range map[int]OutboundType{0: OutboundTypeOpenAIChat, 1: OutboundTypeOpenAIResponse, 2: OutboundTypeAnthropic, 3: OutboundTypeGemini, 5: OutboundTypeOpenAIEmbedding} {
+		if int(typ) != want {
+			t.Fatalf("persisted outbound value changed: got %d, want %d", typ, want)
+		}
 	}
 }
 

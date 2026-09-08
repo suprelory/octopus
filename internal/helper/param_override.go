@@ -35,8 +35,8 @@ type ParamOverrideInspection struct {
 
 // InspectParamOverride parses only the override document. It does not inspect
 // or mutate a request body and is therefore safe during candidate ranking.
-// Invalid JSON remains inactive for backwards compatibility: the relay has
-// historically ignored invalid override syntax.
+// Invalid non-empty configuration remains active so transports cannot bypass
+// validation by selecting byte-stable passthrough.
 func InspectParamOverride(paramOverride *string) ParamOverrideInspection {
 	if paramOverride == nil {
 		return ParamOverrideInspection{}
@@ -46,7 +46,7 @@ func InspectParamOverride(paramOverride *string) ParamOverrideInspection {
 		return ParamOverrideInspection{}
 	}
 	sum := sha256.Sum256([]byte(rawText))
-	inspection := ParamOverrideInspection{Fingerprint: hex.EncodeToString(sum[:])}
+	inspection := ParamOverrideInspection{Active: true, Fingerprint: hex.EncodeToString(sum[:])}
 	raw := json.RawMessage(rawText)
 	if raw[0] == '[' {
 		var operations []ParamOverrideOperation
@@ -56,7 +56,6 @@ func InspectParamOverride(paramOverride *string) ParamOverrideInspection {
 		if !validParamOverrideOperations(operations) {
 			return inspection
 		}
-		inspection.Active = true
 		inspection.Valid = true
 		if canonical, err := json.Marshal(operations); err == nil {
 			sum := sha256.Sum256(canonical)
@@ -82,7 +81,6 @@ func InspectParamOverride(paramOverride *string) ParamOverrideInspection {
 	if err := json.Unmarshal(raw, &object); err != nil || object == nil {
 		return inspection
 	}
-	inspection.Active = true
 	inspection.Valid = true
 	if canonicalValue, err := json.Marshal(object); err == nil {
 		sum := sha256.Sum256(canonicalValue)
@@ -162,9 +160,8 @@ func uniqueSortedStrings(values []string) []string {
 	return result
 }
 
-// ApplyParamOverride accepts both the legacy JSON object merge and the new
-// operation-array form. Invalid override syntax is ignored for compatibility;
-// valid operations return an error when they cannot be applied safely.
+// ApplyParamOverride accepts JSON object merges and operation arrays. Invalid
+// configuration or operations that cannot be applied safely return an error.
 func ApplyParamOverride(request *http.Request, paramOverride *string) error {
 	_, _, err := ApplyParamOverrideWithPayload(request, paramOverride)
 	return err
@@ -179,11 +176,11 @@ func ApplyParamOverridePayload(body []byte, paramOverride *string) (payload []by
 	}
 
 	raw := json.RawMessage(strings.TrimSpace(*paramOverride))
-	if len(raw) == 0 {
-		return body, false, nil
-	}
 	inspection := InspectParamOverride(paramOverride)
-	if inspection.Valid && !inspection.Active {
+	if !inspection.Valid {
+		return body, true, fmt.Errorf("param override must be a JSON object or a valid operation array")
+	}
+	if !inspection.Active {
 		// Empty object/operation documents are valid configuration, but they
 		// must not re-marshal an otherwise byte-stable request.
 		return body, false, nil
@@ -197,7 +194,7 @@ func ApplyParamOverridePayload(body []byte, paramOverride *string) (payload []by
 	if raw[0] == '[' {
 		var operations []ParamOverrideOperation
 		if err := json.Unmarshal(raw, &operations); err != nil {
-			return body, true, nil
+			return body, true, fmt.Errorf("failed to parse param override operations: %w", err)
 		}
 		var document any
 		if err := json.Unmarshal(body, &document); err != nil {
@@ -217,7 +214,7 @@ func ApplyParamOverridePayload(body []byte, paramOverride *string) (payload []by
 
 	var override map[string]any
 	if err := json.Unmarshal(raw, &override); err != nil {
-		return body, true, nil
+		return body, true, fmt.Errorf("failed to parse param override object: %w", err)
 	}
 	var bodyMap map[string]any
 	if err := json.Unmarshal(body, &bodyMap); err != nil {
@@ -256,6 +253,9 @@ func ApplyParamOverrideWithPayload(request *http.Request, paramOverride *string)
 	}
 	restoreBody(body)
 	if !paramOverrideBodySupported(request, body) {
+		if !InspectParamOverride(paramOverride).Valid {
+			return body, true, fmt.Errorf("param override must be a JSON object or a valid operation array")
+		}
 		return body, true, nil
 	}
 
@@ -268,8 +268,8 @@ func ApplyParamOverrideWithPayload(request *http.Request, paramOverride *string)
 }
 
 // paramOverrideBodySupported limits wire patches to JSON requests. A missing
-// Content-Type is allowed for compatibility with callers that construct an
-// outbound request before setting headers; the payload still must be valid JSON.
+// Content-Type is allowed because callers may set headers after constructing
+// the outbound request; the payload still must be valid JSON.
 func paramOverrideBodySupported(request *http.Request, body []byte) bool {
 	if request == nil || len(body) == 0 || !json.Valid(body) {
 		return false

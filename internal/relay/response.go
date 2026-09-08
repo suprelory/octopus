@@ -144,8 +144,6 @@ func (r *httpRelay) writeFinalError(result attemptResult, err error, lastAttempt
 	if result.Failure.Passthrough || isPassthroughStatus(result.StatusCode) {
 		if value := retryAfterHeaderValue(result.RetryAt, time.Now()); value != "" {
 			req.c.Header("Retry-After", value)
-		} else if result.RetryAfter > 0 {
-			req.c.Header("Retry-After", retryAfterDurationHeaderValue(result.RetryAfter))
 		}
 	}
 	writeInboundProtocolError(req.c, req.heartbeat, errorAdapter, protocolErrorForAttempt(result, err))

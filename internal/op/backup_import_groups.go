@@ -19,7 +19,9 @@ func (s *dbImportState) importGroups() error {
 		g := dump.Groups[i]
 		oldID := g.ID
 		g.ID = 0
-		g.Mode = g.Mode.Normalize()
+		if !g.Mode.Valid() {
+			return fmt.Errorf("import groups: invalid group mode: %d", g.Mode)
+		}
 		g.Items = nil
 
 		var existing model.Group

@@ -34,7 +34,7 @@ func groupPresetSnapshotFromCache(groupID int) (mode model.GroupMode, matchRegex
 		err = fmt.Errorf("group not found")
 		return
 	}
-	mode = group.Mode.Normalize()
+	mode = group.Mode
 	matchRegex = group.MatchRegex
 	firstTokenTimeOut = group.FirstTokenTimeOut
 	sessionKeepTime = group.SessionKeepTime
@@ -140,7 +140,7 @@ func GroupPresetClone(presetID int, newName string, ctx context.Context) (*model
 	clone := model.GroupPreset{
 		GroupID:           source.GroupID,
 		Name:              finalName,
-		Mode:              source.Mode.Normalize(),
+		Mode:              source.Mode,
 		MatchRegex:        source.MatchRegex,
 		FirstTokenTimeOut: source.FirstTokenTimeOut,
 		SessionKeepTime:   source.SessionKeepTime,
@@ -183,7 +183,6 @@ func mirrorPresetToActiveGroupTx(tx *gorm.DB, preset *model.GroupPreset) (groupI
 	}
 
 	// 镜像字段
-	preset.Mode = preset.Mode.Normalize()
 	maxRetries := preset.MaxRetries
 	if maxRetries <= 0 {
 		maxRetries = 3
@@ -191,7 +190,7 @@ func mirrorPresetToActiveGroupTx(tx *gorm.DB, preset *model.GroupPreset) (groupI
 	if err = tx.Model(&model.Group{}).
 		Where("id = ?", group.ID).
 		Updates(map[string]interface{}{
-			"mode":                 preset.Mode.Normalize(),
+			"mode":                 preset.Mode,
 			"match_regex":          preset.MatchRegex,
 			"first_token_time_out": preset.FirstTokenTimeOut,
 			"session_keep_time":    preset.SessionKeepTime,
@@ -262,7 +261,7 @@ func syncActivePresetTx(tx *gorm.DB, groupID int) error {
 		})
 	}
 
-	preset.Mode = group.Mode.Normalize()
+	preset.Mode = group.Mode
 	preset.MatchRegex = group.MatchRegex
 	preset.FirstTokenTimeOut = group.FirstTokenTimeOut
 	preset.SessionKeepTime = group.SessionKeepTime
@@ -282,6 +281,9 @@ func GroupPresetUpdate(presetID int, req *model.GroupPresetUpdateRequest, ctx co
 	if req == nil {
 		return nil, fmt.Errorf("preset update request is nil")
 	}
+	if req.Mode != nil && !req.Mode.Valid() {
+		return nil, fmt.Errorf("invalid group mode: %d", *req.Mode)
+	}
 	if req.Items != nil {
 		if err := validatePresetItems(*req.Items); err != nil {
 			return nil, err
@@ -298,7 +300,7 @@ func GroupPresetUpdate(presetID int, req *model.GroupPresetUpdateRequest, ctx co
 			preset.Name = *req.Name
 		}
 		if req.Mode != nil {
-			preset.Mode = req.Mode.Normalize()
+			preset.Mode = *req.Mode
 		}
 		if req.MatchRegex != nil {
 			preset.MatchRegex = *req.MatchRegex
@@ -322,7 +324,6 @@ func GroupPresetUpdate(presetID int, req *model.GroupPresetUpdateRequest, ctx co
 		if req.Items != nil {
 			preset.Items = *req.Items
 		}
-		preset.Mode = preset.Mode.Normalize()
 		if err := tx.Save(&preset).Error; err != nil {
 			return fmt.Errorf("failed to update preset: %w", err)
 		}
@@ -434,7 +435,6 @@ func GroupPresetActivate(presetID int, ctx context.Context) error {
 	if maxRetries <= 0 {
 		maxRetries = 3
 	}
-	preset.Mode = preset.Mode.Normalize()
 	if err := tx.Model(&model.GroupPreset{}).
 		Where("id = ?", preset.ID).
 		Update("mode", preset.Mode).Error; err != nil {

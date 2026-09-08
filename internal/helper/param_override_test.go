@@ -50,10 +50,10 @@ func TestApplyParamOverrideStructuredOperations(t *testing.T) {
 	}
 }
 
-func TestApplyParamOverrideCopyAndLegacyMerge(t *testing.T) {
+func TestApplyParamOverrideCopyAndObjectMerge(t *testing.T) {
 	result := applyOverrideForTest(t, `{"temperature":1,"metadata":{"trace":"abc"}}`, `{"temperature":0.2,"max_tokens":7}`)
 	if result["temperature"] != 0.2 || result["max_tokens"] != float64(7) {
-		t.Fatalf("legacy merge result = %#v", result)
+		t.Fatalf("object merge result = %#v", result)
 	}
 	result = applyOverrideForTest(t, `{"metadata":{"trace":"abc"}}`, `[{"op":"copy","from":"/metadata/trace","path":"/trace_id"}]`)
 	if result["trace_id"] != "abc" {
@@ -116,25 +116,35 @@ func TestApplyParamOverrideWithPayloadReturnsStructuredBody(t *testing.T) {
 	}
 }
 
-func TestApplyParamOverrideWithPayloadReturnsOriginalForInvalidOverride(t *testing.T) {
+func TestApplyParamOverrideRejectsInvalidConfiguration(t *testing.T) {
 	body := `{"model":"alias"}`
-	override := `{invalid`
-	req, err := http.NewRequest(http.MethodPost, "https://example.com", strings.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
+	for _, override := range []string{
+		`{invalid`, `[invalid`, `null`, `42`, `"text"`,
+		`[{"op":"unknown","path":"/model"}]`,
+		`[{"op":"replace","path":"/bad~2path","value":1}]`,
+	} {
+		t.Run(override, func(t *testing.T) {
+			for _, contentType := range []string{"application/json", "multipart/form-data; boundary=test"} {
+				req, err := http.NewRequest(http.MethodPost, "https://example.com", strings.NewReader(body))
+				if err != nil {
+					t.Fatal(err)
+				}
+				req.Header.Set("Content-Type", contentType)
+				payload, captured, err := ApplyParamOverrideWithPayload(req, &override)
+				if err == nil {
+					t.Fatalf("expected invalid override to fail for %s", contentType)
+				}
+				if !captured || string(payload) != body {
+					t.Fatalf("invalid override changed payload: captured=%t payload=%q", captured, payload)
+				}
+				assertRequestPayload(t, req, payload)
+			}
+			payload, _, err := ApplyParamOverridePayload([]byte(body), &override)
+			if err == nil || string(payload) != body {
+				t.Fatalf("buffered override result: payload=%q err=%v", payload, err)
+			}
+		})
 	}
-
-	payload, captured, err := ApplyParamOverrideWithPayload(req, &override)
-	if err != nil {
-		t.Fatalf("ApplyParamOverrideWithPayload() error = %v", err)
-	}
-	if !captured {
-		t.Fatal("expected non-empty override path to capture the original payload")
-	}
-	if string(payload) != body {
-		t.Fatalf("payload = %q, want %q", payload, body)
-	}
-	assertRequestPayload(t, req, payload)
 }
 
 func TestApplyParamOverrideWithPayloadSkipsEmptyOverride(t *testing.T) {
@@ -192,11 +202,11 @@ func TestInspectParamOverrideReturnsStablePathsAndFingerprint(t *testing.T) {
 	}
 }
 
-func TestInspectParamOverrideInvalidSyntaxIsInactive(t *testing.T) {
+func TestInspectParamOverrideInvalidSyntaxRequiresValidation(t *testing.T) {
 	override := `{invalid`
 	inspection := InspectParamOverride(&override)
-	if inspection.Active || inspection.Valid {
-		t.Fatalf("invalid inspection = %#v, want inactive invalid", inspection)
+	if !inspection.Active || inspection.Valid {
+		t.Fatalf("invalid inspection = %#v, want active invalid", inspection)
 	}
 }
 

@@ -134,36 +134,6 @@ func TestProjectAccountSupportsAllConfiguredRouteBuckets(t *testing.T) {
 	}
 }
 
-func TestProjectAccountDoesNotInferRemovedModelNameAsChat(t *testing.T) {
-	ctx := setupProjectTestDB(t)
-	_, account := createProjectionFixture(t, ctx)
-
-	legacy := model.SiteModel{
-		SiteAccountID: account.ID,
-		GroupKey:      model.SiteDefaultGroupKey,
-		ModelName:     "doubao-seed-1-6",
-		Source:        "sync",
-		RouteType:     model.SiteModelRouteTypeOpenAIChat,
-	}
-	if err := dbpkg.GetDB().WithContext(ctx).Create(&legacy).Error; err != nil {
-		t.Fatalf("create legacy site model failed: %v", err)
-	}
-	// Simulate a pre-route-metadata row whose zero route value was filled by the
-	// database default during insertion.
-	if err := dbpkg.GetDB().WithContext(ctx).Model(&model.SiteModel{}).
-		Where("id = ?", legacy.ID).Update("route_type", "").Error; err != nil {
-		t.Fatalf("clear legacy route type failed: %v", err)
-	}
-
-	if _, err := ProjectAccount(ctx, account.ID); err != nil {
-		t.Fatalf("ProjectAccount returned error: %v", err)
-	}
-	channelsByGroup := loadProjectedChannelsByGroupKey(t, ctx, account.ID)
-	if got := channelsByGroup[model.SiteDefaultGroupKey].Model; got != "gpt-4o-mini" {
-		t.Fatalf("expected legacy model to stay out of Chat projection, got %q", got)
-	}
-}
-
 func TestProjectAccountAllowsExplicitManualRouteForProviderNamedModel(t *testing.T) {
 	ctx := setupProjectTestDB(t)
 	_, account := createProjectionFixture(t, ctx)

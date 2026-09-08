@@ -4,30 +4,12 @@ import (
 	"encoding/json"
 	"sort"
 	"strings"
-	"unicode"
 )
 
 const (
 	SiteModelRouteMetadataKind    = "site_route_metadata"
 	SiteModelRouteMetadataVersion = 1
 )
-
-// ContainsRemovedSiteModelRouteMarker reports whether value contains a
-// provider-specific token belonging to the retired Volcengine/Ark route.
-// Token boundaries are intentional: names such as "notdoubao" and
-// "notvolcengine" must not be rejected merely because they contain a marker
-// as a substring.
-func ContainsRemovedSiteModelRouteMarker(value string) bool {
-	for _, token := range strings.FieldsFunc(strings.ToLower(value), func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
-	}) {
-		switch token {
-		case "volcengine", "ark", "volces", "bytedance", "doubao":
-			return true
-		}
-	}
-	return false
-}
 
 type SiteModelRouteMetadata struct {
 	Kind                    string             `json:"kind"`
@@ -91,7 +73,6 @@ func ParseSiteModelRouteMetadata(raw string) (*SiteModelRouteMetadata, bool) {
 	metadata.SupportedEndpointTypes = normalizeRouteMetadataStrings(metadata.SupportedEndpointTypes)
 	metadata.HeuristicEndpointTypes = normalizeRouteMetadataStrings(metadata.HeuristicEndpointTypes)
 	metadata.NormalizedEndpointTypes = normalizeRouteMetadataStrings(metadata.NormalizedEndpointTypes)
-	legacyRoute := metadata.RouteType
 	if metadata.RouteSupported {
 		metadata.RouteType = NormalizeSiteModelRouteType(metadata.RouteType)
 		if !IsProjectedSiteModelRouteType(metadata.RouteType) {
@@ -99,29 +80,14 @@ func ParseSiteModelRouteMetadata(raw string) (*SiteModelRouteMetadata, bool) {
 			metadata.RouteGuessed = false
 			metadata.RouteType = SiteModelRouteTypeUnknown
 			if strings.TrimSpace(metadata.UnsupportedReason) == "" {
-				if IsRemovedSiteModelRouteType(legacyRoute) {
-					metadata.UnsupportedReason = "Volcengine route support has been removed"
-				} else {
-					metadata.UnsupportedReason = "route type is no longer supported"
-				}
+				metadata.UnsupportedReason = "route type is not supported"
 			}
 		}
 	} else {
-		if strings.TrimSpace(metadata.UnsupportedReason) == "" &&
-			(IsRemovedSiteModelRouteType(legacyRoute) || ContainsRemovedSiteModelRouteMarker(legacyRouteString(metadata))) {
-			metadata.UnsupportedReason = "Volcengine route support has been removed"
-		}
 		metadata.RouteGuessed = false
 		metadata.RouteType = SiteModelRouteTypeUnknown
 	}
 	return &metadata, true
-}
-
-func legacyRouteString(metadata SiteModelRouteMetadata) string {
-	values := []string{string(metadata.RouteType)}
-	values = append(values, metadata.SupportedEndpointTypes...)
-	values = append(values, metadata.NormalizedEndpointTypes...)
-	return strings.Join(values, " ")
 }
 
 func NormalizeSiteModelRouteMetadataGroupKeys(values []string) []string {

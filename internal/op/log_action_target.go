@@ -22,8 +22,7 @@ type LogSiteActionTarget struct {
 }
 
 type LogSiteActionTargets struct {
-	AttemptTargets    []*LogSiteActionTarget `json:"attempt_targets"`
-	LegacyErrorTarget *LogSiteActionTarget   `json:"legacy_error_target,omitempty"`
+	AttemptTargets []*LogSiteActionTarget `json:"attempt_targets"`
 }
 
 type logActionBindingRowsByChannel map[int][]logActionBindingRow
@@ -64,9 +63,6 @@ func RelayLogSiteActionTargets(ctx context.Context, ids []int64) (map[int64]LogS
 
 	channelIDs := make(map[int]struct{})
 	for _, item := range logs {
-		if item.ChannelId > 0 {
-			channelIDs[item.ChannelId] = struct{}{}
-		}
 		for _, attempt := range item.Attempts {
 			if attempt.ChannelID > 0 {
 				channelIDs[attempt.ChannelID] = struct{}{}
@@ -87,9 +83,6 @@ func RelayLogSiteActionTargets(ctx context.Context, ids []int64) (map[int64]LogS
 				modelName = fallbackModelName
 			}
 			view.AttemptTargets[index] = resolveLogActionTarget(bindingRows[attempt.ChannelID], modelName)
-		}
-		if item.Error != "" {
-			view.LegacyErrorTarget = resolveLogActionTarget(bindingRows[item.ChannelId], fallbackModelName)
 		}
 		result[item.ID] = view
 	}

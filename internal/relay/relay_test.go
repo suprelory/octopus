@@ -1760,7 +1760,7 @@ func TestHandlerUsesNextKeyWhenFirstKeyCircuitIsOpen(t *testing.T) {
 	}
 
 	for i := 0; i < 5; i++ {
-		balancer.RecordFailure(channel.ID, channel.Keys[0].ID, "multi-key-model", balancer.FailureHard)
+		balancer.RecordFailure(channel.ID, channel.Keys[0].ID, "multi-key-model", balancer.FailureTransient)
 	}
 
 	recorder := httptest.NewRecorder()

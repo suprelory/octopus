@@ -49,7 +49,6 @@ export interface LogSiteActionTarget {
 
 export interface LogSiteActionTargets {
     attempt_targets: Array<LogSiteActionTarget | null>;
-    legacy_error_target?: LogSiteActionTarget | null;
 }
 
 export interface RelayLog {

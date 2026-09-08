@@ -160,7 +160,7 @@ func (r *relayExecutor) runChannelAttempts(channel *dbmodel.Channel, key dbmodel
 			return relayBudgetAttemptResult(err), lastAttempt
 		}
 		if attemptNum > 0 && recovery == upstreamRecoveryNone {
-			delay := computeAttemptBackoff(attemptNum, result.RetryAt, result.RetryAfter)
+			delay := computeBackoffUntil(attemptNum, result.RetryAt)
 			if err := execution.wait(ctx, delay); err != nil {
 				if isLocalRelayBudgetError(err) {
 					return relayBudgetAttemptResult(err), lastAttempt

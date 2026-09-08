@@ -99,15 +99,14 @@ func channelParamOverrideConfigured(channel *dbmodel.Channel) bool {
 	return channel != nil && channel.ParamOverride != nil && strings.TrimSpace(*channel.ParamOverride) != ""
 }
 
-// channelParamOverrideActive is narrower than configured: malformed, empty, or
-// otherwise no-op documents are ignored by the helper for compatibility and do
-// not justify disabling a byte-stable passthrough route.
+// Valid empty objects and operation arrays preserve byte-stable passthrough.
+// Invalid configuration must reach the helper for validation.
 func channelParamOverrideActive(channel *dbmodel.Channel) bool {
 	if !channelParamOverrideConfigured(channel) {
 		return false
 	}
 	inspection := helper.InspectParamOverride(channel.ParamOverride)
-	return inspection.Valid && inspection.Active
+	return inspection.Active
 }
 
 func decorateParamOverrideDecision(decision *outbound.CapabilityDecision, inspection helper.ParamOverrideInspection, configured bool) {

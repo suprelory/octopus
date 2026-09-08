@@ -220,7 +220,7 @@ proxy_set_header X-Forwarded-Proto $scheme;
 ```text
 cmd/                  CLI 与启动流程
 internal/conf/        Viper 配置与构建信息
-internal/db/          GORM 初始化和数据库迁移
+internal/db/          GORM 初始化和当前表结构创建
 internal/model/       数据模型
 internal/op/          业务逻辑与缓存
 internal/relay/       API 代理、负载均衡、熔断和流处理

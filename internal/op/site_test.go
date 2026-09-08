@@ -61,56 +61,6 @@ func createSiteOpTestSiteAccount(t *testing.T, ctx context.Context, siteName, ac
 	return site, account
 }
 
-func createLegacySitePricesRow(t *testing.T, ctx context.Context, accountID int) {
-	t.Helper()
-	if err := dbpkg.GetDB().WithContext(ctx).Exec(`CREATE TABLE site_prices (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		site_account_id INTEGER NOT NULL,
-		group_key TEXT NOT NULL DEFAULT 'default',
-		model_name TEXT NOT NULL,
-		input_price REAL,
-		CONSTRAINT fk_site_accounts_prices FOREIGN KEY (site_account_id) REFERENCES site_accounts(id)
-	)`).Error; err != nil {
-		t.Fatalf("create legacy site_prices table failed: %v", err)
-	}
-	if err := dbpkg.GetDB().WithContext(ctx).Exec("INSERT INTO site_prices (site_account_id, group_key, model_name, input_price) VALUES (?, ?, ?, ?)", accountID, model.SiteDefaultGroupKey, "gpt-4o-mini", 1.23).Error; err != nil {
-		t.Fatalf("insert legacy site_prices row failed: %v", err)
-	}
-}
-
-func assertLegacySitePricesCount(t *testing.T, ctx context.Context, accountID int, want int64) {
-	t.Helper()
-	var count int64
-	if err := dbpkg.GetDB().WithContext(ctx).Table("site_prices").Where("site_account_id = ?", accountID).Count(&count).Error; err != nil {
-		t.Fatalf("count legacy site_prices failed: %v", err)
-	}
-	if count != want {
-		t.Fatalf("expected legacy site_prices count %d, got %d", want, count)
-	}
-}
-
-func TestSiteDelDeletesLegacySitePrices(t *testing.T) {
-	ctx := setupSiteOpTestDB(t)
-	_, account := createSiteOpTestSiteAccount(t, ctx, "legacy-price-site", "legacy-price-account")
-	createLegacySitePricesRow(t, ctx, account.ID)
-
-	if err := SiteDel(account.SiteID, ctx); err != nil {
-		t.Fatalf("SiteDel failed: %v", err)
-	}
-	assertLegacySitePricesCount(t, ctx, account.ID, 0)
-}
-
-func TestSiteAccountDelDeletesLegacySitePrices(t *testing.T) {
-	ctx := setupSiteOpTestDB(t)
-	_, account := createSiteOpTestSiteAccount(t, ctx, "legacy-account-price-site", "legacy-account-price-account")
-	createLegacySitePricesRow(t, ctx, account.ID)
-
-	if err := SiteAccountDel(account.ID, ctx); err != nil {
-		t.Fatalf("SiteAccountDel failed: %v", err)
-	}
-	assertLegacySitePricesCount(t, ctx, account.ID, 0)
-}
-
 func TestSiteCreateAndAccountCreatePersistExplicitFalseValues(t *testing.T) {
 	ctx := setupSiteOpTestDB(t)
 
@@ -920,81 +870,6 @@ func TestSiteImportMetAPIInvalidJSONUsesStableMessage(t *testing.T) {
 	}
 }
 
-func TestSiteImportRejectsRemovedVolcenginePlatforms(t *testing.T) {
-	tests := []struct {
-		name     string
-		platform string
-		baseURL  string
-	}{
-		{name: "volcengine platform", platform: "volcengine", baseURL: "https://api.example.com"},
-		{name: "ark platform", platform: "ark", baseURL: "https://api.example.com"},
-		{name: "ark endpoint", platform: "openai-compatible", baseURL: "https://ark.cn-beijing.volces.com/api/v3"},
-		{name: "doubao endpoint", platform: "openai-compatible", baseURL: "https://doubao.example.com/v1"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if _, ok := resolveImportedPlatform(tt.platform, tt.baseURL); ok {
-				t.Fatalf("resolveImportedPlatform accepted removed provider %q at %q", tt.platform, tt.baseURL)
-			}
-			if _, ok := resolveImportedProfilePlatform(tt.platform, tt.baseURL); ok {
-				t.Fatalf("resolveImportedProfilePlatform accepted removed provider %q at %q", tt.platform, tt.baseURL)
-			}
-		})
-	}
-
-	if _, ok := resolveImportedPlatform("openai-compatible", "https://spark.example.com/v1"); !ok {
-		t.Fatal("provider detection must not treat spark as the removed Ark provider")
-	}
-	if _, ok := resolveImportedPlatform("openai-compatible", "https://notvolces.example.com/v1"); !ok {
-		t.Fatal("provider detection must not treat an embedded volces substring as the removed provider")
-	}
-}
-
-func TestPrepareMetAPIImportedModelsRetiresRemovedRoutes(t *testing.T) {
-	items := prepareMetAPIImportedModels(42, []model.SiteModel{
-		{
-			GroupKey:  model.SiteDefaultGroupKey,
-			ModelName: "doubao-seed-1-6",
-			RouteType: model.InferSiteModelRouteType("doubao-seed-1-6"),
-		},
-		{
-			GroupKey:       model.SiteDefaultGroupKey,
-			ModelName:      "doubao-openai-compatible",
-			RouteType:      model.SiteModelRouteTypeAnthropic,
-			RouteSource:    model.SiteModelRouteSourceManualOverride,
-			ManualOverride: true,
-		},
-		{
-			GroupKey:  model.SiteDefaultGroupKey,
-			ModelName: "gpt-4o",
-			RouteType: model.SiteModelRouteTypeOpenAIChat,
-		},
-	})
-
-	byName := make(map[string]model.SiteModel, len(items))
-	for _, item := range items {
-		byName[item.ModelName] = item
-	}
-
-	removed := byName["doubao-seed-1-6"]
-	if removed.RouteType != model.SiteModelRouteTypeUnknown || removed.ManualOverride {
-		t.Fatalf("expected removed model route to be unsupported, got %+v", removed)
-	}
-	metadata, ok := model.ParseSiteModelRouteMetadata(removed.RouteRawPayload)
-	if !ok || metadata.RouteSupported {
-		t.Fatalf("expected unsupported route metadata for removed model, got ok=%t metadata=%+v", ok, metadata)
-	}
-
-	manual := byName["doubao-openai-compatible"]
-	if manual.RouteType != model.SiteModelRouteTypeAnthropic || !manual.ManualOverride || manual.RouteSource != model.SiteModelRouteSourceManualOverride {
-		t.Fatalf("expected supported manual route to remain intact, got %+v", manual)
-	}
-
-	if supported := byName["gpt-4o"]; supported.RouteType != model.SiteModelRouteTypeOpenAIChat || supported.ManualOverride {
-		t.Fatalf("expected regular imported model to retain inferred Chat route, got %+v", supported)
-	}
-}
-
 func TestSiteModelRouteUpdateIfNotManualHonorsManualOverride(t *testing.T) {
 	ctx := setupSiteOpTestDB(t)
 
@@ -1109,31 +984,6 @@ func TestSiteAvailableModelsExcludesUnsupportedRoutes(t *testing.T) {
 	}
 	if len(models) != 1 || models[0] != "gpt-4o" {
 		t.Fatalf("expected only supported available model, got %+v", models)
-	}
-}
-
-func TestSiteAvailableModelsDoesNotInferRemovedModelNameAsChat(t *testing.T) {
-	ctx := setupSiteOpTestDB(t)
-	site, account := createSiteOpTestSiteAccount(t, ctx, "available-legacy-site", "available-legacy-account")
-	rows := []model.SiteModel{
-		{SiteAccountID: account.ID, GroupKey: model.SiteDefaultGroupKey, ModelName: "gpt-4o", RouteType: model.SiteModelRouteTypeOpenAIChat},
-		{SiteAccountID: account.ID, GroupKey: model.SiteDefaultGroupKey, ModelName: "doubao-seed-1-6", RouteType: model.SiteModelRouteTypeOpenAIChat},
-	}
-	if err := dbpkg.GetDB().WithContext(ctx).Create(&rows).Error; err != nil {
-		t.Fatalf("create site models failed: %v", err)
-	}
-	if err := dbpkg.GetDB().WithContext(ctx).Model(&model.SiteModel{}).
-		Where("site_account_id = ? AND model_name = ?", account.ID, "doubao-seed-1-6").
-		Update("route_type", "").Error; err != nil {
-		t.Fatalf("clear legacy route type failed: %v", err)
-	}
-
-	models, err := SiteAvailableModels(site.ID, ctx)
-	if err != nil {
-		t.Fatalf("SiteAvailableModels failed: %v", err)
-	}
-	if len(models) != 1 || models[0] != "gpt-4o" {
-		t.Fatalf("expected only supported model, got %+v", models)
 	}
 }
 

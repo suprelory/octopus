@@ -12,8 +12,6 @@ export enum ChannelType {
     OpenAIResponse = 1,
     Anthropic = 2,
     Gemini = 3,
-    // Reserved legacy value for the removed Volcengine channel.
-    Unsupported = 4,
     OpenAIEmbedding = 5,
 }
 

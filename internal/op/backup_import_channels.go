@@ -65,17 +65,13 @@ func (s *dbImportState) importChannels() error {
 	dump := s.dump
 	res := s.result
 	channelIDMap := s.channelIDs
-	unsupportedChannelIDs := s.unsupportedChannelIDs
 	proxyConfigIDMap := s.proxyIDs
 	// 2. Channels (dedup by name)
 	for i := range dump.Channels {
 		ch := dump.Channels[i]
 		oldID := ch.ID
 		if !supportedChannelType(ch.Type) {
-			// Legacy Volcengine channels remain available for historical
-			// references, but an imported backup must never reactivate them.
-			ch.Enabled = false
-			unsupportedChannelIDs[oldID] = struct{}{}
+			return fmt.Errorf("import channels: unsupported channel type: %d", ch.Type)
 		}
 		ch.ID = 0
 		ch.Keys = nil
@@ -84,18 +80,9 @@ func (s *dbImportState) importChannels() error {
 
 		var existing model.Channel
 		if err := tx.Where("name = ?", ch.Name).First(&existing).Error; err == nil {
-			// A channel name is only a safe deduplication key when the
-			// protocol identity agrees. In particular, mapping a retired
-			// Volcengine row onto a supported channel with the same name would
-			// attach its historical statistics to the wrong adapter.
-			if existing.Type == ch.Type ||
-				(!supportedChannelType(existing.Type) && !supportedChannelType(ch.Type)) {
+			// Reuse a name only when its protocol matches the imported channel.
+			if existing.Type == ch.Type {
 				channelIDMap[oldID] = existing.ID
-				if !supportedChannelType(ch.Type) {
-					if err := tx.Model(&existing).Update("enabled", false).Error; err != nil {
-						return fmt.Errorf("import channels: %w", err)
-					}
-				}
 				continue
 			}
 			oldName := ch.Name
@@ -113,13 +100,6 @@ func (s *dbImportState) importChannels() error {
 		}
 		if err := tx.Omit("Keys", "Stats").Create(&ch).Error; err != nil {
 			return fmt.Errorf("import channels: %w", err)
-		}
-		if _, unsupported := unsupportedChannelIDs[oldID]; unsupported {
-			// GORM may apply the model's default:true tag when inserting a
-			// zero-valued Enabled field, so enforce the retired state explicitly.
-			if err := tx.Model(&model.Channel{}).Where("id = ?", ch.ID).Update("enabled", false).Error; err != nil {
-				return fmt.Errorf("import channels: %w", err)
-			}
 		}
 		channelIDMap[oldID] = ch.ID
 		res.RowsAffected["channels"]++
@@ -168,7 +148,6 @@ type resolvedImportChannel struct {
 func (s *dbImportState) resolveChannel(sourceID int) (resolvedImportChannel, error) {
 	tx := s.tx
 	channelIDMap := s.channelIDs
-	unsupportedChannelIDs := s.unsupportedChannelIDs
 	resolvedChannels := s.resolvedChannels
 	if sourceID <= 0 {
 		return resolvedImportChannel{}, nil
@@ -189,11 +168,10 @@ func (s *dbImportState) resolveChannel(sourceID int) (resolvedImportChannel, err
 		}
 		return resolvedImportChannel{}, err
 	}
-	_, sourceUnsupported := unsupportedChannelIDs[sourceID]
 	resolved := resolvedImportChannel{
 		ID:        channel.ID,
 		Exists:    true,
-		Supported: !sourceUnsupported && supportedChannelType(channel.Type),
+		Supported: supportedChannelType(channel.Type),
 	}
 	resolvedChannels[sourceID] = resolved
 	return resolved, nil

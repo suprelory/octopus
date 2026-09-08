@@ -87,9 +87,6 @@ var startCmd = &cobra.Command{
 
 		task.Init()
 		safe.Go("task-runner", task.RUN)
-		safe.Go("stats-site-model-backfill", func() {
-			op.StatsSiteModelBackfill(cmd.Context())
-		})
 
 		// relay-log-ensure-indexes 是一个有限任务，但 CREATE INDEX 期间会持有
 		// SQLite 唯一的写连接。容器在建索引时被 stop 必须做到：

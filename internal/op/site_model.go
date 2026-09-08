@@ -26,27 +26,12 @@ func SiteAvailableModels(siteID int, ctx context.Context) ([]string, error) {
 		if trimmed == "" {
 			continue
 		}
-		if model.HasRemovedSiteModelRouteEvidence(row) {
-			continue
-		}
 		metadata, hasMetadata := model.ParseSiteModelRouteMetadata(row.RouteRawPayload)
 		if hasMetadata && !metadata.RouteSupported {
 			continue
 		}
-		routeType := row.RouteType
-		if strings.TrimSpace(string(routeType)) == "" {
-			if hasMetadata && model.IsProjectedSiteModelRouteType(metadata.RouteType) {
-				routeType = metadata.RouteType
-			} else {
-				routeType = model.InferSiteModelRouteType(trimmed)
-			}
-		} else {
-			routeType = model.NormalizeSiteModelRouteType(routeType)
-		}
+		routeType := model.NormalizeSiteModelRouteType(row.RouteType)
 		if !model.IsProjectedSiteModelRouteType(routeType) {
-			continue
-		}
-		if metadata, ok := model.ParseSiteModelRouteMetadata(row.RouteRawPayload); ok && !metadata.RouteSupported {
 			continue
 		}
 		if _, ok := seen[trimmed]; ok {
@@ -102,9 +87,6 @@ func SiteModelRouteUpdateIfNotManual(accountID int, groupKey string, modelName s
 }
 
 func validateSiteModelRouteType(routeType model.SiteModelRouteType) (model.SiteModelRouteType, error) {
-	if model.IsRemovedSiteModelRouteType(routeType) {
-		return model.SiteModelRouteTypeUnknown, fmt.Errorf("unsupported site model route type: %s", routeType)
-	}
 	normalized := model.NormalizeSiteModelRouteType(routeType)
 	if !model.IsProjectedSiteModelRouteType(normalized) {
 		return model.SiteModelRouteTypeUnknown, fmt.Errorf("unsupported site model route type: %s", routeType)

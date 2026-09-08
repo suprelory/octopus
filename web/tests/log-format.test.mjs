@@ -51,25 +51,20 @@ test('retries with different keys, models or outcomes remain separate', () => {
     assert.deepEqual(mergeAdjacentAttempts([]), []);
 });
 
-test('token totals preserve modern billing and legacy cache accounting', () => {
+test('token totals use normalized billing and cache accounting', () => {
     const base = {
-        inputTokens: 100,
         outputTokens: 20,
-        billInputTokens: null,
+        billInputTokens: 100,
         cacheReadTokens: 40,
         cacheWriteTokens: 0,
-        adapterType: 'chat',
-        channelName: 'Primary',
     };
     const cases = [
-        { name: 'legacy OpenAI', changes: {}, nonCached: 60, input: 100, total: 120 },
-        { name: 'legacy Anthropic', changes: { adapterType: 'anthropic' }, nonCached: 100, input: 140, total: 160 },
-        { name: 'historical channel name', changes: { channelName: 'Site/Account/Group-Anthropic' }, nonCached: 100, input: 140, total: 160 },
+        { name: 'non-cached input', changes: {}, nonCached: 100, input: 140, total: 160 },
         { name: 'cache write', changes: { cacheWriteTokens: 10 }, nonCached: 100, input: 150, total: 170 },
         { name: 'normalized billing', changes: { billInputTokens: 7 }, nonCached: 7, input: 47, total: 67 },
         { name: 'zero is a known billed count', changes: { billInputTokens: 0 }, nonCached: 0, input: 40, total: 60 },
-        { name: 'input excludes a larger cache read', changes: { inputTokens: 10 }, nonCached: 10, input: 50, total: 70 },
-        { name: 'negative counts', changes: { inputTokens: -5, outputTokens: -2, cacheReadTokens: -3, cacheWriteTokens: -4 }, nonCached: 0, input: 0, total: 0 },
+        { name: 'missing usage', changes: { billInputTokens: null }, nonCached: 0, input: 40, total: 60 },
+        { name: 'negative counts', changes: { billInputTokens: -5, outputTokens: -2, cacheReadTokens: -3, cacheWriteTokens: -4 }, nonCached: 0, input: 0, total: 0 },
     ];
     for (const { name, changes, nonCached, input, total } of cases) {
         const usage = resolveTokenUsageDisplay({ ...base, ...changes });

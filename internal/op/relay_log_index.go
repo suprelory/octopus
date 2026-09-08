@@ -10,11 +10,8 @@ import (
 )
 
 // relayLogPerfIndexes 列出 relay_logs 的性能索引。
-// 这些索引此前在 migration 013 同步创建，但每个 CREATE INDEX 都要全表扫描；
-// 当 relay_logs 含 GB 级 request/response_content 时，三次全表扫加上 page cache
-// 会把容器内存顶满，直接 OOMKill。改为 server 起来后异步建：
-//   - 启动路径不再被建索引阻塞，迁移状态可以正常落库（不会再陷入 OOM 重启循环）。
-//   - 建索引期间，相关查询走全表扫但仍能返回，只是慢一点；建完即恢复。
+// CREATE INDEX 会扫描包含大请求/响应正文的整张表，因此在服务启动后异步创建，
+// 避免阻塞启动。建索引期间查询仍可执行，完成后即可使用索引。
 //
 // 索引不带 partial WHERE 谓词，三个 dialect 通用，"success=true / =false"
 // 两个方向的过滤都能命中 idx_relay_logs_success_time_id。

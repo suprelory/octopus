@@ -29,13 +29,7 @@ func getJWTSecret() []byte {
 
 		// Generate a random 32-byte secret
 		b := make([]byte, 32)
-		if _, err := rand.Read(b); err != nil {
-			// Fallback to legacy method if random generation fails
-			user := op.UserGet()
-			jwtSecretKey = []byte(user.Username + user.Password)
-			log.Warnf("failed to generate random JWT secret, using legacy method")
-			return
-		}
+		_, _ = rand.Read(b)
 		generated := base64.RawURLEncoding.EncodeToString(b)
 		if err := op.SettingSetString(model.SettingKeyJWTSecret, generated); err != nil {
 			// If we can't persist, still use the generated key for this session

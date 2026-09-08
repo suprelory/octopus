@@ -55,20 +55,14 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
             ? formatRequestTypeLabel(t, displayFields.requestType)
             : formatEndpointLabel(t, displayFields.endpointType);
     const tokenUsage = useMemo(() => resolveTokenUsageDisplay({
-        inputTokens: displayFields.inputTokens,
         outputTokens: displayFields.outputTokens,
         billInputTokens: displayFields.billInputTokens,
         cacheReadTokens: displayFields.cacheReadTokens,
         cacheWriteTokens: displayFields.cacheWriteTokens,
-        adapterType: displayFields.adapterType,
-        channelName: displayChannelName,
     }), [
-        displayChannelName,
         displayFields.billInputTokens,
         displayFields.cacheReadTokens,
         displayFields.cacheWriteTokens,
-        displayFields.adapterType,
-        displayFields.inputTokens,
         displayFields.outputTokens,
     ]);
     const cacheReadTokens = tokenUsage.cacheReadTokens;

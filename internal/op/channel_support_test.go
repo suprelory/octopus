@@ -33,12 +33,12 @@ func seedChannelSupportFixtures(t *testing.T, ctx context.Context) (*model.Group
 		t.Fatalf("ChannelCreate supported failed: %v", err)
 	}
 
-	legacy := &model.Channel{Name: "legacy-volcengine-channel", Type: outbound.OutboundTypeUnsupported, Enabled: true, Model: "doubao-seed-1-6"}
+	legacy := &model.Channel{Name: "legacy-volcengine-channel", Type: outbound.OutboundType(-1), Enabled: true, Model: "doubao-seed-1-6"}
 	if err := dbpkg.GetDB().WithContext(ctx).Create(legacy).Error; err != nil {
 		t.Fatalf("create legacy channel failed: %v", err)
 	}
-	// Bypass the normalizer deliberately so the selection guard is exercised
-	// even when a stale cache still says the legacy row is enabled.
+	// Seed the cache directly to exercise the selection guard against an
+	// unsupported channel that is marked enabled.
 	channelCache.Set(legacy.ID, *legacy)
 	return group, supported, legacy
 }

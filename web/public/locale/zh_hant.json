@@ -957,7 +957,6 @@
             "typeOpenAIEmbedding": "OpenAI Embedding",
             "typeAnthropic": "Anthropic",
             "typeGemini": "Gemini",
-            "typeUnsupported": "不支援（已移除）",
             "autoSync": "自動同步",
             "autoGroup": "自動分組",
             "autoGroupNone": "不自動分組",

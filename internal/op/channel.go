@@ -44,11 +44,6 @@ func normalizeChannelProxyFields(channel *model.Channel) {
 	if channel == nil {
 		return
 	}
-	if !supportedChannelType(channel.Type) {
-		// Legacy channels are retained for audit/statistics, but an invalid or
-		// removed protocol can never be exposed as enabled at runtime.
-		channel.Enabled = false
-	}
 	if channel.ProxyMode == "" {
 		channel.ProxyMode = model.ProxyUsageModeDirect
 	}
@@ -626,8 +621,6 @@ func ChannelLLMList(ctx context.Context) ([]model.LLMChannel, error) {
 				endpointType = "anthropic"
 			case model2.OutboundTypeGemini:
 				endpointType = "gemini"
-			case model2.OutboundTypeUnsupported:
-				endpointType = "unsupported"
 			default:
 				endpointType = "openai"
 			}

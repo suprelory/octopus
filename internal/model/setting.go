@@ -36,7 +36,6 @@ const (
 	SettingKeySSEPreStreamHeartbeatDelay       SettingKey = "sse_pre_stream_heartbeat_delay"       // SSE 上游流建立前心跳首次延迟（秒），0 表示禁用
 	SettingKeyProjectedChannelAutoGroupEnabled SettingKey = "projected_channel_auto_group_enabled" // 全局站点投影渠道自动分组模式（0关闭/1模糊/2精确/3正则）
 	SettingKeyJWTSecret                        SettingKey = "jwt_secret"                           // JWT 签名密钥（自动生成）
-	SettingKeyStatsSiteModelBackfilled         SettingKey = "stats_site_model_backfilled"          // 站点渠道小时聚合是否已回填历史日志
 	SettingKeyApiBaseUrl                       SettingKey = "api_base_url"                         // 对外服务基础地址，用于一键导出客户端配置，为空时不显示导出入口
 	SettingKeyWebDAVURL                        SettingKey = "webdav_url"                           // WebDAV 服务器地址
 	SettingKeyWebDAVUsername                   SettingKey = "webdav_username"                      // WebDAV 用户名
@@ -79,15 +78,14 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeySSEPreStreamHeartbeatDelay, Value: "0"},       // 默认禁用 SSE 上游流建立前心跳
 		{Key: SettingKeyProjectedChannelAutoGroupEnabled, Value: "0"}, // 默认不强制站点投影渠道自动分组
 		{Key: SettingKeyJWTSecret, Value: ""},                         // 为空时自动生成
-		{Key: SettingKeyStatsSiteModelBackfilled, Value: "false"},
-		{Key: SettingKeyApiBaseUrl, Value: ""},                       // 默认为空，不显示客户端导出入口
-		{Key: SettingKeyWebDAVURL, Value: ""},                        // 默认为空，未配置
-		{Key: SettingKeyWebDAVUsername, Value: ""},                   // 默认为空
-		{Key: SettingKeyWebDAVPassword, Value: ""},                   // 默认为空
-		{Key: SettingKeyWebDAVBackupPath, Value: "/octopus-backups"}, // 默认远程目录
-		{Key: SettingKeyWebDAVBackupInterval, Value: "0"},            // 默认禁用自动备份
-		{Key: SettingKeyWebDAVRetentionCount, Value: "10"},           // 默认保留10份
-		{Key: SettingKeyWebDAVIncludeStats, Value: "true"},           // 默认包含统计数据
+		{Key: SettingKeyApiBaseUrl, Value: ""},                        // 默认为空，不显示客户端导出入口
+		{Key: SettingKeyWebDAVURL, Value: ""},                         // 默认为空，未配置
+		{Key: SettingKeyWebDAVUsername, Value: ""},                    // 默认为空
+		{Key: SettingKeyWebDAVPassword, Value: ""},                    // 默认为空
+		{Key: SettingKeyWebDAVBackupPath, Value: "/octopus-backups"},  // 默认远程目录
+		{Key: SettingKeyWebDAVBackupInterval, Value: "0"},             // 默认禁用自动备份
+		{Key: SettingKeyWebDAVRetentionCount, Value: "10"},            // 默认保留10份
+		{Key: SettingKeyWebDAVIncludeStats, Value: "true"},            // 默认包含统计数据
 	}
 }
 
@@ -118,7 +116,7 @@ func (s *Setting) Validate() error {
 			return fmt.Errorf("setting value must be non-negative")
 		}
 		return nil
-	case SettingKeyRelayLogKeepEnabled, SettingKeyResponsesWSEnabled, SettingKeyStatsSiteModelBackfilled, SettingKeyWebDAVIncludeStats, SettingKeyChannelAffinityEnabled, SettingKeyEmptyResponseDetectionEnabled:
+	case SettingKeyRelayLogKeepEnabled, SettingKeyResponsesWSEnabled, SettingKeyWebDAVIncludeStats, SettingKeyChannelAffinityEnabled, SettingKeyEmptyResponseDetectionEnabled:
 		if s.Value != "true" && s.Value != "false" {
 			return fmt.Errorf("setting value must be true or false")
 		}
