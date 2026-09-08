@@ -102,7 +102,11 @@ func (ra *relayAttempt) forwardViaWSPassthrough(ctx context.Context) (int, error
 		if stats != nil && stats.Error != nil {
 			ra.captureRetryAt(stats.Error.RetryAt)
 		}
-		wsUpstreamPool.RemoveConn(pc)
+		if isUpstreamWSRequestError(err) {
+			wsUpstreamPool.Put(pc)
+		} else {
+			wsUpstreamPool.RemoveConn(pc)
+		}
 		statusCode := http.StatusBadGateway
 		if stats != nil && stats.Error != nil && stats.Error.Status > 0 {
 			statusCode = stats.Error.Status

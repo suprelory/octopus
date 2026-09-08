@@ -28,8 +28,8 @@ func (s *WSSource) ReadEvent(ctx context.Context) ([]byte, error) {
 	return s.reader.ReadEvent(ctx)
 }
 
-// The relay owns the connection lease: it returns a connection to the pool only
-// after stream validation succeeds. The processor cancels and joins its reader.
+// The relay owns the connection lease and decides whether it can be reused.
+// The processor cancels and joins its reader before returning.
 func (s *WSSource) Close() error {
 	return nil
 }

@@ -132,12 +132,14 @@ func (r *relayExecutor) run() relayOutcome {
 		if decideRetry(result, false, false) == retryStop {
 			return outcome
 		}
-		// Native response IDs belong to their upstream session. Only an explicit
-		// replay transition may move that conversation to another candidate.
+		// Native response IDs belong to their upstream session. Only transport or
+		// session failures may request replay after same-candidate recovery stops.
 		if requiresUpstreamWSContinuation(req.internalRequest) {
-			outcome.result.ResetConversation = true
-			outcome.result.StatusCode = http.StatusConflict
-			outcome.result.Err = fmt.Errorf("upstream continuation transport unavailable; please restart the conversation: %w", result.Err)
+			if isContinuationTransportFailure(result.Err) {
+				outcome.result.ResetConversation = true
+				outcome.result.StatusCode = http.StatusConflict
+				outcome.result.Err = fmt.Errorf("upstream continuation transport unavailable; please restart the conversation: %w", result.Err)
+			}
 			return outcome
 		}
 		iter.InvalidateCurrentPreference()
@@ -195,7 +197,8 @@ func (r *relayExecutor) runChannelAttempts(channel *dbmodel.Channel, key dbmodel
 		result = attempt.attempt()
 		cancel()
 		lastAttempt = attemptRequest
-		fallback := !result.Written && result.Failure.Class == FailureRateLimit &&
+		fallback := !requiresUpstreamWSContinuation(req.internalRequest) &&
+			!result.Written && result.Failure.Class == FailureRateLimit &&
 			req.iter.HasRemainingDifferentCandidateMatching(channel.ID, execution.rateLimitedChannels, r.candidateAvailable)
 		action := decideRetry(result, execution.candidateAttempts[candidate] < execution.maxSameChannelAttempts, fallback)
 		if action != retrySameCandidate {

@@ -27,11 +27,20 @@ type upstreamRecoveryError struct {
 func (e *upstreamRecoveryError) Error() string { return e.err.Error() }
 func (e *upstreamRecoveryError) Unwrap() error { return e.err }
 
+// Request errors such as rate limits do not invalidate the upstream connection.
+func isUpstreamWSRequestError(err error) bool {
+	var eventErr *wsUpstreamEventError
+	return errors.As(err, &eventErr) && !isContinuationTransportFailure(err)
+}
+
 func (ra *relayAttempt) upstreamWSFailure(ctx context.Context, status int, err error, sendFailed bool) (int, error) {
 	if timeoutErr := ra.firstTokenTimeoutIfNeeded(ctx, err); timeoutErr != nil {
 		return 0, timeoutErr
 	}
 	if ra.requestContext().Err() != nil || errors.Is(err, stream.ErrDownstreamWrite) {
+		return status, err
+	}
+	if !sendFailed && isUpstreamWSRequestError(err) {
 		return status, err
 	}
 	if ra.responseCommitted() {

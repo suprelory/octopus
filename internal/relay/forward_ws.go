@@ -68,7 +68,11 @@ func (ra *relayAttempt) forwardViaWS(ctx context.Context) (int, error) {
 	reader := newWSUpstreamReader(pc, ra.channel.ID, ra.usedKey.ID)
 	if err := ra.handleWSStreamResponseV2(ctx, reader); err != nil {
 		ra.captureRetryAt(reader.RetryAt())
-		reader.CloseWithError()
+		if isUpstreamWSRequestError(err) {
+			reader.Close()
+		} else {
+			reader.CloseWithError()
+		}
 		return ra.upstreamWSFailure(ctx, reader.StatusCode(), err, false)
 	}
 	reader.Close()
