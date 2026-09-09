@@ -25,12 +25,14 @@ func TestHandlerAnthropicStreamCompletion(t *testing.T) {
 		{"anthropic passthrough", inbound.InboundTypeAnthropic, dbmodel.ChannelPassthroughModeAuto},
 	} {
 		for _, completion := range []struct {
-			name    string
-			last    string
-			success bool
+			name          string
+			last          string
+			eventTypeOnly bool
+			success       bool
 		}{
-			{"message stop without reason", `{"type":"message_stop"}`, true},
-			{"EOF without terminal marker", "", false},
+			{"message stop without reason", `{"type":"message_stop"}`, false, true},
+			{"message stop event type with empty data", "", true, true},
+			{"EOF without terminal marker", "", false, false},
 		} {
 			t.Run(mode.name+"/"+completion.name, func(t *testing.T) {
 				ctx := setupHTTPRelayTestDB(t)
@@ -42,11 +44,13 @@ func TestHandlerAnthropicStreamCompletion(t *testing.T) {
 					`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello"}}`,
 					`{"type":"content_block_stop","index":0}`,
 					`{"type":"message_delta","usage":{"output_tokens":3}}`,
-					completion.last,
 				} {
-					if event != "" {
-						fmt.Fprintf(&raw, "data: %s\n\n", event)
-					}
+					fmt.Fprintf(&raw, "data: %s\n\n", event)
+				}
+				if completion.eventTypeOnly {
+					raw.WriteString("event: message_stop\ndata:\n\n")
+				} else if completion.last != "" {
+					fmt.Fprintf(&raw, "data: %s\n\n", completion.last)
 				}
 				upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					hits.Add(1)

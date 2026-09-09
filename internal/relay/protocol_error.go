@@ -3,6 +3,7 @@ package relay
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 
@@ -49,6 +50,14 @@ func protocolErrorForAttempt(result attemptResult, err error) *model.ResponseErr
 	if result.Failure.Class == FailureBudgetExceeded {
 		return relayProtocolError(http.StatusGatewayTimeout, CodeRelayTimeout, "relay failover budget exceeded")
 	}
+	if isUpstreamStreamInterrupted(err) {
+		status, _ := defaultFailureProtocol(FailureTransient, result.StatusCode)
+		message := "upstream stream ended before completion"
+		if err != nil && strings.TrimSpace(err.Error()) != "" {
+			message = err.Error()
+		}
+		return relayProtocolError(status, CodeRelayUpstreamStreamInterrupted, message)
+	}
 	if result.ProtocolError != nil {
 		return model.NormalizeResponseError(result.ProtocolError, result.StatusCode, "api_error")
 	}
@@ -62,6 +71,12 @@ func protocolErrorForAttempt(result attemptResult, err error) *model.ResponseErr
 		return relayProtocolError(status, code, message)
 	}
 	return result.ProtocolError
+}
+
+func isUpstreamStreamInterrupted(err error) bool {
+	return errors.Is(err, model.ErrStreamIncomplete) ||
+		errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF)
 }
 
 func defaultFailureProtocol(class FailureClass, status int) (int, string) {

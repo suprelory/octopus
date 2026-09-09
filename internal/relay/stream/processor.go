@@ -168,11 +168,22 @@ func (p *StreamProcessor) Run() error {
 		err  error
 	}
 	results := make(chan readResult, 1)
+	typedSource, _ := p.config.Source.(TypedStreamSource)
 	safe.Go("stream-processor-read", func() {
 		defer close(readDone)
 		defer close(results)
 		for {
-			data, err := p.config.Source.ReadEvent(readCtx)
+			var event SourceEvent
+			var err error
+			if typedSource != nil {
+				event, err = typedSource.ReadEventWithType(readCtx)
+			} else {
+				event.Data, err = p.config.Source.ReadEvent(readCtx)
+			}
+			data := event.Data
+			if typedSource != nil && p.config.Transform != nil {
+				data = NormalizeEventData(event.Type, data)
+			}
 			select {
 			case results <- readResult{data: data, err: err}:
 			case <-readCtx.Done():

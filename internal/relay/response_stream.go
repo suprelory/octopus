@@ -120,7 +120,8 @@ func (ra *relayAttempt) handleStreamResponsePassthroughV2(ctx context.Context, r
 	}
 
 	semanticPayload := false
-	observer := stream.NewIncrementalSSEObserver(maxSSEEventSize, cfg.TerminalEvents, func(ctx context.Context, _ string, data []byte) error {
+	observer := stream.NewIncrementalSSEObserver(maxSSEEventSize, cfg.TerminalEvents, func(ctx context.Context, eventType string, data []byte) error {
+		data = stream.NormalizeEventData(eventType, data)
 		if len(data) == 0 {
 			return nil
 		}

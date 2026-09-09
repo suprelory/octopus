@@ -57,20 +57,38 @@ func (s *SSESource) readLoop() {
 	}
 }
 
-// ReadEvent reads the next SSE event data.
-func (s *SSESource) ReadEvent(ctx context.Context) ([]byte, error) {
+func (s *SSESource) readEvent(ctx context.Context) (sse.Event, error) {
 	select {
 	case result, ok := <-s.events:
 		if !ok {
-			return nil, io.EOF
+			return sse.Event{}, io.EOF
 		}
 		if result.err != nil {
-			return nil, result.err
+			return sse.Event{}, result.err
 		}
-		return []byte(result.event.Data), nil
+		return result.event, nil
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return sse.Event{}, ctx.Err()
 	}
+}
+
+// ReadEvent reads the next SSE event data. The legacy method remains useful
+// for callers that only need the data field.
+func (s *SSESource) ReadEvent(ctx context.Context) ([]byte, error) {
+	event, err := s.readEvent(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(event.Data), nil
+}
+
+// ReadEventWithType preserves the SSE envelope type for transformer paths.
+func (s *SSESource) ReadEventWithType(ctx context.Context) (SourceEvent, error) {
+	event, err := s.readEvent(ctx)
+	if err != nil {
+		return SourceEvent{}, err
+	}
+	return SourceEvent{Type: event.Type, Data: []byte(event.Data)}, nil
 }
 
 // Close releases the underlying reader.
