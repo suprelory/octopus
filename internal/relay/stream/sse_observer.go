@@ -10,22 +10,41 @@ import (
 
 type SSEEventObserver func(ctx context.Context, eventType string, data []byte) error
 
+// SourceEventObserver receives the complete normalized SSE envelope. It is the
+// preferred observer contract for callers that need event provenance.
+type SourceEventObserver func(ctx context.Context, event SourceEvent) error
+
 // IncrementalSSEObserver parses arbitrary byte chunks without retaining the
 // complete stream. Only the current SSE event is buffered, bounded by
 // maxEventSize.
 type IncrementalSSEObserver struct {
-	observe      SSEEventObserver
+	observe      SourceEventObserver
 	terminal     map[string]struct{}
 	maxEventSize int
 
 	pendingLine []byte
 	eventType   string
+	eventID     string
 	data        bytes.Buffer
 	terminalHit bool
 	finalized   bool
+	sequence    int64
 }
 
 func NewIncrementalSSEObserver(maxEventSize int, terminal map[string]struct{}, observe SSEEventObserver) *IncrementalSSEObserver {
+	var sourceObserver SourceEventObserver
+	if observe != nil {
+		sourceObserver = func(ctx context.Context, event SourceEvent) error {
+			return observe(ctx, event.Type, event.Data)
+		}
+	}
+	return NewIncrementalSourceEventObserver(maxEventSize, terminal, sourceObserver)
+}
+
+// NewIncrementalSourceEventObserver creates an SSE observer using the unified
+// source-event contract. The legacy constructor remains available for callers
+// that only consume type and payload bytes.
+func NewIncrementalSourceEventObserver(maxEventSize int, terminal map[string]struct{}, observe SourceEventObserver) *IncrementalSSEObserver {
 	if maxEventSize <= 0 {
 		maxEventSize = 32 * 1024 * 1024
 	}
@@ -106,6 +125,8 @@ func (o *IncrementalSSEObserver) processLine(ctx context.Context, line []byte) e
 		if len(o.eventType)+o.data.Len() > o.maxEventSize {
 			return fmt.Errorf("SSE event exceeds maximum size of %d bytes", o.maxEventSize)
 		}
+	case "id":
+		o.eventID = string(value)
 	case "data":
 		if o.data.Len() > 0 {
 			o.data.WriteByte('\n')
@@ -159,8 +180,15 @@ func (o *IncrementalSSEObserver) dispatch(ctx context.Context) error {
 	o.detectTerminal()
 	o.eventType = ""
 	o.data.Reset()
+	o.sequence++
 	if o.observe != nil {
-		return o.observe(ctx, typ, data)
+		return o.observe(ctx, SourceEvent{
+			Type:      typ,
+			Data:      data,
+			ID:        o.eventID,
+			Sequence:  o.sequence,
+			Transport: SourceTransportSSE,
+		})
 	}
 	return nil
 }

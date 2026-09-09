@@ -7,17 +7,34 @@ import (
 	"strings"
 )
 
-// SourceEvent carries the optional SSE event type together with its payload.
-// The type is kept separate because compatible providers sometimes send a
-// terminal event in the SSE envelope while leaving data empty or untyped.
+// SourceEvent is the transport-neutral envelope passed between stream sources
+// and transformers. Type and ID stay separate from Data because compatible
+// providers sometimes send terminal metadata outside the payload or leave the
+// data field empty.
 type SourceEvent struct {
-	Type string
-	Data []byte
+	Type      string
+	Data      []byte
+	ID        string
+	Sequence  int64
+	Transport string
 }
 
-// TypedStreamSource is an optional extension to StreamSource. Existing raw and
-// WebSocket sources can keep implementing ReadEvent; SSESource implements this
-// interface when the envelope event type is needed by a transformer.
+const (
+	SourceTransportSSE       = "sse"
+	SourceTransportWebSocket = "websocket"
+	SourceTransportRaw       = "raw"
+)
+
+// SourceEventSource is the preferred stream source contract. It keeps transport
+// metadata alongside the payload so protocol adapters do not need to infer an
+// event type from JSON or lose the SSE envelope while crossing the relay.
+type SourceEventSource interface {
+	ReadSourceEvent(ctx context.Context) (SourceEvent, error)
+}
+
+// TypedStreamSource is the legacy type-aware source contract. New sources
+// should implement SourceEventSource; StreamProcessor still accepts this
+// interface so custom sources can migrate without an atomic API break.
 type TypedStreamSource interface {
 	ReadEventWithType(ctx context.Context) (SourceEvent, error)
 }

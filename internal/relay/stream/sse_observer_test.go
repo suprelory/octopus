@@ -83,6 +83,20 @@ func TestIncrementalSSEObserverInfersJSONType(t *testing.T) {
 	}
 }
 
+func TestIncrementalSSEObserverEmitsSourceEventMetadata(t *testing.T) {
+	var got SourceEvent
+	observer := NewIncrementalSourceEventObserver(1024, nil, func(_ context.Context, event SourceEvent) error {
+		got = event
+		return nil
+	})
+	if err := observer.Observe(context.Background(), []byte("id: event-9\nevent: message_stop\ndata: {}\n\n")); err != nil {
+		t.Fatal(err)
+	}
+	if got.Type != "message_stop" || string(got.Data) != "{}" || got.ID != "event-9" || got.Sequence != 1 || got.Transport != SourceTransportSSE {
+		t.Fatalf("source event = %#v, want complete SSE metadata", got)
+	}
+}
+
 func TestIncrementalSSEObserverLimitsIndividualEventNotWholeChunk(t *testing.T) {
 	observed := 0
 	observer := NewIncrementalSSEObserver(40, nil, func(_ context.Context, _ string, _ []byte) error {

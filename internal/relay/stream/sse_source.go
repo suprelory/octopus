@@ -16,6 +16,7 @@ type SSESource struct {
 	done      chan struct{}
 	closeOnce sync.Once
 	closeErr  error
+	sequence  int64
 }
 
 type sseReadResult struct {
@@ -75,20 +76,34 @@ func (s *SSESource) readEvent(ctx context.Context) (sse.Event, error) {
 // ReadEvent reads the next SSE event data. The legacy method remains useful
 // for callers that only need the data field.
 func (s *SSESource) ReadEvent(ctx context.Context) ([]byte, error) {
-	event, err := s.readEvent(ctx)
+	event, err := s.ReadSourceEvent(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return []byte(event.Data), nil
+	return event.Data, nil
 }
 
-// ReadEventWithType preserves the SSE envelope type for transformer paths.
-func (s *SSESource) ReadEventWithType(ctx context.Context) (SourceEvent, error) {
+// ReadSourceEvent preserves the complete SSE envelope metadata for transformer
+// paths. Sequence is local to this source and monotonically increases.
+func (s *SSESource) ReadSourceEvent(ctx context.Context) (SourceEvent, error) {
 	event, err := s.readEvent(ctx)
 	if err != nil {
 		return SourceEvent{}, err
 	}
-	return SourceEvent{Type: event.Type, Data: []byte(event.Data)}, nil
+	s.sequence++
+	return SourceEvent{
+		Type:      event.Type,
+		Data:      []byte(event.Data),
+		ID:        event.LastEventID,
+		Sequence:  s.sequence,
+		Transport: SourceTransportSSE,
+	}, nil
+}
+
+// ReadEventWithType preserves the SSE envelope type for legacy transformer
+// paths. It delegates to the unified source event contract.
+func (s *SSESource) ReadEventWithType(ctx context.Context) (SourceEvent, error) {
+	return s.ReadSourceEvent(ctx)
 }
 
 // Close releases the underlying reader.

@@ -25,12 +25,6 @@ func (ra *relayAttempt) handleTransformedStream(ctx context.Context, source stre
 	ra.heartbeat.Hand()
 
 	semanticPayload := false
-	transform := func(ctx context.Context, data []byte) ([]byte, error) {
-		var err error
-		var output []byte
-		output, semanticPayload, err = ra.transformStreamData(ctx, string(data))
-		return output, err
-	}
 	precommit := func(_, _ []byte) bool { return semanticPayload }
 
 	var firstTokenTimeout time.Duration
@@ -38,8 +32,13 @@ func (ra *relayAttempt) handleTransformedStream(ctx context.Context, source stre
 		firstTokenTimeout = time.Duration(ra.firstTokenTimeOutSec) * time.Second
 	}
 	processor := stream.NewStreamProcessor(stream.StreamConfig{
-		Source:             source,
-		Transform:          transform,
+		Source: source,
+		TransformEvent: func(ctx context.Context, event stream.SourceEvent) ([]byte, error) {
+			data := stream.NormalizeEventData(event.Type, event.Data)
+			output, semantic, err := ra.transformStreamData(ctx, string(data))
+			semanticPayload = semantic
+			return output, err
+		},
 		Writer:             ra.getStreamWriter(),
 		Context:            ctx,
 		FirstTokenTimeout:  firstTokenTimeout,
@@ -120,8 +119,8 @@ func (ra *relayAttempt) handleStreamResponsePassthroughV2(ctx context.Context, r
 	}
 
 	semanticPayload := false
-	observer := stream.NewIncrementalSSEObserver(maxSSEEventSize, cfg.TerminalEvents, func(ctx context.Context, eventType string, data []byte) error {
-		data = stream.NormalizeEventData(eventType, data)
+	observer := stream.NewIncrementalSourceEventObserver(maxSSEEventSize, cfg.TerminalEvents, func(ctx context.Context, event stream.SourceEvent) error {
+		data := stream.NormalizeEventData(event.Type, event.Data)
 		if len(data) == 0 {
 			return nil
 		}

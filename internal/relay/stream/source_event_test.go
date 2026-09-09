@@ -8,15 +8,18 @@ import (
 )
 
 func TestSSESourcePreservesEventType(t *testing.T) {
-	source := NewSSESource(io.NopCloser(strings.NewReader("event: message_stop\ndata:\n\n")), 0)
+	source := NewSSESource(io.NopCloser(strings.NewReader("id: evt-7\nevent: message_stop\ndata:\n\n")), 0)
 	defer source.Close()
 
-	event, err := source.ReadEventWithType(context.Background())
+	event, err := source.ReadSourceEvent(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if event.Type != "message_stop" || len(event.Data) != 0 {
 		t.Fatalf("event = %#v, want message_stop with empty data", event)
+	}
+	if event.ID != "evt-7" || event.Sequence != 1 || event.Transport != SourceTransportSSE {
+		t.Fatalf("event metadata = %#v, want id/sequence/transport", event)
 	}
 }
 
@@ -42,7 +45,7 @@ func TestNormalizeEventDataUsesEnvelopeType(t *testing.T) {
 }
 
 func TestStreamProcessorNormalizesTypedSSEEventsForTransform(t *testing.T) {
-	source := NewSSESource(io.NopCloser(strings.NewReader("event: message_stop\ndata: {}\n\n")), 0)
+	source := NewSSESource(io.NopCloser(strings.NewReader("event: message_stop\ndata:\n\n")), 0)
 	defer source.Close()
 	writer := newMockStreamWriter()
 	var transformed string
@@ -61,5 +64,28 @@ func TestStreamProcessorNormalizesTypedSSEEventsForTransform(t *testing.T) {
 	}
 	if transformed != `{"type":"message_stop"}` {
 		t.Fatalf("transformed event = %q, want envelope type", transformed)
+	}
+}
+
+func TestStreamProcessorPassesSourceEventToTransform(t *testing.T) {
+	source := NewSSESource(io.NopCloser(strings.NewReader("id: evt-3\nevent: response.completed\ndata:\n\n")), 0)
+	defer source.Close()
+	writer := newMockStreamWriter()
+	var got SourceEvent
+	processor := NewStreamProcessor(StreamConfig{
+		Source:  source,
+		Writer:  writer,
+		Context: context.Background(),
+		TransformEvent: func(_ context.Context, event SourceEvent) ([]byte, error) {
+			got = event
+			return []byte("event"), nil
+		},
+	})
+
+	if err := processor.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if got.Type != "response.completed" || got.ID != "evt-3" || got.Sequence != 1 || got.Transport != SourceTransportSSE {
+		t.Fatalf("source event = %#v, want complete metadata", got)
 	}
 }

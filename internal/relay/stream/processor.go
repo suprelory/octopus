@@ -44,6 +44,11 @@ type StreamSource interface {
 // For passthrough, set to nil in StreamConfig.
 type StreamTransform func(ctx context.Context, data []byte) ([]byte, error)
 
+// StreamEventTransform is the preferred transform contract. It receives the
+// source envelope so protocol adapters can use event type and provenance
+// without reconstructing them from payload JSON.
+type StreamEventTransform func(ctx context.Context, event SourceEvent) ([]byte, error)
+
 // StreamObserver receives raw bytes without changing what is forwarded. It is
 // used by passthrough streams to collect semantic events incrementally.
 type StreamObserver interface {
@@ -64,11 +69,12 @@ type StreamWriter interface {
 // StreamConfig configures a StreamProcessor instance.
 type StreamConfig struct {
 	// Core dependencies
-	Source    StreamSource
-	Transform StreamTransform // nil for passthrough
-	Observer  StreamObserver  // optional sidecar for passthrough observation
-	Writer    StreamWriter
-	Context   context.Context
+	Source         StreamSource
+	Transform      StreamTransform // nil for passthrough
+	TransformEvent StreamEventTransform
+	Observer       StreamObserver // optional sidecar for passthrough observation
+	Writer         StreamWriter
+	Context        context.Context
 
 	// Timeout & heartbeat
 	FirstTokenTimeout time.Duration // 0 to disable
@@ -164,28 +170,38 @@ func (p *StreamProcessor) Run() error {
 	}()
 
 	type readResult struct {
-		data []byte
-		err  error
+		event SourceEvent
+		err   error
 	}
 	results := make(chan readResult, 1)
+	sourceEvents, _ := p.config.Source.(SourceEventSource)
 	typedSource, _ := p.config.Source.(TypedStreamSource)
+	var sourceSequence int64
 	safe.Go("stream-processor-read", func() {
 		defer close(readDone)
 		defer close(results)
 		for {
 			var event SourceEvent
 			var err error
-			if typedSource != nil {
+			switch {
+			case sourceEvents != nil:
+				event, err = sourceEvents.ReadSourceEvent(readCtx)
+			case typedSource != nil:
 				event, err = typedSource.ReadEventWithType(readCtx)
-			} else {
+			default:
 				event.Data, err = p.config.Source.ReadEvent(readCtx)
 			}
-			data := event.Data
-			if typedSource != nil && p.config.Transform != nil {
-				data = NormalizeEventData(event.Type, data)
+			if event.Sequence <= sourceSequence {
+				sourceSequence++
+				event.Sequence = sourceSequence
+			} else {
+				sourceSequence = event.Sequence
+			}
+			if event.Transport == "" {
+				event.Transport = sourceTransport(p.config.Source)
 			}
 			select {
-			case results <- readResult{data: data, err: err}:
+			case results <- readResult{event: event, err: err}:
 			case <-readCtx.Done():
 				return
 			}
@@ -225,17 +241,20 @@ func (p *StreamProcessor) Run() error {
 				return fmt.Errorf("stream read error: %w", r.err)
 			}
 
-			if len(r.data) == 0 {
+			// A typed SSE terminal event may legitimately have an empty data
+			// field. Keep it in the pipeline so TransformEvent (or the legacy
+			// normalizer) can handle the envelope type.
+			if len(r.event.Data) == 0 && r.event.Type == "" {
 				continue
 			}
 			if p.config.Observer != nil {
-				if err := p.config.Observer.Observe(p.config.Context, r.data); err != nil {
+				if err := p.config.Observer.Observe(p.config.Context, r.event.Data); err != nil {
 					return fmt.Errorf("stream observe error: %w", err)
 				}
 			}
 
 			// Transform and write
-			if err := p.processEvent(r.data); err != nil {
+			if err := p.processEvent(r.event); err != nil {
 				return err
 			}
 
@@ -261,11 +280,23 @@ func (p *StreamProcessor) Run() error {
 }
 
 // processEvent transforms and writes a single event.
-func (p *StreamProcessor) processEvent(data []byte) error {
+func (p *StreamProcessor) processEvent(event SourceEvent) error {
 	var output []byte
 	var err error
 
-	if p.config.Transform != nil {
+	if p.config.TransformEvent != nil {
+		output, err = p.config.TransformEvent(p.config.Context, event)
+		if err != nil {
+			return fmt.Errorf("transform error: %w", err)
+		}
+		if len(output) == 0 {
+			return nil
+		}
+	} else if p.config.Transform != nil {
+		data := event.Data
+		if event.Type != "" {
+			data = NormalizeEventData(event.Type, data)
+		}
 		output, err = p.config.Transform(p.config.Context, data)
 		if err != nil {
 			return fmt.Errorf("transform error: %w", err)
@@ -274,13 +305,13 @@ func (p *StreamProcessor) processEvent(data []byte) error {
 			return nil // Skip empty output
 		}
 	} else {
-		output = data // Passthrough
+		output = event.Data // Passthrough
 	}
 
 	if p.config.PrecommitPredicate != nil && !p.committed {
 		p.pendingBuffer.Write(output)
 		p.pendingEvents++
-		if !p.config.PrecommitPredicate(data, output) {
+		if !p.config.PrecommitPredicate(event.Data, output) {
 			if p.pendingEvents >= p.config.PrecommitMaxEvents || p.pendingBuffer.Len() >= p.config.PrecommitMaxBytes {
 				if !p.config.AllowEmptyPayload {
 					return fmt.Errorf("%w: events=%d bytes=%d", ErrPrecommitLimitExceeded, p.pendingEvents, p.pendingBuffer.Len())
@@ -295,6 +326,19 @@ func (p *StreamProcessor) processEvent(data []byte) error {
 	}
 
 	return p.writeOutput(output)
+}
+
+func sourceTransport(source StreamSource) string {
+	switch source.(type) {
+	case *SSESource:
+		return SourceTransportSSE
+	case *WSSource:
+		return SourceTransportWebSocket
+	case *RawSource:
+		return SourceTransportRaw
+	default:
+		return ""
+	}
 }
 
 // flushPending commits the precommit buffer downstream and marks the stream as
