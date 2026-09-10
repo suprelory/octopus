@@ -10,15 +10,15 @@ import (
 )
 
 func convertMessages(req *model.InternalLLMRequest) []anthropicModel.MessageParam {
-	messages := make([]anthropicModel.MessageParam, 0, len(req.Messages))
+	messages := make([]anthropicModel.MessageParam, 0, len(req.ConversationMessages()))
 	processedIndexes := make(map[int]bool)
 
-	for _, msg := range req.Messages {
+	for _, msg := range req.ConversationMessages() {
 		if msg.Role == "system" {
 			continue
 		}
 
-		converted := convertSingleMessage(msg, req.Messages, processedIndexes)
+		converted := convertSingleMessage(msg, req.ConversationMessages(), processedIndexes)
 		for _, convertedMsg := range converted {
 			// Anthropic API 要求消息角色必须交替出现（user/assistant/user/assistant）。
 			// 当 OpenAI 格式的多个连续 tool 消息被各自转换为独立的 user 消息时，

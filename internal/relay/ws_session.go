@@ -172,10 +172,10 @@ func (s *wsConversationState) BuildReplayRequest(req *transformerModel.InternalL
 	responsesOptions.RawInputItems = nil
 	replayed.SetOpenAIResponsesOptions(responsesOptions)
 	replayed.SetOpenAIRawInputItems(nil)
-	replayed.Messages = retainInstructionMessages(req.Messages)
+	replayed.SetConversationMessages(retainInstructionMessages(req.ConversationMessages()))
 
 	// Merge historical replay window and current request into raw input items
-	mergedRawInputItems, ok := buildReplayRawInputItems(s.ReplayWindowItems, s.Transcript, req.OpenAIRawInputItems(), req.Messages)
+	mergedRawInputItems, ok := buildReplayRawInputItems(s.ReplayWindowItems, s.Transcript, req.OpenAIRawInputItems(), req.ConversationMessages())
 	if !ok || len(mergedRawInputItems) == 0 {
 		// Merge failed - return nil to signal caller to use original request
 		return nil
@@ -198,7 +198,7 @@ func (s *wsConversationState) ApplySuccessfulTurn(req *transformerModel.Internal
 	if replayWindowItems, ok := buildNextReplayWindow(s.ReplayWindowItems, req, resp); ok {
 		s.ReplayWindowItems = replayWindowItems
 	}
-	s.Transcript = append(s.Transcript, cloneMessages(req.Messages)...)
+	s.Transcript = append(s.Transcript, cloneMessages(req.ConversationMessages())...)
 	s.Transcript = append(s.Transcript, assistantMessagesFromResponse(resp)...)
 	if respID := strings.TrimSpace(resp.ID); respID != "" {
 		s.LastResponseID = respID
@@ -269,7 +269,7 @@ func requestContainsToolOutputs(req *transformerModel.InternalLLMRequest) bool {
 	if req == nil {
 		return false
 	}
-	for _, msg := range req.Messages {
+	for _, msg := range req.ConversationMessages() {
 		if msg.Role == "tool" && msg.ToolCallID != nil && strings.TrimSpace(*msg.ToolCallID) != "" {
 			return true
 		}
@@ -320,7 +320,7 @@ func buildNextReplayWindow(existing json.RawMessage, req *transformerModel.Inter
 	var base json.RawMessage
 	if rawInputItems := req.OpenAIRawInputItems(); req.IsOpenAIExactReplayRequest() && len(rawInputItems) > 0 {
 		base = rawInputItems
-	} else if currentItems, ok := buildRequestInputItems(req.OpenAIRawInputItems(), req.Messages); ok {
+	} else if currentItems, ok := buildRequestInputItems(req.OpenAIRawInputItems(), req.ConversationMessages()); ok {
 		if len(existing) > 0 {
 			merged, ok := mergeRawJSONArray(existing, currentItems)
 			if !ok {

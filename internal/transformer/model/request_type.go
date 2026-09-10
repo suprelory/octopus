@@ -152,9 +152,7 @@ func (r *InternalLLMRequest) ResolveRequestType() RequestType {
 		return RequestTypeUnknown
 	}
 	if r.Operation != nil {
-		if kind := r.Operation.Type(); kind != RequestTypeUnknown {
-			return kind
-		}
+		return r.Operation.Type()
 	}
 	if r.RequestType != RequestTypeUnknown {
 		return r.RequestType
@@ -162,8 +160,8 @@ func (r *InternalLLMRequest) ResolveRequestType() RequestType {
 	return r.inferLegacyRequestType()
 }
 
-// NormalizeOperation validates the union and synchronizes its payload with the
-// legacy fields used by adapters that have not migrated yet.
+// NormalizeOperation validates the authoritative union and populates deprecated
+// compatibility fields for external legacy callers and wire serialization.
 func (r *InternalLLMRequest) NormalizeOperation() error { return r.normalizeRequestType() }
 
 func (r *InternalLLMRequest) normalizeRequestType() error {
@@ -171,7 +169,7 @@ func (r *InternalLLMRequest) normalizeRequestType() error {
 		return fmt.Errorf("request is nil")
 	}
 	if r.Operation != nil {
-		if err := r.Operation.Validate(); err != nil {
+		if err := r.ValidateOperationConsistency(); err != nil {
 			return err
 		}
 		kind := r.Operation.Type()

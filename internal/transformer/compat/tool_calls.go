@@ -10,10 +10,10 @@ import (
 // conversion. It is intentionally narrow: only fixes cases known to trigger
 // strict Anthropic schema errors.
 func PatchAnthropicRequest(req *model.InternalLLMRequest) {
-	if req == nil || len(req.Messages) == 0 {
+	if req == nil || len(req.ConversationMessages()) == 0 {
 		return
 	}
-	req.Messages = FixOrphanedToolCalls(req.Messages)
+	req.SetConversationMessages(FixOrphanedToolCalls(req.ConversationMessages()))
 }
 
 // FixOrphanedToolCalls inserts empty tool_result messages for assistant

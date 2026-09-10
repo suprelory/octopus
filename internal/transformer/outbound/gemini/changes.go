@@ -17,8 +17,8 @@ func prepareGeminiRequest(request *model.InternalLLMRequest, effectiveModel stri
 		prepared.Model = modelName
 	}
 	prepared.NormalizeMessages()
-	messages, report := model.EnforceAlternationWithReport(prepared.Messages, model.AlternationProviderGemini)
-	prepared.Messages = messages
+	messages, report := model.EnforceAlternationWithReport(prepared.ConversationMessages(), model.AlternationProviderGemini)
+	prepared.SetConversationMessages(messages)
 	return prepared, report
 }
 
@@ -28,7 +28,7 @@ func (o *MessagesOutbound) DescribeRequestChanges(request *model.InternalLLMRequ
 	}
 	prepared, alternation := prepareGeminiRequest(request, effectiveModel)
 	changes := alternation.RequestChanges("Gemini")
-	for messageIndex, message := range prepared.Messages {
+	for messageIndex, message := range prepared.ConversationMessages() {
 		changes = append(changes, describeGeminiMessageChanges(message, messageIndex, prepared)...)
 	}
 	return changes

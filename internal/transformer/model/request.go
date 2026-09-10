@@ -23,20 +23,21 @@ type InternalLLMRequest struct {
 	// provider API format. It is internal-only and inferred for legacy callers.
 	RequestType RequestType `json:"-"`
 
-	// Operation is the tagged operation payload. It is the preferred API for
-	// new endpoints; legacy top-level payload fields remain populated while
-	// adapters migrate to operation-specific request types.
+	// Operation is the authoritative tagged operation payload. Deprecated fields
+	// remain populated for external callers; conflicting dual payloads are rejected.
 	Operation *RequestOperation `json:"-"`
 
 	// Messages is a list of messages to send to the llm model.
 	// For chat completion requests, this field is required.
 	// For embedding requests, this field should be empty and Input should be used instead.
+	// Deprecated: use ConversationMessages and SetConversationMessages.
 	Messages []Message `json:"messages,omitempty" validator:"required,min=1"`
 
 	// Embedding API 参数（与 Messages 互斥）
 	// EmbeddingInput is the text or texts to get embeddings for.
 	// For embedding requests, this field is required.
 	// For chat completion requests, this field should be empty.
+	// Deprecated: use EmbeddingsPayload.
 	EmbeddingInput *EmbeddingInput `json:"embedding_input,omitempty"` // string or string[]
 	// EmbeddingDimensions is the number of dimensions for the embedding output.
 	// Only supported for certain embedding models.
@@ -588,10 +589,12 @@ func (r *InternalLLMRequest) TransformerMetadataBool(key string) bool {
 }
 
 func (r *InternalLLMRequest) ClearHelpFields() {
-	for i, msg := range r.Messages {
+	messages := r.ConversationMessages()
+	for i, msg := range messages {
 		msg.ClearHelpFields()
-		r.Messages[i] = msg
+		messages[i] = msg
 	}
+	r.SetConversationMessages(messages)
 
 	r.ExtraBody = nil
 	r.Include = nil
@@ -602,9 +605,11 @@ func (r *InternalLLMRequest) ClearHelpFields() {
 // that subsequent conversion code can assume messages carry valid, non-empty
 // payloads.
 func (r *InternalLLMRequest) NormalizeMessages() {
-	for i := range r.Messages {
-		r.Messages[i].Normalize()
+	messages := r.ConversationMessages()
+	for i := range messages {
+		messages[i].Normalize()
 	}
+	r.SetConversationMessages(messages)
 }
 
 // EnforceMessageAlternation rewrites r.Messages so consecutive same-role
@@ -613,7 +618,7 @@ func (r *InternalLLMRequest) NormalizeMessages() {
 // strict user/assistant alternation (Anthropic and Gemini). Callers for
 // lax providers (OpenAI) can safely skip this.
 func (r *InternalLLMRequest) EnforceMessageAlternation(provider AlternationProvider) {
-	r.Messages = EnforceAlternation(r.Messages, provider)
+	r.SetConversationMessages(EnforceAlternation(r.ConversationMessages(), provider))
 }
 
 func (r *InternalLLMRequest) IsImageGenerationRequest() bool {

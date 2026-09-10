@@ -203,6 +203,9 @@ func (r *InternalLLMRequest) SetOpenAIRawInputItems(raw json.RawMessage) {
 		return
 	}
 	r.RawInputItems = cloneRawMessage(raw)
+	if r.Operation != nil && r.Operation.Responses != nil {
+		r.Operation.Responses.RawInputItems = r.RawInputItems
+	}
 	providerExtensions := r.ensureProviderExtensions()
 	if providerExtensions.OpenAI == nil {
 		providerExtensions.OpenAI = &OpenAIExtension{}
@@ -231,6 +234,10 @@ func (r *InternalLLMRequest) SetOpenAIResponsesOptions(options OpenAIResponsesOp
 	r.ReasoningSummary = cloneStringPtr(options.ReasoningSummary)
 	r.ReasoningGenerateSummary = cloneStringPtr(options.ReasoningGenerateSummary)
 	r.RawInputItems = cloneRawMessage(options.RawInputItems)
+	if r.Operation != nil && r.Operation.Responses != nil {
+		r.Operation.Responses.RawInputItems = r.RawInputItems
+		r.Operation.Responses.PreviousResponseID = r.PreviousResponseID
+	}
 	providerExtensions := r.ensureProviderExtensions()
 	if providerExtensions.OpenAI == nil {
 		providerExtensions.OpenAI = &OpenAIExtension{}
@@ -261,6 +268,13 @@ func (r *InternalLLMRequest) GetOpenAIResponsesOptions() OpenAIResponsesOptions 
 	if r.ProviderExtensions != nil && r.ProviderExtensions.OpenAI != nil {
 		mergeOpenAIResponsesOptions(&options, r.ProviderExtensions.OpenAI.Responses)
 	}
+	if r.Operation != nil {
+		options.RawInputItems, options.PreviousResponseID = nil, nil
+		if payload := r.ResponsesPayload(); payload != nil {
+			options.RawInputItems = cloneRawMessage(payload.RawInputItems)
+			options.PreviousResponseID = cloneStringPtr(payload.PreviousResponseID)
+		}
+	}
 	return options
 }
 
@@ -268,14 +282,30 @@ func (r *InternalLLMRequest) OpenAIRawInputItems() json.RawMessage {
 	if r == nil {
 		return nil
 	}
+	if r.Operation != nil {
+		if payload := r.ResponsesPayload(); payload != nil {
+			return cloneRawMessage(payload.RawInputItems)
+		}
+		return nil
+	}
 	return cloneRawMessage(r.RawInputItems)
 }
 
 func (r *InternalLLMRequest) OpenAIPreviousResponseID() string {
-	if r == nil || r.PreviousResponseID == nil {
+	if r == nil {
 		return ""
 	}
-	return strings.TrimSpace(*r.PreviousResponseID)
+	previous := r.PreviousResponseID
+	if r.Operation != nil {
+		previous = nil
+		if payload := r.ResponsesPayload(); payload != nil {
+			previous = payload.PreviousResponseID
+		}
+	}
+	if previous == nil {
+		return ""
+	}
+	return strings.TrimSpace(*previous)
 }
 
 func (r *InternalLLMRequest) GetGeminiExtensions() GeminiExtension {
@@ -326,7 +356,11 @@ func (r *InternalLLMRequest) GetOpenAIExtensions() OpenAIExtension {
 		ext.ResponsesPassthroughRequired = true
 		ext.ResponsesPassthroughReason = r.OpenAIResponsesPassthroughReasonTextValue()
 	}
-	if len(r.RawInputItems) > 0 {
+	if r.Operation != nil {
+		ext.RawResponseItems = r.OpenAIRawInputItems()
+		options := r.GetOpenAIResponsesOptions()
+		ext.Responses = &options
+	} else if len(r.RawInputItems) > 0 {
 		ext.RawResponseItems = cloneRawMessage(r.RawInputItems)
 	}
 	return ext

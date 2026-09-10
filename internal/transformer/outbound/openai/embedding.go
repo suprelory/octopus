@@ -36,24 +36,31 @@ type OpenAIEmbeddingResponse struct {
 }
 
 func (o *EmbeddingOutbound) TransformRequest(ctx context.Context, request *model.InternalLLMRequest, baseUrl, key string) (*http.Request, error) {
+	if err := request.ValidateOperationConsistency(); err != nil {
+		return nil, err
+	}
 	// 验证这是一个 embedding 请求
 	if !request.IsEmbeddingRequest() {
 		return nil, errors.New("not an embedding request")
+	}
+	payload := request.EmbeddingsPayload()
+	if payload == nil {
+		return nil, errors.New("embedding operation requires input")
 	}
 
 	// 构建 embedding 请求体（使用 OpenAI 标准字段名）
 	embeddingRequest := map[string]any{
 		"model": request.Model,
-		"input": request.EmbeddingInput, // 上游期望 "input"
+		"input": payload.Input, // 上游期望 "input"
 	}
 
 	// 添加可选参数
-	if request.EmbeddingDimensions != nil {
-		embeddingRequest["dimensions"] = *request.EmbeddingDimensions
+	if payload.Dimensions != nil {
+		embeddingRequest["dimensions"] = *payload.Dimensions
 	}
 
-	if request.EmbeddingEncodingFormat != nil {
-		embeddingRequest["encoding_format"] = *request.EmbeddingEncodingFormat
+	if payload.EncodingFormat != nil {
+		embeddingRequest["encoding_format"] = *payload.EncodingFormat
 	}
 
 	if request.User != nil {

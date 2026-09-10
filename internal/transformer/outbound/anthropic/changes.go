@@ -18,14 +18,14 @@ func prepareAnthropicRequest(request *model.InternalLLMRequest, effectiveModel s
 		prepared.Model = modelName
 	}
 	prepared.NormalizeMessages()
-	messages, alternation := model.EnforceAlternationWithReport(prepared.Messages, model.AlternationProviderAnthropic)
-	prepared.Messages = messages
-	messageCountBeforePatch := len(prepared.Messages)
+	messages, alternation := model.EnforceAlternationWithReport(prepared.ConversationMessages(), model.AlternationProviderAnthropic)
+	prepared.SetConversationMessages(messages)
+	messageCountBeforePatch := len(prepared.ConversationMessages())
 	compat.PatchAnthropicRequest(prepared)
 
 	wire := convertToAnthropicRequestUnpruned(prepared)
 	changes := alternation.RequestChanges("Anthropic")
-	if len(prepared.Messages) > messageCountBeforePatch {
+	if len(prepared.ConversationMessages()) > messageCountBeforePatch {
 		changes = append(changes, model.RequestTransformationChange{
 			Field:  "messages",
 			Action: model.RequestTransformationRepair,

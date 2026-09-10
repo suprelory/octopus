@@ -85,7 +85,7 @@ func buildAnthropicCacheProjection(req *model.InternalLLMRequest) anthropicCache
 	}
 
 	payload := anthropicCachePayload{
-		Instructions: strings.TrimSpace(convertInstructionsFromMessages(req.Messages)),
+		Instructions: strings.TrimSpace(convertInstructionsFromMessages(req.ConversationMessages())),
 	}
 	selectedTTL := ""
 
@@ -105,11 +105,11 @@ func buildAnthropicCacheProjection(req *model.InternalLLMRequest) anthropicCache
 		}
 	}
 
-	stableMessageLimit, messageAnchor, messageTTL := stableAnthropicMessageLimit(req.Messages)
+	stableMessageLimit, messageAnchor, messageTTL := stableAnthropicMessageLimit(req.ConversationMessages())
 	if payload.Instructions != "" {
 		projection.anchor = "system"
 		if selectedTTL == "" {
-			selectedTTL = stableSystemCacheTTL(req.Messages)
+			selectedTTL = stableSystemCacheTTL(req.ConversationMessages())
 		}
 	}
 	if len(payload.Tools) > 0 {
@@ -122,8 +122,8 @@ func buildAnthropicCacheProjection(req *model.InternalLLMRequest) anthropicCache
 		if selectedTTL == "" {
 			selectedTTL = messageTTL
 		}
-		for i := 0; i <= stableMessageLimit && i < len(req.Messages); i++ {
-			msg := req.Messages[i]
+		for i := 0; i <= stableMessageLimit && i < len(req.ConversationMessages()); i++ {
+			msg := req.ConversationMessages()[i]
 			if msg.Role == "system" || msg.Role == "developer" {
 				continue
 			}
@@ -212,7 +212,7 @@ func requestHasCacheControl(req *model.InternalLLMRequest) bool {
 	if req == nil {
 		return false
 	}
-	for _, msg := range req.Messages {
+	for _, msg := range req.ConversationMessages() {
 		if msg.CacheControl != nil {
 			return true
 		}

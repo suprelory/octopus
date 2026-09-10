@@ -80,7 +80,7 @@ func supportsToolType(outboundType OutboundType, tool model.Tool) bool {
 }
 
 func evaluateMultimodal(req *model.InternalLLMRequest, outboundType OutboundType, decision *CapabilityDecision) {
-	for messageIndex, message := range req.Messages {
+	for messageIndex, message := range req.ConversationMessages() {
 		for partIndex, part := range message.Content.MultipleContent {
 			typ := strings.ToLower(strings.TrimSpace(part.Type))
 			if outboundType == OutboundTypeOpenAIChat && typ == "document" {
@@ -184,7 +184,7 @@ func hasMultimodalSemantics(req *model.InternalLLMRequest) bool {
 			return true
 		}
 	}
-	for _, message := range req.Messages {
+	for _, message := range req.ConversationMessages() {
 		for _, part := range message.Content.MultipleContent {
 			if typ := strings.ToLower(strings.TrimSpace(part.Type)); typ != "" && typ != "text" {
 				return true

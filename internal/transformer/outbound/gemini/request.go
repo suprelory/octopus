@@ -15,6 +15,9 @@ import (
 )
 
 func (o *MessagesOutbound) TransformRequest(ctx context.Context, request *model.InternalLLMRequest, baseUrl, key string) (*http.Request, error) {
+	if err := request.ValidateOperationConsistency(); err != nil {
+		return nil, err
+	}
 	if request == nil {
 		return nil, fmt.Errorf("request is nil")
 	}
@@ -143,7 +146,7 @@ func convertLLMToGeminiRequest(request *model.InternalLLMRequest) *model.GeminiG
 	// assistant turns so multi-round conversations still resolve correctly.
 	toolCallNamesByID := map[string]string{}
 
-	for _, msg := range request.Messages {
+	for _, msg := range request.ConversationMessages() {
 		role := strings.ToLower(strings.TrimSpace(msg.Role))
 		if role == "" {
 			role = "user"

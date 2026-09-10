@@ -29,6 +29,9 @@ type MessageOutbound struct {
 }
 
 func (o *MessageOutbound) TransformRequest(ctx context.Context, request *model.InternalLLMRequest, baseUrl, key string) (*http.Request, error) {
+	if err := request.ValidateOperationConsistency(); err != nil {
+		return nil, err
+	}
 	if request == nil {
 		return nil, fmt.Errorf("request is nil")
 	}

@@ -63,6 +63,9 @@ func PlanRequestForModel(req *model.InternalLLMRequest, effectiveModel string, o
 	if req == nil {
 		return rejectDecision(decision, "request is nil")
 	}
+	if err := req.ValidateOperationConsistency(); err != nil {
+		return rejectDecision(decision, err.Error())
+	}
 
 	decision.RequestType = req.ResolveRequestType()
 	decision.InboundFormat = req.RawAPIFormat

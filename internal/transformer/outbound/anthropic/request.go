@@ -201,7 +201,7 @@ func resolveMaxTokens(req *model.InternalLLMRequest) int64 {
 
 func convertSystemPrompt(req *model.InternalLLMRequest) *anthropicModel.SystemPrompt {
 	var systemMessages []model.Message
-	for _, msg := range req.Messages {
+	for _, msg := range req.ConversationMessages() {
 		if msg.Role == "system" || msg.Role == "developer" {
 			systemMessages = append(systemMessages, msg)
 		}

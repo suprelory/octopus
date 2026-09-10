@@ -215,7 +215,7 @@ func requiresUpstreamWSContinuation(req *transformerModel.InternalLLMRequest) bo
 		return true
 	}
 	seenToolCalls := make(map[string]struct{})
-	for _, msg := range req.Messages {
+	for _, msg := range req.ConversationMessages() {
 		if msg.Role == "assistant" {
 			for _, toolCall := range msg.ToolCalls {
 				if toolCallID := strings.TrimSpace(toolCall.ID); toolCallID != "" {

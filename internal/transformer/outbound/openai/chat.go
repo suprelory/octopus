@@ -80,6 +80,9 @@ type ChatCompletionsAudio struct {
 }
 
 func (o *ChatOutbound) TransformRequest(ctx context.Context, request *model.InternalLLMRequest, baseUrl, key string) (*http.Request, error) {
+	if err := request.ValidateOperationConsistency(); err != nil {
+		return nil, err
+	}
 	if request == nil {
 		return nil, fmt.Errorf("request is nil")
 	}
@@ -169,7 +172,7 @@ func buildChatCompletionsRequest(request *model.InternalLLMRequest) *ChatComplet
 	}
 
 	result := &ChatCompletionsRequest{
-		Messages:            normalizeChatMessages(request.Messages),
+		Messages:            normalizeChatMessages(request.ConversationMessages()),
 		Model:               request.Model,
 		FrequencyPenalty:    request.FrequencyPenalty,
 		Logprobs:            request.Logprobs,

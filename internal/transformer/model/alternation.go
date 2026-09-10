@@ -36,9 +36,11 @@ func (r *InternalLLMRequest) FlattenUnsupportedBlocks(provider AlternationProvid
 	if provider != AlternationProviderOpenAI {
 		return
 	}
-	for i := range r.Messages {
-		r.Messages[i].flattenUnsupportedBlocksForOpenAI()
+	messages := r.ConversationMessages()
+	for i := range messages {
+		messages[i].flattenUnsupportedBlocksForOpenAI()
 	}
+	r.SetConversationMessages(messages)
 	if len(r.Tools) > 0 {
 		filtered := r.Tools[:0]
 		for _, tool := range r.Tools {

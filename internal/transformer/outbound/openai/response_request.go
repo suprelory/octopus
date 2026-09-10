@@ -33,7 +33,7 @@ func ConvertToResponsesRequest(req *model.InternalLLMRequest) *ResponsesRequest 
 	}
 
 	// Convert instructions from system messages
-	result.Instructions = convertInstructionsFromMessages(req.Messages)
+	result.Instructions = convertInstructionsFromMessages(req.ConversationMessages())
 
 	// Convert input from messages or preserve original array items when available.
 	result.Input = buildResponsesInput(req)
@@ -127,7 +127,7 @@ func buildResponsesInput(req *model.InternalLLMRequest) ResponsesInput {
 	if len(openaiExt.RawResponseItems) > 0 {
 		return ResponsesInput{Raw: sanitizeResponsesRawItems(append(json.RawMessage(nil), openaiExt.RawResponseItems...))}
 	}
-	return sanitizeResponsesInput(convertInputFromMessages(req.Messages, req.TransformOptions))
+	return sanitizeResponsesInput(convertInputFromMessages(req.ConversationMessages(), req.TransformOptions))
 }
 
 func MarshalResponsesInputItems(msgs []model.Message) (json.RawMessage, error) {
