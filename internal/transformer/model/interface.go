@@ -75,9 +75,16 @@ const (
 // transformation. Capability planning consumes these reports so it does not
 // need to independently mirror every provider-specific repair or drop rule.
 type RequestTransformationChange struct {
-	Field  string                      `json:"field"`
-	Action RequestTransformationAction `json:"action"`
-	Reason string                      `json:"reason"`
+	Field       string                      `json:"field"`
+	TargetField string                      `json:"target_field,omitempty"`
+	Action      RequestTransformationAction `json:"action"`
+	Condition   string                      `json:"condition,omitempty"`
+	Reason      string                      `json:"reason"`
+	Lossless    bool                        `json:"lossless,omitempty"`
+}
+
+func (c RequestTransformationChange) IsLossy() bool {
+	return c.Action != RequestTransformationPreserve && !c.Lossless
 }
 
 // RequestChangeReporter is an optional outbound capability. Implementations

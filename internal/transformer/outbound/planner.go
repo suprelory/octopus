@@ -1,6 +1,7 @@
 package outbound
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -38,6 +39,7 @@ type CapabilityDecision struct {
 	DegradedFields   []string
 	Reasons          []string
 	Losses           LossReport
+	ConversionReport LossReport
 	Lossiness        string
 	StaticQuality    ConversionQuality
 	Passthrough      bool
@@ -93,19 +95,42 @@ func PlanRequestForModel(req *model.InternalLLMRequest, effectiveModel string, o
 		return decision
 	}
 
-	for _, feature := range decision.RequiredFeatures {
-		evaluateFeature(req, effectiveModel, outboundType, SemanticFeature(feature), &decision)
+	prepared := req.Clone()
+	if strings.TrimSpace(effectiveModel) != "" {
+		prepared.Model = effectiveModel
 	}
-	evaluateAdapterFieldLosses(req, outboundType, &decision)
-	evaluateAdapterReportedChanges(req, effectiveModel, outboundType, &decision)
-	evaluateProviderSpecificSemantics(req, outboundType, &decision)
-	evaluateInboundRepairs(req, &decision)
+	wire, report, err := BuildRequest(context.Background(), Get(outboundType), outboundType, prepared, "https://conversion.invalid", "")
+	if err != nil {
+		return rejectDecision(decision, err.Error())
+	}
+	wire.Body.Close()
+	return ApplyConversionReport(decision, report)
+}
+
+// ApplyConversionReport records evidence returned by the actual request build.
+// Relay calls this again before submission and persists the resulting decision.
+func ApplyConversionReport(decision CapabilityDecision, report LossReport) CapabilityDecision {
+	decision.ConversionReport = report
+	for _, change := range report {
+		if !change.IsLossy() {
+			continue
+		}
+		decision.DegradedFields = append(decision.DegradedFields, change.Field)
+		decision.Reasons = append(decision.Reasons, change.Reason)
+		decision.Losses = append(decision.Losses, change)
+		if change.Action == LossActionReject {
+			decision.Status = CapabilityRejected
+		}
+	}
 	decision.DegradedFields = uniqueSorted(decision.DegradedFields)
 	decision.Reasons = uniqueSorted(decision.Reasons)
 	decision.Losses = uniqueLossReports(decision.Losses)
-	if len(decision.DegradedFields) > 0 {
+	if len(decision.DegradedFields) > 0 && decision.Status != CapabilityRejected {
 		decision.Status = CapabilityDegraded
 		decision.Lossiness = "known"
+	}
+	if decision.Status == CapabilityRejected {
+		decision.Lossiness = "rejected"
 	}
 	return decision
 }
@@ -219,7 +244,8 @@ func requestedFeatures(req *model.InternalLLMRequest) []string {
 	if req.ToolChoice != nil {
 		features = append(features, string(FeatureToolChoice))
 	}
-	if req.ReasoningEffort != "" || req.ReasoningBudget != nil || req.AdaptiveThinking || req.EnableThinking != nil || req.Thinking != nil || req.ReasoningSummary != nil || req.ReasoningGenerateSummary != nil {
+	options := req.GetOpenAIResponsesOptions()
+	if req.ReasoningEffort != "" || req.ReasoningBudget != nil || req.AdaptiveThinking || req.EnableThinking != nil || req.Thinking != nil || options.ReasoningSummary != nil || options.ReasoningGenerateSummary != nil {
 		features = append(features, string(FeatureReasoning))
 	}
 	if hasStructuredOutput(req.ResponseFormat) {

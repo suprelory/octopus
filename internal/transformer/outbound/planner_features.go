@@ -3,7 +3,6 @@ package outbound
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/bestruirui/octopus/internal/transformer/model"
@@ -48,34 +47,10 @@ func evaluateFeature(req *model.InternalLLMRequest, effectiveModel string, outbo
 				reportLoss(decision, change.Field, action, change.Reason)
 			}
 		}
-	case FeatureTools:
-		for index, tool := range req.Tools {
-			if supportsToolType(outboundType, tool) {
-				continue
-			}
-			degrade(decision, fmt.Sprintf("tools[%d].type", index), fmt.Sprintf("tool type %q is not representable on %s", tool.Type, outboundType))
-		}
 	case FeatureMultimodal:
 		evaluateMultimodal(req, outboundType, decision)
 	case FeatureStreamUsage:
 		// Every streaming chat adapter is required to expose canonical usage.
-	}
-}
-
-func supportsToolType(outboundType OutboundType, tool model.Tool) bool {
-	typ := strings.ToLower(strings.TrimSpace(tool.Type))
-	if typ == "" || typ == "function" {
-		return true
-	}
-	switch outboundType {
-	case OutboundTypeOpenAIResponse:
-		return typ == "image_generation"
-	case OutboundTypeGemini:
-		return slices.Contains([]string{"server_search", "code_execution", "url_context"}, typ)
-	case OutboundTypeAnthropic:
-		return len(tool.AnthropicServerSpec) > 0
-	default:
-		return false
 	}
 }
 
@@ -119,7 +94,8 @@ func evaluateReasoning(req *model.InternalLLMRequest, outboundType OutboundType,
 			degrade(decision, field, fmt.Sprintf("%s does not preserve %s", outboundType, field))
 		}
 	}
-	usesSummary := req.ReasoningSummary != nil || req.ReasoningGenerateSummary != nil
+	options := req.GetOpenAIResponsesOptions()
+	usesSummary := options.ReasoningSummary != nil || options.ReasoningGenerateSummary != nil
 	switch outboundType {
 	case OutboundTypeOpenAIChat:
 		degradeIf(req.ReasoningBudget != nil, "reasoning_budget")

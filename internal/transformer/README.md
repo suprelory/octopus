@@ -37,3 +37,13 @@ for at least one release cycle. Relay uses canonical events and one per-stream
 finalizer owns message and block completion, and inbound encoders serialize the
 result. A terminal marker can repair missing canonical stops; a source error
 cannot. `Finish` seals the stream for every termination cause.
+
+`ProtocolDescriptor.FieldRules` records each source semantic, target wire field,
+action, condition, and reason. `outbound.BuildRequest` returns the HTTP request
+and its conversion report without consuming the body or sending any bytes.
+Capability planning runs this same local build with the effective upstream model.
+Scalar rules inspect emitted JSON; tools are checked against emitted definitions
+and schemas; provider preparation helpers report structured repairs and losses.
+HTTP and transformed WebSocket submission persist and enforce the returned report.
+Strict capability policy rejects known losses before submission. Passthrough is
+planned separately because its preserved raw fields do not use canonical builders.

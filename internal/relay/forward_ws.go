@@ -2,15 +2,15 @@ package relay
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/relay/stream"
 	"github.com/bestruirui/octopus/internal/transformer/model"
-	openaiOutbound "github.com/bestruirui/octopus/internal/transformer/outbound/openai"
+	"github.com/bestruirui/octopus/internal/transformer/outbound"
 )
 
 // forwardViaWS sends at most one generation request. Status -1 permits HTTP
@@ -28,11 +28,22 @@ func (ra *relayAttempt) forwardViaWS(ctx context.Context) (int, error) {
 	if pc == nil {
 		return -1, nil
 	}
-	responsesReq := openaiOutbound.ConvertToResponsesRequest(ra.internalRequest)
-	reqBody, err := json.Marshal(responsesReq)
+	wire, report, err := outbound.BuildRequest(ctx, ra.outAdapter, ra.channel.Type, ra.internalRequest, ra.channel.GetBaseUrl(), ra.usedKey.ChannelKey)
 	if err != nil {
 		wsUpstreamPool.Put(pc)
 		return 0, classifyLocalRelayError(FailureConfiguration, fmt.Errorf("failed to build websocket request: %w", err))
+	}
+	ra.capabilityDecision = outbound.ApplyConversionReport(ra.capabilityDecision, report)
+	if reject, code := evaluateCapabilityPolicy(ra.capabilityDecision, ra.capabilityPolicy); reject {
+		wire.Body.Close()
+		wsUpstreamPool.Put(pc)
+		return 400, classifyLocalRelayError(FailureConfiguration, fmt.Errorf("%s: %s", code, ra.capabilityDecision.Summary()))
+	}
+	reqBody, err := io.ReadAll(wire.Body)
+	wire.Body.Close()
+	if err != nil {
+		wsUpstreamPool.Put(pc)
+		return 0, err
 	}
 	reqBody, err = buildWSResponseCreateMessage(reqBody)
 	if err != nil {

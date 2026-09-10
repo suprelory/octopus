@@ -36,9 +36,11 @@ func capabilityTrace(decision outbound.CapabilityDecision, policy capabilityDegr
 	losses := make([]dbmodel.CapabilityLoss, 0, len(decision.Losses))
 	for _, loss := range decision.Losses {
 		losses = append(losses, dbmodel.CapabilityLoss{
-			Field:  loss.Field,
-			Action: string(loss.Action),
-			Reason: loss.Reason,
+			Field:       loss.Field,
+			TargetField: loss.TargetField,
+			Action:      string(loss.Action),
+			Condition:   loss.Condition,
+			Reason:      loss.Reason,
 		})
 	}
 	return balancer.CapabilityTrace{

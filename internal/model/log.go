@@ -18,9 +18,11 @@ const (
 )
 
 type CapabilityLoss struct {
-	Field  string `json:"field"`
-	Action string `json:"action"`
-	Reason string `json:"reason"`
+	Field       string `json:"field"`
+	TargetField string `json:"target_field,omitempty"`
+	Action      string `json:"action"`
+	Condition   string `json:"condition,omitempty"`
+	Reason      string `json:"reason"`
 }
 
 // ChannelAttempt 记录单次渠道尝试的决策和结果

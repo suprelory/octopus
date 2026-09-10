@@ -35,6 +35,7 @@ type ProtocolDescriptor struct {
 	RelayOperations    map[string]struct{}
 	Transport          string
 	TerminalPolicy     model.StreamTerminalPolicy
+	FieldRules         []FieldConversionRule
 	Factory            func() model.Outbound
 }
 
@@ -51,6 +52,7 @@ func (c ProtocolDescriptor) SupportsRelayOperation(operation string) bool {
 var protocolDescriptors = map[OutboundType]ProtocolDescriptor{
 	OutboundTypeOpenAIChat: {
 		Name:            "openai_chat",
+		FieldRules:      protocolFieldRules(OutboundTypeOpenAIChat),
 		APIFormat:       model.APIFormatOpenAIChatCompletion,
 		RequestTypes:    requestTypes(model.RequestTypeChat, model.RequestTypeResponses),
 		RelayOperations: relayOperations(RelayOperationImages),
@@ -64,6 +66,7 @@ var protocolDescriptors = map[OutboundType]ProtocolDescriptor{
 	},
 	OutboundTypeOpenAIResponse: {
 		Name:               "openai_responses",
+		FieldRules:         protocolFieldRules(OutboundTypeOpenAIResponse),
 		APIFormat:          model.APIFormatOpenAIResponse,
 		RequestTypes:       requestTypes(model.RequestTypeChat, model.RequestTypeResponses),
 		NativeInputFormats: apiFormats(model.APIFormatOpenAIResponse),
@@ -82,6 +85,7 @@ var protocolDescriptors = map[OutboundType]ProtocolDescriptor{
 	},
 	OutboundTypeAnthropic: {
 		Name:               "anthropic_messages",
+		FieldRules:         protocolFieldRules(OutboundTypeAnthropic),
 		APIFormat:          model.APIFormatAnthropicMessage,
 		RequestTypes:       requestTypes(model.RequestTypeChat, model.RequestTypeResponses),
 		NativeInputFormats: apiFormats(model.APIFormatAnthropicMessage),
@@ -95,6 +99,7 @@ var protocolDescriptors = map[OutboundType]ProtocolDescriptor{
 	},
 	OutboundTypeGemini: {
 		Name:         "gemini_contents",
+		FieldRules:   protocolFieldRules(OutboundTypeGemini),
 		APIFormat:    model.APIFormatGeminiContents,
 		RequestTypes: requestTypes(model.RequestTypeChat, model.RequestTypeResponses),
 		Transport:    "http",
@@ -107,6 +112,7 @@ var protocolDescriptors = map[OutboundType]ProtocolDescriptor{
 	},
 	OutboundTypeOpenAIEmbedding: {
 		Name:         "openai_embeddings",
+		FieldRules:   protocolFieldRules(OutboundTypeOpenAIEmbedding),
 		APIFormat:    model.APIFormatOpenAIEmbedding,
 		RequestTypes: requestTypes(model.RequestTypeEmbedding),
 		Transport:    "http",
@@ -151,6 +157,7 @@ func apiTerminalEvents(events ...string) map[string]struct{} {
 
 func Descriptor(outboundType OutboundType) (ProtocolDescriptor, bool) {
 	descriptor, ok := protocolDescriptors[outboundType]
+	descriptor.FieldRules = append([]FieldConversionRule(nil), descriptor.FieldRules...)
 	return descriptor, ok
 }
 
