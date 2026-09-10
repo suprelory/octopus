@@ -130,6 +130,10 @@ func convertGeminiToLLMResponse(geminiResp *model.GeminiGenerateContentResponse,
 				}
 				// Handle inline data (images, audio, etc.)
 				if part.InlineData != nil {
+					if strings.HasPrefix(strings.ToLower(part.InlineData.MimeType), "audio/") {
+						resp.NonChatStreamEvents = append(resp.NonChatStreamEvents, model.StreamEvent{Kind: model.StreamEventKindAudioDelta, ID: resp.ID, Model: resp.Model, Index: candidate.Index, Media: &model.StreamMedia{MediaType: part.InlineData.MimeType, Data: part.InlineData.Data}})
+						continue
+					}
 					hasStructuredPart = true
 					// Convert to data URL format: data:{mimeType};base64,{data}
 					dataURL := fmt.Sprintf("data:%s;base64,%s", part.InlineData.MimeType, part.InlineData.Data)

@@ -12,6 +12,7 @@ func convertGeminiGroundingToInternal(md *model.GeminiGroundingMetadata) *model.
 		return nil
 	}
 	info := &model.GroundingInfo{
+		Provider: "gemini", Raw: md.Raw,
 		SearchQueries: md.WebSearchQueries,
 	}
 	if md.SearchEntryPoint != nil {
@@ -54,7 +55,7 @@ func convertGeminiGroundingToInternal(md *model.GeminiGroundingMetadata) *model.
 	}
 	// If literally nothing was populated, treat as absent so the caller can
 	// leave Choice.Grounding nil.
-	if len(info.SearchQueries) == 0 && len(info.Sources) == 0 && len(info.Supports) == 0 && info.SearchEntryPointHTML == "" {
+	if len(info.SearchQueries) == 0 && len(info.Sources) == 0 && len(info.Supports) == 0 && info.SearchEntryPointHTML == "" && len(info.Raw) == 0 {
 		return nil
 	}
 	return info
@@ -72,6 +73,7 @@ func convertGeminiCitationsToInternal(md *model.GeminiCitationMetadata) []model.
 			continue
 		}
 		out = append(out, model.Citation{
+			Provider: "gemini", Format: model.APIFormatGeminiContents, Raw: src.Raw,
 			StartIndex: src.StartIndex,
 			EndIndex:   src.EndIndex,
 			URI:        src.URI,

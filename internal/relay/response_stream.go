@@ -155,11 +155,9 @@ func (ra *relayAttempt) handleStreamResponsePassthroughV2(ctx context.Context, r
 		if model.HasSemanticStreamEvents(events) {
 			semanticPayload = true
 		}
-		_, err = ra.inAdapter.TransformStreamEvents(ctx, events)
-		if err != nil {
-			ra.captureStreamError(err)
-		}
-		return err
+		// Passthrough already preserves every native frame. The converter owns
+		// aggregation; encoding a discarded projection can only introduce losses.
+		return nil
 	})
 	precommit := func(_, _ []byte) bool { return semanticPayload }
 	precommitMaxEvents := maxSSEEventSize/(32*1024) + 8
@@ -233,6 +231,9 @@ func (ra *relayAttempt) ensureStreamConverter() *model.CanonicalStreamConverter 
 }
 
 func (ra *relayAttempt) captureStreamError(err error) {
+	if ra.streamConverter != nil {
+		ra.streamConverter.RecordConversionLoss(err)
+	}
 	var responseError *model.ResponseError
 	if errors.As(err, &responseError) {
 		ra.upstreamError = responseError

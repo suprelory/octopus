@@ -366,14 +366,15 @@ func (i *ResponseInbound) closeMessageItem() [][]byte {
 	fullRefusal := i.accumulatedRefusal.String()
 
 	contentItems := make([]ResponsesItem, 0, 2)
-	for _, t := range i.messageContentOrder {
+	for contentIndex, t := range i.messageContentOrder {
 		switch t {
 		case "output_text":
 			if fullText != "" {
 				text := fullText
 				contentItems = append(contentItems, ResponsesItem{
-					Type: "output_text",
-					Text: &text,
+					Type:        "output_text",
+					Text:        &text,
+					Annotations: i.annotationsAt(contentIndex),
 				})
 			}
 		case "refusal":
@@ -392,8 +393,9 @@ func (i *ResponseInbound) closeMessageItem() [][]byte {
 	// see a zero-length content array.
 	if len(contentItems) == 0 {
 		contentItems = append(contentItems, ResponsesItem{
-			Type: "output_text",
-			Text: lo.ToPtr(fullText),
+			Type:        "output_text",
+			Text:        lo.ToPtr(fullText),
+			Annotations: i.annotationsAt(0),
 		})
 	}
 
@@ -417,6 +419,7 @@ func (i *ResponseInbound) closeMessageItem() [][]byte {
 	i.accumulatedText.Reset()
 	i.accumulatedRefusal.Reset()
 	i.messageContentOrder = nil
+	i.messageAnnotations = nil
 
 	return events
 }
@@ -447,8 +450,9 @@ func (i *ResponseInbound) closeCurrentContentPart() [][]byte {
 			OutputIndex:  lo.ToPtr(i.outputIndex),
 			ContentIndex: lo.ToPtr(i.contentIndex),
 			Part: &ResponsesContentPart{
-				Type: "output_text",
-				Text: lo.ToPtr(fullText),
+				Type:        "output_text",
+				Text:        lo.ToPtr(fullText),
+				Annotations: i.messageAnnotations[i.contentIndex],
 			},
 		}))
 
@@ -481,6 +485,14 @@ func (i *ResponseInbound) closeCurrentContentPart() [][]byte {
 	}
 
 	return events
+}
+
+func (i *ResponseInbound) annotationsAt(index int) *[]ResponsesAnnotation {
+	annotations := i.messageAnnotations[index]
+	if len(annotations) == 0 {
+		return nil
+	}
+	return &annotations
 }
 
 func (i *ResponseInbound) closeCurrentOutputItem() [][]byte {

@@ -929,7 +929,7 @@ func TestTransformStreamFunctionCallArgumentsDoneSuppliesIdentityAndArguments(t 
 	if err != nil {
 		t.Fatalf("output item added: %v", err)
 	}
-	if len(events) != 0 {
+	if model.HasSemanticStreamEvents(events) {
 		t.Fatalf("unnamed function call should be buffered, got %+v", events)
 	}
 
@@ -1025,7 +1025,7 @@ func TestTransformStreamHandlesReasoningTextEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reasoning done: %v", err)
 	}
-	if len(events) != 0 {
+	if model.HasSemanticStreamEvents(events) {
 		t.Fatalf("reasoning done must not duplicate content, got %+v", events)
 	}
 

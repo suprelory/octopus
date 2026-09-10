@@ -58,11 +58,29 @@ func (o *ResponseOutbound) marshalTrackedOutputItems() (json.RawMessage, bool) {
 	if len(items) == 0 {
 		return nil, false
 	}
-	data, err := json.Marshal(sanitizeResponsesItems(items))
+	data, err := marshalResponsesOutputItems(items)
 	if err != nil {
 		return nil, false
 	}
 	return data, true
+}
+
+// Native output items are opaque replay data. A typed DTO only understands a
+// subset of their fields and must never erase actions, results or approvals.
+func marshalResponsesOutputItems(items []ResponsesItem) (json.RawMessage, error) {
+	output := make([]json.RawMessage, 0, len(items))
+	for _, item := range sanitizeResponsesItems(items) {
+		if item.Type != "message" && item.Type != "function_call" && item.Type != "reasoning" && len(item.Raw) > 0 {
+			output = append(output, item.Raw)
+			continue
+		}
+		encoded, err := json.Marshal(item)
+		if err != nil {
+			return nil, err
+		}
+		output = append(output, encoded)
+	}
+	return json.Marshal(output)
 }
 
 func sanitizeResponsesInput(input ResponsesInput) ResponsesInput {

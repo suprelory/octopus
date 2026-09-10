@@ -69,8 +69,8 @@ func TestHandleStreamResponseEmptyStreamFails(t *testing.T) {
 func TestHandleStreamResponseUnconvertibleEventsOnlyFails(t *testing.T) {
 	ra, recorder := newEmptyStreamTestAttempt(t, inbound.InboundTypeOpenAIChat, transformerModel.APIFormatOpenAIChatCompletion, outbound.OutboundTypeOpenAIResponse)
 
-	// Unknown Responses event types produce zero stream events, so nothing is
-	// ever forwarded even though the stream carried data lines.
+	// Unknown native events retain their payload and produce a structured loss
+	// when the selected client protocol cannot represent them.
 	body := strings.Join([]string{
 		`data: {"type":"response.queue_position","position":1}`,
 		"",
@@ -78,8 +78,12 @@ func TestHandleStreamResponseUnconvertibleEventsOnlyFails(t *testing.T) {
 		"",
 	}, "\n")
 	err := ra.handleStreamResponseV2(context.Background(), sseTestResponse(body))
-	if !errors.Is(err, stream.ErrEmptyUpstreamStream) {
-		t.Fatalf("expected stream.ErrEmptyUpstreamStream for unconvertible-only stream, got %v", err)
+	var loss *transformerModel.StreamConversionLoss
+	if !errors.As(err, &loss) || loss.Kind != transformerModel.StreamEventKindOpaque || loss.SourceSequence != 1 {
+		t.Fatalf("expected a native conversion loss, got %v", err)
+	}
+	if ra.streamDiagnostics == nil || ra.streamDiagnostics.ConversionLoss == nil || ra.streamDiagnostics.ConversionLoss.EventType != "response.queue_position" {
+		t.Fatalf("missing conversion evidence: %+v", ra.streamDiagnostics)
 	}
 	if recorder.Body.Len() != 0 {
 		t.Fatalf("expected nothing forwarded to client, got %q", recorder.Body.String())

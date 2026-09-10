@@ -85,10 +85,12 @@
       "kind": "tool_call_delta"
     },
     "citations": {
-      "unsupported_reason": "Native Responses annotation lifecycle is covered by the provenance expansion."
+      "events": [{"data": "{\"type\":\"response.output_text.annotation.added\",\"output_index\":0,\"annotation_index\":0,\"annotation\":{\"type\":\"file_citation\",\"file_id\":\"file-1\",\"filename\":\"source.txt\",\"index\":0}}"}],
+      "kind": "citation_delta"
     },
     "audio": {
-      "unsupported_reason": "Native Responses audio lifecycle is covered by the provenance expansion."
+      "events": [{"data": "{\"type\":\"response.audio.delta\",\"output_index\":0,\"content_index\":0,\"delta\":\"AA==\"}"}],
+      "kind": "audio_delta"
     }
   },
   "invalid_json": "{broken",

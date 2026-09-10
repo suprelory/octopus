@@ -1,19 +1,29 @@
 package model
 
+import "errors"
+
 // StreamDiagnostics contains bounded evidence for one stream. BytesReceived
 // counts provider payload bytes, excluding SSE framing. It never stores content.
 type StreamDiagnostics struct {
-	LastEventType          string            `json:"last_event_type"`
-	LastCanonicalEventType StreamEventKind   `json:"last_canonical_event_type,omitempty"`
-	TerminalEventSeen      bool              `json:"terminal_event_seen"`
-	FinishReasonSeen       bool              `json:"finish_reason_seen"`
-	EventsReceived         int64             `json:"events_received"`
-	BytesReceived          int64             `json:"bytes_received"`
-	CompletionStatus       string            `json:"completion_status"`
-	FinishCause            StreamFinishCause `json:"finish_cause,omitempty"`
-	CleanEOF               bool              `json:"clean_eof"`
-	SourceTransport        string            `json:"source_transport"`
-	LastSourceSequence     int64             `json:"last_source_sequence"`
+	ConversionLoss         *StreamConversionLoss `json:"conversion_loss,omitempty"`
+	LastEventType          string                `json:"last_event_type"`
+	LastCanonicalEventType StreamEventKind       `json:"last_canonical_event_type,omitempty"`
+	TerminalEventSeen      bool                  `json:"terminal_event_seen"`
+	FinishReasonSeen       bool                  `json:"finish_reason_seen"`
+	EventsReceived         int64                 `json:"events_received"`
+	BytesReceived          int64                 `json:"bytes_received"`
+	CompletionStatus       string                `json:"completion_status"`
+	FinishCause            StreamFinishCause     `json:"finish_cause,omitempty"`
+	CleanEOF               bool                  `json:"clean_eof"`
+	SourceTransport        string                `json:"source_transport"`
+	LastSourceSequence     int64                 `json:"last_source_sequence"`
+}
+
+func (c *CanonicalStreamConverter) RecordConversionLoss(err error) {
+	var loss *StreamConversionLoss
+	if errors.As(err, &loss) {
+		c.diagnostics.ConversionLoss = loss
+	}
 }
 
 func (c *CanonicalStreamConverter) Diagnostics() StreamDiagnostics {

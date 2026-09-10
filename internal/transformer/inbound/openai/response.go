@@ -35,6 +35,7 @@ type ResponseInbound struct {
 	// closeMessageItem can rebuild the final ResponsesInput.Items array with
 	// the correct output_text / refusal sequencing.
 	messageContentOrder []string
+	messageAnnotations  map[int][]ResponsesAnnotation
 
 	// Content accumulation
 	accumulatedText      strings.Builder

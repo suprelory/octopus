@@ -309,6 +309,9 @@ func (o *ChatOutbound) TransformResponse(ctx context.Context, response *http.Res
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
+	if err := chatCitations(&resp); err != nil {
+		return nil, err
+	}
 	return &resp, nil
 }
 
@@ -323,7 +326,8 @@ func (o *ChatOutbound) TransformStream(ctx context.Context, eventData []byte) (*
 // TransformSourceEvent converts a complete provider stream envelope. Chat
 // Completions normally carries its terminal marker in Data, but some
 // compatible SSE servers put it in the event type instead.
-func (o *ChatOutbound) TransformSourceEvent(ctx context.Context, event model.SourceEvent) ([]model.StreamEvent, error) {
+func (o *ChatOutbound) TransformSourceEvent(ctx context.Context, event model.SourceEvent) (events []model.StreamEvent, err error) {
+	defer func() { events = model.WithStreamSource(events, event, model.APIFormatOpenAIChatCompletion, nil) }()
 	eventType := strings.TrimSpace(event.Type)
 	if bytes.Equal(bytes.TrimSpace(event.Data), []byte("[DONE]")) || eventType == "[DONE]" || strings.EqualFold(eventType, "done") {
 		if eventType == "" {
@@ -358,7 +362,35 @@ func (o *ChatOutbound) TransformSourceEvent(ctx context.Context, event model.Sou
 			resp.Choices[idx].FinishReason = nil
 		}
 	}
-	return model.StreamEventsFromInternalResponse(&resp), nil
+	if err := chatCitations(&resp); err != nil {
+		return nil, err
+	}
+	events = model.StreamEventsFromInternalResponse(&resp)
+	if len(events) == 0 && len(resp.Choices) == 0 && resp.Usage == nil {
+		events = append(events, model.OpaqueSourceEvent(event))
+	}
+	return events, nil
+}
+
+func chatCitations(response *model.InternalLLMResponse) error {
+	for index := range response.Choices {
+		choice := &response.Choices[index]
+		message := choice.Delta
+		if message == nil {
+			message = choice.Message
+		}
+		if message == nil {
+			continue
+		}
+		for _, raw := range message.Annotations {
+			citation, err := model.OpenAICitationFromRaw(raw, model.APIFormatOpenAIChatCompletion)
+			if err != nil {
+				return err
+			}
+			choice.Citations = append(choice.Citations, citation)
+		}
+	}
+	return nil
 }
 
 func (o *ChatOutbound) TransformStreamEvent(ctx context.Context, eventData []byte) ([]model.StreamEvent, error) {

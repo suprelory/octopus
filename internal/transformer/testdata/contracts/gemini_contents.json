@@ -95,10 +95,11 @@
           "data": "{\"candidates\":[{\"groundingMetadata\":{\"webSearchQueries\":[\"source\"],\"groundingChunks\":[{\"web\":{\"uri\":\"https://example.invalid\",\"title\":\"source\"}}]}}]}"
         }
       ],
-      "kind": "message_metadata"
+      "kind": "grounding"
     },
     "audio": {
-      "unsupported_reason": "Native Gemini audio placement is covered by the provenance expansion."
+      "events": [{"data": "{\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"audio/L16;codec=pcm;rate=24000\",\"data\":\"AA==\"}}]}}]}"}],
+      "kind": "audio_delta"
     }
   },
   "invalid_json": "{broken",

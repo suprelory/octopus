@@ -20,8 +20,8 @@ func TestResponseTransformSourceEventPrefersEnvelopeType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TransformSourceEvent: %v", err)
 	}
-	if len(events) != 1 || events[0].Kind != model.StreamEventKindMessageStart {
-		t.Fatalf("events = %+v, want only message_start", events)
+	if len(events) != 3 || events[0].Kind != model.StreamEventKindResponseStart || events[1].Kind != model.StreamEventKindMessageMetadata || events[2].Kind != model.StreamEventKindMessageStart {
+		t.Fatalf("events = %+v, want response lifecycle without text", events)
 	}
 }
 
@@ -34,9 +34,19 @@ func TestResponseTransformSourceEventAcceptsTypedLifecycleWithoutJSON(t *testing
 	if err != nil {
 		t.Fatalf("TransformSourceEvent: %v", err)
 	}
-	if len(events) != 1 || events[0].Kind != model.StreamEventKindDone {
+	if len(events) != 2 || events[0].Kind != model.StreamEventKindResponseStop || events[1].Kind != model.StreamEventKindDone {
 		t.Fatalf("events = %+v, want done", events)
 	}
+}
+
+func eventsOfKind(events []model.StreamEvent, kind model.StreamEventKind) []model.StreamEvent {
+	var found []model.StreamEvent
+	for _, event := range events {
+		if event.Kind == kind {
+			found = append(found, event)
+		}
+	}
+	return found
 }
 
 func TestChatTransformSourceEventAcceptsTypedDoneWithoutJSON(t *testing.T) {

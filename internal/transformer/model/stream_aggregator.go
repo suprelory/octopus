@@ -43,6 +43,15 @@ func (a *StreamAggregator) Response() *InternalLLMResponse {
 		if chunk.Model != "" {
 			result.Model = chunk.Model
 		}
+		if chunk.Created != 0 {
+			result.Created = chunk.Created
+		}
+		if chunk.SystemFingerprint != "" {
+			result.SystemFingerprint = chunk.SystemFingerprint
+		}
+		if chunk.ServiceTier != "" {
+			result.ServiceTier = chunk.ServiceTier
+		}
 		if chunk.Usage != nil {
 			result.Usage = chunk.Usage
 		}
@@ -90,6 +99,15 @@ func (a *StreamAggregator) BuildAndReset() *InternalLLMResponse {
 }
 
 func mergeChoiceDelta(existingChoice *Choice, choice Choice) {
+	if choice.Grounding != nil {
+		existingChoice.Grounding = choice.Grounding
+	}
+	if choice.URLContext != nil {
+		existingChoice.URLContext = choice.URLContext
+	}
+	if choice.SafetyRatings != nil {
+		existingChoice.SafetyRatings = append([]SafetyRating(nil), choice.SafetyRatings...)
+	}
 	if choice.Delta != nil {
 		delta := choice.Delta
 		if delta.Role != "" {

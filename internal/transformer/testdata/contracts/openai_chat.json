@@ -86,7 +86,8 @@
       "kind": "tool_call_delta"
     },
     "citations": {
-      "unsupported_reason": "Chat annotation fields require an explicit native provenance mapping."
+      "events": [{"data": "{\"choices\":[{\"delta\":{\"annotations\":[{\"type\":\"url_citation\",\"url_citation\":{\"start_index\":0,\"end_index\":5,\"url\":\"https://example.invalid\",\"title\":\"source\"}}]}}]}"}],
+      "kind": "citation_delta"
     },
     "audio": {
       "events": [

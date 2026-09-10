@@ -382,6 +382,7 @@ type GeminiCandidate struct {
 // Fields are populated best-effort — older models and simpler grounded
 // responses may omit the support / entry-point sub-objects.
 type GeminiGroundingMetadata struct {
+	Raw json.RawMessage `json:"-"`
 	// SearchEntryPoint carries the HTML snippet Google requires grounded
 	// UIs to display (the Search suggestion chip).
 	SearchEntryPoint *GeminiSearchEntryPoint `json:"searchEntryPoint,omitempty"`
@@ -451,11 +452,12 @@ type GeminiCitationMetadata struct {
 // GeminiCitationSource is a single inline citation: a span of the generated
 // text tied to a source URI and optional license.
 type GeminiCitationSource struct {
-	StartIndex int    `json:"startIndex,omitempty"`
-	EndIndex   int    `json:"endIndex,omitempty"`
-	URI        string `json:"uri,omitempty"`
-	Title      string `json:"title,omitempty"`
-	License    string `json:"license,omitempty"`
+	Raw        json.RawMessage `json:"-"`
+	StartIndex int             `json:"startIndex,omitempty"`
+	EndIndex   int             `json:"endIndex,omitempty"`
+	URI        string          `json:"uri,omitempty"`
+	Title      string          `json:"title,omitempty"`
+	License    string          `json:"license,omitempty"`
 }
 
 // GeminiUrlContextMetadata mirrors the urlContext tool's per-URL retrieval
@@ -513,4 +515,26 @@ type GeminiUsageMetadata struct {
 type GeminiModalityTokenCount struct {
 	Modality   string `json:"modality"`
 	TokenCount int    `json:"tokenCount"`
+}
+
+func (m *GeminiGroundingMetadata) UnmarshalJSON(data []byte) error {
+	type alias GeminiGroundingMetadata
+	var value alias
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	*m = GeminiGroundingMetadata(value)
+	m.Raw = append(json.RawMessage(nil), data...)
+	return nil
+}
+
+func (c *GeminiCitationSource) UnmarshalJSON(data []byte) error {
+	type alias GeminiCitationSource
+	var value alias
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	*c = GeminiCitationSource(value)
+	c.Raw = append(json.RawMessage(nil), data...)
+	return nil
 }

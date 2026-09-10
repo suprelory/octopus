@@ -45,6 +45,7 @@ type StreamFinalizer struct {
 	finishCause     StreamFinishCause
 	failure         error
 	openBlocks      map[streamBlockKey]StreamEvent
+	lastProvenance  *StreamProvenance
 }
 
 func NewStreamFinalizer(policies ...StreamTerminalPolicy) *StreamFinalizer {
@@ -108,6 +109,9 @@ func (f *StreamFinalizer) ProcessStreamEvents(events []StreamEvent) ([]StreamEve
 	normalized := make([]StreamEvent, 0, len(events)+3)
 	completeBatch := false
 	for _, event := range events {
+		if event.Provenance != nil {
+			f.lastProvenance = event.Provenance
+		}
 		f.seenKinds[event.Kind] = true
 		if event.Kind == StreamEventKindError {
 			f.failure = event.Error
@@ -147,6 +151,12 @@ func (f *StreamFinalizer) ProcessStreamEvents(events []StreamEvent) ([]StreamEve
 			if err != nil {
 				return nil, err
 			}
+			// The normalized done still represents this actual provider frame.
+			for index := range tail {
+				if tail[index].Kind == StreamEventKindDone {
+					tail[index].Provenance, tail[index].Synthesized = event.Provenance, event.Synthesized
+				}
+			}
 			normalized = append(normalized, tail...)
 			continue
 
@@ -159,12 +169,15 @@ func (f *StreamFinalizer) ProcessStreamEvents(events []StreamEvent) ([]StreamEve
 		case StreamEventKindTextDelta, StreamEventKindThinkingDelta, StreamEventKindSignatureDelta,
 			StreamEventKindContentBlockStart, StreamEventKindContentBlockDelta, StreamEventKindToolCallStart, StreamEventKindToolCallDelta,
 			StreamEventKindImageDelta, StreamEventKindAudioDelta, StreamEventKindOpaque,
-			StreamEventKindCitationDelta:
+			StreamEventKindCitationDelta, StreamEventKindMCPCall, StreamEventKindComputerUse, StreamEventKindServerTool:
+			if event.Importance == StreamImportanceMetadata {
+				break
+			}
 			if _, stopped := f.stopped[event.Index]; stopped {
 				return nil, fmt.Errorf("%w: event %q arrived after choice %d stopped", ErrStreamAlreadyFinalized, event.Kind, event.Index)
 			}
 			if !f.started[event.Index] {
-				start := StreamEvent{Kind: StreamEventKindMessageStart, ID: event.ID, Model: event.Model, Index: event.Index, Role: "assistant"}
+				start := f.synthesized(StreamEvent{Kind: StreamEventKindMessageStart, ID: event.ID, Model: event.Model, Index: event.Index, Role: "assistant"})
 				normalized = append(normalized, start)
 				f.addToAggregate(start)
 				f.started[event.Index] = true
@@ -185,7 +198,7 @@ func (f *StreamFinalizer) ProcessStreamEvents(events []StreamEvent) ([]StreamEve
 
 		case StreamEventKindMessageStop:
 			if !f.started[event.Index] {
-				start := StreamEvent{Kind: StreamEventKindMessageStart, ID: event.ID, Model: event.Model, Index: event.Index, Role: "assistant"}
+				start := f.synthesized(StreamEvent{Kind: StreamEventKindMessageStart, ID: event.ID, Model: event.Model, Index: event.Index, Role: "assistant"})
 				normalized = append(normalized, start)
 				f.addToAggregate(start)
 				f.started[event.Index] = true
@@ -209,7 +222,8 @@ func (f *StreamFinalizer) ProcessStreamEvents(events []StreamEvent) ([]StreamEve
 			f.lastStopSeq = f.sequence
 			f.closeChoiceBlocks(event.Index, &normalized)
 
-		case StreamEventKindMessageMetadata:
+		case StreamEventKindMessageMetadata, StreamEventKindResponseStart, StreamEventKindResponseStop,
+			StreamEventKindOutputItemStart, StreamEventKindOutputItemStop, StreamEventKindGrounding:
 			// Metadata does not start or complete a choice.
 		case StreamEventKindContentBlockStop, StreamEventKindToolCallStop:
 			if !f.normalizeBlock(event, &normalized) {
@@ -312,7 +326,7 @@ func (f *StreamFinalizer) terminalEvents(includeDone bool) ([]StreamEvent, error
 		if usage == nil {
 			usage = &Usage{}
 		}
-		usageEvent := StreamEvent{Kind: StreamEventKindUsageDelta, ID: f.lastID, Model: f.lastModel, Usage: usage}
+		usageEvent := f.synthesized(StreamEvent{Kind: StreamEventKindUsageDelta, ID: f.lastID, Model: f.lastModel, Usage: usage})
 		tail = append(tail, usageEvent)
 		f.sequence++
 		f.lastUsageSeq = f.sequence
@@ -320,7 +334,7 @@ func (f *StreamFinalizer) terminalEvents(includeDone bool) ([]StreamEvent, error
 		f.addToAggregate(usageEvent)
 	}
 	if includeDone {
-		done := StreamEvent{Kind: StreamEventKindDone, ID: f.lastID, Model: f.lastModel}
+		done := f.synthesized(StreamEvent{Kind: StreamEventKindDone, ID: f.lastID, Model: f.lastModel})
 		tail = append(tail, done)
 		f.done = true
 	}
@@ -363,7 +377,7 @@ func (f *StreamFinalizer) synthesizeMissingStops(events *[]StreamEvent) {
 		if f.toolCallChoices[index] {
 			reason = FinishReasonToolCalls
 		}
-		stop := StreamEvent{Kind: StreamEventKindMessageStop, ID: f.lastID, Model: f.lastModel, Index: index, StopReason: reason}
+		stop := f.synthesized(StreamEvent{Kind: StreamEventKindMessageStop, ID: f.lastID, Model: f.lastModel, Index: index, StopReason: reason})
 		*events = append(*events, stop)
 		f.seenKinds[StreamEventKindMessageStop] = true
 		f.sequence++

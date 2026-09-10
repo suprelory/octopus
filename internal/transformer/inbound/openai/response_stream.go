@@ -14,6 +14,9 @@ func (i *ResponseInbound) TransformStream(ctx context.Context, stream *model.Int
 }
 
 func (i *ResponseInbound) TransformStreamEvents(ctx context.Context, events []model.StreamEvent) ([]byte, error) {
+	if err := model.ValidateNativeStreamEncoding(events, model.APIFormatOpenAIResponse); err != nil {
+		return nil, err
+	}
 	if len(events) == 0 {
 		return nil, nil
 	}
@@ -68,6 +71,24 @@ func (i *ResponseInbound) TransformStreamEvents(ctx context.Context, events []mo
 			} else if event.Delta.Text != "" {
 				out = append(out, i.handleTextContent(&event.Delta.Text)...)
 			}
+
+		case model.StreamEventKindCitationDelta:
+			if event.Delta == nil || event.Delta.Citation == nil {
+				continue
+			}
+			raw, err := model.OpenAICitationForWire(*event.Delta.Citation, model.APIFormatOpenAIResponse)
+			if err != nil {
+				return nil, model.NewStreamConversionLoss(event, model.APIFormatOpenAIResponse, err.Error())
+			}
+			if !i.hasContentPartStarted {
+				out = append(out, i.handleTextContent(lo.ToPtr(""))...)
+			}
+			if i.messageAnnotations == nil {
+				i.messageAnnotations = make(map[int][]ResponsesAnnotation)
+			}
+			index := len(i.messageAnnotations[i.contentIndex])
+			i.messageAnnotations[i.contentIndex] = append(i.messageAnnotations[i.contentIndex], ResponsesAnnotation{Raw: raw})
+			out = append(out, i.enqueueEvent(&ResponsesStreamEvent{Type: "response.output_text.annotation.added", ItemID: &i.currentItemID, OutputIndex: &i.outputIndex, ContentIndex: &i.contentIndex, AnnotationIndex: &index, Annotation: raw}))
 
 		case model.StreamEventKindThinkingDelta:
 			if event.Delta != nil {
@@ -181,6 +202,25 @@ func (i *ResponseInbound) TransformStreamEvents(ctx context.Context, events []mo
 		}
 	}
 	return result, nil
+}
+
+func (a ResponsesAnnotation) MarshalJSON() ([]byte, error) {
+	if len(a.Raw) > 0 {
+		return json.Marshal(a.Raw)
+	}
+	type wireAnnotation ResponsesAnnotation
+	return json.Marshal(wireAnnotation(a))
+}
+
+func (a *ResponsesAnnotation) UnmarshalJSON(data []byte) error {
+	type wireAnnotation ResponsesAnnotation
+	var annotation wireAnnotation
+	if err := json.Unmarshal(data, &annotation); err != nil {
+		return err
+	}
+	*a = ResponsesAnnotation(annotation)
+	a.Raw = append(json.RawMessage(nil), data...)
+	return nil
 }
 
 func (i *ResponseInbound) enqueueEvent(ev *ResponsesStreamEvent) []byte {

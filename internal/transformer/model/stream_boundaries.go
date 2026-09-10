@@ -42,6 +42,7 @@ func (f *StreamFinalizer) normalizeBlock(event StreamEvent, events *[]StreamEven
 		if !open && event.ToolCall != nil {
 			start := event
 			start.Kind, start.Delta = StreamEventKindToolCallStart, nil
+			start = f.synthesized(start)
 			tool := *event.ToolCall
 			tool.Function.Arguments = ""
 			start.ToolCall = &tool
@@ -55,7 +56,7 @@ func (f *StreamFinalizer) normalizeBlock(event StreamEvent, events *[]StreamEven
 			if event.Kind == StreamEventKindThinkingDelta || event.Kind == StreamEventKindSignatureDelta {
 				blockType = "thinking"
 			}
-			start := StreamEvent{Kind: StreamEventKindContentBlockStart, ID: event.ID, Model: event.Model, Index: event.Index, BlockIndex: event.BlockIndex, ContentBlock: &StreamContentBlock{Type: blockType}}
+			start := f.synthesized(StreamEvent{Kind: StreamEventKindContentBlockStart, ID: event.ID, Model: event.Model, Index: event.Index, BlockIndex: event.BlockIndex, ContentBlock: &StreamContentBlock{Type: blockType}})
 			f.openBlocks[key] = start
 			*events = append(*events, start)
 			f.addToAggregate(start)
@@ -85,6 +86,7 @@ func (f *StreamFinalizer) closeChoiceBlocks(choice int, events *[]StreamEvent) {
 		}
 		stop.ContentBlock, stop.Delta = nil, nil
 		stop.Terminal, stop.TerminalEvent = false, ""
+		stop = f.synthesized(stop)
 		*events = append(*events, stop)
 		f.addToAggregate(stop)
 		delete(f.openBlocks, key)
@@ -97,7 +99,7 @@ func duplicateTerminalBatch(events []StreamEvent) bool {
 		switch event.Kind {
 		case StreamEventKindDone:
 			terminal = true
-		case StreamEventKindMessageStart, StreamEventKindMessageStop, StreamEventKindUsageDelta, StreamEventKindMessageMetadata:
+		case StreamEventKindMessageStart, StreamEventKindMessageStop, StreamEventKindUsageDelta, StreamEventKindMessageMetadata, StreamEventKindResponseStop:
 			terminal = terminal || event.Terminal
 		default:
 			return false

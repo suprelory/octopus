@@ -7,7 +7,8 @@ import (
 
 // Message represents a message in the conversation.
 type Message struct {
-	Role string `json:"role,omitempty"`
+	Annotations []json.RawMessage `json:"annotations,omitempty"`
+	Role        string            `json:"role,omitempty"`
 	// Content of the message.
 	// string or []ContentPart, be careful about the omitzero tag, it required.
 	// Some framework may depended on the behavior, we should not response the field if not present.

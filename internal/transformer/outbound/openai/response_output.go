@@ -1,7 +1,6 @@
 package openai
 
 import (
-	"encoding/json"
 	"strings"
 
 	"github.com/bestruirui/octopus/internal/transformer/model"
@@ -22,7 +21,7 @@ func convertToLLMResponseFromResponses(resp *ResponsesResponse) *model.InternalL
 		Created: resp.CreatedAt,
 	}
 	if len(resp.Output) > 0 {
-		if rawOutput, err := json.Marshal(sanitizeResponsesItems(resp.Output)); err == nil {
+		if rawOutput, err := marshalResponsesOutputItems(resp.Output); err == nil {
 			result.RawResponsesOutputItems = rawOutput
 		}
 	}

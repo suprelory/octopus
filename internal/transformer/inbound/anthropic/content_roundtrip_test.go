@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -475,7 +476,7 @@ func TestAnthropicServerUseVariantsRoundTrip(t *testing.T) {
 	}
 }
 
-func TestAnthropicNativeStreamProjectsToOtherProtocols(t *testing.T) {
+func TestAnthropicNativeStreamReportsLossToOtherProtocols(t *testing.T) {
 	ctx := context.Background()
 	tests := []struct {
 		name   string
@@ -490,6 +491,7 @@ func TestAnthropicNativeStreamProjectsToOtherProtocols(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			provider := &outbound.MessageOutbound{}
 			var output []byte
+			sawLoss := false
 			for _, raw := range append(nativeStream(), "[DONE]") {
 				events, err := provider.TransformStreamEvent(ctx, []byte(raw))
 				if err != nil {
@@ -497,11 +499,19 @@ func TestAnthropicNativeStreamProjectsToOtherProtocols(t *testing.T) {
 				}
 				data, err := test.client.TransformStreamEvents(ctx, events)
 				if err != nil {
+					var loss *model.StreamConversionLoss
+					if errors.As(err, &loss) && loss.SourceFormat == model.APIFormatAnthropicMessage && len(data) == 0 {
+						sawLoss = true
+						continue
+					}
 					t.Fatal(err)
 				}
 				output = append(output, data...)
 			}
 			var text strings.Builder
+			if !sawLoss {
+				t.Fatal("native semantics were silently dropped")
+			}
 			for _, line := range strings.Split(string(output), "\n") {
 				if !strings.HasPrefix(line, "data:") {
 					continue

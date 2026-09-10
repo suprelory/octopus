@@ -29,10 +29,25 @@ const (
 	StreamEventKindAudioDelta        StreamEventKind = "audio_delta"
 	StreamEventKindOpaque            StreamEventKind = "opaque"
 	StreamEventKindCitationDelta     StreamEventKind = "citation_delta"
+	StreamEventKindResponseStart     StreamEventKind = "response_start"
+	StreamEventKindResponseStop      StreamEventKind = "response_stop"
+	StreamEventKindOutputItemStart   StreamEventKind = "output_item_start"
+	StreamEventKindOutputItemStop    StreamEventKind = "output_item_stop"
+	StreamEventKindMCPCall           StreamEventKind = "mcp_call"
+	StreamEventKindComputerUse       StreamEventKind = "computer_use"
+	StreamEventKindServerTool        StreamEventKind = "server_tool"
+	StreamEventKindGrounding         StreamEventKind = "grounding"
 )
 
 type StreamEvent struct {
-	Kind StreamEventKind `json:"kind"`
+	Kind       StreamEventKind   `json:"kind"`
+	Provenance *StreamProvenance `json:"provenance,omitempty"`
+	Importance StreamImportance  `json:"importance,omitempty"`
+	// Synthesized boundaries retain their triggering source, but are not a
+	// second copy of that provider frame when replaying a canonical stream.
+	Synthesized bool               `json:"synthesized,omitempty"`
+	Native      *StreamNativeEvent `json:"native,omitempty"`
+	Grounding   *GroundingInfo     `json:"grounding,omitempty"`
 	// Terminal marks an event that came from an explicit provider terminal
 	// envelope. TerminalEvent retains the provider event name for diagnostics.
 	Terminal      bool   `json:"terminal,omitempty"`
@@ -95,6 +110,9 @@ type StreamContentBlock struct {
 // accounting-only events deliberately remain precommit-buffered.
 func HasSemanticStreamEvents(events []StreamEvent) bool {
 	for _, event := range events {
+		if event.Importance == StreamImportanceSemantic {
+			return true
+		}
 		switch event.Kind {
 		case StreamEventKindTextDelta:
 			if event.Delta != nil && (event.Delta.Text != "" || event.Delta.Refusal != "") {
@@ -342,7 +360,7 @@ func InternalResponseFromStreamEvents(events []StreamEvent) *InternalLLMResponse
 				continue
 			}
 		}
-		if event.Kind == StreamEventKindOpaque || ((event.Kind == StreamEventKindImageDelta || event.Kind == StreamEventKindAudioDelta) && (event.Media == nil || event.Media.Placement == "")) {
+		if event.IsNativeStreamEvent() || event.Kind == StreamEventKindOpaque || ((event.Kind == StreamEventKindImageDelta || event.Kind == StreamEventKindAudioDelta) && (event.Media == nil || event.Media.Placement == "")) {
 			response.NonChatStreamEvents = append(response.NonChatStreamEvents, cloneNonChatStreamEvent(event))
 			continue
 		}
@@ -522,6 +540,16 @@ func InternalResponseFromStreamEvents(events []StreamEvent) *InternalLLMResponse
 
 func cloneNonChatStreamEvent(event StreamEvent) StreamEvent {
 	cloned := event
+	if event.Provenance != nil {
+		provenance := *event.Provenance
+		provenance.RawPayload = bytes.Clone(provenance.RawPayload)
+		cloned.Provenance = &provenance
+	}
+	if event.Native != nil {
+		native := *event.Native
+		native.Payload = cloneRawMessage(native.Payload)
+		cloned.Native = &native
+	}
 	if event.Media != nil {
 		media := *event.Media
 		cloned.Media = &media

@@ -15,7 +15,11 @@ import (
 
 // TransformSourceEvent converts an Anthropic provider envelope while keeping
 // the SSE event type authoritative over any payload field with the same name.
-func (o *MessageOutbound) TransformSourceEvent(ctx context.Context, event model.SourceEvent) ([]model.StreamEvent, error) {
+func (o *MessageOutbound) TransformSourceEvent(ctx context.Context, event model.SourceEvent) (events []model.StreamEvent, err error) {
+	var providerType string
+	defer func() {
+		events = model.WithStreamSource(events, event, model.APIFormatAnthropicMessage, nil, providerType)
+	}()
 	eventType := strings.TrimSpace(event.Type)
 	eventData := event.Data
 	if len(eventData) == 0 && eventType == "" {
@@ -53,8 +57,9 @@ func (o *MessageOutbound) TransformSourceEvent(ctx context.Context, event model.
 	if eventType != "" {
 		streamEvent.Type = eventType
 	}
+	providerType = streamEvent.Type
 
-	events := make([]model.StreamEvent, 0, 2)
+	events = make([]model.StreamEvent, 0, 2)
 	appendUsage := func(usage *model.Usage) {
 		if usage != nil {
 			events = append(events, model.StreamEvent{Kind: model.StreamEventKindUsageDelta, ID: o.streamID, Model: o.streamModel, Usage: usage})
@@ -113,14 +118,16 @@ func (o *MessageOutbound) TransformSourceEvent(ctx context.Context, event model.
 				use := compat.AnthropicServerToolUseToModel(*streamEvent.ContentBlock)
 				o.serverToolUses[blockIndex] = use
 				events = append(events, model.StreamEvent{Kind: model.StreamEventKindContentBlockStart, ID: o.streamID, Model: o.streamModel, BlockIndex: &blockIndex, ContentBlock: &model.StreamContentBlock{Type: use.BlockType, ID: use.ID, Name: use.Name, Input: use.Input, ServerToolUse: use}})
+				events = append(events, anthropicNativeTool(use.BlockType, "start", use.ID, use.Name, use.ServerName, blockIndex, use.Input))
 				break
 			}
 			if anthropicModel.IsServerToolResult(streamEvent.ContentBlock.Type) {
 				result := compat.AnthropicServerToolResultToModel(*streamEvent.ContentBlock)
 				events = append(events, model.StreamEvent{Kind: model.StreamEventKindContentBlockStart, ID: o.streamID, Model: o.streamModel, Index: 0, BlockIndex: &blockIndex, ContentBlock: &model.StreamContentBlock{Type: streamEvent.ContentBlock.Type, ToolUseID: result.ToolUseID, IsError: result.IsError, ServerToolResult: result}})
+				events = append(events, anthropicNativeTool(result.BlockType, "stop", result.ToolUseID, "", "", blockIndex, result.Content))
 				break
 			}
-			return nil, nil
+			return []model.StreamEvent{model.OpaqueSourceEvent(event)}, nil
 		}
 
 	case "content_block_delta":
@@ -141,6 +148,9 @@ func (o *MessageOutbound) TransformSourceEvent(ctx context.Context, event model.
 				metadata := *use
 				metadata.Input = nil
 				events = append(events, model.StreamEvent{Kind: model.StreamEventKindContentBlockDelta, ID: o.streamID, Model: o.streamModel, BlockIndex: &blockIndex, ContentBlock: &model.StreamContentBlock{Type: use.BlockType, ServerToolUse: &metadata}, Delta: &model.StreamDelta{Arguments: *streamEvent.Delta.PartialJSON}})
+				native := anthropicNativeTool(use.BlockType, "delta", use.ID, use.Name, use.ServerName, blockIndex, nil)
+				native.Native.Arguments = *streamEvent.Delta.PartialJSON
+				events = append(events, native)
 			} else if toolIndex, ok := o.blockToolCalls[blockIndex]; ok {
 				toolCall := model.ToolCall{Index: toolIndex, Type: "function", Function: model.FunctionCall{Arguments: *streamEvent.Delta.PartialJSON}}
 				if existing := o.toolCalls[toolIndex]; existing != nil {
@@ -169,7 +179,7 @@ func (o *MessageOutbound) TransformSourceEvent(ctx context.Context, event model.
 				events = append(events, model.StreamEvent{Kind: model.StreamEventKindCitationDelta, ID: o.streamID, Model: o.streamModel, Index: 0, BlockIndex: lo.ToPtr(int(lo.FromPtr(streamEvent.Index))), Delta: &model.StreamDelta{Citation: &citation}})
 			}
 		default:
-			return nil, nil
+			return []model.StreamEvent{model.OpaqueSourceEvent(event)}, nil
 		}
 
 	case "message_delta":
@@ -227,11 +237,14 @@ func (o *MessageOutbound) TransformSourceEvent(ctx context.Context, event model.
 			stop.ToolCall = &model.ToolCall{Index: toolIndex}
 		}
 		events = append(events, stop)
+		if use := o.serverToolUses[blockIndex]; use != nil {
+			events = append(events, anthropicNativeTool(use.BlockType, "stop", use.ID, use.Name, use.ServerName, blockIndex, nil))
+		}
 		delete(o.serverToolUses, int(lo.FromPtr(streamEvent.Index)))
 		delete(o.blockToolCalls, int(lo.FromPtr(streamEvent.Index)))
 
 	case "ping":
-		return nil, nil
+		return []model.StreamEvent{{Kind: model.StreamEventKindMessageMetadata, Importance: model.StreamImportanceMetadata}}, nil
 
 	case "error":
 		if streamEvent.Error == nil {
@@ -240,13 +253,21 @@ func (o *MessageOutbound) TransformSourceEvent(ctx context.Context, event model.
 		events = append(events, model.StreamEvent{Kind: model.StreamEventKindError, ID: o.streamID, Model: o.streamModel, Error: &model.ResponseError{StatusCode: mapAnthropicErrorTypeToStatus(streamEvent.Error.Type), Detail: model.ErrorDetail{Type: streamEvent.Error.Type, Message: streamEvent.Error.Message}}})
 
 	default:
-		return nil, nil
+		return []model.StreamEvent{model.OpaqueSourceEvent(event)}, nil
 	}
 
 	if len(events) == 0 {
 		return nil, nil
 	}
 	return events, nil
+}
+
+func anthropicNativeTool(kind, phase, id, name, server string, index int, payload json.RawMessage) model.StreamEvent {
+	eventKind := model.StreamEventKindServerTool
+	if strings.HasPrefix(kind, "mcp_") {
+		eventKind = model.StreamEventKindMCPCall
+	}
+	return model.StreamEvent{Kind: eventKind, BlockIndex: &index, Native: &model.StreamNativeEvent{Type: kind, Phase: phase, ID: id, Name: name, ServerLabel: server, Payload: payload}}
 }
 
 // TransformStreamEvent retains the byte-only compatibility contract.

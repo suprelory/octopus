@@ -22,6 +22,7 @@ func TestTransformStreamEventFunctionCallAtNonZeroOutputIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("output_item.added: %v", err)
 	}
+	events = eventsOfKind(events, model.StreamEventKindToolCallStart)
 	if len(events) != 1 || events[0].Kind != model.StreamEventKindToolCallStart {
 		t.Fatalf("expected single tool_call_start event, got %+v", events)
 	}
@@ -55,6 +56,7 @@ func TestTransformStreamEventFunctionCallAtNonZeroOutputIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second output_item.added: %v", err)
 	}
+	events = eventsOfKind(events, model.StreamEventKindToolCallStart)
 	if len(events) != 1 || events[0].ToolCall == nil || events[0].ToolCall.Index != 1 {
 		t.Fatalf("second function call must get dense tool index 1, got %+v", events)
 	}

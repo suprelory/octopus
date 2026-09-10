@@ -71,15 +71,17 @@ func (i *ResponsesInput) UnmarshalJSON(data []byte) error {
 }
 
 type ResponsesItem struct {
-	ID       string          `json:"id,omitempty"`
-	Type     string          `json:"type,omitempty"`
-	Role     string          `json:"role,omitempty"`
-	Content  *ResponsesInput `json:"content,omitempty"`
-	Status   *string         `json:"status,omitempty"`
-	Text     *string         `json:"text,omitempty"`
-	Refusal  *string         `json:"refusal,omitempty"`
-	ImageURL *string         `json:"image_url,omitempty"`
-	Detail   *string         `json:"detail,omitempty"`
+	Raw         json.RawMessage `json:"-"`
+	ServerLabel string          `json:"server_label,omitempty"`
+	ID          string          `json:"id,omitempty"`
+	Type        string          `json:"type,omitempty"`
+	Role        string          `json:"role,omitempty"`
+	Content     *ResponsesInput `json:"content,omitempty"`
+	Status      *string         `json:"status,omitempty"`
+	Text        *string         `json:"text,omitempty"`
+	Refusal     *string         `json:"refusal,omitempty"`
+	ImageURL    *string         `json:"image_url,omitempty"`
+	Detail      *string         `json:"detail,omitempty"`
 
 	// Annotations for output_text content
 	Annotations []ResponsesAnnotation `json:"annotations,omitempty"`
@@ -111,6 +113,17 @@ type ResponsesItem struct {
 	FileData   *string              `json:"file_data,omitempty"`
 	FileURL    *string              `json:"file_url,omitempty"`
 	InputAudio *ResponsesInputAudio `json:"input_audio,omitempty"`
+}
+
+func (i *ResponsesItem) UnmarshalJSON(data []byte) error {
+	type wireItem ResponsesItem
+	var item wireItem
+	if err := json.Unmarshal(data, &item); err != nil {
+		return err
+	}
+	*i = ResponsesItem(item)
+	i.Raw = append(json.RawMessage(nil), data...)
+	return nil
 }
 
 // ResponsesInputAudio mirrors OpenAI's nested `input_audio` object for audio
@@ -208,14 +221,16 @@ type ResponsesReasoning struct {
 
 // ResponsesResponse represents the OpenAI Responses API response format.
 type ResponsesResponse struct {
-	Object    string          `json:"object"`
-	ID        string          `json:"id"`
-	Model     string          `json:"model"`
-	CreatedAt int64           `json:"created_at"`
-	Output    []ResponsesItem `json:"output"`
-	Status    *string         `json:"status,omitempty"`
-	Usage     *ResponsesUsage `json:"usage,omitempty"`
-	Error     *ResponsesError `json:"error,omitempty"`
+	ServiceTier string          `json:"service_tier,omitempty"`
+	Metadata    json.RawMessage `json:"metadata,omitempty"`
+	Object      string          `json:"object"`
+	ID          string          `json:"id"`
+	Model       string          `json:"model"`
+	CreatedAt   int64           `json:"created_at"`
+	Output      []ResponsesItem `json:"output"`
+	Status      *string         `json:"status,omitempty"`
+	Usage       *ResponsesUsage `json:"usage,omitempty"`
+	Error       *ResponsesError `json:"error,omitempty"`
 }
 
 type ResponsesUsage struct {
@@ -237,21 +252,25 @@ type ResponsesError struct {
 }
 
 type ResponsesStreamEvent struct {
-	Type           string             `json:"type"`
-	SequenceNumber int                `json:"sequence_number"`
-	Response       *ResponsesResponse `json:"response,omitempty"`
-	OutputIndex    int                `json:"output_index"`
-	Item           *ResponsesItem     `json:"item,omitempty"`
-	ItemID         *string            `json:"item_id,omitempty"`
-	ContentIndex   *int               `json:"content_index,omitempty"`
-	Delta          string             `json:"delta,omitempty"`
-	Text           string             `json:"text,omitempty"`
-	Name           string             `json:"name,omitempty"`
-	Namespace      string             `json:"namespace,omitempty"`
-	CallID         string             `json:"call_id,omitempty"`
-	Arguments      string             `json:"arguments,omitempty"`
-	SummaryIndex   *int               `json:"summary_index,omitempty"`
-	Code           any                `json:"code,omitempty"`
-	Message        string             `json:"message,omitempty"`
-	Error          *ResponsesError    `json:"error,omitempty"`
+	Annotation      json.RawMessage    `json:"annotation,omitempty"`
+	AnnotationIndex *int               `json:"annotation_index,omitempty"`
+	Part            json.RawMessage    `json:"part,omitempty"`
+	Format          string             `json:"format,omitempty"`
+	Type            string             `json:"type"`
+	SequenceNumber  *int64             `json:"sequence_number,omitempty"`
+	Response        *ResponsesResponse `json:"response,omitempty"`
+	OutputIndex     int                `json:"output_index"`
+	Item            *ResponsesItem     `json:"item,omitempty"`
+	ItemID          *string            `json:"item_id,omitempty"`
+	ContentIndex    *int               `json:"content_index,omitempty"`
+	Delta           string             `json:"delta,omitempty"`
+	Text            string             `json:"text,omitempty"`
+	Name            string             `json:"name,omitempty"`
+	Namespace       string             `json:"namespace,omitempty"`
+	CallID          string             `json:"call_id,omitempty"`
+	Arguments       string             `json:"arguments,omitempty"`
+	SummaryIndex    *int               `json:"summary_index,omitempty"`
+	Code            any                `json:"code,omitempty"`
+	Message         string             `json:"message,omitempty"`
+	Error           *ResponsesError    `json:"error,omitempty"`
 }

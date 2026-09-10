@@ -124,7 +124,12 @@ func (o *ResponseOutbound) handleFunctionCallArgumentsDone(base model.StreamEven
 // TransformSourceEvent converts a complete OpenAI Responses event. The
 // envelope type wins over a payload type so split SSE framing cannot make the
 // adapter process the wrong lifecycle event.
-func (o *ResponseOutbound) TransformSourceEvent(ctx context.Context, event model.SourceEvent) ([]model.StreamEvent, error) {
+func (o *ResponseOutbound) TransformSourceEvent(ctx context.Context, event model.SourceEvent) (events []model.StreamEvent, err error) {
+	var providerSequence *int64
+	var providerType string
+	defer func() {
+		events = model.WithStreamSource(events, event, model.APIFormatOpenAIResponse, providerSequence, providerType)
+	}()
 	eventData := event.Data
 	eventType := strings.TrimSpace(event.Type)
 	if len(eventData) == 0 && eventType == "" {
@@ -160,6 +165,8 @@ func (o *ResponseOutbound) TransformSourceEvent(ctx context.Context, event model
 	if eventType != "" {
 		streamEvent.Type = eventType
 	}
+	providerType = streamEvent.Type
+	providerSequence = streamEvent.SequenceNumber
 
 	if streamEvent.Response != nil {
 		if streamEvent.Response.ID != "" {
@@ -170,8 +177,8 @@ func (o *ResponseOutbound) TransformSourceEvent(ctx context.Context, event model
 		}
 	}
 
-	var events []model.StreamEvent
 	base := model.StreamEvent{ID: o.streamID, Model: o.streamModel, Index: 0}
+	events = append(events, o.responsesNativeEvents(streamEvent, base)...)
 
 	switch streamEvent.Type {
 	case "response.created", "response.in_progress":
@@ -239,7 +246,7 @@ func (o *ResponseOutbound) TransformSourceEvent(ctx context.Context, event model
 
 	case "response.reasoning_text.done":
 		o.mergeReasoningTextDone(streamEvent)
-		return nil, nil
+		events = append(events, responseProgressEvent(streamEvent, base))
 
 	case "response.refusal.delta":
 		if streamEvent.Delta != "" {
@@ -247,12 +254,27 @@ func (o *ResponseOutbound) TransformSourceEvent(ctx context.Context, event model
 		}
 
 	case "response.refusal.done":
-		return nil, nil
+		events = append(events, responseProgressEvent(streamEvent, base))
+
+	case "response.output_text.annotation.added":
+		citation, parseErr := model.OpenAICitationFromRaw(streamEvent.Annotation, model.APIFormatOpenAIResponse)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		citation.AnnotationIndex = streamEvent.AnnotationIndex
+		events = append(events, model.StreamEvent{Kind: model.StreamEventKindCitationDelta, ID: base.ID, Model: base.Model, BlockIndex: streamEvent.ContentIndex, Delta: &model.StreamDelta{Citation: &citation}})
+
+	case "response.audio.delta", "response.output_audio.delta":
+		events = append(events, model.StreamEvent{Kind: model.StreamEventKindAudioDelta, ID: base.ID, Model: base.Model, BlockIndex: streamEvent.ContentIndex, Media: &model.StreamMedia{MediaType: "audio", Format: streamEvent.Format, Data: streamEvent.Delta}})
+	case "response.audio_transcript.delta", "response.output_audio_transcript.delta":
+		events = append(events, model.StreamEvent{Kind: model.StreamEventKindAudioDelta, ID: base.ID, Model: base.Model, BlockIndex: streamEvent.ContentIndex, Media: &model.StreamMedia{MediaType: "audio", Transcript: streamEvent.Delta}})
+	case "response.content_part.added", "response.content_part.done", "response.output_text.done", "response.reasoning_summary_part.added", "response.reasoning_summary_part.done", "response.reasoning_summary_text.done", "response.reasoning.delta", "response.reasoning.done", "response.audio.done", "response.output_audio.done", "response.audio_transcript.done", "response.output_audio_transcript.done":
+		events = append(events, responseProgressEvent(streamEvent, base))
 
 	case "response.completed", "response.done":
 		if streamEvent.Response != nil {
 			if len(streamEvent.Response.Output) > 0 {
-				if rawOutput, marshalErr := json.Marshal(sanitizeResponsesItems(streamEvent.Response.Output)); marshalErr == nil {
+				if rawOutput, marshalErr := marshalResponsesOutputItems(streamEvent.Response.Output); marshalErr == nil {
 					base.ProviderExtensions = &model.ProviderExtensions{OpenAI: &model.OpenAIExtension{RawResponseItems: rawOutput}}
 				}
 			} else if rawOutput, ok := o.marshalTrackedOutputItems(); ok {
@@ -323,7 +345,9 @@ func (o *ResponseOutbound) TransformSourceEvent(ctx context.Context, event model
 		}
 
 	default:
-		return nil, nil
+		if len(events) == 0 {
+			events = append(events, model.OpaqueSourceEvent(event))
+		}
 	}
 
 	return events, nil

@@ -139,6 +139,8 @@ type Choice struct {
 // callers should treat missing fields as "not surfaced by this provider"
 // rather than "empty".
 type GroundingInfo struct {
+	Provider string          `json:"provider,omitempty"`
+	Raw      json.RawMessage `json:"raw,omitempty"`
 	// SearchQueries holds the queries the provider actually issued. Gemini
 	// surfaces this in groundingMetadata.webSearchQueries.
 	SearchQueries []string `json:"search_queries,omitempty"`
@@ -191,7 +193,12 @@ type GroundingSupport struct {
 // byte offsets into the generated text. License is optional (Gemini
 // sometimes surfaces the license associated with the cited source).
 type Citation struct {
-	Provider string `json:"provider,omitempty"`
+	Format          APIFormat `json:"format,omitempty"`
+	AnnotationIndex *int      `json:"annotation_index,omitempty"`
+	FileID          string    `json:"file_id,omitempty"`
+	Filename        string    `json:"filename,omitempty"`
+	ContainerID     string    `json:"container_id,omitempty"`
+	Provider        string    `json:"provider,omitempty"`
 	// Raw preserves native location fields, including zero/null and future
 	// citation variants. Only the originating provider may replay it.
 	Raw json.RawMessage `json:"raw,omitempty"`

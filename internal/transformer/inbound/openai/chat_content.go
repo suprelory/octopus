@@ -18,6 +18,26 @@ func chatResponseForWire(response *model.InternalLLMResponse) *model.InternalLLM
 	for index := range wire.Choices {
 		wire.Choices[index].Message = chatMessageForWire(wire.Choices[index].Message)
 		wire.Choices[index].Delta = chatMessageForWire(wire.Choices[index].Delta)
+		if len(wire.Choices[index].Citations) > 0 {
+			message := wire.Choices[index].Delta
+			if message == nil {
+				message = wire.Choices[index].Message
+			}
+			if message != nil {
+				cloned := *message
+				cloned.Annotations = nil
+				for _, citation := range wire.Choices[index].Citations {
+					if raw, err := model.OpenAICitationForWire(citation, model.APIFormatOpenAIChatCompletion); err == nil {
+						cloned.Annotations = append(cloned.Annotations, raw)
+					}
+				}
+				if wire.Choices[index].Delta != nil {
+					wire.Choices[index].Delta = &cloned
+				} else {
+					wire.Choices[index].Message = &cloned
+				}
+			}
+		}
 	}
 	return &wire
 }

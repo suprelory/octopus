@@ -12,6 +12,9 @@ import (
 )
 
 func (i *MessagesInbound) TransformStreamEvents(ctx context.Context, events []model.StreamEvent) ([]byte, error) {
+	if err := model.ValidateNativeStreamEncoding(events, model.APIFormatAnthropicMessage); err != nil {
+		return nil, err
+	}
 	if len(events) == 0 {
 		return nil, nil
 	}

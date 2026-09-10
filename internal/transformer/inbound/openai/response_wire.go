@@ -166,13 +166,14 @@ type ResponsesReasoningSummary struct {
 }
 
 type ResponsesAnnotation struct {
-	Type       string  `json:"type"`
-	StartIndex *int    `json:"start_index,omitempty"`
-	EndIndex   *int    `json:"end_index,omitempty"`
-	URL        *string `json:"url,omitempty"`
-	Title      *string `json:"title,omitempty"`
-	FileID     *string `json:"file_id,omitempty"`
-	Filename   *string `json:"filename,omitempty"`
+	Raw        json.RawMessage `json:"-"`
+	Type       string          `json:"type"`
+	StartIndex *int            `json:"start_index,omitempty"`
+	EndIndex   *int            `json:"end_index,omitempty"`
+	URL        *string         `json:"url,omitempty"`
+	Title      *string         `json:"title,omitempty"`
+	FileID     *string         `json:"file_id,omitempty"`
+	Filename   *string         `json:"filename,omitempty"`
 }
 
 type ResponsesTool struct {
@@ -261,21 +262,23 @@ type ResponsesError struct {
 }
 
 type ResponsesStreamEvent struct {
-	Type           string                `json:"type"`
-	SequenceNumber int                   `json:"sequence_number"`
-	Response       *ResponsesResponse    `json:"response,omitempty"`
-	OutputIndex    *int                  `json:"output_index,omitempty"`
-	Item           *ResponsesItem        `json:"item,omitempty"`
-	ItemID         *string               `json:"item_id,omitempty"`
-	ContentIndex   *int                  `json:"content_index,omitempty"`
-	Delta          string                `json:"delta,omitempty"`
-	Text           string                `json:"text,omitempty"`
-	Name           string                `json:"name,omitempty"`
-	Namespace      string                `json:"namespace,omitempty"`
-	CallID         string                `json:"call_id,omitempty"`
-	Arguments      string                `json:"arguments,omitempty"`
-	SummaryIndex   *int                  `json:"summary_index,omitempty"`
-	Part           *ResponsesContentPart `json:"part,omitempty"`
+	Annotation      json.RawMessage       `json:"annotation,omitempty"`
+	AnnotationIndex *int                  `json:"annotation_index,omitempty"`
+	Type            string                `json:"type"`
+	SequenceNumber  int                   `json:"sequence_number"`
+	Response        *ResponsesResponse    `json:"response,omitempty"`
+	OutputIndex     *int                  `json:"output_index,omitempty"`
+	Item            *ResponsesItem        `json:"item,omitempty"`
+	ItemID          *string               `json:"item_id,omitempty"`
+	ContentIndex    *int                  `json:"content_index,omitempty"`
+	Delta           string                `json:"delta,omitempty"`
+	Text            string                `json:"text,omitempty"`
+	Name            string                `json:"name,omitempty"`
+	Namespace       string                `json:"namespace,omitempty"`
+	CallID          string                `json:"call_id,omitempty"`
+	Arguments       string                `json:"arguments,omitempty"`
+	SummaryIndex    *int                  `json:"summary_index,omitempty"`
+	Part            *ResponsesContentPart `json:"part,omitempty"`
 }
 
 type ResponsesContentPart struct {

@@ -121,6 +121,7 @@ func TestResponsesStreamTagsEncryptedContentAsOpenAI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TransformStreamEvent() error = %v", err)
 	}
+	events = eventsOfKind(events, model.StreamEventKindSignatureDelta)
 	if len(events) != 1 || events[0].Delta == nil || events[0].Delta.SignatureSource == nil {
 		t.Fatalf("missing signature provenance event: %+v", events)
 	}

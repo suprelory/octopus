@@ -52,6 +52,9 @@ func (c *CanonicalStreamConverter) Push(ctx context.Context, event SourceEvent) 
 	}
 	events, err := c.parser.TransformSourceEvent(ctx, event)
 	for _, canonical := range events {
+		if event.Type == "" && canonical.Provenance != nil && canonical.Provenance.ProviderEventType != "" {
+			c.diagnostics.LastEventType = canonical.Provenance.ProviderEventType
+		}
 		c.diagnostics.LastCanonicalEventType = canonical.Kind
 		c.diagnostics.TerminalEventSeen = c.diagnostics.TerminalEventSeen || canonical.Terminal || canonical.Kind == StreamEventKindDone || canonical.Kind == StreamEventKindError
 		c.diagnostics.FinishReasonSeen = c.diagnostics.FinishReasonSeen || (canonical.Kind == StreamEventKindMessageStop && !canonical.StopReason.IsZero())

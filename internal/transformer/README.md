@@ -66,3 +66,25 @@ audio. Unsupported semantics require an explicit reason. The matrix exercises
 every supported inbound/outbound pair and rejects unsupported operation pairs.
 Source contracts also exercise split frames, CRLF, multiline data, empty terminal
 data, concurrent readers, concurrent close, and data followed by a source error.
+
+Canonical events retain immutable `StreamProvenance`: API format, wire event
+type/ID, source sequence/transport, provider event type/sequence, and raw bytes.
+The wire event type remains separate from an inferred JSON type. Every event has
+semantic importance; finalizer repairs also carry their triggering provenance
+and are marked synthesized. `StreamReplay.Push` reconstructs original source
+frames once, excludes synthesized boundaries, and rejects missing provenance,
+cross-protocol replay, and conflicting or regressing source sequences.
+
+Response and output-item boundaries, MCP calls, computer actions, server tools,
+grounding, annotations, and native audio remain explicit events. Their raw fields
+are not flattened into client function calls or text. Unknown events are opaque.
+The aggregate response is a compatibility/metrics projection; native replay uses
+the canonical events. Ordinary wire encoders return `StreamConversionLoss` when
+a native semantic has no target representation, and attempts record the loss in
+stream diagnostics. Native passthrough observes the canonical lifecycle without
+encoding and discarding a lossy projection. OpenAI URL/file/container citations
+keep native annotations; Gemini grounding retains unknown retrieval metadata.
+
+Wire references: [Responses streaming events](https://developers.openai.com/api/reference/resources/responses/streaming-events),
+[Anthropic messages](https://platform.claude.com/docs/en/api/beta/messages), and
+[Gemini generate content](https://ai.google.dev/api/generate-content).

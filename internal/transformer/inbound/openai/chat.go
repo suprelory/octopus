@@ -82,6 +82,9 @@ func (i *ChatInbound) encodeStreamChunk(stream *model.InternalLLMResponse) ([]by
 }
 
 func (i *ChatInbound) TransformStreamEvents(ctx context.Context, events []model.StreamEvent) ([]byte, error) {
+	if err := model.ValidateNativeStreamEncoding(events, model.APIFormatOpenAIChatCompletion); err != nil {
+		return nil, err
+	}
 	var result []byte
 	var batch []model.StreamEvent
 	flush := func() error {

@@ -243,7 +243,7 @@ func TestHandleStreamResponsePassthroughOpenAIResponsesClientCancelAfterTerminal
 			cancel()
 		}
 	}
-	ra, req := newOpenAIResponsesPassthroughAttempt(writer)
+	ra, _ := newOpenAIResponsesPassthroughAttempt(writer)
 
 	response := &http.Response{
 		StatusCode: http.StatusOK,
@@ -259,9 +259,9 @@ func TestHandleStreamResponsePassthroughOpenAIResponsesClientCancelAfterTerminal
 	if got := writer.buf.String(); got != rawSSE {
 		t.Fatalf("expected raw SSE to be preserved exactly, got %q want %q", got, rawSSE)
 	}
-	internalResp, err := req.inAdapter.GetInternalResponse(context.Background())
-	if err != nil || internalResp == nil {
-		t.Fatalf("expected internal response for usage collection, got resp=%v err=%v", internalResp, err)
+	internalResp := ra.ensureStreamConverter().Response()
+	if internalResp == nil {
+		t.Fatal("expected the canonical aggregate for usage collection")
 	}
 	if internalResp.Usage == nil || internalResp.Usage.PromptTokens != 3 || internalResp.Usage.CompletionTokens != 5 {
 		t.Fatalf("expected usage input=3 output=5, got %+v", internalResp.Usage)

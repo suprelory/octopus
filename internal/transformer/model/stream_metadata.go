@@ -1,6 +1,10 @@
 package model
 
+import "encoding/json"
+
 type StreamMessageMetadata struct {
+	Status            string                `json:"status,omitempty"`
+	ProviderMetadata  json.RawMessage       `json:"provider_metadata,omitempty"`
 	Created           int64                 `json:"created,omitempty"`
 	SystemFingerprint string                `json:"system_fingerprint,omitempty"`
 	ServiceTier       string                `json:"service_tier,omitempty"`
