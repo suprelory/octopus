@@ -110,7 +110,7 @@ func (o *ChatOutbound) TransformRequest(ctx context.Context, request *model.Inte
 		}
 	}
 
-	body, err := json.Marshal(buildChatCompletionsRequest(request))
+	body, err := model.MarshalRequestWithRecovery(request, model.APIFormatOpenAIChatCompletion, buildChatCompletionsRequest(request))
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}

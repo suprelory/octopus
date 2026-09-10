@@ -37,7 +37,7 @@ func (o *MessageOutbound) TransformRequest(ctx context.Context, request *model.I
 	}
 	request, anthropicReq, _ := prepareAnthropicRequest(request, request.Model)
 
-	body, err := json.Marshal(anthropicReq)
+	body, err := model.MarshalRequestWithRecovery(request, model.APIFormatAnthropicMessage, anthropicReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal anthropic request: %w", err)
 	}

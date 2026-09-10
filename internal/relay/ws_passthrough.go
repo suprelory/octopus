@@ -96,7 +96,7 @@ func (ra *relayAttempt) buildWSPassthroughRequestPayload() ([]byte, error) {
 	if len(body) == 0 {
 		responsesReq := openaiOutbound.ConvertToResponsesRequest(ra.internalRequest)
 		var err error
-		body, err = json.Marshal(responsesReq)
+		body, err = transformerModel.MarshalRequestWithRecovery(ra.internalRequest, transformerModel.APIFormatOpenAIResponse, responsesReq)
 		if err != nil {
 			return nil, err
 		}

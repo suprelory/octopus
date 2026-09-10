@@ -75,6 +75,7 @@ type CapabilityTrace struct {
 	Status           string
 	Policy           string
 	ConversionPath   []string
+	Conversion       *model.RequestConversion
 	RequiredFeatures []string
 	DegradedFields   []string
 	Losses           []model.CapabilityLoss
@@ -501,6 +502,7 @@ func (it *Iterator) skip(channelID, channelKeyID int, channelName, msg string, t
 		RequiredFeatures:  append([]string(nil), trace.RequiredFeatures...),
 		DegradedFields:    append([]string(nil), trace.DegradedFields...),
 		CapabilityLosses:  append([]model.CapabilityLoss(nil), trace.Losses...),
+		Conversion:        cloneRequestConversion(trace.Conversion),
 		Lossiness:         trace.Lossiness,
 		CapabilityReasons: append([]string(nil), trace.Reasons...),
 		FallbackReason:    msg,
@@ -673,6 +675,7 @@ func (s *AttemptSpan) SetCapability(trace CapabilityTrace) {
 	s.attempt.RequiredFeatures = append([]string(nil), trace.RequiredFeatures...)
 	s.attempt.DegradedFields = append([]string(nil), trace.DegradedFields...)
 	s.attempt.CapabilityLosses = append([]model.CapabilityLoss(nil), trace.Losses...)
+	s.attempt.Conversion = cloneRequestConversion(trace.Conversion)
 	s.attempt.Lossiness = trace.Lossiness
 	s.attempt.CapabilityReasons = append([]string(nil), trace.Reasons...)
 }

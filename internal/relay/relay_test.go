@@ -601,8 +601,8 @@ func TestHandlerRejectsResponsesNativeToolsWithoutResponsesChannel(t *testing.T)
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("expected native responses tool request to be rejected, got status %d body %s", recorder.Code, recorder.Body.String())
 	}
-	if !strings.Contains(recorder.Body.String(), "仅支持 OpenAI Responses 通道直通") {
-		t.Fatalf("expected clear passthrough-only error, got %s", recorder.Body.String())
+	if !strings.Contains(recorder.Body.String(), "OpenAI Responses recovery path") {
+		t.Fatalf("expected clear native recovery error, got %s", recorder.Body.String())
 	}
 	if upstreamHits.Load() != 0 {
 		t.Fatalf("rejected capability reached upstream %d times", upstreamHits.Load())

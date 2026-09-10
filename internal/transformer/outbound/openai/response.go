@@ -46,7 +46,7 @@ func (o *ResponseOutbound) TransformRequest(ctx context.Context, request *model.
 	// Convert to Responses API request format
 	responsesReq := ConvertToResponsesRequest(request)
 
-	body, err := json.Marshal(responsesReq)
+	body, err := model.MarshalRequestWithRecovery(request, model.APIFormatOpenAIResponse, responsesReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal responses api request: %w", err)
 	}

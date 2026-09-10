@@ -6,6 +6,7 @@ import (
 )
 
 type StreamDiagnostics = transformerModel.StreamDiagnostics
+type RequestConversion = transformerModel.RequestConversion
 
 // AttemptStatus 尝试状态
 type AttemptStatus string
@@ -48,6 +49,7 @@ type ChannelAttempt struct {
 	CapabilityStatus  string                   `json:"capability_status,omitempty"`
 	CapabilityPolicy  string                   `json:"capability_policy,omitempty"`
 	ConversionPath    []string                 `json:"conversion_path,omitempty"`
+	Conversion        *RequestConversion       `json:"conversion,omitempty"`
 	RequiredFeatures  []string                 `json:"required_features,omitempty"`
 	DegradedFields    []string                 `json:"degraded_fields,omitempty"`
 	CapabilityLosses  []CapabilityLoss         `json:"capability_losses,omitempty"`

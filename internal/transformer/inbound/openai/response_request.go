@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/bestruirui/octopus/internal/transformer/model"
@@ -25,7 +26,7 @@ func (i *ResponseInbound) TransformRequest(ctx context.Context, body []byte) (*m
 	if strings.HasPrefix(strings.TrimSpace(string(rawFields.Input)), "[") {
 		req.RawInputItems = append(json.RawMessage(nil), rawFields.Input...)
 	}
-	if firstUnsupportedResponsesToolType(req.Tools) != "" {
+	if strings.HasPrefix(strings.TrimSpace(string(rawFields.Tools)), "[") {
 		req.RawTools = append(json.RawMessage(nil), rawFields.Tools...)
 	}
 
@@ -44,6 +45,9 @@ func (i *ResponseInbound) TransformRequest(ctx context.Context, body []byte) (*m
 		return nil, err
 	}
 	if err := internalRequest.NormalizeOperation(); err != nil {
+		return nil, err
+	}
+	if err := internalRequest.CaptureRequestRecovery(body, req); err != nil {
 		return nil, err
 	}
 	return internalRequest, nil
@@ -174,12 +178,71 @@ func markOpenAIResponsesPassthroughIfNeeded(req *ResponsesRequest, chatReq *mode
 	if req == nil || chatReq == nil {
 		return
 	}
-	if unsupportedToolType := firstUnsupportedResponsesToolType(req.Tools); unsupportedToolType != "" {
-		chatReq.MarkOpenAIResponsesPassthroughRequired("tool:" + unsupportedToolType)
+	seen := make(map[string]bool)
+	mark := func(reason string) {
+		if !seen[reason] {
+			chatReq.MarkOpenAIResponsesPassthroughRequired(reason)
+			seen[reason] = true
+		}
 	}
-	if unsupportedItemType := firstUnsupportedResponsesInputType(&req.Input); unsupportedItemType != "" {
-		chatReq.MarkOpenAIResponsesPassthroughRequired("input:" + unsupportedItemType)
+	for _, tool := range req.Tools {
+		if kind := firstUnsupportedResponsesToolType([]ResponsesTool{tool}); kind != "" {
+			mark("tool:" + kind)
+		}
 	}
+	var visit func(*ResponsesInput, bool)
+	visit = func(input *ResponsesInput, nested bool) {
+		if input == nil {
+			return
+		}
+		for _, item := range input.Items {
+			kind := firstUnsupportedResponsesTopLevelItemType(&item)
+			if nested {
+				kind = firstUnsupportedResponsesContentItemType(&ResponsesInput{Items: []ResponsesItem{item}})
+			}
+			if kind != "" {
+				mark("input:" + kind)
+			}
+			visit(item.Content, true)
+			visit(item.Output, true)
+		}
+	}
+	visit(&req.Input, false)
+	var markExtensions func(json.RawMessage, bool)
+	markExtensions = func(raw json.RawMessage, tools bool) {
+		var items []json.RawMessage
+		if json.Unmarshal(raw, &items) != nil {
+			return
+		}
+		for _, item := range items {
+			var schema any = ResponsesItem{}
+			prefix := "input_field:"
+			if tools {
+				schema, prefix = ResponsesTool{}, "tool_field:"
+			}
+			unknown, err := model.UnknownWireFields(item, schema)
+			if err != nil {
+				continue
+			}
+			fields := make([]string, 0, len(unknown))
+			for field := range unknown {
+				fields = append(fields, field)
+			}
+			sort.Strings(fields)
+			for _, field := range fields {
+				mark(prefix + field)
+			}
+			if !tools {
+				var children map[string]json.RawMessage
+				if json.Unmarshal(item, &children) == nil {
+					markExtensions(children["content"], false)
+					markExtensions(children["output"], false)
+				}
+			}
+		}
+	}
+	markExtensions(req.RawInputItems, false)
+	markExtensions(req.RawTools, true)
 }
 
 func firstUnsupportedResponsesToolType(tools []ResponsesTool) string {

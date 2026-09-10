@@ -417,6 +417,9 @@ func (i *MessagesInbound) TransformRequest(ctx context.Context, body []byte) (*m
 	if err := chatReq.NormalizeOperation(); err != nil {
 		return nil, err
 	}
+	if err := chatReq.CaptureRequestRecovery(body, anthropicReq); err != nil {
+		return nil, err
+	}
 	chatReq.EstimatedInputTokens = i.inputToken
 	return chatReq, nil
 }

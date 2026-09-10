@@ -2,7 +2,6 @@ package outbound
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -40,6 +39,7 @@ type CapabilityDecision struct {
 	Reasons          []string
 	Losses           LossReport
 	ConversionReport LossReport
+	Conversion       model.RequestConversion
 	Lossiness        string
 	StaticQuality    ConversionQuality
 	Passthrough      bool
@@ -60,8 +60,15 @@ func (d CapabilityDecision) Summary() string {
 // key is selected or request bytes are sent upstream. The planner treats req as
 // read-only; effectiveModel is used for provider-family checks whose result
 // depends on the selected upstream model.
-func PlanRequestForModel(req *model.InternalLLMRequest, effectiveModel string, outboundType OutboundType, passthrough bool) CapabilityDecision {
-	decision := CapabilityDecision{Status: CapabilitySupported, Lossiness: "none"}
+func PlanRequestForModel(req *model.InternalLLMRequest, effectiveModel string, outboundType OutboundType, passthrough bool) (decision CapabilityDecision) {
+	decision = CapabilityDecision{Status: CapabilitySupported, Lossiness: "none"}
+	defer func() {
+		decision.Conversion = req.ConversionState(decision.OutboundFormat, decision.Passthrough, decision.Status == CapabilityDegraded || decision.Status == CapabilityRejected)
+		if decision.Rejected() {
+			decision.Conversion.ReplayAvailable = false
+			decision.Conversion.ExactReplay = false
+		}
+	}()
 	if req == nil {
 		return rejectDecision(decision, "request is nil")
 	}
@@ -84,12 +91,8 @@ func PlanRequestForModel(req *model.InternalLLMRequest, effectiveModel string, o
 	if !capability.Supports(decision.RequestType) {
 		return rejectDecision(decision, fmt.Sprintf("channel does not support %s requests", decision.RequestType))
 	}
-	if req.HasOpenAIResponsesPassthrough() && !decision.Passthrough && !supportsOpenAIResponsesRecovery(req, outboundType) {
-		reason := "该请求包含仅支持 OpenAI Responses 通道直通的原生语义"
-		if detail := req.OpenAIResponsesPassthroughReasonTextValue(); detail != "" {
-			reason += ": " + detail
-		}
-		return rejectDecision(decision, reason)
+	if err := req.ValidateNativeRecovery(capability.APIFormat, decision.Passthrough); err != nil {
+		return rejectDecision(decision, err.Error())
 	}
 	if decision.Passthrough {
 		return decision
@@ -128,51 +131,13 @@ func ApplyConversionReport(decision CapabilityDecision, report LossReport) Capab
 	if len(decision.DegradedFields) > 0 && decision.Status != CapabilityRejected {
 		decision.Status = CapabilityDegraded
 		decision.Lossiness = "known"
+		decision.Conversion.Mode = model.ConversionLossyCanonical
+		decision.Conversion.ReplayAvailable, decision.Conversion.ExactReplay = false, false
 	}
 	if decision.Status == CapabilityRejected {
 		decision.Lossiness = "rejected"
 	}
 	return decision
-}
-
-// supportsOpenAIResponsesRecovery identifies the two Responses paths that
-// intentionally use the canonical builder instead of raw passthrough. The
-// exception is fail-closed: every native-only reason must have its raw sidecar
-// available so recovery cannot silently drop an input item or tool definition.
-func supportsOpenAIResponsesRecovery(req *model.InternalLLMRequest, outboundType OutboundType) bool {
-	if req == nil || outboundType != OutboundTypeOpenAIResponse {
-		return false
-	}
-	if !req.IsOpenAIExactReplayRequest() && req.OpenAIPreviousResponseID() == "" {
-		return false
-	}
-
-	reasons := strings.Split(req.OpenAIResponsesPassthroughReasonTextValue(), ",")
-	if len(reasons) == 0 {
-		return false
-	}
-	responsesOptions := req.GetOpenAIResponsesOptions()
-	for _, reason := range reasons {
-		reason = strings.TrimSpace(reason)
-		switch {
-		case strings.HasPrefix(reason, "input:"):
-			if !hasRawJSONArray(req.OpenAIRawInputItems()) {
-				return false
-			}
-		case strings.HasPrefix(reason, "tool:"):
-			if !hasRawJSONArray(responsesOptions.RawTools) {
-				return false
-			}
-		default:
-			return false
-		}
-	}
-	return true
-}
-
-func hasRawJSONArray(raw json.RawMessage) bool {
-	var values []json.RawMessage
-	return len(raw) > 0 && json.Unmarshal(raw, &values) == nil && len(values) > 0
 }
 
 // PlanRelayOperation evaluates auxiliary endpoints that are proxied without

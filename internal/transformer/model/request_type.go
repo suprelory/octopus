@@ -35,6 +35,7 @@ func (t RequestType) Valid() bool {
 // Common routing fields such as Model remain on InternalLLMRequest; fields that
 // vary by endpoint live in the operation payload.
 type RequestOperation struct {
+	Recovery   *RequestRecovery     `json:"recovery,omitempty"`
 	Chat       *ChatOperation       `json:"chat,omitempty"`
 	Responses  *ResponsesOperation  `json:"responses,omitempty"`
 	Embeddings *EmbeddingsOperation `json:"embeddings,omitempty"`

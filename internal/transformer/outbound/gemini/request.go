@@ -26,7 +26,7 @@ func (o *MessagesOutbound) TransformRequest(ctx context.Context, request *model.
 	// Convert internal request to Gemini format
 	geminiReq := convertLLMToGeminiRequest(request)
 
-	body, err := json.Marshal(geminiReq)
+	body, err := model.MarshalRequestWithRecovery(request, model.APIFormatGeminiContents, geminiReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal gemini request: %w", err)
 	}
