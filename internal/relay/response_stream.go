@@ -63,6 +63,14 @@ func (ra *relayAttempt) handleTransformedStream(ctx context.Context, source stre
 // heartbeat bytes and a committed semantic payload when deciding retry safety.
 func (ra *relayAttempt) runStreamProcessor(ctx context.Context, processor *stream.StreamProcessor, timeoutCloser io.Closer) error {
 	err := processor.Run()
+	if err != nil && ra.streamConverter != nil && !ra.streamConverter.Completed() {
+		cause := model.StreamFinishCauseSourceError
+		if ctx.Err() != nil || errors.Is(err, stream.ErrDownstreamWrite) {
+			cause = model.StreamFinishCauseClientCancellation
+		}
+		_, _ = ra.streamConverter.Finish(ctx, cause)
+		log.Debugf("stream completion status=interrupted cause=%s: %v", cause, err)
+	}
 	if processor.PayloadWritten() {
 		ra.commitResponse()
 	}
@@ -123,12 +131,7 @@ func (ra *relayAttempt) handleStreamResponsePassthroughV2(ctx context.Context, r
 		if len(event.Data) == 0 && event.Type == "" {
 			return nil
 		}
-		events, err := ra.outAdapter.TransformSourceEvent(ctx, event)
-		if err != nil {
-			ra.captureStreamError(err)
-			return err
-		}
-		events, err = ra.ensureStreamFinalizer().ProcessStreamEvents(events)
+		events, err := ra.ensureStreamConverter().Push(ctx, event)
 		if err != nil {
 			ra.captureStreamError(err)
 			return err
@@ -186,16 +189,10 @@ func (ra *relayAttempt) handleStreamResponsePassthroughV2(ctx context.Context, r
 // transformSourceEvent converts a complete provider event into inbound wire
 // bytes while preserving envelope metadata at the adapter boundary.
 func (ra *relayAttempt) transformSourceEvent(ctx context.Context, event model.SourceEvent) ([]byte, bool, error) {
-	events, err := ra.outAdapter.TransformSourceEvent(ctx, event)
+	events, err := ra.ensureStreamConverter().Push(ctx, event)
 	if err != nil {
 		ra.captureStreamError(err)
 		log.Warnf("failed to transform stream events: %v", err)
-		return nil, false, err
-	}
-	events, err = ra.ensureStreamFinalizer().ProcessStreamEvents(events)
-	if err != nil {
-		ra.captureStreamError(err)
-		log.Warnf("failed to finalize stream events: %v", err)
 		return nil, false, err
 	}
 	if len(events) == 0 {
@@ -211,15 +208,15 @@ func (ra *relayAttempt) transformSourceEvent(ctx context.Context, event model.So
 	return inStream, semanticPayload, nil
 }
 
-func (ra *relayAttempt) ensureStreamFinalizer() *model.StreamFinalizer {
-	if ra.streamFinalizer == nil {
+func (ra *relayAttempt) ensureStreamConverter() *model.CanonicalStreamConverter {
+	if ra.streamConverter == nil {
 		policy := model.DefaultStreamTerminalPolicy()
 		if ra.channel != nil {
 			policy, _ = outbound.TerminalPolicy(ra.channel.Type)
 		}
-		ra.streamFinalizer = model.NewStreamFinalizer(policy)
+		ra.streamConverter = model.NewStreamConverter(ra.outAdapter, policy)
 	}
-	return ra.streamFinalizer
+	return ra.streamConverter
 }
 
 func (ra *relayAttempt) captureStreamError(err error) {
@@ -230,16 +227,18 @@ func (ra *relayAttempt) captureStreamError(err error) {
 }
 
 func (ra *relayAttempt) finalizeStreamLifecycle(ctx context.Context, writeTail bool) error {
-	finalized, err := ra.ensureStreamFinalizer().FinalizeStream()
+	converter := ra.ensureStreamConverter()
+	tailEvents, err := converter.Finish(ctx, converter.FinishCause())
 	if err != nil {
 		ra.captureStreamError(err)
-		log.Debugf("stream completion status=interrupted cause=%s: %v", ra.streamFinalizer.FinishCause(), err)
+		log.Debugf("stream completion status=interrupted cause=%s: %v", converter.FinishCause(), err)
 		return err
 	}
+	finalized := converter.Finalization()
 	log.Debugf("stream completion status=completed cause=%s terminal_event=%s", finalized.FinishCause, finalized.TerminalEvent)
 
-	if len(finalized.TailEvents) > 0 {
-		tail, transformErr := ra.inAdapter.TransformStreamEvents(ctx, finalized.TailEvents)
+	if len(tailEvents) > 0 {
+		tail, transformErr := ra.inAdapter.TransformStreamEvents(ctx, tailEvents)
 		if transformErr != nil {
 			ra.captureStreamError(transformErr)
 			return transformErr

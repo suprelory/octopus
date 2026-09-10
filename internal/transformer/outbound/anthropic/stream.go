@@ -220,7 +220,13 @@ func (o *MessageOutbound) TransformSourceEvent(ctx context.Context, event model.
 		events = append(events, model.StreamEvent{Kind: model.StreamEventKindDone, Terminal: true, TerminalEvent: "message_stop"})
 
 	case "content_block_stop":
-		events = append(events, model.StreamEvent{Kind: model.StreamEventKindContentBlockStop, ID: o.streamID, Model: o.streamModel, Index: 0, BlockIndex: lo.ToPtr(int(lo.FromPtr(streamEvent.Index)))})
+		blockIndex := int(lo.FromPtr(streamEvent.Index))
+		stop := model.StreamEvent{Kind: model.StreamEventKindContentBlockStop, ID: o.streamID, Model: o.streamModel, Index: 0, BlockIndex: &blockIndex}
+		if toolIndex, ok := o.blockToolCalls[blockIndex]; ok {
+			stop.Kind = model.StreamEventKindToolCallStop
+			stop.ToolCall = &model.ToolCall{Index: toolIndex}
+		}
+		events = append(events, stop)
 		delete(o.serverToolUses, int(lo.FromPtr(streamEvent.Index)))
 		delete(o.blockToolCalls, int(lo.FromPtr(streamEvent.Index)))
 

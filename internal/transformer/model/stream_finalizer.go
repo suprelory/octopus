@@ -44,6 +44,7 @@ type StreamFinalizer struct {
 	seenKinds       map[StreamEventKind]bool
 	finishCause     StreamFinishCause
 	failure         error
+	openBlocks      map[streamBlockKey]StreamEvent
 }
 
 func NewStreamFinalizer(policies ...StreamTerminalPolicy) *StreamFinalizer {
@@ -57,6 +58,7 @@ func NewStreamFinalizer(policies ...StreamTerminalPolicy) *StreamFinalizer {
 		stopped:         make(map[int]FinishReason),
 		toolCallChoices: make(map[int]bool),
 		seenKinds:       make(map[StreamEventKind]bool),
+		openBlocks:      make(map[streamBlockKey]StreamEvent),
 	}
 }
 
@@ -99,8 +101,12 @@ func (f *StreamFinalizer) ProcessStreamEvents(events []StreamEvent) ([]StreamEve
 	if f.failure != nil {
 		return nil, f.failure
 	}
+	if f.done && duplicateTerminalBatch(events) {
+		return nil, nil
+	}
 
 	normalized := make([]StreamEvent, 0, len(events)+3)
+	completeBatch := false
 	for _, event := range events {
 		f.seenKinds[event.Kind] = true
 		if event.Kind == StreamEventKindError {
@@ -119,6 +125,7 @@ func (f *StreamFinalizer) ProcessStreamEvents(events []StreamEvent) ([]StreamEve
 			return nil, fmt.Errorf("%w: event %q arrived after done", ErrStreamAlreadyFinalized, event.Kind)
 		}
 		if event.Terminal {
+			completeBatch = true
 			f.terminalSeen = true
 			if event.TerminalEvent != "" {
 				f.terminalEvent = event.TerminalEvent
@@ -144,12 +151,18 @@ func (f *StreamFinalizer) ProcessStreamEvents(events []StreamEvent) ([]StreamEve
 			continue
 
 		case StreamEventKindMessageStart:
+			if f.started[event.Index] {
+				continue
+			}
 			f.started[event.Index] = true
 
 		case StreamEventKindTextDelta, StreamEventKindThinkingDelta, StreamEventKindSignatureDelta,
 			StreamEventKindContentBlockStart, StreamEventKindContentBlockDelta, StreamEventKindToolCallStart, StreamEventKindToolCallDelta,
 			StreamEventKindImageDelta, StreamEventKindAudioDelta, StreamEventKindOpaque,
 			StreamEventKindCitationDelta:
+			if _, stopped := f.stopped[event.Index]; stopped {
+				return nil, fmt.Errorf("%w: event %q arrived after choice %d stopped", ErrStreamAlreadyFinalized, event.Kind, event.Index)
+			}
 			if !f.started[event.Index] {
 				start := StreamEvent{Kind: StreamEventKindMessageStart, ID: event.ID, Model: event.Model, Index: event.Index, Role: "assistant"}
 				normalized = append(normalized, start)
@@ -158,6 +171,9 @@ func (f *StreamFinalizer) ProcessStreamEvents(events []StreamEvent) ([]StreamEve
 			}
 			if event.Kind == StreamEventKindToolCallStart || event.Kind == StreamEventKindToolCallDelta {
 				f.toolCallChoices[event.Index] = true
+			}
+			if !f.normalizeBlock(event, &normalized) {
+				continue
 			}
 
 		case StreamEventKindUsageDelta:
@@ -191,9 +207,12 @@ func (f *StreamFinalizer) ProcessStreamEvents(events []StreamEvent) ([]StreamEve
 			}
 			f.stopped[event.Index] = event.StopReason
 			f.lastStopSeq = f.sequence
+			f.closeChoiceBlocks(event.Index, &normalized)
 
 		case StreamEventKindContentBlockStop, StreamEventKindToolCallStop:
-			// Structural boundaries do not change message completion state.
+			if !f.normalizeBlock(event, &normalized) {
+				continue
+			}
 
 		default:
 			return nil, fmt.Errorf("unknown stream event kind %q", event.Kind)
@@ -201,6 +220,14 @@ func (f *StreamFinalizer) ProcessStreamEvents(events []StreamEvent) ([]StreamEve
 
 		normalized = append(normalized, event)
 		f.addToAggregate(event)
+	}
+	if completeBatch && !f.done {
+		f.synthesizeMissingStops(&normalized)
+		tail, err := f.terminalEvents(true)
+		if err != nil {
+			return nil, err
+		}
+		normalized = append(normalized, tail...)
 	}
 	return normalized, nil
 }
@@ -329,6 +356,7 @@ func (f *StreamFinalizer) synthesizeMissingStops(events *[]StreamEvent) {
 	}
 	sort.Ints(indices)
 	for _, index := range indices {
+		f.closeChoiceBlocks(index, events)
 		reason := f.policy.DefaultFinishReason
 		if f.toolCallChoices[index] {
 			reason = FinishReasonToolCalls

@@ -143,7 +143,7 @@ type relayAttempt struct {
 	retryAt                time.Time // absolute upstream Retry-After deadline
 	upstreamError          *model.ResponseError
 	capabilityDecision     outbound.CapabilityDecision
-	streamFinalizer        *model.StreamFinalizer
+	streamConverter        *model.CanonicalStreamConverter
 	transportRecovery      upstreamRecovery
 	upstreamTransport      string
 	protocolErrorWritten   bool
