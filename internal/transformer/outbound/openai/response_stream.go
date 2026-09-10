@@ -149,7 +149,7 @@ func (o *ResponseOutbound) TransformSourceEvent(ctx context.Context, event model
 	if len(bytes.TrimSpace(eventData)) > 0 {
 		if err := json.Unmarshal(eventData, &streamEvent); err != nil {
 			switch eventType {
-			case "response.created", "response.in_progress", "response.completed", "response.failed", "response.incomplete":
+			case "response.created", "response.in_progress", "response.completed", "response.done", "response.failed", "response.incomplete", "response.cancelled", "response.canceled", "response.error", "error":
 				// The event envelope is sufficient to identify these lifecycle
 				// transitions when a provider sends a non-JSON payload.
 			default:
@@ -249,7 +249,7 @@ func (o *ResponseOutbound) TransformSourceEvent(ctx context.Context, event model
 	case "response.refusal.done":
 		return nil, nil
 
-	case "response.completed":
+	case "response.completed", "response.done":
 		if streamEvent.Response != nil {
 			if len(streamEvent.Response.Output) > 0 {
 				if rawOutput, marshalErr := json.Marshal(sanitizeResponsesItems(streamEvent.Response.Output)); marshalErr == nil {
@@ -258,7 +258,11 @@ func (o *ResponseOutbound) TransformSourceEvent(ctx context.Context, event model
 			} else if rawOutput, ok := o.marshalTrackedOutputItems(); ok {
 				base.ProviderExtensions = &model.ProviderExtensions{OpenAI: &model.OpenAIExtension{RawResponseItems: rawOutput}}
 			}
-			finishReason, respErr := normalizeResponsesFinishReason(streamEvent.Response.Status, streamEvent.Response.Error)
+			status := streamEvent.Response.Status
+			if status == nil {
+				status = lo.ToPtr("completed")
+			}
+			finishReason, respErr := normalizeResponsesFinishReason(status, streamEvent.Response.Error)
 			if respErr != nil {
 				events = append(events, model.StreamEvent{Kind: model.StreamEventKindError, ID: base.ID, Model: base.Model, Error: respErr})
 				return events, nil
@@ -266,7 +270,7 @@ func (o *ResponseOutbound) TransformSourceEvent(ctx context.Context, event model
 			if finishReason != nil && *finishReason == "stop" && o.responseCarriesFunctionCall(streamEvent.Response) {
 				finishReason = lo.ToPtr("tool_calls")
 			}
-			stopEvent := model.StreamEvent{Kind: model.StreamEventKindMessageStop, ID: base.ID, Model: base.Model, Index: base.Index, StopReason: model.ParseFinishReason(lo.FromPtr(finishReason)), ProviderExtensions: base.ProviderExtensions, Terminal: true, TerminalEvent: "response.completed"}
+			stopEvent := model.StreamEvent{Kind: model.StreamEventKindMessageStop, ID: base.ID, Model: base.Model, Index: base.Index, StopReason: model.ParseFinishReason(lo.FromPtr(finishReason)), ProviderExtensions: base.ProviderExtensions, Terminal: true, TerminalEvent: streamEvent.Type}
 			events = append(events, stopEvent)
 			if streamEvent.Response.Usage != nil {
 				usage := convertResponsesUsage(streamEvent.Response.Usage)
@@ -274,10 +278,10 @@ func (o *ResponseOutbound) TransformSourceEvent(ctx context.Context, event model
 				events = append(events, usageEvent)
 			}
 		} else {
-			events = append(events, model.StreamEvent{Kind: model.StreamEventKindDone, ID: base.ID, Model: base.Model, Terminal: true, TerminalEvent: "response.completed"})
+			events = append(events, model.StreamEvent{Kind: model.StreamEventKindDone, ID: base.ID, Model: base.Model, Terminal: true, TerminalEvent: streamEvent.Type})
 		}
 
-	case "response.failed", "response.incomplete", "error":
+	case "response.failed", "response.incomplete", "response.cancelled", "response.canceled", "response.error", "error":
 		var reason *string
 		var respErr *model.ResponseError
 		switch streamEvent.Type {
@@ -286,17 +290,24 @@ func (o *ResponseOutbound) TransformSourceEvent(ctx context.Context, event model
 		default:
 			reason = lo.ToPtr("stop")
 		}
+		errDetail := streamEvent.Error
 		if streamEvent.Response != nil && streamEvent.Response.Error != nil {
+			errDetail = streamEvent.Response.Error
+		}
+		if errDetail != nil {
 			respErr = &model.ResponseError{
+				StatusCode: 502,
 				Detail: model.ErrorDetail{
-					Code:    fmt.Sprintf("%d", streamEvent.Response.Error.Code),
-					Message: streamEvent.Response.Error.Message,
+					Code:    NormalizeStreamErrorCode(errDetail.Code),
+					Type:    errDetail.Type,
+					Message: errDetail.Message,
 				},
 			}
-		} else if streamEvent.Code != "" || streamEvent.Message != "" {
+		} else if NormalizeStreamErrorCode(streamEvent.Code) != "" || streamEvent.Message != "" {
 			respErr = &model.ResponseError{
+				StatusCode: 502,
 				Detail: model.ErrorDetail{
-					Code:    streamEvent.Code,
+					Code:    NormalizeStreamErrorCode(streamEvent.Code),
 					Message: streamEvent.Message,
 				},
 			}

@@ -1,7 +1,6 @@
 package relay
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -26,36 +25,7 @@ type wsPassthroughStats struct {
 	Stream     transformerModel.StreamDiagnostics
 }
 
-type wsUpstreamEventError struct {
-	Status  int
-	Code    string
-	Type    string
-	Message string
-	RetryAt time.Time
-}
-
-func (e *wsUpstreamEventError) Error() string {
-	if e == nil {
-		return ""
-	}
-	parts := make([]string, 0, 4)
-	if e.Message != "" {
-		parts = append(parts, e.Message)
-	}
-	if e.Code != "" {
-		parts = append(parts, "code="+e.Code)
-	}
-	if e.Type != "" {
-		parts = append(parts, "type="+e.Type)
-	}
-	if e.Status > 0 {
-		parts = append(parts, fmt.Sprintf("status=%d", e.Status))
-	}
-	if len(parts) == 0 {
-		return "upstream ws error"
-	}
-	return strings.Join(parts, ", ")
-}
+type wsUpstreamEventError = openaiOutbound.StreamUpstreamError
 
 func (ra *relayAttempt) forwardViaWSPassthrough(ctx context.Context) (int, error) {
 	continuation := requiresUpstreamWSContinuation(ra.internalRequest)
@@ -164,6 +134,7 @@ func (ra *relayAttempt) buildWSPassthroughRequestPayload() ([]byte, error) {
 func (ra *relayAttempt) handleWSPassthroughStream(ctx context.Context, pc *pooledConn) (_ *wsPassthroughStats, resultErr error) {
 	writer := ra.getStreamWriter()
 	stats := &wsPassthroughStats{}
+	converter := ra.ensureStreamConverter()
 	stats.Stream.SourceTransport = transformerModel.SourceTransportWebSocket
 	defer func() {
 		stats.Stream.CompletionStatus = "completed"
@@ -177,6 +148,13 @@ func (ra *relayAttempt) handleWSPassthroughStream(ctx context.Context, pc *poole
 			if isClientCancellation(ctx, resultErr) {
 				stats.Stream.CompletionStatus = "canceled"
 				stats.Stream.FinishCause = transformerModel.StreamFinishCauseClientCancellation
+			}
+		}
+		if !converter.Completed() {
+			_, finishErr := converter.Finish(ctx, stats.Stream.FinishCause)
+			if resultErr == nil && finishErr != nil {
+				resultErr = finishErr
+				stats.Stream.CompletionStatus = "interrupted"
 			}
 		}
 		diagnostics := stats.Stream
@@ -212,6 +190,9 @@ func (ra *relayAttempt) handleWSPassthroughStream(ctx context.Context, pc *poole
 			}
 			return stats, stats.Error
 		}
+		if _, err := converter.Push(readCtx, transformerModel.SourceEvent{Type: stats.Stream.LastEventType, Data: data, Sequence: stats.Stream.LastSourceSequence, Transport: transformerModel.SourceTransportWebSocket}); err != nil {
+			return stats, err
+		}
 		if !dropDownstream {
 			out := ra.rewriteWSPassthroughDownstreamModel(data)
 			ra.commitResponse()
@@ -236,7 +217,7 @@ func (ra *relayAttempt) handleWSPassthroughStream(ctx context.Context, pc *poole
 			}
 		}
 		firstEvent = false
-		if isWSPassthroughTerminal(data) {
+		if stats.Stream.TerminalEventSeen {
 			return stats, nil
 		}
 	}
@@ -257,46 +238,7 @@ func (ra *relayAttempt) rewriteWSPassthroughDownstreamModel(data []byte) []byte 
 	if ra == nil || ra.internalRequest == nil || strings.TrimSpace(ra.requestModel) == "" || strings.TrimSpace(ra.internalRequest.Model) == strings.TrimSpace(ra.requestModel) {
 		return data
 	}
-	var payload any
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return data
-	}
-	if replaceModelInJSONValue(payload, ra.internalRequest.Model, ra.requestModel) {
-		if rewritten, err := json.Marshal(payload); err == nil {
-			return rewritten
-		}
-	}
-	return data
-}
-
-func replaceModelInJSONValue(value any, upstreamModel, downstreamModel string) bool {
-	switch v := value.(type) {
-	case map[string]any:
-		changed := false
-		for key, child := range v {
-			if key == "model" {
-				if s, ok := child.(string); ok && s == upstreamModel {
-					v[key] = downstreamModel
-					changed = true
-				}
-				continue
-			}
-			if replaceModelInJSONValue(child, upstreamModel, downstreamModel) {
-				changed = true
-			}
-		}
-		return changed
-	case []any:
-		changed := false
-		for _, child := range v {
-			if replaceModelInJSONValue(child, upstreamModel, downstreamModel) {
-				changed = true
-			}
-		}
-		return changed
-	default:
-		return false
-	}
+	return openaiOutbound.RewriteResponseEventModel(data, ra.internalRequest.Model, ra.requestModel)
 }
 
 func observeWSPassthroughEvent(stats *wsPassthroughStats, data []byte) {
@@ -306,187 +248,53 @@ func observeWSPassthroughEvent(stats *wsPassthroughStats, data []byte) {
 	stats.Stream.EventsReceived++
 	stats.Stream.LastSourceSequence = stats.Stream.EventsReceived
 	stats.Stream.BytesReceived += int64(len(data))
-	var event struct {
-		Type       string          `json:"type"`
-		ID         string          `json:"id"`
-		Model      string          `json:"model"`
-		Status     int             `json:"status"`
-		Code       any             `json:"code"`
-		Message    string          `json:"message"`
-		RetryAfter json.RawMessage `json:"retry_after"`
-		RetryAt    json.RawMessage `json:"retry_at"`
-		Error      *struct {
-			Code       any             `json:"code"`
-			Type       string          `json:"type"`
-			Message    string          `json:"message"`
-			RetryAfter json.RawMessage `json:"retry_after"`
-			RetryAt    json.RawMessage `json:"retry_at"`
-		} `json:"error"`
-		Response *struct {
-			ID         string               `json:"id"`
-			Model      string               `json:"model"`
-			Status     string               `json:"status"`
-			Output     json.RawMessage      `json:"output"`
-			Usage      *responsesUsageEvent `json:"usage"`
-			RetryAfter json.RawMessage      `json:"retry_after"`
-			RetryAt    json.RawMessage      `json:"retry_at"`
-			Error      *struct {
-				Code       any             `json:"code"`
-				Type       string          `json:"type"`
-				Message    string          `json:"message"`
-				RetryAfter json.RawMessage `json:"retry_after"`
-				RetryAt    json.RawMessage `json:"retry_at"`
-			} `json:"error"`
-		} `json:"response"`
-		Usage *responsesUsageEvent `json:"usage"`
-	}
-	if err := json.Unmarshal(data, &event); err != nil {
+	observation, err := openaiOutbound.InspectResponseEvent(data, time.Now())
+	if err != nil {
+		stats.Error = &wsUpstreamEventError{Status: 502, Message: "invalid Responses stream event: " + err.Error()}
 		return
 	}
-	stats.Stream.LastEventType = event.Type
-	switch event.Type {
-	case "response.completed", "response.incomplete":
-		stats.Stream.TerminalEventSeen = true
-		stats.Stream.FinishReasonSeen = true
-	case "response.failed", "error":
-		stats.Stream.TerminalEventSeen = true
+	stats.Stream.LastEventType = observation.Type
+	stats.Stream.TerminalEventSeen = stats.Stream.TerminalEventSeen || observation.Terminal
+	stats.Stream.FinishReasonSeen = stats.Stream.FinishReasonSeen || observation.FinishReasonSeen
+	if observation.ResponseID != "" {
+		stats.ResponseID = observation.ResponseID
 	}
-	if event.ID != "" {
-		stats.ResponseID = event.ID
+	if observation.Model != "" {
+		stats.Model = observation.Model
 	}
-	if event.Model != "" {
-		stats.Model = event.Model
+	if observation.Usage != nil {
+		stats.Usage = observation.Usage
 	}
-	if event.Usage != nil {
-		stats.Usage = event.Usage.toInternal()
+	if len(observation.RawOutput) > 0 {
+		stats.RawOutput = observation.RawOutput
 	}
-	if event.Error != nil {
-		now := time.Now()
-		stats.Error = &wsUpstreamEventError{
-			Status:  event.Status,
-			Code:    normalizeWSUpstreamErrorCode(event.Error.Code),
-			Type:    event.Error.Type,
-			Message: event.Error.Message,
-			RetryAt: firstRetryDeadline(
-				parseWSRetryDeadline(now, event.Error.RetryAfter, event.Error.RetryAt),
-				parseWSRetryDeadline(now, event.RetryAfter, event.RetryAt),
-			),
-		}
-	}
-	if event.Response != nil {
-		if event.Response.ID != "" {
-			stats.ResponseID = event.Response.ID
-		}
-		if event.Response.Model != "" {
-			stats.Model = event.Response.Model
-		}
-		if len(event.Response.Output) > 0 && !bytes.Equal(bytes.TrimSpace(event.Response.Output), []byte("null")) {
-			stats.RawOutput = append(json.RawMessage(nil), event.Response.Output...)
-		}
-		if event.Response.Usage != nil {
-			stats.Usage = event.Response.Usage.toInternal()
-		}
-		if event.Response.Error != nil {
-			status := event.Status
-			if status == 0 {
-				status = http.StatusBadGateway
-			}
-			now := time.Now()
-			stats.Error = &wsUpstreamEventError{
-				Status:  status,
-				Code:    normalizeWSUpstreamErrorCode(event.Response.Error.Code),
-				Type:    event.Response.Error.Type,
-				Message: event.Response.Error.Message,
-				RetryAt: firstRetryDeadline(
-					parseWSRetryDeadline(now, event.Response.Error.RetryAfter, event.Response.Error.RetryAt),
-					parseWSRetryDeadline(now, event.Response.RetryAfter, event.Response.RetryAt),
-					parseWSRetryDeadline(now, event.RetryAfter, event.RetryAt),
-				),
-			}
-		}
-	}
-	if stats.Error == nil && isWSStreamErrorEvent(event.Type) {
-		status := event.Status
-		if status < 400 {
-			status = http.StatusBadGateway
-		}
-		message := event.Message
-		if message == "" {
-			message = "upstream ws error"
-		}
-		stats.Error = &wsUpstreamEventError{
-			Status: status, Code: normalizeWSUpstreamErrorCode(event.Code), Message: message,
-			RetryAt: parseWSRetryDeadline(time.Now(), event.RetryAfter, event.RetryAt),
-		}
+	if observation.Error != nil {
+		stats.Error = observation.Error
 	}
 }
 
 func normalizeWSUpstreamErrorCode(code any) string {
-	switch v := code.(type) {
-	case string:
-		return v
-	case float64:
-		if v == float64(int64(v)) {
-			return fmt.Sprintf("%d", int64(v))
-		}
-		return fmt.Sprintf("%g", v)
-	case nil:
-		return ""
-	default:
-		return fmt.Sprintf("%v", v)
-	}
-}
-
-type responsesUsageEvent struct {
-	InputTokens       int64 `json:"input_tokens"`
-	InputTokenDetails struct {
-		CachedTokens int64 `json:"cached_tokens"`
-	} `json:"input_tokens_details"`
-	OutputTokens       int64 `json:"output_tokens"`
-	OutputTokenDetails struct {
-		ReasoningTokens int64 `json:"reasoning_tokens"`
-	} `json:"output_tokens_details"`
-	TotalTokens int64 `json:"total_tokens"`
-}
-
-func (u *responsesUsageEvent) toInternal() *transformerModel.Usage {
-	if u == nil {
-		return nil
-	}
-	usage := &transformerModel.Usage{PromptTokens: u.InputTokens, CompletionTokens: u.OutputTokens, TotalTokens: u.TotalTokens}
-	if u.InputTokenDetails.CachedTokens > 0 {
-		usage.PromptTokensDetails = &transformerModel.PromptTokensDetails{CachedTokens: u.InputTokenDetails.CachedTokens}
-	}
-	if u.OutputTokenDetails.ReasoningTokens > 0 {
-		usage.CompletionTokensDetails = &transformerModel.CompletionTokensDetails{ReasoningTokens: u.OutputTokenDetails.ReasoningTokens}
-	}
-	return usage
+	return openaiOutbound.NormalizeStreamErrorCode(code)
 }
 
 func isWSPassthroughTerminal(data []byte) bool {
-	var event struct {
-		Type     string `json:"type"`
-		Response *struct {
-			Status string `json:"status"`
-		} `json:"response"`
-	}
-	if err := json.Unmarshal(data, &event); err != nil {
-		return false
-	}
-	if isWSStreamTerminalEvent(event.Type) {
-		return true
-	}
-	if event.Response != nil {
-		switch event.Response.Status {
-		case "completed", "failed", "incomplete", "cancelled", "canceled":
-			return true
-		}
-	}
-	return false
+	observation, err := openaiOutbound.InspectResponseEvent(data, time.Now())
+	return err == nil && observation.Terminal
 }
 
 func (ra *relayAttempt) applyWSPassthroughStats(stats *wsPassthroughStats) {
 	if ra == nil || ra.metrics == nil || stats == nil {
+		return
+	}
+	if ra.streamConverter != nil {
+		if response := ra.streamConverter.Response(); response != nil {
+			modelName := response.Model
+			if modelName == "" && ra.internalRequest != nil {
+				modelName = ra.internalRequest.Model
+			}
+			ra.metrics.SetInternalResponse(response, modelName)
+			ra.responseCollected.Store(true)
+		}
 		return
 	}
 	modelName := strings.TrimSpace(stats.Model)

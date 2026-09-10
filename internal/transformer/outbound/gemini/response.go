@@ -9,7 +9,7 @@ import (
 	"github.com/bestruirui/octopus/internal/transformer/model"
 )
 
-func convertGeminiToLLMResponse(geminiResp *model.GeminiGenerateContentResponse, isStream bool, streamIndexer func(candidateIndex int) int) *model.InternalLLMResponse {
+func convertGeminiToLLMResponse(geminiResp *model.GeminiGenerateContentResponse, isStream bool, streamIndexer func(candidateIndex int) int, toolIndexers ...func() int) *model.InternalLLMResponse {
 	resp := &model.InternalLLMResponse{
 		Choices: []model.Choice{},
 	}
@@ -36,6 +36,9 @@ func convertGeminiToLLMResponse(geminiResp *model.GeminiGenerateContentResponse,
 
 	// Convert candidates to choices
 	for _, candidate := range geminiResp.Candidates {
+		if candidate == nil {
+			continue
+		}
 		choice := model.Choice{
 			Index: candidate.Index,
 		}
@@ -86,6 +89,9 @@ func convertGeminiToLLMResponse(geminiResp *model.GeminiGenerateContentResponse,
 			}
 
 			for idx, part := range candidate.Content.Parts {
+				if part == nil {
+					continue
+				}
 				if part.Thought {
 					// Handle thinking/reasoning content
 					if part.Text != "" && reasoningContent == nil {
@@ -135,10 +141,14 @@ func convertGeminiToLLMResponse(geminiResp *model.GeminiGenerateContentResponse,
 					})
 				}
 				if part.FunctionCall != nil {
+					toolIndex := idx
+					if isStream && len(toolIndexers) > 0 {
+						toolIndex = toolIndexers[0]()
+					}
 					argsJSON, _ := json.Marshal(part.FunctionCall.Args)
-					toolCallID := geminiFunctionCallID(part.FunctionCall, idx, geminiResp.ResponseId, part.ThoughtSignature)
+					toolCallID := geminiFunctionCallID(part.FunctionCall, toolIndex, geminiResp.ResponseId, part.ThoughtSignature)
 					toolCall := model.ToolCall{
-						Index: idx,
+						Index: toolIndex,
 						ID:    toolCallID,
 						Type:  "function",
 						Function: model.FunctionCall{
@@ -242,7 +252,7 @@ func convertGeminiToLLMResponse(geminiResp *model.GeminiGenerateContentResponse,
 			// Set tool calls
 			if len(toolCalls) > 0 {
 				msg.ToolCalls = toolCalls
-				if choice.FinishReason == nil {
+				if choice.FinishReason == nil && !isStream {
 					reason := "tool_calls"
 					choice.FinishReason = &reason
 				}

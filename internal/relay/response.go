@@ -117,7 +117,13 @@ func (ra *relayAttempt) collectResponse() {
 	if !ra.responseCollected.CompareAndSwap(false, true) {
 		return
 	}
-	internalResponse, err := ra.inAdapter.GetInternalResponse(ra.requestContext())
+	var internalResponse *model.InternalLLMResponse
+	var err error
+	if ra.streamConverter != nil {
+		internalResponse = ra.streamConverter.Response()
+	} else {
+		internalResponse, err = ra.inAdapter.GetInternalResponse(ra.requestContext())
+	}
 	if err != nil {
 		log.Debugf("collectResponse: failed to get internal response: %v", err)
 		return

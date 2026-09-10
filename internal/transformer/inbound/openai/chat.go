@@ -44,6 +44,10 @@ func (i *ChatInbound) TransformResponse(ctx context.Context, response *model.Int
 }
 
 func (i *ChatInbound) TransformStream(ctx context.Context, stream *model.InternalLLMResponse) ([]byte, error) {
+	return i.TransformStreamEvents(ctx, model.StreamEventsFromInternalResponse(stream))
+}
+
+func (i *ChatInbound) encodeStreamChunk(stream *model.InternalLLMResponse) ([]byte, error) {
 	if stream.Object == "[DONE]" {
 		return []byte("data: [DONE]\n\n"), nil
 	}
@@ -79,16 +83,29 @@ func (i *ChatInbound) TransformStream(ctx context.Context, stream *model.Interna
 
 func (i *ChatInbound) TransformStreamEvents(ctx context.Context, events []model.StreamEvent) ([]byte, error) {
 	var result []byte
-	for _, event := range events {
-		stream := model.InternalResponseFromStreamEvents([]model.StreamEvent{event})
+	var batch []model.StreamEvent
+	flush := func() error {
+		stream := model.InternalResponseFromStreamEvents(batch)
+		batch = batch[:0]
 		if stream == nil {
-			continue
+			return nil
 		}
-		encoded, err := i.TransformStream(ctx, stream)
-		if err != nil {
-			return nil, err
-		}
+		encoded, err := i.encodeStreamChunk(stream)
 		result = append(result, encoded...)
+		return err
+	}
+	for _, event := range events {
+		if event.Kind == model.StreamEventKindDone {
+			if err := flush(); err != nil {
+				return nil, err
+			}
+			result = append(result, []byte("data: [DONE]\n\n")...)
+		} else {
+			batch = append(batch, event)
+		}
+	}
+	if err := flush(); err != nil {
+		return nil, err
 	}
 	return result, nil
 }

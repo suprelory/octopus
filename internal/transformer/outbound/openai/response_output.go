@@ -2,7 +2,6 @@ package openai
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/bestruirui/octopus/internal/transformer/model"
@@ -202,10 +201,12 @@ func reasoningTextFromResponsesItem(item ResponsesItem) string {
 // with O-M1.
 func normalizeResponsesFinishReason(status *string, errDetail *ResponsesError) (*string, *model.ResponseError) {
 	var respErr *model.ResponseError
-	if errDetail != nil && (errDetail.Message != "" || errDetail.Code != 0) {
+	if errDetail != nil {
 		respErr = &model.ResponseError{
+			StatusCode: 502,
 			Detail: model.ErrorDetail{
-				Code:    fmt.Sprintf("%d", errDetail.Code),
+				Code:    NormalizeStreamErrorCode(errDetail.Code),
+				Type:    errDetail.Type,
 				Message: errDetail.Message,
 			},
 		}
@@ -216,10 +217,13 @@ func normalizeResponsesFinishReason(status *string, errDetail *ResponsesError) (
 	}
 	switch *status {
 	case "completed":
-		return lo.ToPtr("stop"), nil
+		return lo.ToPtr("stop"), respErr
 	case "incomplete":
 		return lo.ToPtr("length"), respErr
-	case "failed":
+	case "failed", "cancelled", "canceled":
+		if respErr == nil {
+			respErr = &model.ResponseError{StatusCode: 502, Detail: model.ErrorDetail{Type: "upstream_error", Message: "OpenAI Responses stream ended with " + *status}}
+		}
 		return lo.ToPtr("stop"), respErr
 	default:
 		return nil, respErr

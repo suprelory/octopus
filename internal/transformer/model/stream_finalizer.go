@@ -209,6 +209,8 @@ func (f *StreamFinalizer) ProcessStreamEvents(events []StreamEvent) ([]StreamEve
 			f.lastStopSeq = f.sequence
 			f.closeChoiceBlocks(event.Index, &normalized)
 
+		case StreamEventKindMessageMetadata:
+			// Metadata does not start or complete a choice.
 		case StreamEventKindContentBlockStop, StreamEventKindToolCallStop:
 			if !f.normalizeBlock(event, &normalized) {
 				continue

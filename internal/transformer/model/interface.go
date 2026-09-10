@@ -14,6 +14,7 @@ type Inbound interface {
 	TransformResponse(ctx context.Context, response *InternalLLMResponse) ([]byte, error)
 
 	// 将出站内部通用流式响应转为入站对应的流式响应格式
+	// Deprecated: use TransformStreamEvents. Retained for one release cycle.
 	TransformStream(ctx context.Context, stream *InternalLLMResponse) ([]byte, error)
 
 	// TransformStreamEvents converts canonical stream events into the inbound
@@ -39,6 +40,7 @@ type Outbound interface {
 	TransformResponse(ctx context.Context, response *http.Response) (*InternalLLMResponse, error)
 
 	// 将出站流式转为内部通用流式响应格式
+	// Deprecated: use TransformSourceEvent. Retained for one release cycle.
 	TransformStream(ctx context.Context, eventData []byte) (*InternalLLMResponse, error)
 
 	// TransformStreamEvent converts provider bytes into canonical stream events.

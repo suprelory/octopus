@@ -231,7 +231,8 @@ type ResponsesUsage struct {
 }
 
 type ResponsesError struct {
-	Code    int    `json:"code"`
+	Code    any    `json:"code"`
+	Type    string `json:"type,omitempty"`
 	Message string `json:"message"`
 }
 
@@ -250,6 +251,7 @@ type ResponsesStreamEvent struct {
 	CallID         string             `json:"call_id,omitempty"`
 	Arguments      string             `json:"arguments,omitempty"`
 	SummaryIndex   *int               `json:"summary_index,omitempty"`
-	Code           string             `json:"code,omitempty"`
+	Code           any                `json:"code,omitempty"`
 	Message        string             `json:"message,omitempty"`
+	Error          *ResponsesError    `json:"error,omitempty"`
 }

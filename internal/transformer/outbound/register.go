@@ -74,7 +74,7 @@ var protocolDescriptors = map[OutboundType]ProtocolDescriptor{
 		),
 		Transport: "http+websocket",
 		TerminalPolicy: model.StreamTerminalPolicy{
-			TerminalEvents:          apiTerminalEvents("response.completed", "response.incomplete", "response.failed", "error", "[DONE]", "done"),
+			TerminalEvents:          apiTerminalEvents("response.completed", "response.done", "response.incomplete", "response.failed", "response.cancelled", "response.canceled", "response.error", "error", "[DONE]", "done"),
 			RequiredLifecycleEvents: []model.StreamEventKind{model.StreamEventKindMessageStart, model.StreamEventKindMessageStop},
 			DefaultFinishReason:     model.FinishReasonStop,
 		},

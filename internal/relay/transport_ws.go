@@ -2,11 +2,12 @@ package relay
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
+
+	openaiOutbound "github.com/bestruirui/octopus/internal/transformer/outbound/openai"
 
 	"github.com/bestruirui/octopus/internal/utils/log"
 	"github.com/coder/websocket"
@@ -63,73 +64,15 @@ func (r *wsUpstreamReader) ReadEvent(ctx context.Context) ([]byte, error) {
 		return nil, fmt.Errorf("unexpected ws message type: %d", msgType)
 	}
 
-	// Check for error and terminal events.
-	var event struct {
-		Type       string          `json:"type"`
-		Status     int             `json:"status"`
-		Code       any             `json:"code"`
-		Message    string          `json:"message"`
-		RetryAfter json.RawMessage `json:"retry_after"`
-		RetryAt    json.RawMessage `json:"retry_at"`
-		Error      *struct {
-			Code       any             `json:"code"`
-			Message    string          `json:"message"`
-			Type       string          `json:"type"`
-			RetryAfter json.RawMessage `json:"retry_after"`
-			RetryAt    json.RawMessage `json:"retry_at"`
-		} `json:"error"`
-		Response *struct {
-			Status     string          `json:"status"`
-			RetryAfter json.RawMessage `json:"retry_after"`
-			RetryAt    json.RawMessage `json:"retry_at"`
-			Error      *struct {
-				Code       any             `json:"code"`
-				Message    string          `json:"message"`
-				Type       string          `json:"type"`
-				RetryAfter json.RawMessage `json:"retry_after"`
-				RetryAt    json.RawMessage `json:"retry_at"`
-			} `json:"error"`
-		} `json:"response"`
+	observation, parseErr := openaiOutbound.InspectResponseEvent(data, time.Now())
+	if parseErr != nil {
+		return nil, fmt.Errorf("invalid upstream Responses event: %w", parseErr)
 	}
-	if json.Unmarshal(data, &event) == nil {
-		if isWSStreamTerminalEvent(event.Type) {
-			r.done = true
-		}
-		if event.Response != nil && (event.Response.Status == "failed" || event.Response.Status == "incomplete" || event.Response.Status == "cancelled" || event.Response.Status == "canceled") {
-			r.done = true
-		}
-		if isWSStreamErrorEvent(event.Type) || event.Error != nil || (event.Response != nil && event.Response.Error != nil) {
-			now := time.Now()
-			r.retryAt = parseWSRetryDeadline(now, event.RetryAfter, event.RetryAt)
-			if event.Status > 0 {
-				r.statusCode = event.Status
-			} else if r.statusCode < 400 {
-				r.statusCode = http.StatusBadGateway
-			}
-			errCode, errMsg, errType := normalizeWSUpstreamErrorCode(event.Code), event.Message, ""
-			if errMsg == "" {
-				errMsg = "upstream ws error"
-			}
-			if event.Error != nil {
-				errMsg = event.Error.Message
-				errCode = normalizeWSUpstreamErrorCode(event.Error.Code)
-				errType = event.Error.Type
-				r.retryAt = firstRetryDeadline(parseWSRetryDeadline(now, event.Error.RetryAfter, event.Error.RetryAt), r.retryAt)
-			}
-			if event.Response != nil && event.Response.Error != nil {
-				errMsg = event.Response.Error.Message
-				errCode = normalizeWSUpstreamErrorCode(event.Response.Error.Code)
-				errType = event.Response.Error.Type
-				r.retryAt = firstRetryDeadline(
-					parseWSRetryDeadline(now, event.Response.Error.RetryAfter, event.Response.Error.RetryAt),
-					parseWSRetryDeadline(now, event.Response.RetryAfter, event.Response.RetryAt),
-					r.retryAt,
-				)
-			}
-			return nil, &wsUpstreamEventError{Status: r.statusCode, Code: errCode, Type: errType, Message: errMsg, RetryAt: r.retryAt}
-		}
+	r.done = observation.Terminal
+	if observation.Error != nil {
+		r.statusCode, r.retryAt = observation.Error.Status, observation.Error.RetryAt
+		return nil, observation.Error
 	}
-
 	return data, nil
 }
 

@@ -97,7 +97,7 @@ func duplicateTerminalBatch(events []StreamEvent) bool {
 		switch event.Kind {
 		case StreamEventKindDone:
 			terminal = true
-		case StreamEventKindMessageStart, StreamEventKindMessageStop, StreamEventKindUsageDelta:
+		case StreamEventKindMessageStart, StreamEventKindMessageStop, StreamEventKindUsageDelta, StreamEventKindMessageMetadata:
 			terminal = terminal || event.Terminal
 		default:
 			return false

@@ -11,6 +11,7 @@ type StreamEventKind string
 
 const (
 	StreamEventKindMessageStart      StreamEventKind = "message_start"
+	StreamEventKindMessageMetadata   StreamEventKind = "message_metadata"
 	StreamEventKindContentBlockStart StreamEventKind = "content_block_start"
 	StreamEventKindContentBlockDelta StreamEventKind = "content_block_delta"
 	StreamEventKindContentBlockStop  StreamEventKind = "content_block_stop"
@@ -45,20 +46,24 @@ type StreamEvent struct {
 	BlockIndex *int   `json:"block_index,omitempty"`
 	Role       string `json:"role,omitempty"`
 
-	ContentBlock *StreamContentBlock `json:"content_block,omitempty"`
-	Delta        *StreamDelta        `json:"delta,omitempty"`
-	ToolCall     *ToolCall           `json:"tool_call,omitempty"`
-	Usage        *Usage              `json:"usage,omitempty"`
-	StopReason   FinishReason        `json:"stop_reason,omitempty"`
-	StopSequence *string             `json:"stop_sequence,omitempty"`
-	Error        *ResponseError      `json:"error,omitempty"`
-	Media        *StreamMedia        `json:"media,omitempty"`
-	Opaque       json.RawMessage     `json:"opaque,omitempty"`
+	ContentBlock *StreamContentBlock    `json:"content_block,omitempty"`
+	Delta        *StreamDelta           `json:"delta,omitempty"`
+	ToolCall     *ToolCall              `json:"tool_call,omitempty"`
+	Usage        *Usage                 `json:"usage,omitempty"`
+	StopReason   FinishReason           `json:"stop_reason,omitempty"`
+	StopSequence *string                `json:"stop_sequence,omitempty"`
+	Error        *ResponseError         `json:"error,omitempty"`
+	Media        *StreamMedia           `json:"media,omitempty"`
+	Opaque       json.RawMessage        `json:"opaque,omitempty"`
+	Metadata     *StreamMessageMetadata `json:"metadata,omitempty"`
 
 	ProviderExtensions *ProviderExtensions `json:"provider_extensions,omitempty"`
 }
 
 type StreamMedia struct {
+	// Placement preserves a legacy chat media field when projecting events.
+	// Empty placement denotes a provider-native media event.
+	Placement  string `json:"placement,omitempty"`
 	MediaType  string `json:"media_type,omitempty"`
 	Data       string `json:"data,omitempty"`
 	URI        string `json:"uri,omitempty"`
@@ -129,11 +134,12 @@ func HasSemanticStreamEvents(events []StreamEvent) bool {
 }
 
 type StreamDelta struct {
-	Text      string `json:"text,omitempty"`
-	Thinking  string `json:"thinking,omitempty"`
-	Signature string `json:"signature,omitempty"`
-	Arguments string `json:"arguments,omitempty"`
-	Refusal   string `json:"refusal,omitempty"`
+	Text           string `json:"text,omitempty"`
+	Thinking       string `json:"thinking,omitempty"`
+	Signature      string `json:"signature,omitempty"`
+	Arguments      string `json:"arguments,omitempty"`
+	Refusal        string `json:"refusal,omitempty"`
+	ReasoningIndex *int   `json:"reasoning_index,omitempty"`
 
 	SignatureSource *OpaqueSignature `json:"signature_source,omitempty"`
 	Citation        *Citation        `json:"citation,omitempty"`
@@ -168,6 +174,7 @@ func StreamEventsFromInternalResponse(response *InternalLLMResponse) []StreamEve
 		return []StreamEvent{{Kind: StreamEventKindError, ID: response.ID, Model: response.Model, Error: response.Error}}
 	}
 	events := make([]StreamEvent, 0, len(response.NonChatStreamEvents)+len(response.Choices)+1)
+	events = append(events, responseMetadataEvent(response)...)
 	for _, source := range response.NonChatStreamEvents {
 		event := cloneNonChatStreamEvent(source)
 		if event.ID == "" {
@@ -179,12 +186,14 @@ func StreamEventsFromInternalResponse(response *InternalLLMResponse) []StreamEve
 		events = append(events, event)
 	}
 	for _, choice := range response.Choices {
+		events = append(events, choiceMetadataEvent(choice, response)...)
 		if choice.Delta != nil {
 			delta := choice.Delta
 			if delta.Role != "" {
 				events = append(events, StreamEvent{Kind: StreamEventKindMessageStart, ID: response.ID, Model: response.Model, Index: choice.Index, Role: delta.Role})
 			}
 			for _, block := range delta.ReasoningBlocks {
+				before := len(events)
 				var signatureSource *OpaqueSignature
 				if block.SignatureSource != nil {
 					signatureSource = CloneOpaqueSignature(block.SignatureSource)
@@ -214,6 +223,12 @@ func StreamEventsFromInternalResponse(response *InternalLLMResponse) []StreamEve
 					if block.Data != "" {
 						events = append(events, StreamEvent{Kind: StreamEventKindContentBlockStart, ID: response.ID, Model: response.Model, Index: choice.Index, ContentBlock: &StreamContentBlock{Type: string(ReasoningBlockKindRedacted), Data: block.Data}})
 						events = append(events, StreamEvent{Kind: StreamEventKindContentBlockStop, ID: response.ID, Model: response.Model, Index: choice.Index, ContentBlock: &StreamContentBlock{Type: string(ReasoningBlockKindRedacted)}})
+					}
+				}
+				for index := before; index < len(events); index++ {
+					if events[index].Delta != nil {
+						value := block.Index
+						events[index].Delta.ReasoningIndex = &value
 					}
 				}
 			}
@@ -248,11 +263,13 @@ func StreamEventsFromInternalResponse(response *InternalLLMResponse) []StreamEve
 			}
 			for _, image := range delta.Images {
 				if media := streamMediaFromImageContent(image); media != nil {
+					media.Placement = "images"
 					events = append(events, StreamEvent{Kind: StreamEventKindImageDelta, ID: response.ID, Model: response.Model, Index: choice.Index, Media: media})
 				}
 			}
 			if delta.Audio != nil && (delta.Audio.Data != "" || delta.Audio.ID != "" || delta.Audio.Transcript != "") {
 				events = append(events, StreamEvent{Kind: StreamEventKindAudioDelta, ID: response.ID, Model: response.Model, Index: choice.Index, Media: &StreamMedia{
+					Placement:  "audio",
 					MediaType:  "audio",
 					Data:       delta.Audio.Data,
 					ID:         delta.Audio.ID,
@@ -310,7 +327,22 @@ func InternalResponseFromStreamEvents(events []StreamEvent) *InternalLLMResponse
 			response.Error = event.Error
 			continue
 		}
-		if event.Kind == StreamEventKindImageDelta || event.Kind == StreamEventKindAudioDelta || event.Kind == StreamEventKindOpaque {
+		if event.Kind == StreamEventKindMessageMetadata && event.Metadata != nil {
+			metadata := event.Metadata
+			if metadata.Created != 0 {
+				response.Created = metadata.Created
+			}
+			if metadata.SystemFingerprint != "" {
+				response.SystemFingerprint = metadata.SystemFingerprint
+			}
+			if metadata.ServiceTier != "" {
+				response.ServiceTier = metadata.ServiceTier
+			}
+			if metadata.Choice == nil {
+				continue
+			}
+		}
+		if event.Kind == StreamEventKindOpaque || ((event.Kind == StreamEventKindImageDelta || event.Kind == StreamEventKindAudioDelta) && (event.Media == nil || event.Media.Placement == "")) {
 			response.NonChatStreamEvents = append(response.NonChatStreamEvents, cloneNonChatStreamEvent(event))
 			continue
 		}
@@ -320,6 +352,44 @@ func InternalResponseFromStreamEvents(events []StreamEvent) *InternalLLMResponse
 			choices[event.Index] = choice
 		}
 		switch event.Kind {
+		case StreamEventKindMessageMetadata:
+			if event.Metadata != nil && event.Metadata.Choice != nil {
+				metadata := event.Metadata.Choice
+				choice.Logprobs, choice.Grounding, choice.URLContext, choice.SafetyRatings = metadata.Logprobs, metadata.Grounding, metadata.URLContext, metadata.SafetyRatings
+			}
+		case StreamEventKindImageDelta, StreamEventKindAudioDelta:
+			if event.Media != nil {
+				media := event.Media
+				if media.Placement == "audio" {
+					if choice.Delta.Audio == nil {
+						choice.Delta.Audio = &struct {
+							Data       string `json:"data,omitempty"`
+							ExpiresAt  int64  `json:"expires_at,omitempty"`
+							ID         string `json:"id,omitempty"`
+							Transcript string `json:"transcript,omitempty"`
+						}{}
+					}
+					choice.Delta.Audio.Data += media.Data
+					choice.Delta.Audio.Transcript += media.Transcript
+					if media.ID != "" {
+						choice.Delta.Audio.ID = media.ID
+					}
+					if media.ExpiresAt != 0 {
+						choice.Delta.Audio.ExpiresAt = media.ExpiresAt
+					}
+				} else {
+					uri := media.URI
+					if uri == "" && media.Data != "" {
+						uri = "data:" + media.MediaType + ";base64," + media.Data
+					}
+					part := MessageContentPart{Type: "image_url", ImageURL: &ImageURL{URL: uri}}
+					if media.Placement == "images" {
+						choice.Delta.Images = append(choice.Delta.Images, part)
+					} else {
+						mergeMessageContentDelta(&choice.Delta.Content, MessageContent{MultipleContent: []MessageContentPart{part}})
+					}
+				}
+			}
 		case StreamEventKindMessageStart:
 			choice.Delta.Role = event.Role
 		case StreamEventKindContentBlockStart:
@@ -383,6 +453,9 @@ func InternalResponseFromStreamEvents(events []StreamEvent) *InternalLLMResponse
 					choice.Delta.ReasoningContent = &thinking
 				}
 				block := ReasoningBlock{Kind: ReasoningBlockKindThinking, Index: -1, Text: event.Delta.Thinking, Signature: event.Delta.SignatureValue()}
+				if event.Delta.ReasoningIndex != nil {
+					block.Index = *event.Delta.ReasoningIndex
+				}
 				if event.Delta.SignatureSource != nil {
 					block.SetOpaqueSignature(*event.Delta.SignatureSource)
 				}
@@ -397,6 +470,9 @@ func InternalResponseFromStreamEvents(events []StreamEvent) *InternalLLMResponse
 					choice.Delta.ReasoningSignature = &value
 				}
 				block := ReasoningBlock{Kind: ReasoningBlockKindSignature, Index: -1, Signature: event.Delta.SignatureValue()}
+				if event.Delta.ReasoningIndex != nil {
+					block.Index = *event.Delta.ReasoningIndex
+				}
 				if event.Delta.SignatureSource != nil {
 					block.SetOpaqueSignature(*event.Delta.SignatureSource)
 				}
@@ -435,7 +511,7 @@ func InternalResponseFromStreamEvents(events []StreamEvent) *InternalLLMResponse
 	for _, idx := range indices {
 		response.Choices = append(response.Choices, *choices[idx])
 	}
-	if len(response.Choices) == 0 && response.Usage == nil && response.Error == nil && len(response.NonChatStreamEvents) == 0 {
+	if len(response.Choices) == 0 && response.Usage == nil && response.Error == nil && len(response.NonChatStreamEvents) == 0 && response.Created == 0 && response.SystemFingerprint == "" && response.ServiceTier == "" {
 		if sawDone {
 			return &InternalLLMResponse{Object: "[DONE]"}
 		}

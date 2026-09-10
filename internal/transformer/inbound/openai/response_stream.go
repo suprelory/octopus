@@ -10,32 +10,15 @@ import (
 )
 
 func (i *ResponseInbound) TransformStream(ctx context.Context, stream *model.InternalLLMResponse) ([]byte, error) {
-	// Handle [DONE] marker
-	if stream.Object == "[DONE]" {
-		return []byte("data: [DONE]\n\n"), nil
-	}
-
-	// Preserve the original chunk for aggregation; the stream-event view is a
-	// normalized projection and intentionally drops some transport-only fields.
-	i.streamAggregator.Add(stream)
-	if i.createdAt == 0 && stream.Created != 0 {
-		i.createdAt = stream.Created
-	}
-	return i.processStreamEvents(ctx, model.StreamEventsFromInternalResponse(stream), false)
+	return i.TransformStreamEvents(ctx, model.StreamEventsFromInternalResponse(stream))
 }
 
 func (i *ResponseInbound) TransformStreamEvents(ctx context.Context, events []model.StreamEvent) ([]byte, error) {
-	return i.processStreamEvents(ctx, events, true)
-}
-
-func (i *ResponseInbound) processStreamEvents(ctx context.Context, events []model.StreamEvent, aggregate bool) ([]byte, error) {
 	if len(events) == 0 {
 		return nil, nil
 	}
-	if aggregate {
-		if stream := model.InternalResponseFromStreamEvents(events); stream != nil && stream.Object != "[DONE]" {
-			i.streamAggregator.Add(stream)
-		}
+	if stream := model.InternalResponseFromStreamEvents(events); stream != nil && stream.Object != "[DONE]" {
+		i.streamAggregator.Add(stream)
 	}
 
 	var out [][]byte
@@ -56,6 +39,10 @@ func (i *ResponseInbound) processStreamEvents(ctx context.Context, events []mode
 		}
 
 		switch event.Kind {
+		case model.StreamEventKindMessageMetadata:
+			if event.Metadata != nil && event.Metadata.Created != 0 {
+				i.createdAt = event.Metadata.Created
+			}
 		case model.StreamEventKindMessageStart:
 			if !i.hasResponseCreated {
 				i.hasResponseCreated = true
@@ -118,7 +105,11 @@ func (i *ResponseInbound) processStreamEvents(ctx context.Context, events []mode
 
 		case model.StreamEventKindToolCallDelta:
 			if event.ToolCall != nil {
-				out = append(out, i.handleToolCalls([]model.ToolCall{*event.ToolCall})...)
+				call := *event.ToolCall
+				if event.Delta != nil && event.Delta.Arguments != "" {
+					call.Function.Arguments = event.Delta.Arguments
+				}
+				out = append(out, i.handleToolCalls([]model.ToolCall{call})...)
 			}
 
 		case model.StreamEventKindMessageStop:

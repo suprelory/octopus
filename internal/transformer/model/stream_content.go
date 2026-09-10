@@ -134,6 +134,12 @@ func streamEventsFromContent(content MessageContent, citations []Citation, id, m
 		part = cloneStreamContentPart(part)
 		event := StreamEvent{ID: id, Model: modelName, Index: choiceIndex, BlockIndex: part.BlockIndex}
 		switch part.Type {
+		case "image_url":
+			if media := streamMediaFromImageContent(part); media != nil {
+				media.Placement = "content"
+				event.Kind, event.Media = StreamEventKindImageDelta, media
+				events = append(events, event)
+			}
 		case "text":
 			if part.Text != nil && *part.Text != "" {
 				event.Kind = StreamEventKindTextDelta

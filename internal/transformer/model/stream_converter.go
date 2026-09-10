@@ -90,7 +90,13 @@ func (c *CanonicalStreamConverter) Finish(_ context.Context, cause StreamFinishC
 
 func (c *CanonicalStreamConverter) Completed() bool                   { return c != nil && c.finished }
 func (c *CanonicalStreamConverter) Finalization() *StreamFinalization { return c.result }
-func (c *CanonicalStreamConverter) TerminalSeen() bool                { return c.finalizer.TerminalSeen() }
-func (c *CanonicalStreamConverter) FinishCause() StreamFinishCause    { return c.finalizer.FinishCause() }
+
+// Response returns the canonical aggregate even if transport delivery failed.
+// Callers must use Finish's result, not this partial view, to decide success.
+func (c *CanonicalStreamConverter) Response() *InternalLLMResponse {
+	return c.finalizer.aggregator.Response()
+}
+func (c *CanonicalStreamConverter) TerminalSeen() bool             { return c.finalizer.TerminalSeen() }
+func (c *CanonicalStreamConverter) FinishCause() StreamFinishCause { return c.finalizer.FinishCause() }
 
 var _ StreamConverter = (*CanonicalStreamConverter)(nil)
