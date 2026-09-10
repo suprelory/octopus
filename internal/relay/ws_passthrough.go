@@ -179,10 +179,10 @@ func (ra *relayAttempt) handleWSPassthroughStream(ctx context.Context, pc *poole
 		if msgType != websocket.MessageText {
 			continue
 		}
-		observeWSPassthroughEvent(stats, data)
+		observation := observeWSPassthroughEvent(stats, data)
 		if stats.Error != nil {
 			if !dropDownstream && ra.responseCommitted() {
-				out := ra.rewriteWSPassthroughDownstreamModel(data)
+				out := ra.rewriteWSPassthroughDownstreamModel(observation)
 				ra.protocolErrorWritten = true
 				if writeErr := writeWSPassthroughDownstream(ctx, writer, out); writeErr != nil {
 					log.Debugf("ws passthrough: failed to forward upstream error frame downstream (channel=%d, key=%d): %v", ra.channel.ID, ra.usedKey.ID, writeErr)
@@ -190,11 +190,11 @@ func (ra *relayAttempt) handleWSPassthroughStream(ctx context.Context, pc *poole
 			}
 			return stats, stats.Error
 		}
-		if _, err := converter.Push(readCtx, transformerModel.SourceEvent{Type: stats.Stream.LastEventType, Data: data, Sequence: stats.Stream.LastSourceSequence, Transport: transformerModel.SourceTransportWebSocket}); err != nil {
+		if _, err := converter.Push(readCtx, observation.Source); err != nil {
 			return stats, err
 		}
 		if !dropDownstream {
-			out := ra.rewriteWSPassthroughDownstreamModel(data)
+			out := ra.rewriteWSPassthroughDownstreamModel(observation)
 			ra.commitResponse()
 			if writeErr := writeWSPassthroughDownstream(ctx, writer, out); writeErr != nil {
 				if isClientCancellation(ctx, writeErr) || isUpstreamWSConnectionBroken(writeErr) {
@@ -234,24 +234,26 @@ func writeWSPassthroughDownstream(ctx context.Context, writer StreamWriter, out 
 	return nil
 }
 
-func (ra *relayAttempt) rewriteWSPassthroughDownstreamModel(data []byte) []byte {
+func (ra *relayAttempt) rewriteWSPassthroughDownstreamModel(observation openaiOutbound.ResponseEventObservation) []byte {
 	if ra == nil || ra.internalRequest == nil || strings.TrimSpace(ra.requestModel) == "" || strings.TrimSpace(ra.internalRequest.Model) == strings.TrimSpace(ra.requestModel) {
-		return data
+		return observation.Source.Data
 	}
-	return openaiOutbound.RewriteResponseEventModel(data, ra.internalRequest.Model, ra.requestModel)
+	return observation.RewriteModel(ra.internalRequest.Model, ra.requestModel)
 }
 
-func observeWSPassthroughEvent(stats *wsPassthroughStats, data []byte) {
+func observeWSPassthroughEvent(stats *wsPassthroughStats, data []byte) openaiOutbound.ResponseEventObservation {
+	source := transformerModel.SourceEvent{Data: data, Transport: transformerModel.SourceTransportWebSocket}
 	if stats == nil || len(data) == 0 {
-		return
+		return openaiOutbound.ResponseEventObservation{Source: source}
 	}
 	stats.Stream.EventsReceived++
 	stats.Stream.LastSourceSequence = stats.Stream.EventsReceived
 	stats.Stream.BytesReceived += int64(len(data))
-	observation, err := openaiOutbound.InspectResponseEvent(data, time.Now())
+	source.Sequence = stats.Stream.LastSourceSequence
+	observation, err := openaiOutbound.InspectResponseSourceEvent(source, time.Now())
 	if err != nil {
 		stats.Error = &wsUpstreamEventError{Status: 502, Message: "invalid Responses stream event: " + err.Error()}
-		return
+		return observation
 	}
 	stats.Stream.LastEventType = observation.Type
 	stats.Stream.TerminalEventSeen = stats.Stream.TerminalEventSeen || observation.Terminal
@@ -271,6 +273,7 @@ func observeWSPassthroughEvent(stats *wsPassthroughStats, data []byte) {
 	if observation.Error != nil {
 		stats.Error = observation.Error
 	}
+	return observation
 }
 
 func normalizeWSUpstreamErrorCode(code any) string {

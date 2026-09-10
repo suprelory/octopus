@@ -3,7 +3,6 @@ package openai
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -150,20 +149,9 @@ func (o *ResponseOutbound) TransformSourceEvent(ctx context.Context, event model
 		o.toolCallForwardedArguments = make(map[int]string)
 	}
 
-	var streamEvent ResponsesStreamEvent
-	if len(bytes.TrimSpace(eventData)) > 0 {
-		if err := json.Unmarshal(eventData, &streamEvent); err != nil {
-			switch eventType {
-			case "response.created", "response.in_progress", "response.completed", "response.done", "response.failed", "response.incomplete", "response.cancelled", "response.canceled", "response.error", "error":
-				// The event envelope is sufficient to identify these lifecycle
-				// transitions when a provider sends a non-JSON payload.
-			default:
-				return nil, fmt.Errorf("failed to unmarshal stream event: %w", err)
-			}
-		}
-	}
-	if eventType != "" {
-		streamEvent.Type = eventType
+	_, streamEvent, parseErr := parseResponseStreamEvent(event)
+	if parseErr != nil {
+		return nil, parseErr
 	}
 	providerType = streamEvent.Type
 	providerSequence = streamEvent.SequenceNumber
@@ -274,7 +262,11 @@ func (o *ResponseOutbound) TransformSourceEvent(ctx context.Context, event model
 	case "response.completed", "response.done":
 		if streamEvent.Response != nil {
 			if len(streamEvent.Response.Output) > 0 {
-				if rawOutput, marshalErr := marshalResponsesOutputItems(streamEvent.Response.Output); marshalErr == nil {
+				rawOutput := streamEvent.Response.RawOutput
+				if len(rawOutput) == 0 {
+					rawOutput, _ = marshalResponsesOutputItems(streamEvent.Response.Output)
+				}
+				if len(rawOutput) > 0 {
 					base.ProviderExtensions = &model.ProviderExtensions{OpenAI: &model.OpenAIExtension{RawResponseItems: rawOutput}}
 				}
 			} else if rawOutput, ok := o.marshalTrackedOutputItems(); ok {

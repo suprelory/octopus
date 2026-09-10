@@ -221,6 +221,7 @@ type ResponsesReasoning struct {
 
 // ResponsesResponse represents the OpenAI Responses API response format.
 type ResponsesResponse struct {
+	RawOutput   json.RawMessage `json:"-"`
 	ServiceTier string          `json:"service_tier,omitempty"`
 	Metadata    json.RawMessage `json:"metadata,omitempty"`
 	Object      string          `json:"object"`
@@ -231,6 +232,28 @@ type ResponsesResponse struct {
 	Status      *string         `json:"status,omitempty"`
 	Usage       *ResponsesUsage `json:"usage,omitempty"`
 	Error       *ResponsesError `json:"error,omitempty"`
+	RetryAfter  json.RawMessage `json:"retry_after,omitempty"`
+	RetryAt     json.RawMessage `json:"retry_at,omitempty"`
+}
+
+func (r *ResponsesResponse) UnmarshalJSON(data []byte) error {
+	type responseFields ResponsesResponse
+	var response responseFields
+	wire := struct {
+		*responseFields
+		Output json.RawMessage `json:"output"`
+	}{responseFields: &response}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	if len(wire.Output) > 0 {
+		if err := json.Unmarshal(wire.Output, &response.Output); err != nil {
+			return err
+		}
+		response.RawOutput = wire.Output
+	}
+	*r = ResponsesResponse(response)
+	return nil
 }
 
 type ResponsesUsage struct {
@@ -246,12 +269,22 @@ type ResponsesUsage struct {
 }
 
 type ResponsesError struct {
-	Code    any    `json:"code"`
-	Type    string `json:"type,omitempty"`
-	Message string `json:"message"`
+	Code       any             `json:"code"`
+	Type       string          `json:"type,omitempty"`
+	Message    string          `json:"message"`
+	RetryAfter json.RawMessage `json:"retry_after,omitempty"`
+	RetryAt    json.RawMessage `json:"retry_at,omitempty"`
 }
 
 type ResponsesStreamEvent struct {
+	ID              string             `json:"id,omitempty"`
+	EventID         string             `json:"event_id,omitempty"`
+	LastEventID     string             `json:"last_event_id,omitempty"`
+	Model           string             `json:"model,omitempty"`
+	Status          int                `json:"status,omitempty"`
+	Usage           *ResponsesUsage    `json:"usage,omitempty"`
+	RetryAfter      json.RawMessage    `json:"retry_after,omitempty"`
+	RetryAt         json.RawMessage    `json:"retry_at,omitempty"`
 	Annotation      json.RawMessage    `json:"annotation,omitempty"`
 	AnnotationIndex *int               `json:"annotation_index,omitempty"`
 	Part            json.RawMessage    `json:"part,omitempty"`

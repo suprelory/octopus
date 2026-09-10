@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/bestruirui/octopus/internal/transformer/compat"
@@ -42,20 +41,9 @@ func (o *MessageOutbound) TransformSourceEvent(ctx context.Context, event model.
 		o.initialized = true
 	}
 
-	var streamEvent anthropicModel.StreamEvent
-	if len(bytes.TrimSpace(eventData)) > 0 {
-		if err := json.Unmarshal(eventData, &streamEvent); err != nil {
-			switch eventType {
-			case "message_stop", "ping":
-				// These envelope events carry their lifecycle meaning outside
-				// the payload and are valid without JSON data.
-			default:
-				return nil, fmt.Errorf("failed to unmarshal stream event: %w", err)
-			}
-		}
-	}
-	if eventType != "" {
-		streamEvent.Type = eventType
+	_, streamEvent, parseErr := parseSourceEvent(event)
+	if parseErr != nil {
+		return nil, parseErr
 	}
 	providerType = streamEvent.Type
 

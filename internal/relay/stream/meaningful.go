@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"strings"
-
-	"github.com/tmaxmax/go-sse"
 )
 
 // IsMeaningfulPayload recognizes semantic content across the inbound formats
@@ -18,19 +16,18 @@ func IsMeaningfulPayload(_, transformed []byte) bool {
 	}
 
 	foundSSE := false
-	readConfig := &sse.ReadConfig{MaxEventSize: 64 * 1024 * 1024}
-	// Keep the trailing blank line: it is the SSE event delimiter.
-	for event, err := range sse.Read(bytes.NewReader(transformed), readConfig) {
-		if err != nil {
-			break
-		}
+	meaningful := false
+	decoder := NewSSEDecoder(64 * 1024 * 1024)
+	emit := func(event SourceEvent) error {
 		foundSSE = true
-		if meaningfulJSON([]byte(event.Data)) {
-			return true
-		}
+		meaningful = meaningful || meaningfulJSON(event.Data)
+		return nil
+	}
+	if decoder.Feed(transformed, emit) == nil {
+		_ = decoder.Finish(emit)
 	}
 	if foundSSE {
-		return false
+		return meaningful
 	}
 	return meaningfulJSON(trimmed)
 }

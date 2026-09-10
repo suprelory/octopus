@@ -2,114 +2,110 @@ package stream
 
 import (
 	"context"
+	"errors"
 	"io"
 	"sync"
-
-	"github.com/tmaxmax/go-sse"
 )
 
-// SSESource wraps an SSE event stream (tmaxmax/go-sse).
+// SSESource has exactly one underlying reader. Concurrent consumers receive
+// producer-assigned sequences; Close cancels delivery and unblocks the reader.
 type SSESource struct {
 	reader    io.ReadCloser
-	cfg       *sse.ReadConfig
+	decoder   *SSEDecoder
 	events    chan sseReadResult
 	done      chan struct{}
 	closeOnce sync.Once
 	closeErr  error
-	sequence  int64
-	readMu    sync.Mutex
 }
 
 type sseReadResult struct {
-	event sse.Event
+	event SourceEvent
 	err   error
 }
 
-// NewSSESource creates a source from an HTTP response body.
 func NewSSESource(reader io.ReadCloser, maxEventSize int) *SSESource {
-	cfg := &sse.ReadConfig{MaxEventSize: maxEventSize}
-	if maxEventSize <= 0 {
-		cfg.MaxEventSize = 32 * 1024 * 1024 // 32MB default
-	}
-
-	s := &SSESource{
-		reader: reader,
-		cfg:    cfg,
-		events: make(chan sseReadResult, 1),
-		done:   make(chan struct{}),
-	}
-
-	// Start reading in background
+	s := &SSESource{reader: reader, decoder: NewSSEDecoder(maxEventSize), events: make(chan sseReadResult, 1), done: make(chan struct{})}
 	go s.readLoop()
-
 	return s
+}
+
+func (s *SSESource) deliver(result sseReadResult) error {
+	select {
+	case <-s.done:
+		return io.ErrClosedPipe
+	case s.events <- result:
+		return nil
+	}
 }
 
 func (s *SSESource) readLoop() {
 	defer close(s.events)
-	for ev, err := range sse.Read(s.reader, s.cfg) {
-		select {
-		case s.events <- sseReadResult{event: ev, err: err}:
-			if err != nil {
+	emit := func(event SourceEvent) error { return s.deliver(sseReadResult{event: event}) }
+	buffer := make([]byte, 4*1024)
+	emptyReads := 0
+	for {
+		n, err := s.reader.Read(buffer)
+		if n > 0 {
+			emptyReads = 0
+			if decodeErr := s.decoder.Feed(buffer[:n], emit); decodeErr != nil {
+				_ = s.deliver(sseReadResult{err: decodeErr})
 				return
 			}
-		case <-s.done:
+		} else if err == nil {
+			emptyReads++
+			if emptyReads >= 100 {
+				err = io.ErrNoProgress
+			}
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				if finishErr := s.decoder.Finish(emit); finishErr != nil {
+					_ = s.deliver(sseReadResult{err: finishErr})
+				}
+			} else {
+				_ = s.deliver(sseReadResult{err: err})
+			}
 			return
 		}
+		select {
+		case <-s.done:
+			return
+		default:
+		}
 	}
 }
 
-func (s *SSESource) readEvent(ctx context.Context) (sse.Event, error) {
-	select {
-	case result, ok := <-s.events:
-		if !ok {
-			return sse.Event{}, io.EOF
-		}
-		if result.err != nil {
-			return sse.Event{}, result.err
-		}
-		return result.event, nil
-	case <-ctx.Done():
-		return sse.Event{}, ctx.Err()
-	}
-}
-
-// ReadEvent reads the next SSE event data. The legacy method remains useful
-// for callers that only need the data field.
 func (s *SSESource) ReadEvent(ctx context.Context) ([]byte, error) {
 	event, err := s.ReadSourceEvent(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return event.Data, nil
+	return event.Data, err
 }
 
-// ReadSourceEvent preserves the complete SSE envelope metadata for transformer
-// paths. Sequence is local to this source and monotonically increases.
 func (s *SSESource) ReadSourceEvent(ctx context.Context) (SourceEvent, error) {
-	s.readMu.Lock()
-	defer s.readMu.Unlock()
-	event, err := s.readEvent(ctx)
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		return SourceEvent{}, err
 	}
-	s.sequence++
-	return SourceEvent{
-		Type:      event.Type,
-		Data:      []byte(event.Data),
-		ID:        event.LastEventID,
-		Sequence:  s.sequence,
-		Transport: SourceTransportSSE,
-	}, nil
+	select {
+	case <-ctx.Done():
+		return SourceEvent{}, ctx.Err()
+	case <-s.done:
+		return SourceEvent{}, io.ErrClosedPipe
+	case result, ok := <-s.events:
+		if !ok {
+			select {
+			case <-s.done:
+				return SourceEvent{}, io.ErrClosedPipe
+			default:
+				return SourceEvent{}, io.EOF
+			}
+		}
+		return result.event, result.err
+	}
 }
 
-// ReadEventWithType preserves the SSE envelope type for legacy transformer
-// paths. It delegates to the unified source event contract.
 func (s *SSESource) ReadEventWithType(ctx context.Context) (SourceEvent, error) {
 	return s.ReadSourceEvent(ctx)
 }
 
-// Close releases the underlying reader.
 func (s *SSESource) Close() error {
 	s.closeOnce.Do(func() {
 		close(s.done)

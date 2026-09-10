@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"sync"
+
+	"github.com/bestruirui/octopus/internal/transformer/model"
 )
 
 // WSUpstreamReader abstracts WebSocket upstream reader interface.
@@ -18,14 +20,19 @@ type WSUpstreamReader interface {
 
 // WSSource wraps a WebSocket upstream reader.
 type WSSource struct {
-	reader   WSUpstreamReader
-	sequence int64
-	readMu   sync.Mutex
+	inspector model.SourceEventInspector
+	reader    WSUpstreamReader
+	sequence  int64
+	readMu    sync.Mutex
 }
 
 // NewWSSource creates a source from a WebSocket reader.
-func NewWSSource(reader WSUpstreamReader) *WSSource {
-	return &WSSource{reader: reader}
+func NewWSSource(reader WSUpstreamReader, inspectors ...model.SourceEventInspector) *WSSource {
+	source := &WSSource{reader: reader}
+	if len(inspectors) > 0 {
+		source.inspector = inspectors[0]
+	}
+	return source
 }
 
 // ReadEvent reads the next WebSocket event.
@@ -43,11 +50,28 @@ func (s *WSSource) ReadEvent(ctx context.Context) ([]byte, error) {
 func (s *WSSource) ReadSourceEvent(ctx context.Context) (SourceEvent, error) {
 	s.readMu.Lock()
 	defer s.readMu.Unlock()
+	if reader, ok := s.reader.(SourceEventSource); ok {
+		source, err := reader.ReadSourceEvent(ctx)
+		if err != nil {
+			return SourceEvent{}, err
+		}
+		s.sequence++
+		source.Sequence, source.Transport = s.sequence, SourceTransportWebSocket
+		return source, nil
+	}
 	data, err := s.reader.ReadEvent(ctx)
 	if err != nil {
 		return SourceEvent{}, err
 	}
 	s.sequence++
+	if s.inspector != nil {
+		source, preview, err := s.inspector.InspectSourceEvent(ctx, SourceEvent{Data: data, Sequence: s.sequence, Transport: SourceTransportWebSocket})
+		if err != nil {
+			return SourceEvent{}, err
+		}
+		source.Type, source.ID = preview.EventType, preview.EventID
+		return source, nil
+	}
 	typ, id := websocketEventMetadata(data)
 	return SourceEvent{
 		Type:      typ,

@@ -17,7 +17,8 @@ import (
 
 func (ra *relayAttempt) handleWSStreamResponseV2(ctx context.Context, reader *wsUpstreamReader) error {
 	defer ra.closeFirstTokenBudget()
-	return ra.handleTransformedStream(ctx, stream.NewWSSource(reader), nil)
+	inspector, _ := ra.outAdapter.(model.SourceEventInspector)
+	return ra.handleTransformedStream(ctx, stream.NewWSSource(reader, inspector), nil)
 }
 
 // handleTransformedStream shares semantic precommit and finalization across
@@ -159,7 +160,10 @@ func (ra *relayAttempt) handleStreamResponsePassthroughV2(ctx context.Context, r
 		// aggregation; encoding a discarded projection can only introduce losses.
 		return nil
 	})
-	precommit := func(_, _ []byte) bool { return semanticPayload }
+	if inspector, ok := ra.outAdapter.(model.SourceEventInspector); ok {
+		observer.SetSourceInspector(inspector)
+	}
+	precommit := func(_, _ []byte) bool { return semanticPayload || observer.HasSemanticPreview() }
 	precommitMaxEvents := maxSSEEventSize/(32*1024) + 8
 	precommitMaxBytes := maxSSEEventSize
 	const sseFramingAllowance = 64 * 1024

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/bestruirui/octopus/internal/transformer/model"
 	openaiOutbound "github.com/bestruirui/octopus/internal/transformer/outbound/openai"
 
 	"github.com/bestruirui/octopus/internal/utils/log"
@@ -36,8 +37,13 @@ func newWSUpstreamReader(pc *pooledConn, channelID, keyID int) *wsUpstreamReader
 }
 
 func (r *wsUpstreamReader) ReadEvent(ctx context.Context) ([]byte, error) {
+	event, err := r.ReadSourceEvent(ctx)
+	return event.Data, err
+}
+
+func (r *wsUpstreamReader) ReadSourceEvent(ctx context.Context) (model.SourceEvent, error) {
 	if r.closed || r.done {
-		return nil, io.EOF
+		return model.SourceEvent{}, io.EOF
 	}
 
 	msgType, data, err := r.conn.Read(ctx)
@@ -45,7 +51,7 @@ func (r *wsUpstreamReader) ReadEvent(ctx context.Context) ([]byte, error) {
 		// Check if it's a normal close
 		closeStatus := websocket.CloseStatus(err)
 		if closeStatus == websocket.StatusNormalClosure || closeStatus == websocket.StatusGoingAway {
-			return nil, io.EOF
+			return model.SourceEvent{}, io.EOF
 		}
 		switch closeStatus {
 		case websocket.StatusPolicyViolation:
@@ -57,23 +63,23 @@ func (r *wsUpstreamReader) ReadEvent(ctx context.Context) ([]byte, error) {
 				r.statusCode = http.StatusBadGateway
 			}
 		}
-		return nil, fmt.Errorf("ws read error: %w", err)
+		return model.SourceEvent{}, fmt.Errorf("ws read error: %w", err)
 	}
 
 	if msgType != websocket.MessageText {
-		return nil, fmt.Errorf("unexpected ws message type: %d", msgType)
+		return model.SourceEvent{}, fmt.Errorf("unexpected ws message type: %d", msgType)
 	}
 
 	observation, parseErr := openaiOutbound.InspectResponseEvent(data, time.Now())
 	if parseErr != nil {
-		return nil, fmt.Errorf("invalid upstream Responses event: %w", parseErr)
+		return model.SourceEvent{}, fmt.Errorf("invalid upstream Responses event: %w", parseErr)
 	}
 	r.done = observation.Terminal
 	if observation.Error != nil {
 		r.statusCode, r.retryAt = observation.Error.Status, observation.Error.RetryAt
-		return nil, observation.Error
+		return model.SourceEvent{}, observation.Error
 	}
-	return data, nil
+	return observation.Source, nil
 }
 
 func (r *wsUpstreamReader) StatusCode() int {

@@ -413,11 +413,11 @@ func (p *StreamProcessor) finalize() error {
 		}
 	}
 	if p.config.PrecommitPredicate != nil && !p.committed && p.pendingBuffer.Len() > 0 {
-		if !p.config.AllowEmptyPayload {
+		if !p.config.AllowEmptyPayload && !p.config.PrecommitPredicate(nil, p.pendingBuffer.Bytes()) {
 			return ErrNoMeaningfulUpstreamPayload
 		}
-		// Detection disabled: hand the buffered metadata to the client so the
-		// stream completes instead of failing over.
+		// Finalizing the decoder may reveal a semantic event without a trailing
+		// delimiter. Recheck precommit after observation before judging it empty.
 		if err := p.flushPending(); err != nil {
 			return err
 		}

@@ -44,6 +44,7 @@ func (e *StreamUpstreamError) Error() string {
 }
 
 type ResponseEventObservation struct {
+	Source           model.SourceEvent
 	Type             string
 	ResponseID       string
 	Model            string
@@ -54,43 +55,24 @@ type ResponseEventObservation struct {
 	Error            *StreamUpstreamError
 }
 
-type streamErrorEnvelope struct {
-	Code       any             `json:"code"`
-	Type       string          `json:"type"`
-	Message    string          `json:"message"`
-	RetryAfter json.RawMessage `json:"retry_after"`
-	RetryAt    json.RawMessage `json:"retry_at"`
-}
-
 // InspectResponseEvent owns Responses envelope inspection for native transports.
 // It leaves output items raw, preserving extensions for exact replay.
 func InspectResponseEvent(data []byte, now time.Time) (ResponseEventObservation, error) {
-	var event struct {
-		Type       string               `json:"type"`
-		ID         string               `json:"id"`
-		Model      string               `json:"model"`
-		Status     int                  `json:"status"`
-		Code       any                  `json:"code"`
-		Message    string               `json:"message"`
-		RetryAfter json.RawMessage      `json:"retry_after"`
-		RetryAt    json.RawMessage      `json:"retry_at"`
-		Error      *streamErrorEnvelope `json:"error"`
-		Usage      *ResponsesUsage      `json:"usage"`
-		Response   *struct {
-			ID         string               `json:"id"`
-			Model      string               `json:"model"`
-			Status     string               `json:"status"`
-			Output     json.RawMessage      `json:"output"`
-			Usage      *ResponsesUsage      `json:"usage"`
-			Error      *streamErrorEnvelope `json:"error"`
-			RetryAfter json.RawMessage      `json:"retry_after"`
-			RetryAt    json.RawMessage      `json:"retry_at"`
-		} `json:"response"`
+	return InspectResponseSourceEvent(model.SourceEvent{Data: data, Transport: model.SourceTransportWebSocket}, now)
+}
+
+// InspectResponseSourceEvent shares its immutable wire DTO with canonical
+// conversion. Transport observations must not advance the provider state.
+func InspectResponseSourceEvent(source model.SourceEvent, now time.Time) (ResponseEventObservation, error) {
+	source, event, err := parseResponseStreamEvent(source)
+	if err != nil {
+		return ResponseEventObservation{Source: source}, err
 	}
-	if err := json.Unmarshal(data, &event); err != nil {
-		return ResponseEventObservation{}, err
+	if source.Transport == model.SourceTransportWebSocket {
+		source.Type = event.Type
+		source.ID = responseStreamEventID(event)
 	}
-	result := ResponseEventObservation{Type: event.Type, ResponseID: event.ID, Model: event.Model, Terminal: IsResponseTerminalEvent(event.Type)}
+	result := ResponseEventObservation{Source: source, Type: event.Type, ResponseID: event.ID, Model: event.Model, Terminal: IsResponseTerminalEvent(event.Type)}
 	if event.Usage != nil {
 		result.Usage = convertResponsesUsage(event.Usage)
 	}
@@ -107,13 +89,17 @@ func InspectResponseEvent(data []byte, now time.Time) (ResponseEventObservation,
 		if response.Usage != nil {
 			result.Usage = convertResponsesUsage(response.Usage)
 		}
-		if len(response.Output) > 0 && string(response.Output) != "null" {
-			result.RawOutput = append(json.RawMessage(nil), response.Output...)
+		if len(response.RawOutput) > 0 && string(response.RawOutput) != "null" {
+			result.RawOutput = response.RawOutput
 		}
-		switch response.Status {
+		status := ""
+		if response.Status != nil {
+			status = *response.Status
+		}
+		switch status {
 		case "completed", "incomplete", "failed", "cancelled", "canceled":
 			result.Terminal = true
-			result.FinishReasonSeen = response.Status == "completed" || response.Status == "incomplete"
+			result.FinishReasonSeen = status == "completed" || status == "incomplete"
 		}
 		if response.Error != nil {
 			detail = response.Error
@@ -121,8 +107,8 @@ func InspectResponseEvent(data []byte, now time.Time) (ResponseEventObservation,
 				retryAt = deadline
 			}
 		}
-		if detail == nil && (response.Status == "failed" || response.Status == "cancelled" || response.Status == "canceled") {
-			detail = &streamErrorEnvelope{Message: "upstream response " + response.Status}
+		if detail == nil && (status == "failed" || status == "cancelled" || status == "canceled") {
+			detail = &ResponsesError{Message: "upstream response " + status}
 		}
 	}
 	result.FinishReasonSeen = result.FinishReasonSeen || event.Type == "response.completed" || event.Type == "response.incomplete" || event.Type == "response.done"
@@ -144,6 +130,20 @@ func InspectResponseEvent(data []byte, now time.Time) (ResponseEventObservation,
 		result.Terminal = true
 	}
 	return result, nil
+}
+
+// RewriteModel avoids parsing and rewriting the frequent delta envelopes that
+// inspection has already established contain no matching model field.
+func (o ResponseEventObservation) RewriteModel(upstream, downstream string) []byte {
+	if upstream == downstream {
+		return o.Source.Data
+	}
+	if event, ok := o.Source.Decoded.(*ResponsesStreamEvent); ok {
+		if event.Model != upstream && (event.Response == nil || event.Response.Model != upstream) {
+			return o.Source.Data
+		}
+	}
+	return RewriteResponseEventModel(o.Source.Data, upstream, downstream)
 }
 
 func NormalizeStreamErrorCode(code any) string {

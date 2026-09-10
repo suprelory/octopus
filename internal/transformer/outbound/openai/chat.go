@@ -339,34 +339,15 @@ func (o *ChatOutbound) TransformSourceEvent(ctx context.Context, event model.Sou
 		return nil, nil
 	}
 
-	eventData := event.Data
-
-	var errCheck struct {
-		Error *model.ErrorDetail `json:"error"`
+	parsed, parseErr := parseChatStreamEvent(event)
+	if parseErr != nil {
+		return nil, parseErr
 	}
-	if err := json.Unmarshal(eventData, &errCheck); err == nil && errCheck.Error != nil {
-		return nil, &model.ResponseError{
-			Detail: *errCheck.Error,
-		}
+	if parsed.err != nil {
+		return nil, &model.ResponseError{Detail: *parsed.err}
 	}
-
-	var resp model.InternalLLMResponse
-	if err := json.Unmarshal(eventData, &resp); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal stream chunk: %w", err)
-	}
-	// Some OpenAI-compatible providers emit finish_reason:"" in every
-	// streaming chunk. An empty string means "not finished" and must not be
-	// treated as a terminal signal by downstream protocol transformers.
-	for idx := range resp.Choices {
-		if resp.Choices[idx].FinishReason != nil && *resp.Choices[idx].FinishReason == "" {
-			resp.Choices[idx].FinishReason = nil
-		}
-	}
-	if err := chatCitations(&resp); err != nil {
-		return nil, err
-	}
-	events = model.StreamEventsFromInternalResponse(&resp)
-	if len(events) == 0 && len(resp.Choices) == 0 && resp.Usage == nil {
+	events = model.StreamEventsFromInternalResponse(&parsed.response)
+	if len(events) == 0 && len(parsed.response.Choices) == 0 && parsed.response.Usage == nil {
 		events = append(events, model.OpaqueSourceEvent(event))
 	}
 	return events, nil

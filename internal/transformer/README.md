@@ -85,6 +85,16 @@ stream diagnostics. Native passthrough observes the canonical lifecycle without
 encoding and discarding a lossy projection. OpenAI URL/file/container citations
 keep native annotations; Gemini grounding retains unknown retrieval metadata.
 
+SSE source and passthrough observation share one bounded framing decoder. A
+stateless `SourceEventInspector` can preview complete data lines to release
+semantic precommit while retaining trailing event types, IDs and multiline data
+for final conversion. `SourceEvent.Decoded` is an immutable, optional provider
+DTO cache; changing `Data` requires clearing it. The cache keeps payload fields
+separate from mutable SSE envelope metadata. Native WebSocket observation and
+canonical conversion reuse the same DTO, including raw output, usage and retry
+information. See [decoder benchmarks](../relay/stream/DECODER_BENCHMARKS.md) for
+reproduction commands, before/after measurements and their scope.
+
 Wire references: [Responses streaming events](https://developers.openai.com/api/reference/resources/responses/streaming-events),
 [Anthropic messages](https://platform.claude.com/docs/en/api/beta/messages), and
 [Gemini generate content](https://ai.google.dev/api/generate-content).

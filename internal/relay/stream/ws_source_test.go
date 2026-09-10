@@ -4,6 +4,10 @@ import (
 	"context"
 	"io"
 	"testing"
+	"time"
+
+	"github.com/bestruirui/octopus/internal/transformer/model"
+	openai "github.com/bestruirui/octopus/internal/transformer/outbound/openai"
 )
 
 type testWSReader struct {
@@ -43,5 +47,29 @@ func TestWSSourceExtractsEnvelopeMetadata(t *testing.T) {
 	}
 	if second.Type != "response.completed" || second.ID != "evt-2" || second.Sequence != 2 || second.Transport != SourceTransportWebSocket {
 		t.Fatalf("second event = %#v, want WebSocket metadata", second)
+	}
+}
+
+type inspectedWSReader struct {
+	testWSReader
+	source SourceEvent
+}
+
+func (r *inspectedWSReader) ReadSourceEvent(context.Context) (SourceEvent, error) {
+	return r.source, nil
+}
+
+func TestWSSourcePreservesAlreadyInspectedEvents(t *testing.T) {
+	observation, err := openai.InspectResponseEvent([]byte(`{"type":"response.output_text.delta","event_id":"native-id","delta":"hello"}`), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := NewWSSource(&inspectedWSReader{source: observation.Source}, model.SourceEventInspectorFunc(func(context.Context, SourceEvent) (SourceEvent, model.StreamEventPreview, error) {
+		t.Fatal("an already inspected reader was parsed again")
+		return SourceEvent{}, model.StreamEventPreview{}, nil
+	}))
+	event, err := source.ReadSourceEvent(context.Background())
+	if err != nil || event.Decoded != observation.Source.Decoded || event.ID != "native-id" || event.Type != observation.Type || event.Sequence != 1 || event.Transport != SourceTransportWebSocket {
+		t.Fatalf("inspected source metadata or DTO lost: %+v, %v", event, err)
 	}
 }

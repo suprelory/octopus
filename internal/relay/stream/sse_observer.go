@@ -6,53 +6,80 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/bestruirui/octopus/internal/transformer/model"
 )
 
-type SSEEventObserver func(ctx context.Context, eventType string, data []byte) error
+type SSEEventObserver func(context.Context, string, []byte) error
+type SourceEventObserver func(context.Context, SourceEvent) error
 
-// SourceEventObserver receives the complete normalized SSE envelope. It is the
-// preferred observer contract for callers that need event provenance.
-type SourceEventObserver func(ctx context.Context, event SourceEvent) error
-
-// IncrementalSSEObserver parses arbitrary byte chunks without retaining the
-// complete stream. Only the current SSE event is buffered, bounded by
-// maxEventSize.
+// IncrementalSSEObserver shares framing with SSESource. A stateless preview may
+// release semantic precommit before a blank line; the canonical observer only
+// sees the final envelope, including trailing IDs and additional data lines.
 type IncrementalSSEObserver struct {
-	observe      SourceEventObserver
-	terminal     map[string]struct{}
-	maxEventSize int
-
-	pendingLine []byte
-	eventType   string
-	eventID     string
-	data        bytes.Buffer
+	decoder     *SSEDecoder
+	observe     SourceEventObserver
+	terminal    map[string]struct{}
+	inspector   model.SourceEventInspector
+	memo        SourceEvent
+	preview     model.StreamEventPreview
 	terminalHit bool
 	finalized   bool
-	sequence    int64
+	legacy      bool
 }
 
 func NewIncrementalSSEObserver(maxEventSize int, terminal map[string]struct{}, observe SSEEventObserver) *IncrementalSSEObserver {
-	var sourceObserver SourceEventObserver
+	var callback SourceEventObserver
 	if observe != nil {
-		sourceObserver = func(ctx context.Context, event SourceEvent) error {
-			return observe(ctx, event.Type, event.Data)
-		}
+		callback = func(ctx context.Context, event SourceEvent) error { return observe(ctx, event.Type, event.Data) }
 	}
-	return NewIncrementalSourceEventObserver(maxEventSize, terminal, sourceObserver)
+	observer := NewIncrementalSourceEventObserver(maxEventSize, terminal, callback)
+	observer.legacy = true
+	return observer
 }
 
-// NewIncrementalSourceEventObserver creates an SSE observer using the unified
-// source-event contract. The legacy constructor remains available for callers
-// that only consume type and payload bytes.
 func NewIncrementalSourceEventObserver(maxEventSize int, terminal map[string]struct{}, observe SourceEventObserver) *IncrementalSSEObserver {
-	if maxEventSize <= 0 {
-		maxEventSize = 32 * 1024 * 1024
+	return &IncrementalSSEObserver{decoder: NewSSEDecoder(maxEventSize), terminal: terminal, observe: observe}
+}
+
+func (o *IncrementalSSEObserver) SetSourceInspector(inspector model.SourceEventInspector) {
+	o.inspector = inspector
+}
+
+func (o *IncrementalSSEObserver) inspect(ctx context.Context, event SourceEvent) (SourceEvent, model.StreamEventPreview, error) {
+	if o.memo.Decoded != nil && bytes.Equal(event.Data, o.memo.Data) {
+		event.Decoded = o.memo.Decoded
 	}
-	return &IncrementalSSEObserver{
-		observe:      observe,
-		terminal:     terminal,
-		maxEventSize: maxEventSize,
+	if o.inspector != nil {
+		return o.inspector.InspectSourceEvent(ctx, event)
 	}
+	preview := model.StreamEventPreview{EventType: strings.TrimSpace(event.Type)}
+	if preview.EventType == "" && (o.legacy || len(o.terminal) > 0) {
+		var envelope struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(event.Data, &envelope) == nil {
+			preview.EventType = strings.TrimSpace(envelope.Type)
+		}
+	}
+	return event, preview, nil
+}
+
+func (o *IncrementalSSEObserver) dispatch(ctx context.Context, event SourceEvent) error {
+	event, preview, err := o.inspect(ctx, event)
+	o.memo, o.preview = SourceEvent{}, model.StreamEventPreview{}
+	if err != nil {
+		return err
+	}
+	_, terminal := o.terminal[preview.EventType]
+	o.terminalHit = o.terminalHit || terminal || preview.Terminal
+	if o.legacy {
+		event.Type = preview.EventType
+	}
+	if o.observe != nil {
+		return o.observe(ctx, event)
+	}
+	return nil
 }
 
 func (o *IncrementalSSEObserver) Observe(ctx context.Context, chunk []byte) error {
@@ -62,133 +89,32 @@ func (o *IncrementalSSEObserver) Observe(ctx context.Context, chunk []byte) erro
 	if o.finalized {
 		return fmt.Errorf("SSE observer already finalized")
 	}
-	o.pendingLine = append(o.pendingLine, chunk...)
-	for {
-		newline := bytes.IndexByte(o.pendingLine, '\n')
-		if newline < 0 {
-			if o.data.Len()+len(o.pendingLine) > o.maxEventSize {
-				return fmt.Errorf("SSE event exceeds maximum size of %d bytes", o.maxEventSize)
+	if err := o.decoder.Feed(chunk, func(event SourceEvent) error { return o.dispatch(ctx, event) }); err != nil {
+		return err
+	}
+	o.preview = model.StreamEventPreview{}
+	if o.inspector != nil {
+		if pending, ok := o.decoder.Pending(); ok {
+			event, preview, err := o.inspect(ctx, pending)
+			if err == nil {
+				o.memo, o.preview = event, preview
+				_, terminal := o.terminal[preview.EventType]
+				o.preview.Terminal = o.preview.Terminal || terminal
 			}
-			return nil
-		}
-		line := o.pendingLine[:newline]
-		o.pendingLine = o.pendingLine[newline+1:]
-		if len(line) > 0 && line[len(line)-1] == '\r' {
-			line = line[:len(line)-1]
-		}
-		if err := o.processLine(ctx, line); err != nil {
-			return err
 		}
 	}
+	return nil
 }
 
 func (o *IncrementalSSEObserver) Finalize(ctx context.Context) error {
-	if o == nil || o.finalized {
+	if o == nil {
 		return nil
 	}
 	o.finalized = true
-	if len(o.pendingLine) > 0 {
-		line := o.pendingLine
-		o.pendingLine = nil
-		if len(line) > 0 && line[len(line)-1] == '\r' {
-			line = line[:len(line)-1]
-		}
-		if err := o.processLine(ctx, line); err != nil {
-			return err
-		}
-	}
-	return o.dispatch(ctx)
+	return o.decoder.Finish(func(event SourceEvent) error { return o.dispatch(ctx, event) })
 }
 
+func (o *IncrementalSSEObserver) HasSemanticPreview() bool { return o != nil && o.preview.Semantic }
 func (o *IncrementalSSEObserver) ReachedTerminal() bool {
-	return o != nil && o.terminalHit
-}
-
-func (o *IncrementalSSEObserver) processLine(ctx context.Context, line []byte) error {
-	if len(line) == 0 {
-		return o.dispatch(ctx)
-	}
-	if line[0] == ':' {
-		return nil
-	}
-	field, value, found := bytes.Cut(line, []byte{':'})
-	if !found {
-		field = line
-		value = nil
-	}
-	if len(value) > 0 && value[0] == ' ' {
-		value = value[1:]
-	}
-	switch string(field) {
-	case "event":
-		o.eventType = string(value)
-		if len(o.eventType)+o.data.Len() > o.maxEventSize {
-			return fmt.Errorf("SSE event exceeds maximum size of %d bytes", o.maxEventSize)
-		}
-	case "id":
-		o.eventID = string(value)
-	case "data":
-		if o.data.Len() > 0 {
-			o.data.WriteByte('\n')
-		}
-		o.data.Write(value)
-		if o.data.Len() > o.maxEventSize {
-			return fmt.Errorf("SSE event exceeds maximum size of %d bytes", o.maxEventSize)
-		}
-		o.detectTerminal()
-		// Provider SSE payloads are JSON objects in a single data field. Dispatch
-		// as soon as that field is complete so a provider that flushes one newline
-		// and stalls cannot deadlock semantic precommit. Incomplete/multiline JSON
-		// continues buffering until the blank event delimiter.
-		trimmed := bytes.TrimSpace(o.data.Bytes())
-		if len(trimmed) > 0 && trimmed[0] == '{' && json.Valid(trimmed) {
-			return o.dispatch(ctx)
-		}
-	}
-	return nil
-}
-
-func (o *IncrementalSSEObserver) detectTerminal() {
-	typ := strings.TrimSpace(o.eventType)
-	if typ == "" {
-		var envelope struct {
-			Type string `json:"type"`
-		}
-		if json.Unmarshal(o.data.Bytes(), &envelope) == nil {
-			typ = strings.TrimSpace(envelope.Type)
-		}
-	}
-	if _, ok := o.terminal[typ]; ok {
-		o.terminalHit = true
-	}
-}
-
-func (o *IncrementalSSEObserver) dispatch(ctx context.Context) error {
-	if o.eventType == "" && o.data.Len() == 0 {
-		return nil
-	}
-	typ := strings.TrimSpace(o.eventType)
-	data := append([]byte(nil), o.data.Bytes()...)
-	if typ == "" {
-		var envelope struct {
-			Type string `json:"type"`
-		}
-		if json.Unmarshal(data, &envelope) == nil {
-			typ = strings.TrimSpace(envelope.Type)
-		}
-	}
-	o.detectTerminal()
-	o.eventType = ""
-	o.data.Reset()
-	o.sequence++
-	if o.observe != nil {
-		return o.observe(ctx, SourceEvent{
-			Type:      typ,
-			Data:      data,
-			ID:        o.eventID,
-			Sequence:  o.sequence,
-			Transport: SourceTransportSSE,
-		})
-	}
-	return nil
+	return o != nil && (o.terminalHit || o.preview.Terminal)
 }

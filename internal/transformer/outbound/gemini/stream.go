@@ -3,8 +3,6 @@ package gemini
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/bestruirui/octopus/internal/transformer/model"
@@ -37,11 +35,11 @@ func (o *MessagesOutbound) TransformSourceEvent(ctx context.Context, event model
 	if len(bytes.TrimSpace(event.Data)) == 0 {
 		return nil, nil
 	}
-	var response model.GeminiGenerateContentResponse
-	if err := json.Unmarshal(event.Data, &response); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal gemini stream chunk: %w", err)
+	response, parseErr := parseGeminiSource(event)
+	if parseErr != nil {
+		return nil, parseErr
 	}
-	chunk := convertGeminiToLLMResponse(&response, true, o.nextReasoningIndex, o.nextToolCallIndex)
+	chunk := convertGeminiToLLMResponse(response, true, o.nextReasoningIndex, o.nextToolCallIndex)
 	for _, candidate := range response.Candidates {
 		if candidate == nil || candidate.Content == nil {
 			continue

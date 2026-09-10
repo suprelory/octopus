@@ -2,6 +2,7 @@ package openai
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -77,5 +78,18 @@ func TestChatByteStreamEventWrapsSourceEventConversion(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("byte wrapper = %+v, want %+v", got, want)
+	}
+}
+
+func TestChatInspectorPreservesProviderErrorWithInvalidChoices(t *testing.T) {
+	adapter := &ChatOutbound{}
+	source, preview, err := adapter.InspectSourceEvent(context.Background(), model.SourceEvent{Data: []byte(`{"choices":{},"error":{"code":"rate_limit","type":"requests","message":"busy"}}`)})
+	if err != nil || !preview.Terminal || preview.Semantic {
+		t.Fatalf("error preview = %+v, %v", preview, err)
+	}
+	_, err = adapter.TransformSourceEvent(context.Background(), source)
+	var failure *model.ResponseError
+	if !errors.As(err, &failure) || failure.Detail.Code != "rate_limit" || failure.Detail.Message != "busy" {
+		t.Fatalf("provider error was replaced by a choice decoding error: %v", err)
 	}
 }

@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	openai "github.com/bestruirui/octopus/internal/transformer/outbound/openai"
 )
 
 func TestIncrementalSSEObserverHandlesSplitAndMultilineEvents(t *testing.T) {
@@ -115,7 +117,7 @@ func TestIncrementalSSEObserverLimitsIndividualEventNotWholeChunk(t *testing.T) 
 	}
 }
 
-func TestIncrementalSSEObserverDispatchesCompleteJSONDataLineBeforeBlankLine(t *testing.T) {
+func TestIncrementalSSEObserverPreviewsCompleteJSONBeforeBlankLine(t *testing.T) {
 	observed := 0
 	observer := NewIncrementalSSEObserver(1024, nil, func(_ context.Context, eventType string, data []byte) error {
 		observed++
@@ -124,11 +126,12 @@ func TestIncrementalSSEObserverDispatchesCompleteJSONDataLineBeforeBlankLine(t *
 		}
 		return nil
 	})
+	observer.SetSourceInspector(&openai.ResponseOutbound{})
 	if err := observer.Observe(context.Background(), []byte("data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\n")); err != nil {
 		t.Fatal(err)
 	}
-	if observed != 1 {
-		t.Fatalf("observed events = %d, want 1 before blank line", observed)
+	if observed != 0 || !observer.HasSemanticPreview() {
+		t.Fatalf("preview should release precommit without consuming the frame: observed=%d semantic=%t", observed, observer.HasSemanticPreview())
 	}
 	if err := observer.Observe(context.Background(), []byte("\n")); err != nil {
 		t.Fatal(err)
