@@ -11,6 +11,7 @@ import (
 
 	"github.com/bestruirui/octopus/internal/relay/stream"
 	"github.com/bestruirui/octopus/internal/transformer/model"
+	"github.com/bestruirui/octopus/internal/transformer/outbound"
 	"github.com/bestruirui/octopus/internal/utils/log"
 )
 
@@ -212,7 +213,11 @@ func (ra *relayAttempt) transformSourceEvent(ctx context.Context, event model.So
 
 func (ra *relayAttempt) ensureStreamFinalizer() *model.StreamFinalizer {
 	if ra.streamFinalizer == nil {
-		ra.streamFinalizer = model.NewStreamFinalizer()
+		policy := model.DefaultStreamTerminalPolicy()
+		if ra.channel != nil {
+			policy, _ = outbound.TerminalPolicy(ra.channel.Type)
+		}
+		ra.streamFinalizer = model.NewStreamFinalizer(policy)
 	}
 	return ra.streamFinalizer
 }
@@ -228,8 +233,10 @@ func (ra *relayAttempt) finalizeStreamLifecycle(ctx context.Context, writeTail b
 	finalized, err := ra.ensureStreamFinalizer().FinalizeStream()
 	if err != nil {
 		ra.captureStreamError(err)
+		log.Debugf("stream completion status=interrupted cause=%s: %v", ra.streamFinalizer.FinishCause(), err)
 		return err
 	}
+	log.Debugf("stream completion status=completed cause=%s terminal_event=%s", finalized.FinishCause, finalized.TerminalEvent)
 
 	if len(finalized.TailEvents) > 0 {
 		tail, transformErr := ra.inAdapter.TransformStreamEvents(ctx, finalized.TailEvents)

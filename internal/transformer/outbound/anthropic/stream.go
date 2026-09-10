@@ -21,11 +21,14 @@ func (o *MessageOutbound) TransformSourceEvent(ctx context.Context, event model.
 	if len(eventData) == 0 && eventType == "" {
 		return nil, nil
 	}
-	if bytes.HasPrefix(bytes.TrimSpace(eventData), []byte("[DONE]")) || eventType == "[DONE]" || strings.EqualFold(eventType, "done") {
+	if bytes.Equal(bytes.TrimSpace(eventData), []byte("[DONE]")) || eventType == "[DONE]" || strings.EqualFold(eventType, "done") {
+		if eventType == "" {
+			eventType = "[DONE]"
+		}
 		if o.messageStopped {
 			return nil, nil
 		}
-		return []model.StreamEvent{{Kind: model.StreamEventKindDone}}, nil
+		return []model.StreamEvent{{Kind: model.StreamEventKindDone, Terminal: true, TerminalEvent: eventType}}, nil
 	}
 	if !o.initialized {
 		o.toolCalls = make(map[int]*model.ToolCall)
@@ -214,7 +217,7 @@ func (o *MessageOutbound) TransformSourceEvent(ctx context.Context, event model.
 		appendUsage(o.streamUsage)
 		// An explicit terminal marker lets the finalizer infer a missing stop
 		// reason without accepting an incomplete stream that only reached EOF.
-		events = append(events, model.StreamEvent{Kind: model.StreamEventKindDone})
+		events = append(events, model.StreamEvent{Kind: model.StreamEventKindDone, Terminal: true, TerminalEvent: "message_stop"})
 
 	case "content_block_stop":
 		events = append(events, model.StreamEvent{Kind: model.StreamEventKindContentBlockStop, ID: o.streamID, Model: o.streamModel, Index: 0, BlockIndex: lo.ToPtr(int(lo.FromPtr(streamEvent.Index)))})
@@ -226,7 +229,7 @@ func (o *MessageOutbound) TransformSourceEvent(ctx context.Context, event model.
 
 	case "error":
 		if streamEvent.Error == nil {
-			return nil, nil
+			return nil, &model.ResponseError{StatusCode: 502, Detail: model.ErrorDetail{Type: "upstream_error", Message: "Anthropic stream error without error detail"}}
 		}
 		events = append(events, model.StreamEvent{Kind: model.StreamEventKindError, ID: o.streamID, Model: o.streamModel, Error: &model.ResponseError{StatusCode: mapAnthropicErrorTypeToStatus(streamEvent.Error.Type), Detail: model.ErrorDetail{Type: streamEvent.Error.Type, Message: streamEvent.Error.Message}}})
 

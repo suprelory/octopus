@@ -32,6 +32,10 @@ const (
 
 type StreamEvent struct {
 	Kind StreamEventKind `json:"kind"`
+	// Terminal marks an event that came from an explicit provider terminal
+	// envelope. TerminalEvent retains the provider event name for diagnostics.
+	Terminal      bool   `json:"terminal,omitempty"`
+	TerminalEvent string `json:"terminal_event,omitempty"`
 
 	ID    string `json:"id,omitempty"`
 	Model string `json:"model,omitempty"`

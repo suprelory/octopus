@@ -31,8 +31,14 @@ func (o *MessagesOutbound) nextToolCallIndex() int {
 func (o *MessagesOutbound) TransformSourceEvent(ctx context.Context, event model.SourceEvent) ([]model.StreamEvent, error) {
 	eventData := event.Data
 	eventType := strings.TrimSpace(event.Type)
-	if bytes.HasPrefix(bytes.TrimSpace(eventData), []byte("[DONE]")) || len(eventData) == 0 || eventType == "[DONE]" || strings.EqualFold(eventType, "done") {
-		return []model.StreamEvent{{Kind: model.StreamEventKindDone}}, nil
+	if bytes.Equal(bytes.TrimSpace(eventData), []byte("[DONE]")) || eventType == "[DONE]" || strings.EqualFold(eventType, "done") {
+		if eventType == "" {
+			eventType = "[DONE]"
+		}
+		return []model.StreamEvent{{Kind: model.StreamEventKindDone, Terminal: true, TerminalEvent: eventType}}, nil
+	}
+	if len(bytes.TrimSpace(eventData)) == 0 {
+		return nil, nil
 	}
 
 	var geminiResp model.GeminiGenerateContentResponse
@@ -109,7 +115,7 @@ func (o *MessagesOutbound) TransformSourceEvent(ctx context.Context, event model
 			reason = model.FinishReasonContentFilter
 		}
 		events = append(events, model.StreamEvent{Kind: model.StreamEventKindMessageStart, ID: geminiResp.ResponseId, Model: geminiResp.ModelVersion, Role: "assistant"})
-		events = append(events, model.StreamEvent{Kind: model.StreamEventKindMessageStop, ID: geminiResp.ResponseId, Model: geminiResp.ModelVersion, StopReason: reason})
+		events = append(events, model.StreamEvent{Kind: model.StreamEventKindMessageStop, ID: geminiResp.ResponseId, Model: geminiResp.ModelVersion, StopReason: reason, Terminal: true, TerminalEvent: "prompt_feedback"})
 	}
 	return events, nil
 }

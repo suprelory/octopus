@@ -322,8 +322,11 @@ func (o *ChatOutbound) TransformStream(ctx context.Context, eventData []byte) (*
 // compatible SSE servers put it in the event type instead.
 func (o *ChatOutbound) TransformSourceEvent(ctx context.Context, event model.SourceEvent) ([]model.StreamEvent, error) {
 	eventType := strings.TrimSpace(event.Type)
-	if bytes.HasPrefix(bytes.TrimSpace(event.Data), []byte("[DONE]")) || eventType == "[DONE]" || strings.EqualFold(eventType, "done") {
-		return []model.StreamEvent{{Kind: model.StreamEventKindDone}}, nil
+	if bytes.Equal(bytes.TrimSpace(event.Data), []byte("[DONE]")) || eventType == "[DONE]" || strings.EqualFold(eventType, "done") {
+		if eventType == "" {
+			eventType = "[DONE]"
+		}
+		return []model.StreamEvent{{Kind: model.StreamEventKindDone, Terminal: true, TerminalEvent: eventType}}, nil
 	}
 	if len(event.Data) == 0 {
 		return nil, nil

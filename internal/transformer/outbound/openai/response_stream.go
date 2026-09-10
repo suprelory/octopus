@@ -130,8 +130,11 @@ func (o *ResponseOutbound) TransformSourceEvent(ctx context.Context, event model
 	if len(eventData) == 0 && eventType == "" {
 		return nil, nil
 	}
-	if bytes.HasPrefix(bytes.TrimSpace(eventData), []byte("[DONE]")) || eventType == "[DONE]" || strings.EqualFold(eventType, "done") {
-		return []model.StreamEvent{{Kind: model.StreamEventKindDone}}, nil
+	if bytes.Equal(bytes.TrimSpace(eventData), []byte("[DONE]")) || eventType == "[DONE]" || strings.EqualFold(eventType, "done") {
+		if eventType == "" {
+			eventType = "[DONE]"
+		}
+		return []model.StreamEvent{{Kind: model.StreamEventKindDone, Terminal: true, TerminalEvent: eventType}}, nil
 	}
 
 	if !o.initialized {
@@ -263,7 +266,7 @@ func (o *ResponseOutbound) TransformSourceEvent(ctx context.Context, event model
 			if finishReason != nil && *finishReason == "stop" && o.responseCarriesFunctionCall(streamEvent.Response) {
 				finishReason = lo.ToPtr("tool_calls")
 			}
-			stopEvent := model.StreamEvent{Kind: model.StreamEventKindMessageStop, ID: base.ID, Model: base.Model, Index: base.Index, StopReason: model.ParseFinishReason(lo.FromPtr(finishReason)), ProviderExtensions: base.ProviderExtensions}
+			stopEvent := model.StreamEvent{Kind: model.StreamEventKindMessageStop, ID: base.ID, Model: base.Model, Index: base.Index, StopReason: model.ParseFinishReason(lo.FromPtr(finishReason)), ProviderExtensions: base.ProviderExtensions, Terminal: true, TerminalEvent: "response.completed"}
 			events = append(events, stopEvent)
 			if streamEvent.Response.Usage != nil {
 				usage := convertResponsesUsage(streamEvent.Response.Usage)
@@ -271,7 +274,7 @@ func (o *ResponseOutbound) TransformSourceEvent(ctx context.Context, event model
 				events = append(events, usageEvent)
 			}
 		} else {
-			events = append(events, model.StreamEvent{Kind: model.StreamEventKindDone, ID: base.ID, Model: base.Model})
+			events = append(events, model.StreamEvent{Kind: model.StreamEventKindDone, ID: base.ID, Model: base.Model, Terminal: true, TerminalEvent: "response.completed"})
 		}
 
 	case "response.failed", "response.incomplete", "error":
@@ -300,8 +303,13 @@ func (o *ResponseOutbound) TransformSourceEvent(ctx context.Context, event model
 		}
 		if respErr != nil {
 			events = append(events, model.StreamEvent{Kind: model.StreamEventKindError, ID: base.ID, Model: base.Model, Error: respErr})
+		} else if streamEvent.Type != "response.incomplete" {
+			events = append(events, model.StreamEvent{Kind: model.StreamEventKindError, ID: base.ID, Model: base.Model, Error: &model.ResponseError{StatusCode: 502, Detail: model.ErrorDetail{Type: "upstream_error", Message: "OpenAI Responses stream ended with " + streamEvent.Type}}})
 		}
-		events = append(events, model.StreamEvent{Kind: model.StreamEventKindMessageStop, ID: base.ID, Model: base.Model, Index: base.Index, StopReason: model.ParseFinishReason(lo.FromPtr(reason))})
+		events = append(events, model.StreamEvent{Kind: model.StreamEventKindMessageStop, ID: base.ID, Model: base.Model, Index: base.Index, StopReason: model.ParseFinishReason(lo.FromPtr(reason)), Terminal: true, TerminalEvent: streamEvent.Type})
+		if streamEvent.Response != nil && streamEvent.Response.Usage != nil {
+			events = append(events, model.StreamEvent{Kind: model.StreamEventKindUsageDelta, ID: base.ID, Model: base.Model, Usage: convertResponsesUsage(streamEvent.Response.Usage)})
+		}
 
 	default:
 		return nil, nil

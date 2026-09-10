@@ -34,6 +34,7 @@ type ProtocolDescriptor struct {
 	NativeInputFormats map[model.APIFormat]struct{}
 	RelayOperations    map[string]struct{}
 	Transport          string
+	TerminalPolicy     model.StreamTerminalPolicy
 	Factory            func() model.Outbound
 }
 
@@ -54,7 +55,12 @@ var protocolDescriptors = map[OutboundType]ProtocolDescriptor{
 		RequestTypes:    requestTypes(model.RequestTypeChat, model.RequestTypeResponses),
 		RelayOperations: relayOperations(RelayOperationImages),
 		Transport:       "http",
-		Factory:         func() model.Outbound { return &openai.ChatOutbound{} },
+		TerminalPolicy: model.StreamTerminalPolicy{
+			TerminalEvents:          apiTerminalEvents("[DONE]", "done"),
+			RequiredLifecycleEvents: []model.StreamEventKind{model.StreamEventKindMessageStart, model.StreamEventKindMessageStop},
+			DefaultFinishReason:     model.FinishReasonStop,
+		},
+		Factory: func() model.Outbound { return &openai.ChatOutbound{} },
 	},
 	OutboundTypeOpenAIResponse: {
 		Name:               "openai_responses",
@@ -67,7 +73,12 @@ var protocolDescriptors = map[OutboundType]ProtocolDescriptor{
 			RelayOperationResponsesWebSocket,
 		),
 		Transport: "http+websocket",
-		Factory:   func() model.Outbound { return &openai.ResponseOutbound{} },
+		TerminalPolicy: model.StreamTerminalPolicy{
+			TerminalEvents:          apiTerminalEvents("response.completed", "response.incomplete", "response.failed", "error", "[DONE]", "done"),
+			RequiredLifecycleEvents: []model.StreamEventKind{model.StreamEventKindMessageStart, model.StreamEventKindMessageStop},
+			DefaultFinishReason:     model.FinishReasonStop,
+		},
+		Factory: func() model.Outbound { return &openai.ResponseOutbound{} },
 	},
 	OutboundTypeAnthropic: {
 		Name:               "anthropic_messages",
@@ -75,21 +86,34 @@ var protocolDescriptors = map[OutboundType]ProtocolDescriptor{
 		RequestTypes:       requestTypes(model.RequestTypeChat, model.RequestTypeResponses),
 		NativeInputFormats: apiFormats(model.APIFormatAnthropicMessage),
 		Transport:          "http",
-		Factory:            func() model.Outbound { return &outAnthropic.MessageOutbound{} },
+		TerminalPolicy: model.StreamTerminalPolicy{
+			TerminalEvents:          apiTerminalEvents("message_stop", "error", "[DONE]", "done"),
+			RequiredLifecycleEvents: []model.StreamEventKind{model.StreamEventKindMessageStart, model.StreamEventKindMessageStop},
+			DefaultFinishReason:     model.FinishReasonStop,
+		},
+		Factory: func() model.Outbound { return &outAnthropic.MessageOutbound{} },
 	},
 	OutboundTypeGemini: {
 		Name:         "gemini_contents",
 		APIFormat:    model.APIFormatGeminiContents,
 		RequestTypes: requestTypes(model.RequestTypeChat, model.RequestTypeResponses),
 		Transport:    "http",
-		Factory:      func() model.Outbound { return &gemini.MessagesOutbound{} },
+		TerminalPolicy: model.StreamTerminalPolicy{
+			TerminalEvents:          apiTerminalEvents("[DONE]", "done"),
+			RequiredLifecycleEvents: []model.StreamEventKind{model.StreamEventKindMessageStart, model.StreamEventKindMessageStop},
+			DefaultFinishReason:     model.FinishReasonStop,
+		},
+		Factory: func() model.Outbound { return &gemini.MessagesOutbound{} },
 	},
 	OutboundTypeOpenAIEmbedding: {
 		Name:         "openai_embeddings",
 		APIFormat:    model.APIFormatOpenAIEmbedding,
 		RequestTypes: requestTypes(model.RequestTypeEmbedding),
 		Transport:    "http",
-		Factory:      func() model.Outbound { return &openai.EmbeddingOutbound{} },
+		TerminalPolicy: model.StreamTerminalPolicy{
+			DefaultFinishReason: model.FinishReasonStop,
+		},
+		Factory: func() model.Outbound { return &openai.EmbeddingOutbound{} },
 	},
 }
 
@@ -117,9 +141,25 @@ func relayOperations(operations ...string) map[string]struct{} {
 	return result
 }
 
+func apiTerminalEvents(events ...string) map[string]struct{} {
+	result := make(map[string]struct{}, len(events))
+	for _, event := range events {
+		result[event] = struct{}{}
+	}
+	return result
+}
+
 func Descriptor(outboundType OutboundType) (ProtocolDescriptor, bool) {
 	descriptor, ok := protocolDescriptors[outboundType]
 	return descriptor, ok
+}
+
+func TerminalPolicy(outboundType OutboundType) (model.StreamTerminalPolicy, bool) {
+	descriptor, ok := Descriptor(outboundType)
+	if !ok {
+		return model.DefaultStreamTerminalPolicy(), false
+	}
+	return descriptor.TerminalPolicy, true
 }
 
 func SupportsRequestType(outboundType OutboundType, requestType model.RequestType) bool {
