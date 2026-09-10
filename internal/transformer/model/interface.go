@@ -42,8 +42,14 @@ type Outbound interface {
 	TransformStream(ctx context.Context, eventData []byte) (*InternalLLMResponse, error)
 
 	// TransformStreamEvent converts provider bytes into canonical stream events.
-	// Relay must not inspect provider-specific chunks after this boundary.
+	// This compatibility method wraps TransformSourceEvent with a data-only
+	// source event. Relay must not inspect provider-specific chunks after this
+	// boundary.
 	TransformStreamEvent(ctx context.Context, eventData []byte) ([]StreamEvent, error)
+
+	// TransformSourceEvent converts a complete provider event into canonical
+	// stream events without reconstructing transport metadata from payload JSON.
+	TransformSourceEvent(ctx context.Context, event SourceEvent) ([]StreamEvent, error)
 
 	// TransformError converts an upstream protocol error into the normalized
 	// error model used by relay failover and the inbound transformer.

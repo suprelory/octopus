@@ -89,3 +89,27 @@ func TestStreamProcessorPassesSourceEventToTransform(t *testing.T) {
 		t.Fatalf("source event = %#v, want complete metadata", got)
 	}
 }
+
+func TestStreamProcessorDoesNotRewriteEventDataForEventTransform(t *testing.T) {
+	const payload = `{"type":"payload-type"}`
+	source := NewSSESource(io.NopCloser(strings.NewReader("event: envelope-type\ndata: "+payload+"\n\n")), 0)
+	defer source.Close()
+	writer := newMockStreamWriter()
+	var got SourceEvent
+	processor := NewStreamProcessor(StreamConfig{
+		Source:  source,
+		Writer:  writer,
+		Context: context.Background(),
+		TransformEvent: func(_ context.Context, event SourceEvent) ([]byte, error) {
+			got = event
+			return []byte("event"), nil
+		},
+	})
+
+	if err := processor.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if got.Type != "envelope-type" || string(got.Data) != payload {
+		t.Fatalf("source event = %#v, want separate unchanged type and data", got)
+	}
+}

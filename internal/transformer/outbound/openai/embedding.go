@@ -120,5 +120,9 @@ func (o *EmbeddingOutbound) TransformStream(ctx context.Context, eventData []byt
 }
 
 func (o *EmbeddingOutbound) TransformStreamEvent(ctx context.Context, eventData []byte) ([]model.StreamEvent, error) {
+	return o.TransformSourceEvent(ctx, model.SourceEvent{Data: eventData})
+}
+
+func (o *EmbeddingOutbound) TransformSourceEvent(ctx context.Context, event model.SourceEvent) ([]model.StreamEvent, error) {
 	return nil, errors.New("streaming is not supported for embedding API")
 }

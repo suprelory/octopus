@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/bestruirui/octopus/internal/transformer/model"
 )
@@ -24,8 +25,13 @@ func (o *MessagesOutbound) nextToolCallIndex() int {
 	return idx
 }
 
-func (o *MessagesOutbound) TransformStreamEvent(ctx context.Context, eventData []byte) ([]model.StreamEvent, error) {
-	if bytes.HasPrefix(eventData, []byte("[DONE]")) || len(eventData) == 0 {
+// TransformSourceEvent converts a complete Gemini provider envelope. Gemini
+// generally puts lifecycle data in JSON, but compatible SSE servers may expose
+// a standalone done event through the envelope metadata.
+func (o *MessagesOutbound) TransformSourceEvent(ctx context.Context, event model.SourceEvent) ([]model.StreamEvent, error) {
+	eventData := event.Data
+	eventType := strings.TrimSpace(event.Type)
+	if bytes.HasPrefix(bytes.TrimSpace(eventData), []byte("[DONE]")) || len(eventData) == 0 || eventType == "[DONE]" || strings.EqualFold(eventType, "done") {
 		return []model.StreamEvent{{Kind: model.StreamEventKindDone}}, nil
 	}
 
@@ -108,22 +114,21 @@ func (o *MessagesOutbound) TransformStreamEvent(ctx context.Context, eventData [
 	return events, nil
 }
 
-func (o *MessagesOutbound) TransformStream(ctx context.Context, eventData []byte) (*model.InternalLLMResponse, error) {
-	// Handle [DONE] marker
-	if bytes.HasPrefix(eventData, []byte("[DONE]")) || len(eventData) == 0 {
-		return &model.InternalLLMResponse{
-			Object: "[DONE]",
-		}, nil
-	}
+// TransformStreamEvent retains the byte-only compatibility contract.
+func (o *MessagesOutbound) TransformStreamEvent(ctx context.Context, eventData []byte) ([]model.StreamEvent, error) {
+	return o.TransformSourceEvent(ctx, model.SourceEvent{Data: eventData})
+}
 
-	// Parse Gemini streaming response
+func (o *MessagesOutbound) TransformStream(ctx context.Context, eventData []byte) (*model.InternalLLMResponse, error) {
+	// Keep the historical aggregate path stable for callers that still consume
+	// InternalLLMResponse directly. Relay uses TransformSourceEvent below the
+	// canonical event boundary.
+	if bytes.HasPrefix(eventData, []byte("[DONE]")) || len(eventData) == 0 {
+		return &model.InternalLLMResponse{Object: "[DONE]"}, nil
+	}
 	var geminiResp model.GeminiGenerateContentResponse
 	if err := json.Unmarshal(eventData, &geminiResp); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal gemini stream chunk: %w", err)
 	}
-
-	// Convert to internal format, handing in a per-candidate global index
-	// counter so ReasoningBlock.Index stays monotonically increasing across
-	// stream chunks (G-C4).
 	return convertGeminiToLLMResponse(&geminiResp, true, o.nextReasoningIndex), nil
 }

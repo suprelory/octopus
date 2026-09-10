@@ -310,11 +310,26 @@ func (o *ChatOutbound) TransformResponse(ctx context.Context, response *http.Res
 }
 
 func (o *ChatOutbound) TransformStream(ctx context.Context, eventData []byte) (*model.InternalLLMResponse, error) {
-	if bytes.HasPrefix(eventData, []byte("[DONE]")) {
-		return &model.InternalLLMResponse{
-			Object: "[DONE]",
-		}, nil
+	stream, err := o.TransformSourceEvent(ctx, model.SourceEvent{Data: eventData})
+	if err != nil {
+		return nil, err
 	}
+	return model.InternalResponseFromStreamEvents(stream), nil
+}
+
+// TransformSourceEvent converts a complete provider stream envelope. Chat
+// Completions normally carries its terminal marker in Data, but some
+// compatible SSE servers put it in the event type instead.
+func (o *ChatOutbound) TransformSourceEvent(ctx context.Context, event model.SourceEvent) ([]model.StreamEvent, error) {
+	eventType := strings.TrimSpace(event.Type)
+	if bytes.HasPrefix(bytes.TrimSpace(event.Data), []byte("[DONE]")) || eventType == "[DONE]" || strings.EqualFold(eventType, "done") {
+		return []model.StreamEvent{{Kind: model.StreamEventKindDone}}, nil
+	}
+	if len(event.Data) == 0 {
+		return nil, nil
+	}
+
+	eventData := event.Data
 
 	var errCheck struct {
 		Error *model.ErrorDetail `json:"error"`
@@ -337,13 +352,9 @@ func (o *ChatOutbound) TransformStream(ctx context.Context, eventData []byte) (*
 			resp.Choices[idx].FinishReason = nil
 		}
 	}
-	return &resp, nil
+	return model.StreamEventsFromInternalResponse(&resp), nil
 }
 
 func (o *ChatOutbound) TransformStreamEvent(ctx context.Context, eventData []byte) ([]model.StreamEvent, error) {
-	stream, err := o.TransformStream(ctx, eventData)
-	if err != nil {
-		return nil, err
-	}
-	return model.StreamEventsFromInternalResponse(stream), nil
+	return o.TransformSourceEvent(ctx, model.SourceEvent{Data: eventData})
 }

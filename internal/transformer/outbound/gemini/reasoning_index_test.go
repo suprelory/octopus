@@ -202,6 +202,21 @@ func TestTransformStreamEventGeminiDone(t *testing.T) {
 	}
 }
 
+func TestTransformSourceEventGeminiTypedDoneWithoutJSON(t *testing.T) {
+	outbound := &MessagesOutbound{}
+	events, err := outbound.TransformSourceEvent(context.Background(), model.SourceEvent{
+		Type:      "done",
+		Data:      []byte("not-json"),
+		Transport: model.SourceTransportSSE,
+	})
+	if err != nil {
+		t.Fatalf("TransformSourceEvent: %v", err)
+	}
+	if len(events) != 1 || events[0].Kind != model.StreamEventKindDone {
+		t.Fatalf("events = %+v, want done", events)
+	}
+}
+
 // G-H7: the replay path must consult the name index first, so multi-tool
 // assistant turns stay correctly paired even if the internal slice order
 // differs from the tool call order.

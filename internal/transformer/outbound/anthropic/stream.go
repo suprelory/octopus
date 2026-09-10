@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/bestruirui/octopus/internal/transformer/compat"
 	"github.com/bestruirui/octopus/internal/transformer/model"
@@ -12,11 +13,15 @@ import (
 	"github.com/samber/lo"
 )
 
-func (o *MessageOutbound) TransformStreamEvent(ctx context.Context, eventData []byte) ([]model.StreamEvent, error) {
-	if len(eventData) == 0 {
+// TransformSourceEvent converts an Anthropic provider envelope while keeping
+// the SSE event type authoritative over any payload field with the same name.
+func (o *MessageOutbound) TransformSourceEvent(ctx context.Context, event model.SourceEvent) ([]model.StreamEvent, error) {
+	eventType := strings.TrimSpace(event.Type)
+	eventData := event.Data
+	if len(eventData) == 0 && eventType == "" {
 		return nil, nil
 	}
-	if bytes.HasPrefix(eventData, []byte("[DONE]")) {
+	if bytes.HasPrefix(bytes.TrimSpace(eventData), []byte("[DONE]")) || eventType == "[DONE]" || strings.EqualFold(eventType, "done") {
 		if o.messageStopped {
 			return nil, nil
 		}
@@ -31,8 +36,19 @@ func (o *MessageOutbound) TransformStreamEvent(ctx context.Context, eventData []
 	}
 
 	var streamEvent anthropicModel.StreamEvent
-	if err := json.Unmarshal(eventData, &streamEvent); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal stream event: %w", err)
+	if len(bytes.TrimSpace(eventData)) > 0 {
+		if err := json.Unmarshal(eventData, &streamEvent); err != nil {
+			switch eventType {
+			case "message_stop", "ping":
+				// These envelope events carry their lifecycle meaning outside
+				// the payload and are valid without JSON data.
+			default:
+				return nil, fmt.Errorf("failed to unmarshal stream event: %w", err)
+			}
+		}
+	}
+	if eventType != "" {
+		streamEvent.Type = eventType
 	}
 
 	events := make([]model.StreamEvent, 0, 2)
@@ -222,4 +238,9 @@ func (o *MessageOutbound) TransformStreamEvent(ctx context.Context, eventData []
 		return nil, nil
 	}
 	return events, nil
+}
+
+// TransformStreamEvent retains the byte-only compatibility contract.
+func (o *MessageOutbound) TransformStreamEvent(ctx context.Context, eventData []byte) ([]model.StreamEvent, error) {
+	return o.TransformSourceEvent(ctx, model.SourceEvent{Data: eventData})
 }

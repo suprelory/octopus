@@ -34,8 +34,7 @@ func (ra *relayAttempt) handleTransformedStream(ctx context.Context, source stre
 	processor := stream.NewStreamProcessor(stream.StreamConfig{
 		Source: source,
 		TransformEvent: func(ctx context.Context, event stream.SourceEvent) ([]byte, error) {
-			data := stream.NormalizeEventData(event.Type, event.Data)
-			output, semantic, err := ra.transformStreamData(ctx, string(data))
+			output, semantic, err := ra.transformSourceEvent(ctx, event)
 			semanticPayload = semantic
 			return output, err
 		},
@@ -120,11 +119,10 @@ func (ra *relayAttempt) handleStreamResponsePassthroughV2(ctx context.Context, r
 
 	semanticPayload := false
 	observer := stream.NewIncrementalSourceEventObserver(maxSSEEventSize, cfg.TerminalEvents, func(ctx context.Context, event stream.SourceEvent) error {
-		data := stream.NormalizeEventData(event.Type, event.Data)
-		if len(data) == 0 {
+		if len(event.Data) == 0 && event.Type == "" {
 			return nil
 		}
-		events, err := ra.outAdapter.TransformStreamEvent(ctx, data)
+		events, err := ra.outAdapter.TransformSourceEvent(ctx, event)
 		if err != nil {
 			ra.captureStreamError(err)
 			return err
@@ -184,9 +182,10 @@ func (ra *relayAttempt) handleStreamResponsePassthroughV2(ctx context.Context, r
 	return ra.runStreamProcessor(ctx, processor, response.Body)
 }
 
-// transformStreamData 转换流式数据
-func (ra *relayAttempt) transformStreamData(ctx context.Context, data string) ([]byte, bool, error) {
-	events, err := ra.outAdapter.TransformStreamEvent(ctx, []byte(data))
+// transformSourceEvent converts a complete provider event into inbound wire
+// bytes while preserving envelope metadata at the adapter boundary.
+func (ra *relayAttempt) transformSourceEvent(ctx context.Context, event model.SourceEvent) ([]byte, bool, error) {
+	events, err := ra.outAdapter.TransformSourceEvent(ctx, event)
 	if err != nil {
 		ra.captureStreamError(err)
 		log.Warnf("failed to transform stream events: %v", err)

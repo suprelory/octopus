@@ -5,24 +5,18 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+
+	"github.com/bestruirui/octopus/internal/transformer/model"
 )
 
-// SourceEvent is the transport-neutral envelope passed between stream sources
-// and transformers. Type and ID stay separate from Data because compatible
-// providers sometimes send terminal metadata outside the payload or leave the
-// data field empty.
-type SourceEvent struct {
-	Type      string
-	Data      []byte
-	ID        string
-	Sequence  int64
-	Transport string
-}
+// SourceEvent remains an alias in relay/stream so existing custom stream
+// sources keep compiling while transformers consume the model-level type.
+type SourceEvent = model.SourceEvent
 
 const (
-	SourceTransportSSE       = "sse"
-	SourceTransportWebSocket = "websocket"
-	SourceTransportRaw       = "raw"
+	SourceTransportSSE       = model.SourceTransportSSE
+	SourceTransportWebSocket = model.SourceTransportWebSocket
+	SourceTransportRaw       = model.SourceTransportRaw
 )
 
 // SourceEventSource is the preferred stream source contract. It keeps transport

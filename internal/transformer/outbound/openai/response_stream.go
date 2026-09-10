@@ -121,11 +121,16 @@ func (o *ResponseOutbound) handleFunctionCallArgumentsDone(base model.StreamEven
 	return events, nil
 }
 
-func (o *ResponseOutbound) TransformStreamEvent(ctx context.Context, eventData []byte) ([]model.StreamEvent, error) {
-	if len(eventData) == 0 {
+// TransformSourceEvent converts a complete OpenAI Responses event. The
+// envelope type wins over a payload type so split SSE framing cannot make the
+// adapter process the wrong lifecycle event.
+func (o *ResponseOutbound) TransformSourceEvent(ctx context.Context, event model.SourceEvent) ([]model.StreamEvent, error) {
+	eventData := event.Data
+	eventType := strings.TrimSpace(event.Type)
+	if len(eventData) == 0 && eventType == "" {
 		return nil, nil
 	}
-	if bytes.HasPrefix(eventData, []byte("[DONE]")) {
+	if bytes.HasPrefix(bytes.TrimSpace(eventData), []byte("[DONE]")) || eventType == "[DONE]" || strings.EqualFold(eventType, "done") {
 		return []model.StreamEvent{{Kind: model.StreamEventKindDone}}, nil
 	}
 
@@ -138,8 +143,19 @@ func (o *ResponseOutbound) TransformStreamEvent(ctx context.Context, eventData [
 	}
 
 	var streamEvent ResponsesStreamEvent
-	if err := json.Unmarshal(eventData, &streamEvent); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal stream event: %w", err)
+	if len(bytes.TrimSpace(eventData)) > 0 {
+		if err := json.Unmarshal(eventData, &streamEvent); err != nil {
+			switch eventType {
+			case "response.created", "response.in_progress", "response.completed", "response.failed", "response.incomplete":
+				// The event envelope is sufficient to identify these lifecycle
+				// transitions when a provider sends a non-JSON payload.
+			default:
+				return nil, fmt.Errorf("failed to unmarshal stream event: %w", err)
+			}
+		}
+	}
+	if eventType != "" {
+		streamEvent.Type = eventType
 	}
 
 	if streamEvent.Response != nil {
@@ -254,6 +270,8 @@ func (o *ResponseOutbound) TransformStreamEvent(ctx context.Context, eventData [
 				usageEvent := model.StreamEvent{Kind: model.StreamEventKindUsageDelta, ID: base.ID, Model: base.Model, Usage: usage, ProviderExtensions: base.ProviderExtensions}
 				events = append(events, usageEvent)
 			}
+		} else {
+			events = append(events, model.StreamEvent{Kind: model.StreamEventKindDone, ID: base.ID, Model: base.Model})
 		}
 
 	case "response.failed", "response.incomplete", "error":
@@ -292,8 +310,13 @@ func (o *ResponseOutbound) TransformStreamEvent(ctx context.Context, eventData [
 	return events, nil
 }
 
+// TransformStreamEvent retains the byte-only compatibility contract.
+func (o *ResponseOutbound) TransformStreamEvent(ctx context.Context, eventData []byte) ([]model.StreamEvent, error) {
+	return o.TransformSourceEvent(ctx, model.SourceEvent{Data: eventData})
+}
+
 func (o *ResponseOutbound) TransformStream(ctx context.Context, eventData []byte) (*model.InternalLLMResponse, error) {
-	events, err := o.TransformStreamEvent(ctx, eventData)
+	events, err := o.TransformSourceEvent(ctx, model.SourceEvent{Data: eventData})
 	if err != nil {
 		return nil, err
 	}

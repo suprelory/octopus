@@ -145,6 +145,33 @@ func TestTransformStreamEventAnthropicNativeMapping(t *testing.T) {
 	}
 }
 
+func TestTransformSourceEventUsesAnthropicEnvelopeType(t *testing.T) {
+	outbound := &MessageOutbound{}
+	ctx := context.Background()
+
+	events, err := outbound.TransformSourceEvent(ctx, model.SourceEvent{
+		Type:      "message_start",
+		Data:      []byte(`{"type":"ping","message":{"id":"msg-envelope","model":"claude-envelope"}}`),
+		ID:        "wire-1",
+		Sequence:  7,
+		Transport: model.SourceTransportSSE,
+	})
+	if err != nil {
+		t.Fatalf("message_start envelope: %v", err)
+	}
+	if len(events) == 0 || events[0].Kind != model.StreamEventKindMessageStart || events[0].ID != "msg-envelope" {
+		t.Fatalf("envelope type did not override payload type: %+v", events)
+	}
+
+	events, err = outbound.TransformSourceEvent(ctx, model.SourceEvent{Type: "message_stop", Data: []byte("not-json"), Transport: model.SourceTransportSSE})
+	if err != nil {
+		t.Fatalf("empty message_stop envelope: %v", err)
+	}
+	if len(events) != 1 || events[0].Kind != model.StreamEventKindDone {
+		t.Fatalf("empty message_stop events = %+v, want done", events)
+	}
+}
+
 func TestAnthropicMultiBlockEventsFinalizeAsSingleChoice(t *testing.T) {
 	outbound := &MessageOutbound{}
 	finalizer := model.NewStreamFinalizer()
