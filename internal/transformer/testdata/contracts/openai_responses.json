@@ -1,0 +1,96 @@
+{
+  "request": {
+    "model": "contract-model",
+    "input": "hello",
+    "max_output_tokens": 8
+  },
+  "response": {
+    "id": "r",
+    "model": "contract-model",
+    "created_at": 123,
+    "object": "response",
+    "status": "completed",
+    "output": [
+      {
+        "id": "msg",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "output_text",
+            "text": "world"
+          }
+        ]
+      }
+    ],
+    "usage": {
+      "input_tokens": 3,
+      "output_tokens": 2,
+      "total_tokens": 5
+    }
+  },
+  "stream": [
+    {
+      "type": "",
+      "data": "{\"type\":\"response.created\",\"response\":{\"id\":\"r\",\"model\":\"contract-model\",\"created_at\":123,\"status\":\"in_progress\"}}"
+    },
+    {
+      "type": "",
+      "data": "{\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"world\"}"
+    },
+    {
+      "type": "",
+      "data": "{\"type\":\"response.completed\",\"response\":{\"id\":\"r\",\"model\":\"contract-model\",\"status\":\"completed\",\"usage\":{\"input_tokens\":3,\"output_tokens\":2,\"total_tokens\":5}}}"
+    }
+  ],
+  "semantics": {
+    "text": {
+      "events": [
+        {
+          "type": "",
+          "data": "{\"type\":\"response.output_text.delta\",\"delta\":\"world\"}"
+        }
+      ],
+      "kind": "text_delta"
+    },
+    "thinking": {
+      "events": [
+        {
+          "type": "",
+          "data": "{\"type\":\"response.reasoning_summary_text.delta\",\"delta\":\"think\"}"
+        }
+      ],
+      "kind": "thinking_delta"
+    },
+    "signature": {
+      "events": [
+        {
+          "type": "",
+          "data": "{\"type\":\"response.output_item.done\",\"item\":{\"type\":\"reasoning\",\"encrypted_content\":\"opaque==\"}}"
+        }
+      ],
+      "kind": "signature_delta"
+    },
+    "tools": {
+      "events": [
+        {
+          "type": "",
+          "data": "{\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"call_id\":\"call\",\"name\":\"lookup\"}}"
+        },
+        {
+          "type": "",
+          "data": "{\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"delta\":\"{}\"}"
+        }
+      ],
+      "kind": "tool_call_delta"
+    },
+    "citations": {
+      "unsupported_reason": "Native Responses annotation lifecycle is covered by the provenance expansion."
+    },
+    "audio": {
+      "unsupported_reason": "Native Responses audio lifecycle is covered by the provenance expansion."
+    }
+  },
+  "invalid_json": "{broken",
+  "abrupt_prefix": 1
+}

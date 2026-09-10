@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 )
 
 // WSUpstreamReader abstracts WebSocket upstream reader interface.
@@ -19,6 +20,7 @@ type WSUpstreamReader interface {
 type WSSource struct {
 	reader   WSUpstreamReader
 	sequence int64
+	readMu   sync.Mutex
 }
 
 // NewWSSource creates a source from a WebSocket reader.
@@ -39,6 +41,8 @@ func (s *WSSource) ReadEvent(ctx context.Context) ([]byte, error) {
 // SSE and raw sources. WebSocket has no separate event field, so type and ID
 // are read from the JSON envelope when present.
 func (s *WSSource) ReadSourceEvent(ctx context.Context) (SourceEvent, error) {
+	s.readMu.Lock()
+	defer s.readMu.Unlock()
 	data, err := s.reader.ReadEvent(ctx)
 	if err != nil {
 		return SourceEvent{}, err

@@ -17,6 +17,7 @@ type SSESource struct {
 	closeOnce sync.Once
 	closeErr  error
 	sequence  int64
+	readMu    sync.Mutex
 }
 
 type sseReadResult struct {
@@ -86,6 +87,8 @@ func (s *SSESource) ReadEvent(ctx context.Context) ([]byte, error) {
 // ReadSourceEvent preserves the complete SSE envelope metadata for transformer
 // paths. Sequence is local to this source and monotonically increases.
 func (s *SSESource) ReadSourceEvent(ctx context.Context) (SourceEvent, error) {
+	s.readMu.Lock()
+	defer s.readMu.Unlock()
 	event, err := s.readEvent(ctx)
 	if err != nil {
 		return SourceEvent{}, err

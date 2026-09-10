@@ -1,0 +1,29 @@
+{
+  "request": {
+    "model": "contract-model",
+    "input": "hello"
+  },
+  "response": {
+    "object": "list",
+    "model": "contract-model",
+    "data": [
+      {
+        "object": "embedding",
+        "index": 0,
+        "embedding": [
+          0.1,
+          0.2
+        ]
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 3,
+      "total_tokens": 3
+    }
+  },
+  "stream": [],
+  "semantics": {},
+  "stream_unsupported_reason": "Embeddings is a non-streaming operation.",
+  "invalid_json": "{broken",
+  "abrupt_prefix": 0
+}

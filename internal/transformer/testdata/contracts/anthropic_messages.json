@@ -1,0 +1,111 @@
+{
+  "request": {
+    "model": "contract-model",
+    "max_tokens": 8,
+    "messages": [
+      {
+        "role": "user",
+        "content": "hello"
+      }
+    ]
+  },
+  "response": {
+    "id": "r",
+    "model": "contract-model",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "world"
+      }
+    ],
+    "stop_reason": "end_turn",
+    "usage": {
+      "input_tokens": 3,
+      "output_tokens": 2
+    }
+  },
+  "stream": [
+    {
+      "type": "message_start",
+      "data": "{\"type\":\"message_start\",\"message\":{\"id\":\"r\",\"model\":\"contract-model\",\"role\":\"assistant\",\"usage\":{\"input_tokens\":3,\"output_tokens\":0}}}"
+    },
+    {
+      "type": "content_block_start",
+      "data": "{\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}"
+    },
+    {
+      "type": "content_block_delta",
+      "data": "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"world\"}}"
+    },
+    {
+      "type": "content_block_stop",
+      "data": "{\"type\":\"content_block_stop\",\"index\":0}"
+    },
+    {
+      "type": "message_delta",
+      "data": "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}"
+    },
+    {
+      "type": "message_stop",
+      "data": "{\"type\":\"message_stop\"}"
+    }
+  ],
+  "semantics": {
+    "text": {
+      "events": [
+        {
+          "type": "",
+          "data": "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"world\"}}"
+        }
+      ],
+      "kind": "text_delta"
+    },
+    "thinking": {
+      "events": [
+        {
+          "type": "",
+          "data": "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"think\"}}"
+        }
+      ],
+      "kind": "thinking_delta"
+    },
+    "signature": {
+      "events": [
+        {
+          "type": "",
+          "data": "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"signature_delta\",\"signature\":\"opaque==\"}}"
+        }
+      ],
+      "kind": "signature_delta"
+    },
+    "tools": {
+      "events": [
+        {
+          "type": "",
+          "data": "{\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"call\",\"name\":\"lookup\",\"input\":{}}}"
+        },
+        {
+          "type": "",
+          "data": "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{}\"}}"
+        }
+      ],
+      "kind": "tool_call_delta"
+    },
+    "citations": {
+      "events": [
+        {
+          "type": "",
+          "data": "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"citations_delta\",\"citation\":{\"type\":\"char_location\",\"cited_text\":\"world\",\"document_index\":0,\"start_char_index\":0,\"end_char_index\":5}}}"
+        }
+      ],
+      "kind": "citation_delta"
+    },
+    "audio": {
+      "unsupported_reason": "Anthropic Messages does not emit native audio output."
+    }
+  },
+  "invalid_json": "{broken",
+  "abrupt_prefix": 1
+}

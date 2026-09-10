@@ -3,13 +3,18 @@ package stream
 import (
 	"context"
 	"io"
+	"sync"
 )
 
 // RawSource reads raw bytes in fixed-size chunks (for passthrough).
 type RawSource struct {
-	reader   io.ReadCloser
-	bufSize  int
-	sequence int64
+	reader     io.ReadCloser
+	bufSize    int
+	sequence   int64
+	readMu     sync.Mutex
+	closeOnce  sync.Once
+	closeErr   error
+	pendingErr error
 }
 
 // NewRawSource creates a source that reads raw chunks.
@@ -35,9 +40,18 @@ func (s *RawSource) ReadEvent(ctx context.Context) ([]byte, error) {
 // ReadSourceEvent returns raw chunks with a stable source identity and sequence
 // number. Raw chunks intentionally have no event type.
 func (s *RawSource) ReadSourceEvent(ctx context.Context) (SourceEvent, error) {
+	s.readMu.Lock()
+	defer s.readMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return SourceEvent{}, err
+	}
+	if s.pendingErr != nil {
+		return SourceEvent{}, s.pendingErr
+	}
 	buf := make([]byte, s.bufSize)
 	n, err := s.reader.Read(buf)
 	if n > 0 {
+		s.pendingErr = err
 		// Return a copy to avoid buffer reuse issues
 		chunk := make([]byte, n)
 		copy(chunk, buf[:n])
@@ -52,8 +66,10 @@ func (s *RawSource) ReadSourceEvent(ctx context.Context) (SourceEvent, error) {
 
 // Close releases the underlying reader.
 func (s *RawSource) Close() error {
-	if s.reader != nil {
-		return s.reader.Close()
-	}
-	return nil
+	s.closeOnce.Do(func() {
+		if s.reader != nil {
+			s.closeErr = s.reader.Close()
+		}
+	})
+	return s.closeErr
 }

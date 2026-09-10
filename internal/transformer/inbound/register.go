@@ -4,6 +4,7 @@ import (
 	"github.com/bestruirui/octopus/internal/transformer/inbound/anthropic"
 	"github.com/bestruirui/octopus/internal/transformer/inbound/openai"
 	"github.com/bestruirui/octopus/internal/transformer/model"
+	"sort"
 )
 
 type InboundType int
@@ -27,4 +28,13 @@ func Get(inboundType InboundType) model.Inbound {
 		return factory()
 	}
 	return nil
+}
+
+func Types() []InboundType {
+	types := make([]InboundType, 0, len(inboundFactories))
+	for typ := range inboundFactories {
+		types = append(types, typ)
+	}
+	sort.Slice(types, func(i, j int) bool { return types[i] < types[j] })
+	return types
 }

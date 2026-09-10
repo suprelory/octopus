@@ -1,0 +1,103 @@
+{
+  "request": {
+    "model": "contract-model",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hello"
+      }
+    ],
+    "max_tokens": 8
+  },
+  "response": {
+    "id": "r",
+    "model": "contract-model",
+    "created": 123,
+    "object": "chat.completion",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "world"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 3,
+      "completion_tokens": 2,
+      "total_tokens": 5
+    }
+  },
+  "stream": [
+    {
+      "type": "",
+      "data": "{\"id\":\"r\",\"model\":\"contract-model\",\"created\":123,\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"world\"},\"finish_reason\":null}]}"
+    },
+    {
+      "type": "",
+      "data": "{\"id\":\"r\",\"model\":\"contract-model\",\"created\":123,\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}"
+    },
+    {
+      "type": "",
+      "data": "{\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2,\"total_tokens\":5}}"
+    },
+    {
+      "type": "",
+      "data": "[DONE]"
+    }
+  ],
+  "semantics": {
+    "text": {
+      "events": [
+        {
+          "type": "",
+          "data": "{\"id\":\"r\",\"model\":\"contract-model\",\"created\":123,\"choices\":[{\"index\":0,\"delta\":{\"content\":\"world\"},\"finish_reason\":null}]}"
+        }
+      ],
+      "kind": "text_delta"
+    },
+    "thinking": {
+      "events": [
+        {
+          "type": "",
+          "data": "{\"id\":\"r\",\"model\":\"contract-model\",\"created\":123,\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"think\"},\"finish_reason\":null}]}"
+        }
+      ],
+      "kind": "thinking_delta"
+    },
+    "signature": {
+      "events": [
+        {
+          "type": "",
+          "data": "{\"id\":\"r\",\"model\":\"contract-model\",\"created\":123,\"choices\":[{\"index\":0,\"delta\":{\"reasoning_signature\":\"opaque==\"},\"finish_reason\":null}]}"
+        }
+      ],
+      "kind": "signature_delta"
+    },
+    "tools": {
+      "events": [
+        {
+          "type": "",
+          "data": "{\"id\":\"r\",\"model\":\"contract-model\",\"created\":123,\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{}\"}}]},\"finish_reason\":null}]}"
+        }
+      ],
+      "kind": "tool_call_delta"
+    },
+    "citations": {
+      "unsupported_reason": "Chat annotation fields require an explicit native provenance mapping."
+    },
+    "audio": {
+      "events": [
+        {
+          "type": "",
+          "data": "{\"id\":\"r\",\"model\":\"contract-model\",\"created\":123,\"choices\":[{\"index\":0,\"delta\":{\"audio\":{\"id\":\"audio\",\"data\":\"AA==\",\"transcript\":\"word\"}},\"finish_reason\":null}]}"
+        }
+      ],
+      "kind": "audio_delta"
+    }
+  },
+  "invalid_json": "{broken",
+  "abrupt_prefix": 1
+}

@@ -5,6 +5,7 @@ import (
 	outAnthropic "github.com/bestruirui/octopus/internal/transformer/outbound/anthropic"
 	"github.com/bestruirui/octopus/internal/transformer/outbound/gemini"
 	"github.com/bestruirui/octopus/internal/transformer/outbound/openai"
+	"sort"
 )
 
 type OutboundType int
@@ -215,4 +216,13 @@ func Get(outboundType OutboundType) model.Outbound {
 		return descriptor.Factory()
 	}
 	return nil
+}
+
+func Types() []OutboundType {
+	types := make([]OutboundType, 0, len(protocolDescriptors))
+	for typ := range protocolDescriptors {
+		types = append(types, typ)
+	}
+	sort.Slice(types, func(i, j int) bool { return types[i] < types[j] })
+	return types
 }

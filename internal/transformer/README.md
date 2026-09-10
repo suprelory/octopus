@@ -57,3 +57,12 @@ unknown native fields separately from their required-field list. All builders
 validate these requirements and Responses input/tool sidecars before encoding.
 Removing a required sidecar or selecting a protocol without a recovery path is a
 hard rejection, independent of the degradation policy.
+
+The shared contract matrix loads `testdata/contracts/<descriptor name>.json` for
+every registered adapter. Registration requires request/response wire fixtures,
+a normal stream with usage and a terminal event, malformed JSON, an abrupt-stream
+prefix, and declarations for text, thinking, signatures, tools, citations, and
+audio. Unsupported semantics require an explicit reason. The matrix exercises
+every supported inbound/outbound pair and rejects unsupported operation pairs.
+Source contracts also exercise split frames, CRLF, multiline data, empty terminal
+data, concurrent readers, concurrent close, and data followed by a source error.

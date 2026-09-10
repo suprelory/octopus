@@ -1,0 +1,106 @@
+{
+  "request": {
+    "contents": [
+      {
+        "role": "user",
+        "parts": [
+          {
+            "text": "hello"
+          }
+        ]
+      }
+    ],
+    "generationConfig": {
+      "maxOutputTokens": 8
+    }
+  },
+  "response": {
+    "responseId": "r",
+    "modelVersion": "contract-model",
+    "candidates": [
+      {
+        "index": 0,
+        "content": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "world"
+            }
+          ]
+        },
+        "finishReason": "STOP"
+      }
+    ],
+    "usageMetadata": {
+      "promptTokenCount": 3,
+      "candidatesTokenCount": 2,
+      "totalTokenCount": 5
+    }
+  },
+  "stream": [
+    {
+      "type": "",
+      "data": "{\"responseId\":\"r\",\"modelVersion\":\"contract-model\",\"candidates\":[{\"index\":0,\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"world\"}]}}]}"
+    },
+    {
+      "type": "",
+      "data": "{\"candidates\":[{\"index\":0,\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":3,\"candidatesTokenCount\":2,\"totalTokenCount\":5}}"
+    },
+    {
+      "type": "",
+      "data": "[DONE]"
+    }
+  ],
+  "semantics": {
+    "text": {
+      "events": [
+        {
+          "type": "",
+          "data": "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"world\"}]}}]}"
+        }
+      ],
+      "kind": "text_delta"
+    },
+    "thinking": {
+      "events": [
+        {
+          "type": "",
+          "data": "{\"candidates\":[{\"content\":{\"parts\":[{\"thought\":true,\"text\":\"think\"}]}}]}"
+        }
+      ],
+      "kind": "thinking_delta"
+    },
+    "signature": {
+      "events": [
+        {
+          "type": "",
+          "data": "{\"candidates\":[{\"content\":{\"parts\":[{\"thought\":true,\"thoughtSignature\":\"opaque==\"}]}}]}"
+        }
+      ],
+      "kind": "signature_delta"
+    },
+    "tools": {
+      "events": [
+        {
+          "type": "",
+          "data": "{\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"lookup\",\"args\":{}}}]}}]}"
+        }
+      ],
+      "kind": "tool_call_delta"
+    },
+    "citations": {
+      "events": [
+        {
+          "type": "",
+          "data": "{\"candidates\":[{\"groundingMetadata\":{\"webSearchQueries\":[\"source\"],\"groundingChunks\":[{\"web\":{\"uri\":\"https://example.invalid\",\"title\":\"source\"}}]}}]}"
+        }
+      ],
+      "kind": "message_metadata"
+    },
+    "audio": {
+      "unsupported_reason": "Native Gemini audio placement is covered by the provenance expansion."
+    }
+  },
+  "invalid_json": "{broken",
+  "abrupt_prefix": 1
+}
