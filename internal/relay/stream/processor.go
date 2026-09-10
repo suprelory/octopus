@@ -111,6 +111,7 @@ type StreamProcessor struct {
 	payloadWritten bool
 	firstToken     bool
 	committed      bool
+	cleanEOF       bool
 }
 
 // NewStreamProcessor creates a processor from config.
@@ -228,11 +229,13 @@ func (p *StreamProcessor) Run() error {
 		case r, ok := <-results:
 			if !ok {
 				// Channel closed, stream ended
+				p.cleanEOF = true
 				return p.finalize()
 			}
 
 			if r.err != nil {
 				if r.err == io.EOF {
+					p.cleanEOF = true
 					return p.finalize()
 				}
 				if p.config.Context.Err() != nil {
@@ -438,3 +441,9 @@ func (p *StreamProcessor) finalize() error {
 func (p *StreamProcessor) PayloadWritten() bool {
 	return p.payloadWritten
 }
+
+// CleanEOF reports an observed transport EOF, independently of whether the
+// protocol finalizer accepted that EOF as successful completion.
+func (p *StreamProcessor) CleanEOF() bool { return p.cleanEOF }
+
+func (p *StreamProcessor) SourceTransport() string { return sourceTransport(p.config.Source) }

@@ -24,6 +24,7 @@ func (ra *relayAttempt) handleWSStreamResponseV2(ctx context.Context, reader *ws
 // HTTP SSE and upstream WebSocket events.
 func (ra *relayAttempt) handleTransformedStream(ctx context.Context, source stream.StreamSource, timeoutCloser io.Closer) error {
 	ra.heartbeat.Hand()
+	ra.ensureStreamConverter()
 
 	semanticPayload := false
 	precommit := func(_, _ []byte) bool { return semanticPayload }
@@ -70,6 +71,17 @@ func (ra *relayAttempt) runStreamProcessor(ctx context.Context, processor *strea
 		}
 		_, _ = ra.streamConverter.Finish(ctx, cause)
 		log.Debugf("stream completion status=interrupted cause=%s: %v", cause, err)
+	}
+	if ra.streamConverter != nil {
+		diagnostics := ra.streamConverter.Diagnostics()
+		diagnostics.CleanEOF = processor.CleanEOF()
+		if diagnostics.SourceTransport == "" {
+			diagnostics.SourceTransport = processor.SourceTransport()
+		}
+		if err != nil && diagnostics.CompletionStatus == "completed" {
+			diagnostics.CompletionStatus = "interrupted"
+		}
+		ra.streamDiagnostics = &diagnostics
 	}
 	if processor.PayloadWritten() {
 		ra.commitResponse()
@@ -127,6 +139,7 @@ func (ra *relayAttempt) handleStreamResponsePassthroughV2(ctx context.Context, r
 	}
 
 	semanticPayload := false
+	ra.ensureStreamConverter()
 	observer := stream.NewIncrementalSourceEventObserver(maxSSEEventSize, cfg.TerminalEvents, func(ctx context.Context, event stream.SourceEvent) error {
 		if len(event.Data) == 0 && event.Type == "" {
 			return nil

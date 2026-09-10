@@ -654,6 +654,14 @@ func (s *AttemptSpan) SetTransport(transport string, mode model.RelayLogWSMode, 
 	s.attempt.Recovery = recovery
 }
 
+func (s *AttemptSpan) SetStreamDiagnostics(diagnostics *model.StreamDiagnostics) {
+	if diagnostics == nil {
+		return
+	}
+	snapshot := *diagnostics
+	s.attempt.Stream = &snapshot
+}
+
 // SetCapability records the semantic planning decision that authorized this attempt.
 func (s *AttemptSpan) SetCapability(trace CapabilityTrace) {
 	if trace.AdapterType != "" {

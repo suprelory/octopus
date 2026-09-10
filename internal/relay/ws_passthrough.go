@@ -23,6 +23,7 @@ type wsPassthroughStats struct {
 	Usage      *transformerModel.Usage
 	RawOutput  json.RawMessage
 	Error      *wsUpstreamEventError
+	Stream     transformerModel.StreamDiagnostics
 }
 
 type wsUpstreamEventError struct {
@@ -160,9 +161,27 @@ func (ra *relayAttempt) buildWSPassthroughRequestPayload() ([]byte, error) {
 	return encoded, nil
 }
 
-func (ra *relayAttempt) handleWSPassthroughStream(ctx context.Context, pc *pooledConn) (*wsPassthroughStats, error) {
+func (ra *relayAttempt) handleWSPassthroughStream(ctx context.Context, pc *pooledConn) (_ *wsPassthroughStats, resultErr error) {
 	writer := ra.getStreamWriter()
 	stats := &wsPassthroughStats{}
+	stats.Stream.SourceTransport = transformerModel.SourceTransportWebSocket
+	defer func() {
+		stats.Stream.CompletionStatus = "completed"
+		stats.Stream.FinishCause = transformerModel.StreamFinishCauseExplicitTerminal
+		if resultErr != nil {
+			stats.Stream.CompletionStatus = "interrupted"
+			stats.Stream.FinishCause = transformerModel.StreamFinishCauseSourceError
+			if stats.Stream.CleanEOF {
+				stats.Stream.FinishCause = transformerModel.StreamFinishCauseCleanEOF
+			}
+			if isClientCancellation(ctx, resultErr) {
+				stats.Stream.CompletionStatus = "canceled"
+				stats.Stream.FinishCause = transformerModel.StreamFinishCauseClientCancellation
+			}
+		}
+		diagnostics := stats.Stream
+		ra.streamDiagnostics = &diagnostics
+	}()
 	firstEvent := true
 	dropDownstream := false
 	readCtx := ctx
@@ -171,10 +190,11 @@ func (ra *relayAttempt) handleWSPassthroughStream(ctx context.Context, pc *poole
 		if err != nil {
 			closeStatus := websocket.CloseStatus(err)
 			if closeStatus == websocket.StatusNormalClosure || closeStatus == websocket.StatusGoingAway {
+				stats.Stream.CleanEOF = true
 				if firstEvent {
 					return stats, fmt.Errorf("ws stream ended before first event")
 				}
-				return stats, nil
+				return stats, transformerModel.ErrStreamIncomplete
 			}
 			return stats, fmt.Errorf("ws passthrough read error: %w", err)
 		}
@@ -283,6 +303,9 @@ func observeWSPassthroughEvent(stats *wsPassthroughStats, data []byte) {
 	if stats == nil || len(data) == 0 {
 		return
 	}
+	stats.Stream.EventsReceived++
+	stats.Stream.LastSourceSequence = stats.Stream.EventsReceived
+	stats.Stream.BytesReceived += int64(len(data))
 	var event struct {
 		Type       string          `json:"type"`
 		ID         string          `json:"id"`
@@ -319,6 +342,14 @@ func observeWSPassthroughEvent(stats *wsPassthroughStats, data []byte) {
 	}
 	if err := json.Unmarshal(data, &event); err != nil {
 		return
+	}
+	stats.Stream.LastEventType = event.Type
+	switch event.Type {
+	case "response.completed", "response.incomplete":
+		stats.Stream.TerminalEventSeen = true
+		stats.Stream.FinishReasonSeen = true
+	case "response.failed", "error":
+		stats.Stream.TerminalEventSeen = true
 	}
 	if event.ID != "" {
 		stats.ResponseID = event.ID

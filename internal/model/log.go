@@ -1,6 +1,11 @@
 package model
 
-import "time"
+import (
+	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
+	"time"
+)
+
+type StreamDiagnostics = transformerModel.StreamDiagnostics
 
 // AttemptStatus 尝试状态
 type AttemptStatus string
@@ -50,6 +55,7 @@ type ChannelAttempt struct {
 	FailureClass      string                   `json:"failure_class,omitempty"`
 	Retryable         bool                     `json:"retryable,omitempty"`
 	RetryAt           *time.Time               `json:"retry_at,omitempty"`
+	Stream            *StreamDiagnostics       `json:"stream,omitempty"`
 }
 
 // ChannelSelectionMetrics captures the local health signals used when the

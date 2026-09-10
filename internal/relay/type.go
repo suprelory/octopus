@@ -144,6 +144,7 @@ type relayAttempt struct {
 	upstreamError          *model.ResponseError
 	capabilityDecision     outbound.CapabilityDecision
 	streamConverter        *model.CanonicalStreamConverter
+	streamDiagnostics      *model.StreamDiagnostics
 	transportRecovery      upstreamRecovery
 	upstreamTransport      string
 	protocolErrorWritten   bool

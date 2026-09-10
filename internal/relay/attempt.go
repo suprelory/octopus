@@ -23,6 +23,7 @@ func (ra *relayAttempt) attempt() attemptResult {
 
 	// 转发请求
 	statusCode, fwdErr := ra.forward()
+	span.SetStreamDiagnostics(ra.streamDiagnostics)
 	mode, recoveryMode := dbmodel.RelayLogWSMode(""), dbmodel.RelayLogWSRecovery("")
 	if ra.upstreamTransport == "ws" {
 		mode = defaultWSModeForRequest(ra.internalRequest)
