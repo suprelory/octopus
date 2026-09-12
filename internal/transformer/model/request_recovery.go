@@ -24,9 +24,10 @@ type RequestConversion struct {
 	ExactReplay       bool           `json:"exact_replay"`
 }
 
-// RequestRecovery preserves provider fields without growing the common request
-// or restoring stale operation input. RequiredFields survives sidecar removal
-// so a missing native field fails closed during replay.
+// RequestRecovery preserves unknown top-level provider fields for native
+// recovery. Other protocols omit these fields and report the loss so routing
+// can prefer a preserving channel. RequiredFields survives sidecar removal so
+// missing native data still fails closed during replay.
 type RequestRecovery struct {
 	Format         APIFormat                  `json:"format"`
 	RequiredFields []string                   `json:"required_fields,omitempty"`
@@ -90,12 +91,15 @@ func (r *InternalLLMRequest) ValidateNativeRecovery(target APIFormat, rawPassthr
 	}
 	if r.Operation != nil && r.Operation.Recovery != nil {
 		recovery := r.Operation.Recovery
-		if (len(recovery.RequiredFields) > 0 || len(recovery.Fields) > 0) && recovery.Format != target {
-			return fmt.Errorf("native provider fields require %s recovery", recovery.Format)
-		}
-		for _, field := range recovery.RequiredFields {
-			if !json.Valid(recovery.Fields[field]) {
-				return fmt.Errorf("required native field %q has no valid raw sidecar", field)
+		// Unknown top-level fields are required only when the target can
+		// actually replay their source protocol. A different protocol has no
+		// schema-level recovery path and deliberately drops these opaque fields;
+		// known native semantics below remain hard requirements.
+		if recovery.Format == target {
+			for _, field := range recovery.RequiredFields {
+				if !json.Valid(recovery.Fields[field]) {
+					return fmt.Errorf("required native field %q has no valid raw sidecar", field)
+				}
 			}
 		}
 	}
@@ -153,6 +157,41 @@ func (r *InternalLLMRequest) ValidateNativeRecovery(target APIFormat, rawPassthr
 	return nil
 }
 
+// RequestRecoveryChanges reports only the unknown top-level fields omitted by
+// MarshalRequestWithRecovery. Native tools and input items have separate
+// recovery requirements and are never covered by this fallback.
+func (r *InternalLLMRequest) RequestRecoveryChanges(target APIFormat) []RequestTransformationChange {
+	if r == nil || r.Operation == nil || r.Operation.Recovery == nil {
+		return nil
+	}
+	recovery := r.Operation.Recovery
+	if recovery.Format == target {
+		return nil
+	}
+	fieldSet := make(map[string]struct{}, len(recovery.Fields)+len(recovery.RequiredFields))
+	for field := range recovery.Fields {
+		fieldSet[field] = struct{}{}
+	}
+	for _, field := range recovery.RequiredFields {
+		fieldSet[field] = struct{}{}
+	}
+	changes := make([]RequestTransformationChange, 0, len(fieldSet))
+	for field := range fieldSet {
+		if strings.TrimSpace(field) == "" {
+			continue
+		}
+		changes = append(changes, RequestTransformationChange{
+			Field:                field,
+			Action:               RequestTransformationDrop,
+			Condition:            "target protocol has no recovery path for the unknown top-level field",
+			Reason:               fmt.Sprintf("unknown top-level field %q from %s is dropped when converting to %s", field, recovery.Format, target),
+			UnknownTopLevelField: true,
+		})
+	}
+	sort.Slice(changes, func(i, j int) bool { return changes[i].Field < changes[j].Field })
+	return changes
+}
+
 func rawItemsContain(raw json.RawMessage, field, name string) bool {
 	var items []map[string]json.RawMessage
 	if json.Unmarshal(raw, &items) != nil {
@@ -182,7 +221,7 @@ func MarshalRequestWithRecovery(req *InternalLLMRequest, target APIFormat, wire 
 	if err != nil {
 		return nil, err
 	}
-	if req.Operation == nil || req.Operation.Recovery == nil || len(req.Operation.Recovery.Fields) == 0 {
+	if req.Operation == nil || req.Operation.Recovery == nil || req.Operation.Recovery.Format != target || len(req.Operation.Recovery.Fields) == 0 {
 		return body, nil
 	}
 	var fields map[string]json.RawMessage
@@ -222,7 +261,7 @@ func (r *InternalLLMRequest) ConversionState(target APIFormat, passthrough, loss
 		state.RawInputPreserved = json.Unmarshal(r.OpenAIRawInputItems(), &input) == nil && input != nil
 		hasSidecar = hasSidecar || state.RawInputPreserved || len(r.GetOpenAIResponsesOptions().RawTools) > 0
 	}
-	if r.Operation != nil && r.Operation.Recovery != nil {
+	if r.Operation != nil && r.Operation.Recovery != nil && r.Operation.Recovery.Format == target {
 		hasSidecar = hasSidecar || len(r.Operation.Recovery.Fields) > 0
 	}
 	if target == APIFormatAnthropicMessage {

@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 
@@ -95,5 +96,34 @@ func TestRelayCapabilityPlannerSharesEquivalentChannels(t *testing.T) {
 	}
 	if !reflect.DeepEqual(first, second) {
 		t.Fatalf("equivalent channels produced different decisions:\nfirst=%#v\nsecond=%#v", first, second)
+	}
+}
+
+func TestCapabilityRankPrefersPreservingChannelBeforeUnknownFieldFallback(t *testing.T) {
+	request := &transformerModel.InternalLLMRequest{
+		RequestType:  transformerModel.RequestTypeChat,
+		RawAPIFormat: transformerModel.APIFormatAnthropicMessage,
+		Model:        "claude",
+		Messages:     []transformerModel.Message{{Role: "user"}},
+		Operation: &transformerModel.RequestOperation{
+			Recovery: &transformerModel.RequestRecovery{
+				Format:         transformerModel.APIFormatAnthropicMessage,
+				Fields:         map[string]json.RawMessage{"future_provider": json.RawMessage(`{"v":1}`)},
+				RequiredFields: []string{"future_provider"},
+			},
+			Chat: &transformerModel.ChatOperation{
+				Messages: []transformerModel.Message{{Role: "user"}},
+			},
+		},
+	}
+	planner := newRelayCapabilityPlanner(request, nil, false)
+	preserving := &dbmodel.Channel{Enabled: true, Type: outbound.OutboundTypeAnthropic}
+	fallback := &dbmodel.Channel{Enabled: true, Type: outbound.OutboundTypeOpenAIChat}
+
+	if got, want := planner.rankChannel(preserving, dbmodel.GroupItem{}), capabilityRankNative; got != want {
+		t.Fatalf("preserving channel rank = %d, want %d", got, want)
+	}
+	if got, want := planner.rankChannel(fallback, dbmodel.GroupItem{}), capabilityRankUnknownFieldFallback; got != want {
+		t.Fatalf("fallback channel rank = %d, want %d", got, want)
 	}
 }

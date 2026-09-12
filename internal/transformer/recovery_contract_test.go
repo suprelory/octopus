@@ -68,6 +68,52 @@ func TestNativeRequestRecoveryPreservesOrRejectsEveryRequiredSidecar(t *testing.
 	}
 }
 
+func TestUnknownTopLevelRecoveryCanBeDroppedAcrossProtocols(t *testing.T) {
+	ctx := context.Background()
+	request, err := inbound.Get(inbound.InboundTypeAnthropic).TransformRequest(ctx, []byte(`{"model":"claude","max_tokens":16,"messages":[{"role":"user","content":"hi"}],"future_provider":{"v":1}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	decision := outbound.PlanRequestForModel(request, request.Model, outbound.OutboundTypeOpenAIChat, false)
+	if decision.Rejected() || decision.Status != outbound.CapabilityDegraded {
+		t.Fatalf("unknown top-level fallback decision = %#v", decision)
+	}
+	if len(decision.Losses) != 1 || !decision.Losses[0].IsUnknownTopLevelFieldDrop() {
+		t.Fatalf("unknown field loss was not classified separately: %#v", decision.Losses)
+	}
+
+	wire, report, err := outbound.BuildRequest(ctx, outbound.Get(outbound.OutboundTypeOpenAIChat), outbound.OutboundTypeOpenAIChat, request, "https://example.invalid", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wire.Body.Close()
+	if len(report) != 1 || !report[0].IsUnknownTopLevelFieldDrop() {
+		t.Fatalf("wire report = %#v", report)
+	}
+	var payload map[string]json.RawMessage
+	body, _ := io.ReadAll(wire.Body)
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := payload["future_provider"]; ok {
+		t.Fatalf("unknown field unexpectedly reached OpenAI Chat: %s", body)
+	}
+}
+
+func TestUnknownTopLevelFallbackDoesNotRelaxNativeResponsesSemantics(t *testing.T) {
+	ctx := context.Background()
+	request, err := inbound.Get(inbound.InboundTypeOpenAIResponse).TransformRequest(ctx, []byte(`{"model":"gpt-5","input":[{"type":"computer_call_output","call_id":"call_1","output":"ok"}],"future_provider":{"v":1}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.MarkOpenAIResponsesPassthroughRequired("input:computer_call_output")
+	decision := outbound.PlanRequestForModel(request, request.Model, outbound.OutboundTypeGemini, false)
+	if !decision.Rejected() {
+		t.Fatalf("native Responses semantic was incorrectly allowed: %#v", decision)
+	}
+}
+
 func TestConversionModesDistinguishCanonicalRawAndLossy(t *testing.T) {
 	ctx := context.Background()
 	req, err := inbound.Get(inbound.InboundTypeOpenAIChat).TransformRequest(ctx, []byte(`{"model":"m","messages":[{"role":"user","content":"hello"}]}`))

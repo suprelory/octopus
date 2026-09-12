@@ -45,18 +45,23 @@ Capability planning runs this same local build with the effective upstream model
 Scalar rules inspect emitted JSON; tools are checked against emitted definitions
 and schemas; provider preparation helpers report structured repairs and losses.
 HTTP and transformed WebSocket submission persist and enforce the returned report.
-Strict capability policy rejects known losses before submission. Passthrough is
-planned separately because its preserved raw fields do not use canonical builders.
+Strict capability policy rejects known semantic losses before submission.
+Dropping only unknown top-level fields is an allowed fallback under every policy.
+Passthrough is planned separately because its preserved raw fields do not use
+canonical builders.
 
 Each attempt records `conversion.mode` (`lossless_canonical`, `raw_sidecar`, or
 `lossy_canonical`), `replay_available`, `raw_input_preserved`, and `exact_replay`.
 Replay availability describes intact input for the selected target; it does not
 promise that a remote conversation ID remains live. Lossy conversions retain the
 raw-preservation flag but cannot claim intact replay. `Operation.Recovery` stores
-unknown native fields separately from their required-field list. All builders
-validate these requirements and Responses input/tool sidecars before encoding.
-Removing a required sidecar or selecting a protocol without a recovery path is a
-hard rejection, independent of the degradation policy.
+unknown top-level native fields separately from their required-field list.
+Routing prefers channels that preserve these fields, then falls back to other
+protocols by omitting them and recording each dropped field in the conversion
+report. The original request and recovery sidecar remain intact for retries.
+All builders still validate required sidecars and native input/tool semantics
+before encoding. Missing required sidecars or native semantics without a target
+recovery path remain hard rejections, independent of the degradation policy.
 
 The shared contract matrix loads `testdata/contracts/<descriptor name>.json` for
 every registered adapter. Registration requires request/response wire fixtures,

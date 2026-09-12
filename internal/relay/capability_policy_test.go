@@ -70,6 +70,27 @@ func TestEvaluateCapabilityPolicy(t *testing.T) {
 			}
 		})
 	}
+
+	unknownOnly := outbound.CapabilityDecision{
+		Status: outbound.CapabilityDegraded,
+		Losses: outbound.LossReport{{
+			Field:                "future_provider",
+			Action:               outbound.LossActionDrop,
+			UnknownTopLevelField: true,
+		}},
+	}
+	if reject, code := evaluateCapabilityPolicy(unknownOnly, capabilityPolicyStrict); reject || code != "" {
+		t.Fatalf("strict policy rejected unknown-field fallback: reject=%v code=%q", reject, code)
+	}
+	knownAndUnknown := unknownOnly
+	knownAndUnknown.Losses = append(knownAndUnknown.Losses, transformermodel.RequestTransformationChange{
+		Field:  "top_k",
+		Action: outbound.LossActionDrop,
+		Reason: "known semantic loss",
+	})
+	if reject, code := evaluateCapabilityPolicy(knownAndUnknown, capabilityPolicyStrict); !reject || code != CodeRelayCapabilityRejected {
+		t.Fatalf("strict policy allowed mixed losses: reject=%v code=%q", reject, code)
+	}
 }
 
 func TestCapabilityTraceAndRejectionMessagePreserveDecisionDetails(t *testing.T) {

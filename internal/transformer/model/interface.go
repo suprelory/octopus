@@ -81,10 +81,17 @@ type RequestTransformationChange struct {
 	Condition   string                      `json:"condition,omitempty"`
 	Reason      string                      `json:"reason"`
 	Lossless    bool                        `json:"lossless,omitempty"`
+	// UnknownTopLevelField identifies opaque request extensions that may be
+	// dropped as a routing fallback, independently of known semantic losses.
+	UnknownTopLevelField bool `json:"unknown_top_level_field,omitempty"`
 }
 
 func (c RequestTransformationChange) IsLossy() bool {
 	return c.Action != RequestTransformationPreserve && !c.Lossless
+}
+
+func (c RequestTransformationChange) IsUnknownTopLevelFieldDrop() bool {
+	return c.UnknownTopLevelField && c.Action == RequestTransformationDrop
 }
 
 // RequestChangeReporter is an optional outbound capability. Implementations

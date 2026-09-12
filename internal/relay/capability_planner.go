@@ -86,11 +86,11 @@ func (p *relayCapabilityPlanner) plan(channel *dbmodel.Channel, adapter model.Ou
 
 func (p *relayCapabilityPlanner) rankChannel(channel *dbmodel.Channel, item dbmodel.GroupItem) int {
 	if channel == nil || !channel.Enabled {
-		return 3
+		return capabilityRankRejected
 	}
 	adapter := outbound.Get(channel.Type)
 	if adapter == nil || p == nil || p.request == nil {
-		return 3
+		return capabilityRankRejected
 	}
 	return capabilityRank(p.plan(channel, adapter, item.ModelName))
 }
@@ -179,15 +179,30 @@ func planRelayPassthrough(request *model.InternalLLMRequest, rawBody []byte, cha
 	return passthrough
 }
 
+const (
+	capabilityRankNative = iota
+	capabilityRankCompatible
+	capabilityRankDegraded
+	capabilityRankUnknownFieldFallback
+	capabilityRankRejected
+)
+
 func capabilityRank(decision outbound.CapabilityDecision) int {
 	if decision.Rejected() {
-		return 3
+		return capabilityRankRejected
+	}
+	// Preserve unknown fields whenever possible, even if a preserving channel
+	// needs other repairs. Balancer preferences stay within each quality tier.
+	for _, loss := range decision.Losses {
+		if loss.IsUnknownTopLevelFieldDrop() {
+			return capabilityRankUnknownFieldFallback
+		}
 	}
 	if decision.Status == outbound.CapabilityDegraded {
-		return 2
+		return capabilityRankDegraded
 	}
 	if decision.StaticQuality == outbound.QualityNative {
-		return 0
+		return capabilityRankNative
 	}
-	return 1
+	return capabilityRankCompatible
 }

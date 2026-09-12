@@ -218,7 +218,7 @@ func describeWireConversion(req *model.InternalLLMRequest, adapter model.Outboun
 		return nil, err
 	}
 	input := conversionInput{request: req, adapter: adapter, source: source, wire: wire}
-	var report LossReport
+	report := LossReport(req.RequestRecoveryChanges(descriptor.APIFormat))
 	for _, rule := range descriptor.FieldRules {
 		report = append(report, rule.report(input)...)
 	}
