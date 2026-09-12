@@ -8,12 +8,16 @@ import (
 )
 
 func reportLoss(decision *CapabilityDecision, field string, action LossAction, reason string) {
-	if decision == nil || strings.TrimSpace(field) == "" || action == "" || action == LossActionPreserve {
+	reportChange(decision, CapabilityLoss{Field: field, Action: action, Reason: reason})
+}
+
+func reportChange(decision *CapabilityDecision, change CapabilityLoss) {
+	if decision == nil || strings.TrimSpace(change.Field) == "" || change.Action == "" || !change.IsLossy() {
 		return
 	}
-	decision.DegradedFields = append(decision.DegradedFields, field)
-	decision.Reasons = append(decision.Reasons, reason)
-	decision.Losses = append(decision.Losses, CapabilityLoss{Field: field, Action: action, Reason: reason})
+	decision.DegradedFields = append(decision.DegradedFields, change.Field)
+	decision.Reasons = append(decision.Reasons, change.Reason)
+	decision.Losses = append(decision.Losses, change)
 }
 
 func evaluateInboundRepairs(req *model.InternalLLMRequest, decision *CapabilityDecision) {

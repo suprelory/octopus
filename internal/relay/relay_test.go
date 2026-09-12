@@ -560,13 +560,21 @@ func TestHandlerPassthroughsOpenAIResponsesRawTools(t *testing.T) {
 	}
 }
 
-func TestHandlerRejectsResponsesNativeToolsWithoutResponsesChannel(t *testing.T) {
+func TestHandlerFallsBackForResponsesNativeToolsWithoutResponsesChannel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx := setupRelayTestDB(t)
+	if err := op.SettingSetString(model.SettingKeyCapabilityDegradationPolicy, "strict"); err != nil {
+		t.Fatal(err)
+	}
 	var upstreamHits atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upstreamHits.Add(1)
-		http.Error(w, "planner must reject before upstream", http.StatusInternalServerError)
+		body, err := io.ReadAll(r.Body)
+		if err != nil || bytes.Contains(body, []byte("apply_patch")) || !bytes.Contains(body, []byte("hello")) {
+			t.Errorf("invalid fallback body: %s, err=%v", body, err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chat_1","object":"chat.completion","model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"fallback works"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}`))
 	}))
 	defer server.Close()
 
@@ -598,25 +606,25 @@ func TestHandlerRejectsResponsesNativeToolsWithoutResponsesChannel(t *testing.T)
 
 	Handler(inbound.InboundTypeOpenAIResponse, c)
 
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("expected native responses tool request to be rejected, got status %d body %s", recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected native Responses fallback to succeed, got status %d body %s", recorder.Code, recorder.Body.String())
 	}
-	if !strings.Contains(recorder.Body.String(), "OpenAI Responses recovery path") {
-		t.Fatalf("expected clear native recovery error, got %s", recorder.Body.String())
+	if !strings.Contains(recorder.Body.String(), "fallback works") {
+		t.Fatalf("fallback response was not converted back to Responses: %s", recorder.Body.String())
 	}
-	if upstreamHits.Load() != 0 {
-		t.Fatalf("rejected capability reached upstream %d times", upstreamHits.Load())
+	if upstreamHits.Load() != 1 {
+		t.Fatalf("fallback reached upstream %d times, want 1", upstreamHits.Load())
 	}
 	logs, err := op.RelayLogList(ctx, nil, nil, nil, 1, 10)
 	if err != nil || len(logs) == 0 || len(logs[0].Attempts) != 1 {
-		t.Fatalf("expected one logged capability rejection, logs=%#v err=%v", logs, err)
+		t.Fatalf("expected one logged fallback, logs=%#v err=%v", logs, err)
 	}
 	attempt := logs[0].Attempts[0]
-	if attempt.Status != model.AttemptSkipped || attempt.CapabilityStatus != "rejected" || attempt.Lossiness != "rejected" {
-		t.Fatalf("unexpected rejected capability trace: %#v", attempt)
+	if attempt.Status != model.AttemptSuccess || attempt.CapabilityStatus != "degraded" || attempt.Lossiness != "known" {
+		t.Fatalf("unexpected fallback capability trace: %#v", attempt)
 	}
-	if len(attempt.ConversionPath) != 3 || attempt.FallbackReason == "" || len(attempt.CapabilityReasons) == 0 {
-		t.Fatalf("incomplete rejected capability trace: %#v", attempt)
+	if len(attempt.ConversionPath) != 3 || len(attempt.CapabilityLosses) == 0 || len(attempt.CapabilityReasons) == 0 {
+		t.Fatalf("incomplete fallback capability trace: %#v", attempt)
 	}
 }
 

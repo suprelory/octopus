@@ -128,6 +128,56 @@ type ToolChoice struct {
 	NamedToolChoice *NamedToolChoice `json:"named_tool_choice,omitempty"`
 }
 
+// ToolChoiceForTarget omits a choice that would force a provider-native tool
+// after cross-protocol conversion drops it. The original request is unchanged.
+func (r *InternalLLMRequest) ToolChoiceForTarget(target APIFormat) *ToolChoice {
+	if r == nil {
+		return nil
+	}
+	choice := r.ToolChoice
+	if choice == nil || target == r.RawAPIFormat ||
+		(r.RawAPIFormat != APIFormatOpenAIResponse && r.RawAPIFormat != APIFormatAnthropicMessage) {
+		return choice
+	}
+
+	hasFunction, hasNative := false, false
+	for _, tool := range r.Tools {
+		kind := strings.ToLower(strings.TrimSpace(tool.Type))
+		if kind == "function" || kind == "" {
+			hasFunction = true
+		} else {
+			hasNative = true
+		}
+	}
+	// Responses built-in tools can exist only in the raw sidecar.
+	for _, reason := range strings.Split(r.OpenAIResponsesPassthroughReasonTextValue(), ",") {
+		hasNative = hasNative || strings.HasPrefix(strings.TrimSpace(reason), "tool:")
+	}
+	mode := ""
+	if choice.ToolChoice != nil {
+		mode = strings.ToLower(strings.TrimSpace(*choice.ToolChoice))
+	} else if named := choice.NamedToolChoice; named != nil {
+		mode = strings.ToLower(strings.TrimSpace(named.Type))
+		switch mode {
+		case "function", "tool":
+			name := named.ResolvedFunctionName()
+			for _, tool := range r.Tools {
+				kind := strings.ToLower(strings.TrimSpace(tool.Type))
+				if kind != "function" && kind != "" && name != "" && name == tool.Function.Name {
+					return nil
+				}
+			}
+		case "", "auto", "none", "required", "any":
+		default:
+			return nil
+		}
+	}
+	if (mode == "required" || mode == "any") && hasNative && !hasFunction {
+		return nil
+	}
+	return choice
+}
+
 // NamedToolChoice is the structured form of tool_choice. It covers both the
 // OpenAI-shaped `{type:"function", function:{name:"..."}}` payload and the
 // Anthropic-shaped `{type:"tool"|"any"|"none", name:"...",

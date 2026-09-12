@@ -567,12 +567,12 @@ func convertLLMToGeminiRequest(request *model.InternalLLMRequest) *model.GeminiG
 	// rich OpenAI / Anthropic variants collapse into one of three modes.
 	// Anthropic's disable_parallel_tool_use has no Gemini equivalent and is
 	// dropped (Gemini always emits at most one functionCall per Part anyway).
-	if request.ToolChoice != nil {
+	if choice := request.ToolChoiceForTarget(model.APIFormatGeminiContents); choice != nil {
 		mode := "AUTO"
 		var allowed []string
 
-		if request.ToolChoice.ToolChoice != nil {
-			switch strings.ToLower(*request.ToolChoice.ToolChoice) {
+		if choice.ToolChoice != nil {
+			switch strings.ToLower(*choice.ToolChoice) {
 			case "auto":
 				mode = "AUTO"
 			case "required", "any":
@@ -580,7 +580,7 @@ func convertLLMToGeminiRequest(request *model.InternalLLMRequest) *model.GeminiG
 			case "none":
 				mode = "NONE"
 			}
-		} else if named := request.ToolChoice.NamedToolChoice; named != nil {
+		} else if named := choice.NamedToolChoice; named != nil {
 			switch strings.ToLower(named.Type) {
 			case "auto":
 				mode = "AUTO"

@@ -120,6 +120,33 @@ func TestCapabilityTraceAndRejectionMessagePreserveDecisionDetails(t *testing.T)
 	}
 }
 
+func TestStrictCapabilityPolicyAllowsOnlyAvailabilityFallbackLosses(t *testing.T) {
+	native := outbound.CapabilityLoss{Field: "responses.tools.web_search", Action: outbound.LossActionDrop, NativeSemantic: true}
+	unknown := outbound.CapabilityLoss{Field: "future_provider", Action: outbound.LossActionDrop, UnknownTopLevelField: true}
+	known := outbound.CapabilityLoss{Field: "response_format", Action: outbound.LossActionDrop}
+	rejected := native
+	rejected.Action = outbound.LossActionReject
+	for _, tt := range []struct {
+		name       string
+		losses     outbound.LossReport
+		wantReject bool
+	}{
+		{name: "native", losses: outbound.LossReport{native}},
+		{name: "native and unknown", losses: outbound.LossReport{native, unknown}},
+		{name: "native and other semantics", losses: outbound.LossReport{native, known}, wantReject: true},
+		{name: "native and unknown and other semantics", losses: outbound.LossReport{native, unknown, known}, wantReject: true},
+		{name: "hard rejection cannot become fallback", losses: outbound.LossReport{rejected}, wantReject: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			decision := outbound.CapabilityDecision{Status: outbound.CapabilityDegraded, Losses: tt.losses}
+			reject, code := evaluateCapabilityPolicy(decision, capabilityPolicyStrict)
+			if reject != tt.wantReject || (reject && code != CodeRelayCapabilityRejected) || (!reject && code != "") {
+				t.Fatalf("strict fallback policy = (%v, %q), want reject=%v", reject, code, tt.wantReject)
+			}
+		})
+	}
+}
+
 func TestResolveFinalAttemptResultDoesNotMaskSupportedFailure(t *testing.T) {
 	upstreamErr := errors.New("upstream failed")
 	upstreamResult := attemptResult{Err: upstreamErr, StatusCode: http.StatusServiceUnavailable}

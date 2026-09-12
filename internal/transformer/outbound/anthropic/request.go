@@ -85,7 +85,7 @@ func convertToAnthropicRequestUnpruned(req *model.InternalLLMRequest) *anthropic
 	applyThinkingParamConstraints(result)
 
 	// Convert tool choice
-	if tc := convertToolChoice(req.ToolChoice); tc != nil {
+	if tc := convertToolChoice(req.ToolChoiceForTarget(model.APIFormatAnthropicMessage)); tc != nil {
 		result.ToolChoice = tc
 	}
 

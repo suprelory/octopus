@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/bestruirui/octopus/internal/transformer/model"
 )
 
 // reportWireTools checks the emitted definitions, including schemas after
@@ -54,7 +56,15 @@ func reportWireTools(input conversionInput, typ OutboundType) LossReport {
 			}
 		}
 		if !found {
-			report = append(report, CapabilityLoss{Field: fmt.Sprintf("tools[%d].type", index), Action: LossActionDrop, Reason: fmt.Sprintf("tool type %q is not representable on %s", tool.Type, typ)})
+			native := kind != "function" && kind != "" &&
+				((input.request.RawAPIFormat == model.APIFormatAnthropicMessage && typ != OutboundTypeAnthropic) ||
+					(input.request.RawAPIFormat == model.APIFormatOpenAIResponse && typ != OutboundTypeOpenAIResponse))
+			report = append(report, CapabilityLoss{
+				Field:          fmt.Sprintf("tools[%d].type", index),
+				Action:         LossActionDrop,
+				Reason:         fmt.Sprintf("tool type %q is not representable on %s", tool.Type, typ),
+				NativeSemantic: native,
+			})
 			continue
 		}
 		if (kind == "function" || kind == "") && len(tool.Function.Parameters) > 0 {

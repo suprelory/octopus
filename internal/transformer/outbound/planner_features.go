@@ -23,6 +23,15 @@ func evaluateFeature(req *model.InternalLLMRequest, effectiveModel string, outbo
 			}
 		}
 	case FeatureToolChoice:
+		if req.ToolChoice != nil && req.ToolChoiceForTarget(decision.OutboundFormat) == nil {
+			reportChange(decision, CapabilityLoss{
+				Field:          "tool_choice",
+				Action:         LossActionDrop,
+				Reason:         "target protocol cannot honor a choice that forces a dropped native tool",
+				NativeSemantic: true,
+			})
+			return
+		}
 		if outboundType == OutboundTypeAnthropic && req.ToolChoice != nil && req.ToolChoice.NamedToolChoice != nil {
 			named := req.ToolChoice.NamedToolChoice
 			typ := strings.ToLower(strings.TrimSpace(named.Type))
@@ -66,7 +75,12 @@ func evaluateMultimodal(req *model.InternalLLMRequest, outboundType OutboundType
 			if supportsContentPart(outboundType, typ) {
 				continue
 			}
-			degrade(decision, fmt.Sprintf("messages[%d].content[%d]", messageIndex, partIndex), fmt.Sprintf("content part %q is not natively representable on %s", typ, outboundType))
+			reportChange(decision, CapabilityLoss{
+				Field:          fmt.Sprintf("messages[%d].content[%d]", messageIndex, partIndex),
+				Action:         LossActionDrop,
+				Reason:         fmt.Sprintf("content part %q is not natively representable on %s", typ, outboundType),
+				NativeSemantic: req.RawAPIFormat == model.APIFormatAnthropicMessage && (typ == "server_tool_use" || typ == "server_tool_result"),
+			})
 		}
 	}
 	if len(req.Modalities) > 0 {
@@ -132,18 +146,6 @@ func supportsContentPart(outboundType OutboundType, typ string) bool {
 		return outboundType == OutboundTypeAnthropic
 	default:
 		return false
-	}
-}
-
-func evaluateProviderSpecificSemantics(req *model.InternalLLMRequest, outboundType OutboundType, decision *CapabilityDecision) {
-	if outboundType != OutboundTypeAnthropic {
-		anthropic := req.GetAnthropicExtensions()
-		if len(anthropic.MCPServers) > 0 {
-			degrade(decision, "provider_extensions.anthropic.mcp_servers", "Anthropic MCP servers are dropped on non-Anthropic endpoints")
-		}
-		if len(anthropic.Container) > 0 {
-			degrade(decision, "provider_extensions.anthropic.container", "Anthropic container state is dropped on non-Anthropic endpoints")
-		}
 	}
 }
 

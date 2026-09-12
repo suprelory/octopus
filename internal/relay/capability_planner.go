@@ -184,6 +184,7 @@ const (
 	capabilityRankCompatible
 	capabilityRankDegraded
 	capabilityRankUnknownFieldFallback
+	capabilityRankNativeSemanticFallback
 	capabilityRankRejected
 )
 
@@ -191,12 +192,20 @@ func capabilityRank(decision outbound.CapabilityDecision) int {
 	if decision.Rejected() {
 		return capabilityRankRejected
 	}
-	// Preserve unknown fields whenever possible, even if a preserving channel
-	// needs other repairs. Balancer preferences stay within each quality tier.
+	// Keep native semantics and unknown fields ahead of availability fallbacks,
+	// even if a preserving channel needs other repairs. Balancer preferences
+	// stay within each quality tier.
+	fallbackRank := 0
 	for _, loss := range decision.Losses {
-		if loss.IsUnknownTopLevelFieldDrop() {
-			return capabilityRankUnknownFieldFallback
+		if loss.IsNativeSemanticLoss() {
+			return capabilityRankNativeSemanticFallback
 		}
+		if loss.IsUnknownTopLevelFieldDrop() {
+			fallbackRank = capabilityRankUnknownFieldFallback
+		}
+	}
+	if fallbackRank != 0 {
+		return fallbackRank
 	}
 	if decision.Status == outbound.CapabilityDegraded {
 		return capabilityRankDegraded

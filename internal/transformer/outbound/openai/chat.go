@@ -195,7 +195,7 @@ func buildChatCompletionsRequest(request *model.InternalLLMRequest) *ChatComplet
 		StreamOptions:       request.StreamOptions,
 		ParallelToolCalls:   request.ParallelToolCalls,
 		Tools:               convertToolsToChatCompletions(request.Tools),
-		ToolChoice:          request.ToolChoice,
+		ToolChoice:          request.ToolChoiceForTarget(model.APIFormatOpenAIChatCompletion),
 		ResponseFormat:      request.ResponseFormat,
 		SafetyIdentifier:    request.SafetyIdentifier,
 		PromptCacheKey:      chatPromptCacheKey(request),

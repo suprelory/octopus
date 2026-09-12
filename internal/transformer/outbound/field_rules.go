@@ -26,6 +26,7 @@ type FieldConversionRule struct {
 type conversionInput struct {
 	request      *model.InternalLLMRequest
 	adapter      model.Outbound
+	targetFormat model.APIFormat
 	source, wire map[string]any
 }
 
@@ -74,7 +75,7 @@ func protocolFieldRules(typ OutboundType) []FieldConversionRule {
 			if !slices.Contains(requestedFeatures(input.request), string(feature)) {
 				return nil
 			}
-			var decision CapabilityDecision
+			decision := CapabilityDecision{OutboundFormat: input.targetFormat}
 			evaluateFeature(input.request, input.request.Model, typ, feature, &decision)
 			return decision.Losses
 		}
@@ -90,7 +91,6 @@ func protocolFieldRules(typ OutboundType) []FieldConversionRule {
 		}},
 		FieldConversionRule{SourceSemantic: "provider_extensions", TargetField: "provider_extensions", Action: LossActionDrop, Condition: "target cannot represent provider extension", Reason: "provider extension has no target representation", evaluate: func(input conversionInput) LossReport {
 			var decision CapabilityDecision
-			evaluateProviderSpecificSemantics(input.request, typ, &decision)
 			evaluateInboundRepairs(input.request, &decision)
 			return decision.Losses
 		}},
@@ -217,7 +217,7 @@ func describeWireConversion(req *model.InternalLLMRequest, adapter model.Outboun
 	if err := json.Unmarshal(encoded, &source); err != nil {
 		return nil, err
 	}
-	input := conversionInput{request: req, adapter: adapter, source: source, wire: wire}
+	input := conversionInput{request: req, adapter: adapter, targetFormat: descriptor.APIFormat, source: source, wire: wire}
 	report := LossReport(req.RequestRecoveryChanges(descriptor.APIFormat))
 	for _, rule := range descriptor.FieldRules {
 		report = append(report, rule.report(input)...)

@@ -89,14 +89,14 @@ func TestPlanRelayOperationUsesProtocolDescriptor(t *testing.T) {
 	}
 }
 
-func TestPlanRequestRejectsNativeResponsesSemantics(t *testing.T) {
+func TestPlanRequestRequiresSidecarsOnlyForNativeResponsesRecovery(t *testing.T) {
 	req := &model.InternalLLMRequest{RequestType: model.RequestTypeResponses, RawAPIFormat: model.APIFormatOpenAIResponse, Model: "gpt-5", Messages: []model.Message{{Role: "user"}}}
 	req.MarkOpenAIResponsesPassthroughRequired("tool:web_search")
-	for _, outboundType := range []OutboundType{OutboundTypeOpenAIResponse, OutboundTypeGemini} {
-		decision := PlanRequestForModel(req, req.Model, outboundType, false)
-		if decision.Status != CapabilityRejected {
-			t.Fatalf("outbound %s status = %s, want rejected", outboundType, decision.Status)
-		}
+	if decision := PlanRequestForModel(req, req.Model, OutboundTypeOpenAIResponse, false); !decision.Rejected() {
+		t.Fatalf("missing native tool sidecar accepted: %+v", decision)
+	}
+	if decision := PlanRequestForModel(req, req.Model, OutboundTypeGemini, false); decision.Status != CapabilityDegraded || len(decision.Losses) != 1 || !decision.Losses[0].IsNativeSemanticLoss() {
+		t.Fatalf("native tool fallback = %+v", decision)
 	}
 
 	decision := PlanRequestForModel(req, req.Model, OutboundTypeOpenAIResponse, true)
@@ -164,8 +164,8 @@ func TestPlanRequestAllowsNativeResponsesRecoveryWithoutRawPassthrough(t *testin
 			if decision.Rejected() || decision.Passthrough {
 				t.Fatalf("Responses recovery decision = %#v, want canonical non-rejected path", decision)
 			}
-			if decision := PlanRequestForModel(tt.request, tt.request.Model, OutboundTypeGemini, false); !decision.Rejected() {
-				t.Fatalf("non-Responses recovery decision = %#v, want rejected", decision)
+			if decision := PlanRequestForModel(tt.request, tt.request.Model, OutboundTypeGemini, false); decision.Status != CapabilityDegraded || decision.Conversion.ReplayAvailable || decision.Conversion.ExactReplay {
+				t.Fatalf("non-Responses fallback decision = %#v, want lossy without replay", decision)
 			}
 		})
 	}

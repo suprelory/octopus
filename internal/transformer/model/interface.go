@@ -84,6 +84,9 @@ type RequestTransformationChange struct {
 	// UnknownTopLevelField identifies opaque request extensions that may be
 	// dropped as a routing fallback, independently of known semantic losses.
 	UnknownTopLevelField bool `json:"unknown_top_level_field,omitempty"`
+	// NativeSemantic identifies provider-native semantics that may be lost
+	// when no channel can preserve their source protocol.
+	NativeSemantic bool `json:"native_semantic,omitempty"`
 }
 
 func (c RequestTransformationChange) IsLossy() bool {
@@ -92,6 +95,14 @@ func (c RequestTransformationChange) IsLossy() bool {
 
 func (c RequestTransformationChange) IsUnknownTopLevelFieldDrop() bool {
 	return c.UnknownTopLevelField && c.Action == RequestTransformationDrop
+}
+
+func (c RequestTransformationChange) IsNativeSemanticLoss() bool {
+	return c.NativeSemantic && c.IsLossy() && c.Action != RequestTransformationReject
+}
+
+func (c RequestTransformationChange) IsAvailabilityFallbackLoss() bool {
+	return c.IsUnknownTopLevelFieldDrop() || c.IsNativeSemanticLoss()
 }
 
 // RequestChangeReporter is an optional outbound capability. Implementations

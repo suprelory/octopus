@@ -14,14 +14,14 @@ import (
 // evaluateCapabilityPolicy applies the relay-wide degradation policy to a
 // planner decision. Hard capability rejections are always rejected. Known
 // degradation is rejected only when strict mode is enabled, except for the
-// explicit fallback that drops only unknown top-level fields. The returned
+// explicit fallback for unknown top-level fields and native semantics. The returned
 // code preserves the existing protocol error semantics for each case.
 func evaluateCapabilityPolicy(decision outbound.CapabilityDecision, policy capabilityDegradationPolicy) (reject bool, code string) {
 	if decision.Rejected() {
 		return true, CodeRelayModelNotSupported
 	}
 	if decision.Status == outbound.CapabilityDegraded && policy == capabilityPolicyStrict {
-		if onlyUnknownTopLevelFieldsDropped(decision) {
+		if onlyAvailabilityFallbackLosses(decision) {
 			return false, ""
 		}
 		return true, CodeRelayCapabilityRejected
@@ -29,12 +29,12 @@ func evaluateCapabilityPolicy(decision outbound.CapabilityDecision, policy capab
 	return false, ""
 }
 
-func onlyUnknownTopLevelFieldsDropped(decision outbound.CapabilityDecision) bool {
+func onlyAvailabilityFallbackLosses(decision outbound.CapabilityDecision) bool {
 	if len(decision.Losses) == 0 {
 		return false
 	}
 	for _, loss := range decision.Losses {
-		if !loss.IsUnknownTopLevelFieldDrop() {
+		if !loss.IsAvailabilityFallbackLoss() {
 			return false
 		}
 	}

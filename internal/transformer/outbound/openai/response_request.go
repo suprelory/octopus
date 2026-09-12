@@ -46,8 +46,8 @@ func ConvertToResponsesRequest(req *model.InternalLLMRequest) *ResponsesRequest 
 	}
 
 	// Convert tool choice
-	if req.ToolChoice != nil {
-		result.ToolChoice = convertToolChoiceToResponses(req.ToolChoice)
+	if choice := req.ToolChoiceForTarget(model.APIFormatOpenAIResponse); choice != nil {
+		result.ToolChoice = convertToolChoiceToResponses(choice)
 	}
 
 	// Convert text options

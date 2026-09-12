@@ -93,8 +93,7 @@ func (r *InternalLLMRequest) ValidateNativeRecovery(target APIFormat, rawPassthr
 		recovery := r.Operation.Recovery
 		// Unknown top-level fields are required only when the target can
 		// actually replay their source protocol. A different protocol has no
-		// schema-level recovery path and deliberately drops these opaque fields;
-		// known native semantics below remain hard requirements.
+		// schema-level recovery path and reports the loss instead.
 		if recovery.Format == target {
 			for _, field := range recovery.RequiredFields {
 				if !json.Valid(recovery.Fields[field]) {
@@ -103,7 +102,7 @@ func (r *InternalLLMRequest) ValidateNativeRecovery(target APIFormat, rawPassthr
 			}
 		}
 	}
-	if r.RawAPIFormat == APIFormatAnthropicMessage {
+	if r.RawAPIFormat == APIFormatAnthropicMessage && target == APIFormatAnthropicMessage {
 		ext := r.GetAnthropicExtensions()
 		for _, native := range []struct {
 			field string
@@ -112,7 +111,7 @@ func (r *InternalLLMRequest) ValidateNativeRecovery(target APIFormat, rawPassthr
 			if r.FieldPresenceOf(native.field) != FieldPresent && len(native.raw) == 0 {
 				continue
 			}
-			if target != APIFormatAnthropicMessage || !json.Valid(native.raw) {
+			if !json.Valid(native.raw) {
 				return fmt.Errorf("required Anthropic %s has no native recovery path", native.field)
 			}
 		}
@@ -120,16 +119,13 @@ func (r *InternalLLMRequest) ValidateNativeRecovery(target APIFormat, rawPassthr
 			if tool.Type == "function" || tool.Type == "" {
 				continue
 			}
-			if target != APIFormatAnthropicMessage || !json.Valid(tool.AnthropicServerSpec) {
+			if !json.Valid(tool.AnthropicServerSpec) {
 				return fmt.Errorf("required Anthropic tool %q has no raw server-tool spec", tool.Type)
 			}
 		}
 	}
-	if !r.HasOpenAIResponsesPassthrough() {
+	if !r.HasOpenAIResponsesPassthrough() || target != APIFormatOpenAIResponse {
 		return nil
-	}
-	if target != APIFormatOpenAIResponse {
-		return fmt.Errorf("native Responses semantics require an OpenAI Responses recovery path: %s", r.OpenAIResponsesPassthroughReasonTextValue())
 	}
 	for _, reason := range strings.Split(r.OpenAIResponsesPassthroughReasonTextValue(), ",") {
 		kind, name, ok := strings.Cut(strings.TrimSpace(reason), ":")
@@ -157,16 +153,20 @@ func (r *InternalLLMRequest) ValidateNativeRecovery(target APIFormat, rawPassthr
 	return nil
 }
 
-// RequestRecoveryChanges reports only the unknown top-level fields omitted by
-// MarshalRequestWithRecovery. Native tools and input items have separate
-// recovery requirements and are never covered by this fallback.
+// RequestRecoveryChanges reports native recovery data that the target cannot
+// preserve. These losses allow availability fallback while same-protocol
+// builders still require valid sidecars for native replay.
 func (r *InternalLLMRequest) RequestRecoveryChanges(target APIFormat) []RequestTransformationChange {
-	if r == nil || r.Operation == nil || r.Operation.Recovery == nil {
+	if r == nil {
 		return nil
+	}
+	changes := r.nativeRecoveryChanges(target)
+	if r.Operation == nil || r.Operation.Recovery == nil {
+		return changes
 	}
 	recovery := r.Operation.Recovery
 	if recovery.Format == target {
-		return nil
+		return changes
 	}
 	fieldSet := make(map[string]struct{}, len(recovery.Fields)+len(recovery.RequiredFields))
 	for field := range recovery.Fields {
@@ -175,7 +175,6 @@ func (r *InternalLLMRequest) RequestRecoveryChanges(target APIFormat) []RequestT
 	for _, field := range recovery.RequiredFields {
 		fieldSet[field] = struct{}{}
 	}
-	changes := make([]RequestTransformationChange, 0, len(fieldSet))
 	for field := range fieldSet {
 		if strings.TrimSpace(field) == "" {
 			continue
@@ -189,6 +188,50 @@ func (r *InternalLLMRequest) RequestRecoveryChanges(target APIFormat) []RequestT
 		})
 	}
 	sort.Slice(changes, func(i, j int) bool { return changes[i].Field < changes[j].Field })
+	return changes
+}
+
+func (r *InternalLLMRequest) nativeRecoveryChanges(target APIFormat) []RequestTransformationChange {
+	var changes []RequestTransformationChange
+	if target != APIFormatAnthropicMessage {
+		ext := r.GetAnthropicExtensions()
+		for _, native := range []struct {
+			field string
+			raw   json.RawMessage
+		}{{"mcp_servers", ext.MCPServers}, {"container", ext.Container}} {
+			present := r.RawAPIFormat == APIFormatAnthropicMessage && r.FieldPresenceOf(native.field) == FieldPresent
+			if !present && len(native.raw) == 0 {
+				continue
+			}
+			changes = append(changes, RequestTransformationChange{
+				Field:          "provider_extensions.anthropic." + native.field,
+				Action:         RequestTransformationDrop,
+				Condition:      "target protocol has no native recovery path",
+				Reason:         fmt.Sprintf("Anthropic %s is dropped when converting to %s", native.field, target),
+				NativeSemantic: true,
+			})
+		}
+	}
+	if r.HasOpenAIResponsesPassthrough() && target != APIFormatOpenAIResponse {
+		for _, reason := range strings.Split(r.OpenAIResponsesPassthroughReasonTextValue(), ",") {
+			reason = strings.TrimSpace(reason)
+			kind, name, _ := strings.Cut(reason, ":")
+			field := "responses.native_semantics"
+			switch kind {
+			case "input", "input_field":
+				field = "responses.input." + name
+			case "tool", "tool_field":
+				field = "responses.tools." + name
+			}
+			changes = append(changes, RequestTransformationChange{
+				Field:          field,
+				Action:         RequestTransformationDrop,
+				Condition:      "target protocol has no native Responses recovery path",
+				Reason:         fmt.Sprintf("native Responses semantic %q is not preserved when converting to %s", reason, target),
+				NativeSemantic: true,
+			})
+		}
+	}
 	return changes
 }
 
