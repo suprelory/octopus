@@ -1,4 +1,52 @@
 {
+    "workspace": {
+        "total": "全部",
+        "shown": "目前結果",
+        "searchHint": "試試其他名稱，或清空搜尋查看全部結果。",
+        "group": {
+            "title": "群組概覽",
+            "description": "組織模型與供應源，按策略分配請求。",
+            "members": "模型成員"
+        },
+        "model": {
+            "title": "模型價格",
+            "description": "比較模型定價，統一管理輸入、輸出與快取成本。",
+            "unit": "USD / 百萬 Token",
+            "empty": "還沒有模型價格",
+            "emptyHint": "使用上方的新增或同步按鈕，新增模型價格。"
+        },
+        "site": {
+            "title": "站點概覽",
+            "description": "集中查看餘額、帳號與每日簽到情況。"
+        },
+        "log": {
+            "title": "請求記錄",
+            "openDetails": "查看 {model} 請求 #{id}",
+            "description": "查看呼叫過程、用量與異常詳情。",
+            "currentPage": "本頁記錄"
+        },
+        "settings": {
+            "title": "工作區設定",
+            "description": "管理使用偏好、存取金鑰、連線與備份。",
+            "navigation": "設定分類",
+            "general": "一般",
+            "access": "存取金鑰",
+            "connection": "連線與任務",
+            "data": "資料與備份"
+        },
+        "login": {
+            "title": "歡迎回來",
+            "description": "登入後管理模型服務，或使用 API Key 查看用量。",
+            "method": "登入方式"
+        },
+        "dashboard": {
+            "title": "金鑰用量概覽",
+            "description": "查看目前金鑰的費用、配額和呼叫情況。",
+            "loading": "正在載入金鑰用量",
+            "theme": "切換主題",
+            "language": "切換語言"
+        }
+    },
     "routing": {
         "title": "路由預覽",
         "description": "按已儲存的分組設定模擬請求，不發送上游流量，也不改變路由狀態。結果反映目前服務實例在預覽時的狀態。",

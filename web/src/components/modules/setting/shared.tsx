@@ -122,9 +122,9 @@ export function SettingCard({ icon: Icon, title, tooltip, children }: {
     children: React.ReactNode;
 }) {
     return (
-        <div className="page-card space-y-5 p-6">
-            <h2 className="text-lg font-bold text-card-foreground flex items-center gap-2">
-                <Icon className="h-5 w-5 shrink-0" />
+        <div className="page-card min-w-0 space-y-5 p-5">
+            <h2 className="setting-card-heading">
+                <Icon aria-hidden />
                 {title}
                 {tooltip && <SettingHelpTip>{tooltip}</SettingHelpTip>}
             </h2>
@@ -140,13 +140,13 @@ export function SettingRow({ icon: Icon, label, tooltip, children }: {
     children: React.ReactNode;
 }) {
     return (
-        <div className="flex items-center justify-between gap-4">
-            <div className="flex min-w-0 flex-1 items-center gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="flex min-w-0 flex-1 basis-36 items-center gap-3">
                 {Icon && <Icon className="h-5 w-5 shrink-0 text-muted-foreground" />}
                 <span className="min-w-0 text-sm font-medium leading-5">{label}</span>
                 {tooltip && <SettingHelpTip>{tooltip}</SettingHelpTip>}
             </div>
-            <div className="shrink-0">{children}</div>
+            <div className="max-w-full shrink-0">{children}</div>
         </div>
     );
 }

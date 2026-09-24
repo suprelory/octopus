@@ -163,11 +163,19 @@ html.dark,
   }
 
   .page-card {
-    @apply rounded-3xl border border-border bg-card text-card-foreground shadow-sm;
+    @apply rounded-2xl border border-border/70 bg-card text-card-foreground shadow-sm;
   }
 
   .page-empty-state {
-    @apply rounded-3xl border border-dashed border-border bg-card px-6 py-10 text-center text-muted-foreground shadow-sm;
+    @apply rounded-2xl border border-dashed border-border bg-card/60 px-5 py-12 text-center text-muted-foreground;
+  }
+
+  .setting-card-heading {
+    @apply flex items-center gap-3 border-b border-border/60 pb-4 text-base font-semibold text-card-foreground;
+  }
+
+  .setting-card-heading > svg {
+    @apply size-9 shrink-0 rounded-xl bg-primary/8 p-2 text-primary;
   }
 }
 

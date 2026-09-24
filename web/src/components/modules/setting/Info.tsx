@@ -66,8 +66,8 @@ export function SettingInfo() {
 
     return (
         <div className="page-card space-y-5 p-6">
-            <h2 className="text-lg font-bold text-card-foreground flex items-center gap-2">
-                <Info className="h-5 w-5" />
+            <h2 className="setting-card-heading">
+                <Info aria-hidden />
                 {t('info.title')}
             </h2>
             {/* GitHub 仓库 */}

@@ -1,4 +1,52 @@
 {
+    "workspace": {
+        "total": "全部",
+        "shown": "当前结果",
+        "searchHint": "试试其他名称，或清空搜索查看全部结果。",
+        "group": {
+            "title": "分组概览",
+            "description": "组织模型与渠道，按策略分配请求。",
+            "members": "模型成员"
+        },
+        "model": {
+            "title": "模型价格",
+            "description": "对比模型定价，统一管理输入、输出与缓存成本。",
+            "unit": "USD / 百万 Token",
+            "empty": "还没有模型价格",
+            "emptyHint": "使用上方的新增或同步按钮，添加模型价格。"
+        },
+        "site": {
+            "title": "站点概览",
+            "description": "集中查看余额、账号与每日签到情况。"
+        },
+        "log": {
+            "title": "请求记录",
+            "openDetails": "查看 {model} 请求 #{id}",
+            "description": "查看调用过程、用量与异常详情。",
+            "currentPage": "本页记录"
+        },
+        "settings": {
+            "title": "工作区设置",
+            "description": "管理使用偏好、访问密钥、连接与备份。",
+            "navigation": "设置分类",
+            "general": "通用",
+            "access": "访问密钥",
+            "connection": "连接与任务",
+            "data": "数据与备份"
+        },
+        "login": {
+            "title": "欢迎回来",
+            "description": "登录后管理模型服务，或使用 API Key 查看用量。",
+            "method": "登录方式"
+        },
+        "dashboard": {
+            "title": "密钥用量概览",
+            "description": "查看当前密钥的费用、配额和调用情况。",
+            "loading": "正在加载密钥用量",
+            "theme": "切换主题",
+            "language": "切换语言"
+        }
+    },
     "routing": {
         "title": "路由预览",
         "description": "按已保存的分组配置模拟请求，不发送上游流量，也不改变路由状态。结果反映当前服务实例在预览时的状态。",

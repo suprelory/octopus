@@ -79,8 +79,8 @@ export function SettingAccount() {
 
     return (
         <div className="page-card min-w-0 space-y-6 overflow-hidden p-6">
-            <h2 className="text-lg font-bold text-card-foreground flex items-center gap-2">
-                <User className="h-5 w-5" />
+            <h2 className="setting-card-heading">
+                <User aria-hidden />
                 {t('account.title')}
             </h2>
 

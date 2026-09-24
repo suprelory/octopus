@@ -17,6 +17,7 @@ import {
     type RelayLog,
 } from '@/api/endpoints/log';
 import { Pagination } from '@/components/common/Pagination';
+import { PageOverview } from '@/components/common/PageOverview';
 import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useSearchStore } from '@/components/modules/toolbar';
@@ -79,6 +80,7 @@ function filtersActive(filters: LogFilters) {
  */
 export function Log() {
     const tList = useTranslations('log.list');
+    const tOverview = useTranslations('workspace');
     const tLive = useTranslations('log.live');
     const tView = useTranslations('log.viewOptions');
     const pageKey = 'log' as const;
@@ -229,15 +231,21 @@ export function Log() {
 
     return (
         <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
-            <div className="flex shrink-0 items-center justify-end gap-1">
+            <PageOverview className="shrink-0" title={tOverview('log.title')} description={tOverview('log.description')} metrics={[
+                { label: tOverview('total'), value: logsQuery.isLoading || logsQuery.isError ? '—' : `${total.toLocaleString()}${totalExact ? '' : '+'}` },
+                { label: tOverview('log.currentPage'), value: logs.length, accent: true },
+            ]}>
+            <div className="flex flex-wrap items-center gap-1">
                 <button
                     type="button"
+                    aria-pressed={liveEnabled}
+                    aria-label={liveEnabled ? tLive('disable') : tLive('enable')}
                     onClick={() => setLiveEnabled(!liveEnabled)}
                     title={liveState === 'suspended'
                         ? tLive('suspendedHint')
                         : liveEnabled ? tLive('disable') : tLive('enable')}
                     className={cn(
-                        'flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors hover:bg-muted',
+                        'flex items-center gap-1.5 rounded-lg border border-border/60 bg-card px-3 py-2 text-xs transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring',
                         liveState === 'on' ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground hover:text-foreground',
                     )}
                 >
@@ -254,7 +262,7 @@ export function Log() {
                 </button>
                 <Popover>
                     <PopoverTrigger asChild>
-                        <button type="button" className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+                        <button type="button" className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring">
                             <Columns3 className="size-3.5" />{tView('title')}
                         </button>
                     </PopoverTrigger>
@@ -272,6 +280,7 @@ export function Log() {
                     </PopoverContent>
                 </Popover>
             </div>
+            </PageOverview>
 
             {errorMessage ? (
                 <div className="flex shrink-0 items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
@@ -339,7 +348,7 @@ export function Log() {
                 hasMore={hasMore}
                 onPageChange={setPage}
                 onPageSizeChange={setPageSize}
-                className="px-1 pb-1"
+                className="rounded-xl border border-border/60 bg-card/60 px-3 py-2"
             />
         </div>
     );

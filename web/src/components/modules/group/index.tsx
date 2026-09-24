@@ -1,15 +1,18 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Layers3 } from 'lucide-react';
+import { Layers3, SearchX } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { GroupCard } from './Card';
 import { useGroupList } from '@/api/endpoints/group';
 import { useSearchStore, useToolbarViewOptionsStore } from '@/components/modules/toolbar';
 import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
+import { PageOverview } from '@/components/common/PageOverview';
+import { CardGridSkeleton, PageEmptyState } from '@/components/common/PageState';
 
 export function Group() {
     const t = useTranslations('group');
+    const tOverview = useTranslations('workspace');
     const { data: groups, isLoading, isError, refetch } = useGroupList();
     const pageKey = 'group' as const;
     const searchTerm = useSearchStore((s) => s.getSearchTerm(pageKey));
@@ -44,14 +47,7 @@ export function Group() {
     }, [sortedGroups, searchTerm]);
 
     if (isLoading) {
-        return (
-            <div className="flex h-full min-h-0 items-center justify-center">
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <span className="size-2 animate-pulse rounded-full bg-primary" />
-                    {t('state.loading')}
-                </div>
-            </div>
-        );
+        return <CardGridSkeleton label={t('state.loading')} />;
     }
 
     if (isError) {
@@ -72,19 +68,11 @@ export function Group() {
         );
     }
 
-    if (groups && groups.length === 0) {
-        return (
-            <div className="page-scroll-area px-3 pt-4 md:px-4 md:pt-6">
-                <section className="page-empty-state mx-auto flex w-full max-w-3xl flex-col items-center py-12 text-card-foreground">
-                    <div className="grid size-16 place-items-center rounded-full border border-border/50 bg-muted/30 text-primary">
-                        <Layers3 className="size-7" />
-                    </div>
-                    <h2 className="mt-5 text-xl font-semibold tracking-tight">{t('emptyState.title')}</h2>
-                    <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">{t('emptyState.description')}</p>
-                </section>
-            </div>
-        );
-    }
+    const overview = <PageOverview className="mb-4" title={tOverview('group.title')} description={tOverview('group.description')} metrics={[
+        { label: tOverview('total'), value: groups?.length ?? 0 },
+        { label: tOverview('group.members'), value: (groups ?? []).reduce((count, group) => count + (group.items?.length ?? 0), 0), accent: true },
+        { label: tOverview('shown'), value: visibleGroups.length },
+    ]} />;
 
     return (
         <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -92,17 +80,19 @@ export function Group() {
                 {visibleGroups.length > 0 ? (
                     <VirtualizedGrid
                         items={visibleGroups}
+                        header={overview}
                         columns={{ default: 1, sm: 2, md: 2, lg: 3 }}
-                        estimateItemHeight={72}
-                        gap={12}
+                        estimateItemHeight={140}
+                        gap={16}
                         getItemKey={(group, index) => group.id ?? `group-${index}`}
                         renderItem={(group) => <GroupCard group={group} />}
                     />
                 ) : (
-                    <div className="flex h-full items-center justify-center px-3">
-                        <div className="page-empty-state py-8 text-sm">
-                            {t('state.noResults')}
-                        </div>
+                    <div className="page-scroll-area">
+                        {overview}
+                        <PageEmptyState icon={searchTerm.trim() ? SearchX : Layers3}
+                            title={searchTerm.trim() ? t('state.noResults') : t('emptyState.title')}
+                            description={searchTerm.trim() ? tOverview('searchHint') : t('emptyState.description')} />
                     </div>
                 )}
             </section>

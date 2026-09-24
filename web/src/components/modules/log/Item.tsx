@@ -32,6 +32,7 @@ export type LogSiteActionTargets = ApiLogSiteActionTargets;
 
 export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; siteTargets: LogSiteActionTargets | null; channelNameById?: ReadonlyMap<number, string> }) {
     const t = useTranslations('log.card');
+    const tOverview = useTranslations('workspace.log');
     const hasError = !!log.error;
     const hasMultipleAttempts = (log.attempts?.length ?? 0) > 1;
     const [isDiagnosticExpanded, setIsDiagnosticExpanded] = useState(false);
@@ -158,6 +159,7 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
         <>
             <MorphingDialog>
                 <MorphingDialogTrigger
+                    aria-label={tOverview('openDetails', { model: displayRequestModelName, id: log.id })}
                     onClick={() => {
                         if (!detailLog && !detailLoading) {
                             setDetailLoading(true);
@@ -165,8 +167,8 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
                         }
                     }}
                     className={cn(
-                        'page-card w-full text-left',
-                        hasError ? 'border-destructive/40' : 'border-border',
+                        'page-card w-full text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                        hasError ? 'border-destructive/40 hover:border-destructive/60' : 'hover:border-primary/35',
                     )}
                 >
                     <LogSummary
@@ -179,12 +181,12 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
                 </MorphingDialogTrigger>
 
                 <MorphingDialogContainer>
-                    <MorphingDialogContent className="relative w-[calc(100vw-2rem)] md:w-[80vw] bg-card text-card-foreground px-6 py-4 rounded-3xl h-[calc(100vh-2rem)] flex flex-col overflow-hidden">
+                    <MorphingDialogContent className="relative w-[calc(100vw-2rem)] md:w-[80vw] bg-card text-card-foreground px-4 sm:px-6 py-4 rounded-2xl h-[calc(100dvh-2rem)] flex flex-col overflow-hidden">
                         <MorphingDialogClose className="top-4 right-5 text-muted-foreground hover:text-foreground transition-colors" />
                         <MorphingDialogTitle className="mb-3 flex min-w-0 items-start gap-3 pr-14 text-sm md:pr-16">
-                            <div className="flex min-w-0 flex-1 items-center gap-2">
+                            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                                 <ModelAvatar size={28} />
-                                <span className="font-semibold text-card-foreground truncate">{displayRequestModelName}</span>
+                                <span className="max-w-full truncate font-semibold text-card-foreground" title={displayRequestModelName}>{displayRequestModelName}</span>
                                 {log.is_test ? <Badge variant="outline" className="shrink-0 border-blue-400/50 px-1.5 py-0 text-xs text-blue-500 dark:text-blue-400"><TestTube2 className="mr-1 size-3" />{t('testLog')}</Badge> : null}
                                 <ArrowRight className="size-3.5 shrink-0 text-muted-foreground/50" />
                                 {visibility.endpointType && endpointLabel ? <Badge variant="secondary" className="shrink-0 px-1.5 py-0 text-xs" style={{ backgroundColor: `${brandColor}15`, color: brandColor }}>{endpointLabel}</Badge> : null}

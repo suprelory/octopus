@@ -349,7 +349,7 @@ export function GroupCard({ group }: { group: Group }) {
     }, [group.id, group.pinned, t, togglePin]);
 
     return (
-        <article className="page-card group/card relative overflow-hidden transition-shadow hover:shadow-md">
+        <article className="page-card group/card relative overflow-hidden transition-colors hover:border-primary/35">
             <div
                 role="button"
                 tabIndex={0}
@@ -363,23 +363,18 @@ export function GroupCard({ group }: { group: Group }) {
                         setExpanded((current) => !current);
                     }
                 }}
-                className="flex w-full cursor-pointer items-center gap-3 px-4 py-3 text-left md:py-4"
+                className="flex w-full cursor-pointer flex-wrap items-center gap-3 p-5 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
             >
                 <div className="flex min-w-0 flex-1 items-center gap-3">
-                    <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/40 bg-muted/30">
+                    <span className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-muted/50">
                         {GroupAvatar ? <GroupAvatar size={34} shape="circle" /> : <Waves className="size-4 text-muted-foreground" />}
                     </span>
                     <div className="min-w-0 flex-1">
                         <div className="flex min-w-0 items-center gap-1.5">
-                            <h3 className="truncate text-sm font-semibold text-card-foreground md:text-base">{group.name}</h3>
+                            <h3 className="truncate text-base font-semibold tracking-tight text-card-foreground" title={group.name}>{group.name}</h3>
                             {group.pinned ? <Pin className="size-3 shrink-0 fill-current text-primary" /> : null}
                         </div>
-                        <p className="truncate text-xs text-muted-foreground">
-                            {t(`mode.${MODE_LABELS[group.mode]}`)}
-                            {firstModelName ? ` · ${firstModelName}` : ''}
-                            {' · '}
-                            {t('card.modelCount', { count: displayMembers.length })}
-                        </p>
+                        <p className="mt-1 truncate text-xs text-muted-foreground" title={firstModelName}>{firstModelName || t('card.empty')}</p>
                     </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
@@ -393,6 +388,10 @@ export function GroupCard({ group }: { group: Group }) {
                     </motion.span>
                 </div>
                 <span className="sr-only">{expanded ? t('card.collapseModels') : t('card.expandModels')}</span>
+                <div className="flex w-full flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3 text-xs text-muted-foreground">
+                    <span className="rounded-md bg-primary/8 px-2 py-1 font-medium text-primary">{t(`mode.${MODE_LABELS[group.mode]}`)}</span>
+                    <span className="tabular-nums">{t('card.modelCount', { count: displayMembers.length })}</span>
+                </div>
             </div>
 
             <AnimatePresence initial={false}>
@@ -406,7 +405,7 @@ export function GroupCard({ group }: { group: Group }) {
                         className="overflow-hidden"
                     >
                         <div className="space-y-3 border-t border-border/40 px-4 pb-4 pt-3">
-                            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                            <div className="grid grid-cols-3 gap-1.5">
                                 {([GroupMode.RoundRobin, GroupMode.Failover, GroupMode.Weighted] as const).map((mode) => (
                                     <button
                                         key={mode}

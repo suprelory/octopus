@@ -1,11 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { motion } from 'motion/react';
 import { useTranslations } from 'next-intl';
-import { ShieldCheck } from 'lucide-react';
 import { useBootstrapUser, useLogin } from '@/api/endpoints/user';
-import Logo from '@/components/modules/logo';
+import { AuthShell } from '@/components/common/AuthShell';
 import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
@@ -56,25 +54,13 @@ export function BootstrapForm({ onComplete }: { onComplete?: () => void }) {
     const isPending = bootstrap.isPending || login.isPending;
 
     return (
-        <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="min-h-screen flex items-center justify-center px-6 text-foreground"
-        >
-            <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-7">
-                <header className="flex flex-col items-center gap-3 text-center">
-                    <Logo size={48} />
-                    <div className="flex items-center gap-2">
-                        <ShieldCheck className="size-5" />
-                        <h1 className="text-2xl font-bold">{t('title')}</h1>
-                    </div>
-                    <p className="text-sm text-muted-foreground">{t('description')}</p>
-                </header>
-
+        <AuthShell title={t('title')} description={t('description')}>
+            <form onSubmit={handleSubmit} className="space-y-5">
                 <Field>
                     <FieldLabel htmlFor="bootstrap-username">{t('username')}</FieldLabel>
                     <Input
                         id="bootstrap-username"
+                        autoComplete="username"
                         value={username}
                         onChange={(event) => setUsername(event.target.value)}
                         required
@@ -97,6 +83,7 @@ export function BootstrapForm({ onComplete }: { onComplete?: () => void }) {
                     <FieldLabel htmlFor="bootstrap-password">{t('password')}</FieldLabel>
                     <Input
                         id="bootstrap-password"
+                        autoComplete="new-password"
                         type="password"
                         value={password}
                         onChange={(event) => setPassword(event.target.value)}
@@ -109,6 +96,7 @@ export function BootstrapForm({ onComplete }: { onComplete?: () => void }) {
                     <FieldLabel htmlFor="bootstrap-password-confirm">{t('confirmPassword')}</FieldLabel>
                     <Input
                         id="bootstrap-password-confirm"
+                        autoComplete="new-password"
                         type="password"
                         value={confirmPassword}
                         onChange={(event) => setConfirmPassword(event.target.value)}
@@ -118,11 +106,11 @@ export function BootstrapForm({ onComplete }: { onComplete?: () => void }) {
                     />
                 </Field>
 
-                {error && <FieldDescription className="text-destructive">{error}</FieldDescription>}
-                <Button type="submit" className="w-full" disabled={isPending || !username.trim() || !token.trim()}>
+                {error && <FieldDescription role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-destructive">{error}</FieldDescription>}
+                <Button type="submit" className="h-10 w-full rounded-xl" disabled={isPending || !username.trim() || !token.trim()}>
                     {isPending ? t('button.loading') : t('button.submit')}
                 </Button>
             </form>
-        </motion.div>
+        </AuthShell>
     );
 }

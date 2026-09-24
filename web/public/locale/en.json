@@ -1,4 +1,52 @@
 {
+    "workspace": {
+        "total": "Total",
+        "shown": "Matching",
+        "searchHint": "Try another name or clear the search to see all results.",
+        "group": {
+            "title": "Group overview",
+            "description": "Organize models and channels with your routing strategies.",
+            "members": "Members"
+        },
+        "model": {
+            "title": "Model pricing",
+            "description": "Compare input, output and cache costs across models.",
+            "unit": "USD / 1M tokens",
+            "empty": "No model prices yet",
+            "emptyHint": "Use the add or sync button above to populate model prices."
+        },
+        "site": {
+            "title": "Site overview",
+            "description": "Track balances, accounts and daily check-ins in one place."
+        },
+        "log": {
+            "title": "Request history",
+            "openDetails": "View {model} request #{id}",
+            "description": "Explore request routing, usage and error details.",
+            "currentPage": "On this page"
+        },
+        "settings": {
+            "title": "Workspace settings",
+            "description": "Manage preferences, access keys, connections and backups.",
+            "navigation": "Settings categories",
+            "general": "General",
+            "access": "Access keys",
+            "connection": "Connections",
+            "data": "Data & backups"
+        },
+        "login": {
+            "title": "Welcome back",
+            "description": "Sign in to manage model services, or use an API key to view usage.",
+            "method": "Sign-in method"
+        },
+        "dashboard": {
+            "title": "API key overview",
+            "description": "Track spending, quota and requests for this key.",
+            "loading": "Loading API key usage",
+            "theme": "Switch theme",
+            "language": "Switch language"
+        }
+    },
     "routing": {
         "title": "Routing preview",
         "description": "Simulate a request against saved group settings without sending upstream traffic or changing routing state. Results reflect this server instance at the time of preview.",

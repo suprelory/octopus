@@ -6,8 +6,10 @@ import { useNavStore, type NavItem } from "@/components/modules/navbar"
 import { ROUTES } from "@/route/config"
 import { usePreload } from "@/route/use-preload"
 import { ENTRANCE_VARIANTS } from "@/lib/animations/fluid-transitions"
+import { useTranslations } from 'next-intl'
 
 export function NavBar() {
+    const t = useTranslations('navbar')
     const { activeItem, setActiveItem } = useNavStore()
     const { preload } = usePreload()
 
@@ -31,6 +33,9 @@ export function NavBar() {
                         <motion.button
                             key={route.id}
                             type="button"
+                            aria-label={t(route.id)}
+                            aria-current={isActive ? 'page' : undefined}
+                            title={t(route.id)}
                             onMouseEnter={() => preload(route.id)}
                             onFocus={() => preload(route.id)}
                             onPointerDown={() => preload(route.id)}
@@ -39,7 +44,7 @@ export function NavBar() {
                                 setActiveItem(route.id as NavItem)
                             }}
                             className={cn(
-                                "relative p-2 md:p-3 rounded-2xl z-20",
+                                "relative p-2 md:p-3 rounded-2xl z-20 outline-none focus-visible:ring-2 focus-visible:ring-ring",
                                 isActive ? "text-sidebar-primary-foreground" : "text-sidebar-foreground/60 hover:bg-sidebar-accent"
                             )}
                             initial={{ opacity: 0, scale: 0.8 }}

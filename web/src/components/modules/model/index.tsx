@@ -1,18 +1,21 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { PackageSearch } from 'lucide-react';
+import { PackageSearch, SearchX } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useModelList } from '@/api/endpoints/model';
 import { ModelItem } from './Item';
 import { useSearchStore, useToolbarViewOptionsStore } from '@/components/modules/toolbar';
 import { Pagination } from '@/components/common/Pagination';
 import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
+import { PageOverview } from '@/components/common/PageOverview';
+import { CardGridSkeleton, PageEmptyState } from '@/components/common/PageState';
 
 const DEFAULT_MODEL_PAGE_SIZE = 20;
 
 export function Model() {
     const t = useTranslations('model');
+    const tOverview = useTranslations('workspace');
     const { data: models, isLoading, isError, refetch } = useModelList();
     const pageKey = 'model' as const;
     const searchTerm = useSearchStore((s) => s.getSearchTerm(pageKey));
@@ -59,14 +62,7 @@ export function Model() {
     };
 
     if (isLoading) {
-        return (
-            <div className="flex h-full min-h-0 items-center justify-center">
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <span className="size-2 animate-pulse rounded-full bg-primary" />
-                    {t('state.loading')}
-                </div>
-            </div>
-        );
+        return <CardGridSkeleton label={t('state.loading')} />;
     }
 
     if (isError) {
@@ -87,16 +83,18 @@ export function Model() {
         );
     }
 
+    const overview = <PageOverview className="mb-4" title={tOverview('model.title')} description={tOverview('model.description')} metrics={[
+        { label: tOverview('total'), value: models?.length ?? 0 },
+        { label: tOverview('shown'), value: visibleModels.length, accent: true },
+    ]} />;
+
     if (visibleModels.length === 0) {
         return (
-            <div className="page-scroll-area px-3 pt-4 md:px-4 md:pt-6">
-                <section className="page-empty-state mx-auto flex w-full max-w-3xl flex-col items-center py-12 text-card-foreground">
-                    <div className="grid size-16 place-items-center rounded-full border border-border/50 bg-muted/30 text-primary">
-                        <PackageSearch className="size-7" />
-                    </div>
-                    <h2 className="mt-5 text-xl font-semibold">{t('state.emptyTitle')}</h2>
-                    <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">{t('state.emptyDescription')}</p>
-                </section>
+            <div className="page-scroll-area">
+                {overview}
+                <PageEmptyState icon={searchTerm.trim() ? SearchX : PackageSearch}
+                    title={searchTerm.trim() ? t('state.emptyTitle') : tOverview('model.empty')}
+                    description={searchTerm.trim() ? tOverview('searchHint') : tOverview('model.emptyHint')} />
             </div>
         );
     }
@@ -106,9 +104,10 @@ export function Model() {
             <div className="min-h-0 flex-1">
                 <VirtualizedGrid
                     items={paginatedModels}
+                    header={overview}
                     layout={layout}
                     columns={{ default: 1, md: 2, lg: 3 }}
-                    estimateItemHeight={112}
+                    estimateItemHeight={layout === 'list' ? 150 : 240}
                     getItemKey={(model) => `model-${model.name}`}
                     renderItem={(model) => <ModelItem model={model} layout={layout} />}
                     scrollResetKey={`${currentPage}|${pageSize}|${viewSignature}`}
@@ -121,7 +120,7 @@ export function Model() {
                 total={visibleModels.length}
                 onPageChange={setPage}
                 onPageSizeChange={handlePageSizeChange}
-                className="px-1 pb-1"
+                className="rounded-xl border border-border/60 bg-card/60 px-3 py-2"
             />
         </div>
     );

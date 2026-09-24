@@ -101,9 +101,9 @@ function APIKeyPanelBase({
 
     return (
         <div className={containerClassName}>
-            <div className="flex items-center justify-between gap-3">
-                <h2 className="text-lg font-bold text-card-foreground flex items-center gap-2">
-                    <KeyRound className="h-5 w-5" />
+            <div className="flex items-center justify-between gap-3 border-b border-border/60 pb-4">
+                <h2 className="setting-card-heading border-0 pb-0">
+                    <KeyRound aria-hidden />
                     {t('apiKey.title')}
                 </h2>
                 <div className="flex items-center gap-2">
@@ -214,8 +214,8 @@ function APIKeyDialogPanel() {
 export function SettingAPIKey() {
     return (
         <APIKeyPanelBase
-            containerClassName="page-card relative space-y-5 p-6"
-            listClassName="space-y-2 h-36 overflow-y-auto"
+            containerClassName="page-card relative space-y-5 p-5"
+            listClassName="max-h-[60vh] min-h-36 space-y-2 overflow-y-auto"
             renderHeaderExtra={() => (
                 <MorphingDialog>
                     <MorphingDialogTrigger className="h-9 w-9 flex items-center justify-center rounded-lg bg-muted/60 text-muted-foreground transition-colors hover:bg-muted">

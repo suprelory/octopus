@@ -77,7 +77,8 @@ export function SiteCard({
       <div className="flex items-start gap-3">
         <button
           type="button"
-          className="mt-1 shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+          className="mt-1 shrink-0 rounded text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+          aria-pressed={selectedSiteIds.includes(site.id)}
           title={selectedSiteIds.includes(site.id) ? "取消选择站点" : "选择站点"}
           onClick={() => toggleSiteSelection(site.id)}
         >
@@ -89,13 +90,15 @@ export function SiteCard({
         </button>
 
         <div className="min-w-0 flex-1">
-          <div className="flex items-start gap-3">
+          <div className="flex flex-wrap items-start gap-3 sm:flex-nowrap">
             <div
-              className="min-w-0 flex-1 cursor-pointer text-left"
+              className="min-w-0 flex-1 basis-full cursor-pointer rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ring sm:basis-auto"
               role="button"
+              aria-expanded={isExpanded}
               tabIndex={0}
               onClick={() => toggleSiteExpanded(site.id, forceExpanded)}
               onKeyDown={(e) => {
+                if (e.target !== e.currentTarget) return;
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
                   toggleSiteExpanded(site.id, forceExpanded);
@@ -103,7 +106,7 @@ export function SiteCard({
               }}
             >
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="truncate text-lg font-semibold">{site.name}</h2>
+                <h2 className="max-w-full truncate text-base font-semibold tracking-tight" title={site.name}>{site.name}</h2>
                 {site.is_pinned ? (
                   <Badge variant="outline" className="text-amber-600">
                     <Pin className="mr-1 size-3" />
@@ -116,7 +119,7 @@ export function SiteCard({
                 </Badge>
               </div>
 
-              <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+              <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                 <Link2 className="size-4 shrink-0" />
                 <a
                   href={site.base_url}
@@ -129,7 +132,7 @@ export function SiteCard({
                 </a>
               </div>
 
-              <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2">
+              <div className="mt-4 flex flex-wrap gap-x-4 gap-y-3 rounded-xl bg-muted/35 p-3">
                 <CompactMetric label="账号" value={summary.accountCount} />
                 <CompactMetric label="Key" value={summary.keyCount} />
                 <CompactMetric label="模型" value={summary.modelCount} />
@@ -184,7 +187,7 @@ export function SiteCard({
               </div>
             </div>
 
-            <div className="flex items-center gap-1">
+            <div className="ml-auto flex shrink-0 items-center gap-1">
               {site.accounts.length === 0 ? (
                 <IconActionButton label="新增账号" onClick={() => openCreateAccountDialog(site)}>
                   <Plus className="size-4" />

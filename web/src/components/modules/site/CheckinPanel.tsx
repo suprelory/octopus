@@ -15,6 +15,7 @@ import { type Site } from "@/api/endpoints/site";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useTranslations } from 'next-intl';
 import {
   buildCheckinSummary,
   type CheckinActiveFilterStatus,
@@ -81,10 +82,10 @@ function OverviewMetric({
   tone?: "default" | "warning";
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-2xl bg-muted/20 px-4 py-3">
+    <div className="page-card relative min-w-0 p-4 sm:p-5">
       <span
         className={cn(
-          "flex size-9 items-center justify-center rounded-xl bg-background shadow-sm",
+          "absolute right-4 top-4 flex size-5 items-center justify-center sm:right-5 sm:top-5",
           tone === "warning"
             ? "text-amber-600 dark:text-amber-400"
             : "text-muted-foreground",
@@ -93,8 +94,8 @@ function OverviewMetric({
         {icon}
       </span>
       <div className="min-w-0">
-        <div className="text-xs text-muted-foreground">{label}</div>
-        <div className="text-base font-semibold truncate">{value}</div>
+        <div className="pr-6 text-xs text-muted-foreground">{label}</div>
+        <div className="mt-4 truncate text-2xl font-semibold tracking-tight tabular-nums" title={value}>{value}</div>
       </div>
     </div>
   );
@@ -134,6 +135,7 @@ export function CheckinPanel({
   activeTags: string[];
   onTagFilterChange: (tag: string) => void;
 }) {
+  const t = useTranslations('workspace.site');
   const summaryNow = useMemo(() => {
     const [year = "", month = "", day = ""] = statusDayKey.split("-");
     const parsed = new Date(Number(year), Number(month), Number(day));
@@ -161,12 +163,12 @@ export function CheckinPanel({
   }, [manualCheckinUrls]);
 
   return (
-    <section className="page-card overflow-hidden border-border/70">
-      <div className="border-b border-border/60 bg-gradient-to-br from-background via-card to-muted/10 px-5 py-5">
+    <section aria-label={t('title')} className="space-y-4">
+      <div>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-wrap items-center gap-2 text-base font-semibold">
-            <CalendarCheck2 className="size-5 text-primary" />
-            <span>总览</span>
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight"><CalendarCheck2 aria-hidden className="size-4 text-primary" />{t('title')}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">{t('description')}</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -177,7 +179,7 @@ export function CheckinPanel({
           </div>
         </div>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <OverviewMetric
             icon={<Wallet className="size-4" />}
             label="当前余额"
@@ -208,7 +210,7 @@ export function CheckinPanel({
         ) : null}
       </div>
 
-      <div className="px-5 py-4">
+      <div className="rounded-2xl border border-border/60 bg-card/60 px-4 py-4 sm:px-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap gap-2">
             {FILTERS.map((filter) => {
@@ -222,9 +224,10 @@ export function CheckinPanel({
                 <button
                   key={filter.key}
                   type="button"
+                  aria-pressed={active}
                   onClick={() => onFilterChange(filter.key)}
                   className={cn(
-                    "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                    "inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-ring",
                     filterTone(filter.key, active),
                   )}
                 >
@@ -270,6 +273,7 @@ export function CheckinPanel({
                 <button
                   key={tag}
                   type="button"
+                  aria-pressed={active}
                   onClick={() => onTagFilterChange(tag)}
                   title={active ? `取消按「${tag}」筛选` : `按「${tag}」筛选`}
                   className={cn(

@@ -34,7 +34,7 @@ export function LogSummary({ log, displayFields, tokenUsage, endpointLabel, chan
     );
 
     return (
-        <div className="grid grid-cols-[auto_1fr] items-center gap-2.5 p-2.5 sm:gap-4 sm:p-4">
+        <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3 p-4 sm:gap-4 sm:p-5">
             <div className="sm:hidden"><ModelAvatar size={36} /></div>
             <div className="hidden sm:block"><ModelAvatar size={40} /></div>
             <div className="min-w-0 flex flex-col gap-2">
@@ -59,7 +59,7 @@ export function LogSummary({ log, displayFields, tokenUsage, endpointLabel, chan
                             {hasMultipleAttempts ? (
                                 <RetryBadgeWithTooltip channelName={displayChannelName} brandColor={brandColor} attempts={log.attempts!} channelNameById={channelNameById} />
                             ) : (
-                                <Badge variant="secondary" className="max-w-full shrink-0 px-1.5 py-0 text-xs" style={{ backgroundColor: `${brandColor}15`, color: brandColor }}>
+                                <Badge variant="secondary" className="max-w-full min-w-0 px-1.5 py-0 text-xs" style={{ backgroundColor: `${brandColor}15`, color: brandColor }}>
                                     <span className="max-w-[18rem] truncate">{displayChannelName}</span>
                                 </Badge>
                             )}
@@ -73,9 +73,9 @@ export function LogSummary({ log, displayFields, tokenUsage, endpointLabel, chan
                     {log.attempts?.some((attempt) => attempt.sticky) ? <Pin className="size-3.5 shrink-0 text-amber-500" /> : null}
                     <WSModeBadge log={log} />
                 </div>
-                <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs tabular-nums text-muted-foreground md:grid-cols-7">
+                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-2 border-t border-border/50 pt-3 text-xs tabular-nums text-muted-foreground [&>div]:min-w-0 [&>div]:max-w-full [&>div>svg]:text-muted-foreground/70">
                     <div className="flex items-center gap-1.5">
-                        <Clock className="size-3.5 shrink-0" style={{ color: brandColor }} />
+                        <Clock className="size-3.5 shrink-0" />
                         <span>{formatTime(log.time)}</span>
                     </div>
                     {visibility.apiKeyName && requestAPIKeyName ? (
@@ -102,10 +102,10 @@ export function LogSummary({ log, displayFields, tokenUsage, endpointLabel, chan
                         <ArrowUpFromLine className="size-3.5 shrink-0 text-purple-500" />
                         <span>{t('output')} {log.output_tokens.toLocaleString()}</span>
                     </div>
-                    <div className="flex items-center gap-1.5"><Sigma className="size-3.5 shrink-0 text-rose-500" /><span className="font-medium text-rose-600 dark:text-rose-400">{t('totalTokens')} {totalTokens.toLocaleString()}</span></div>
+                    <div className="flex items-center gap-1.5"><Sigma className="size-3.5 shrink-0" /><span className="font-medium text-foreground/85">{t('totalTokens')} {totalTokens.toLocaleString()}</span></div>
                     {visibility.cost ? <div className="flex items-center gap-1.5">
                         <DollarSign className="size-3.5 shrink-0 text-emerald-500" />
-                        <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                        <span className="font-medium text-primary">
                             {t('cost')} {Number(log.cost).toFixed(6)}
                         </span>
                     </div> : null}

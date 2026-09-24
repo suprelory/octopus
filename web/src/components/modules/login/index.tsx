@@ -1,14 +1,13 @@
 'use client';
 
 import { useState } from "react"
-import { motion } from "motion/react"
 import { useTranslations } from 'next-intl'
 import { Button } from "@/components/ui/button"
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { useLogin } from "@/api/endpoints/user"
 import { useAPIKeyLogin } from "@/api/endpoints/apikey"
-import Logo from "@/components/modules/logo"
+import { AuthShell } from '@/components/common/AuthShell';
 import { KeyRound, User } from "lucide-react"
 import {
   Tabs,
@@ -24,6 +23,7 @@ type LoginMode = 'user' | 'apikey';
 
 export function LoginForm({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
   const t = useTranslations('login')
+  const tOverview = useTranslations('workspace.login')
   const [mode, setMode] = useState<LoginMode>('user')
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
@@ -63,21 +63,9 @@ export function LoginForm({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.3 }}
-      className="min-h-screen flex items-center justify-center px-6 text-foreground"
-    >
-      <div className="w-full max-w-sm space-y-8">
-        <header className="flex flex-col items-center gap-3">
-          <Logo size={48} />
-          <h1 className="text-2xl font-bold">Octopus</h1>
-        </header>
-
+    <AuthShell title={tOverview('title')} description={tOverview('description')}>
         <Tabs value={mode} onValueChange={handleModeChange}>
-          <TabsList className="flex p-1 bg-muted rounded-2xl">
+          <TabsList aria-label={tOverview('method')} className="flex rounded-xl border border-border/60 bg-muted/50 p-1">
             <TabsHighlight className="rounded-xl bg-background shadow-sm">
               <TabsHighlightItem value="user" className="flex-1">
                 <TabsTrigger
@@ -103,10 +91,12 @@ export function LoginForm({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
           <form onSubmit={handleSubmit} className="space-y-6 pt-2">
             <TabsContents className="p-3 -mx-3 py-6">
               <TabsContent value="user" className="space-y-6">
+                {mode === 'user' && <>
                 <Field>
                   <FieldLabel htmlFor="username">{t('username')}</FieldLabel>
                   <Input
                     id="username"
+                    autoComplete="username"
                     type="text"
                     placeholder={t('usernamePlaceholder')}
                     value={username}
@@ -119,6 +109,7 @@ export function LoginForm({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
                   <FieldLabel htmlFor="password">{t('password')}</FieldLabel>
                   <Input
                     id="password"
+                    autoComplete="current-password"
                     type="password"
                     placeholder={t('passwordPlaceholder')}
                     value={password}
@@ -127,9 +118,10 @@ export function LoginForm({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
                     disabled={isPending}
                   />
                 </Field>
+                </>}
               </TabsContent>
               <TabsContent value="apikey">
-                <Field>
+                {mode === 'apikey' && <Field>
                   <FieldLabel htmlFor="apikey">{t('apikey')}</FieldLabel>
                   <Input
                     id="apikey"
@@ -140,18 +132,17 @@ export function LoginForm({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
                     required={mode === 'apikey'}
                     disabled={isPending}
                   />
-                </Field>
+                </Field>}
               </TabsContent>
             </TabsContents>
 
-            {error && <FieldDescription className="text-destructive">{error}</FieldDescription>}
+            {error && <FieldDescription role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-destructive">{error}</FieldDescription>}
 
-            <Button type="submit" disabled={isPending} className="w-full">
+            <Button type="submit" disabled={isPending} className="h-10 w-full rounded-xl">
               {isPending ? t('button.loading') : t('button.submit')}
             </Button>
           </form>
         </Tabs>
-      </div>
-    </motion.div>
+    </AuthShell>
   )
 }
