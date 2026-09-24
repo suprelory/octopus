@@ -1,164 +1,108 @@
+'use client';
+
 import {
     MorphingDialog,
     MorphingDialogTrigger,
     MorphingDialogContainer,
     MorphingDialogContent,
 } from '@/components/ui/morphing-dialog';
-import { CheckCircle2, DollarSign, Key, Layers, MessageSquare, XCircle } from 'lucide-react';
+import { ArrowUpRight, KeyRound, Layers3, Network } from 'lucide-react';
 import { type StatsMetricsFormatted } from '@/api/endpoints/stats';
-import { type Channel, useEnableChannel } from '@/api/endpoints/channel';
+import { ChannelType, type Channel, useEnableChannel } from '@/api/endpoints/channel';
 import { CardContent } from './CardContent';
 import { useTranslations } from 'next-intl';
-import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/animate-ui/components/animate/tooltip';
 import { Switch } from '@/components/ui/switch';
 import { toast } from '@/components/common/Toast';
+import { cn } from '@/lib/utils';
 
-export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; stats: StatsMetricsFormatted; layout?: 'grid' | 'list' }) {
+const TYPE_LABELS: Record<ChannelType, string> = {
+    [ChannelType.OpenAIChat]: 'OpenAI Chat',
+    [ChannelType.OpenAIResponse]: 'OpenAI Responses',
+    [ChannelType.Anthropic]: 'Anthropic',
+    [ChannelType.Gemini]: 'Gemini',
+    [ChannelType.OpenAIEmbedding]: 'OpenAI Embeddings',
+};
+
+export function Card({ channel, stats, layout = 'grid' }: {
+    channel: Channel;
+    stats: StatsMetricsFormatted;
+    layout?: 'grid' | 'list';
+}) {
     const t = useTranslations('channel.card');
-    const tForm = useTranslations('channel.form');
-    const tSections = useTranslations('channel.detail.sections');
     const tMetrics = useTranslations('channel.detail.metrics');
     const enableChannel = useEnableChannel();
-    const isListLayout = layout === 'list';
+    const models = [...new Set(`${channel.model},${channel.custom_model}`.split(',').map(value => value.trim()).filter(Boolean))];
+    const enabledKeyCount = channel.keys.filter(key => key.enabled).length;
+    const successRate = stats.request_count.raw > 0 ? `${(stats.request_success.raw / stats.request_count.raw * 100).toFixed(1)}%` : '—';
 
-    const splitModels = (models: string) =>
-        models
-            .split(',')
-            .map((item) => item.trim())
-            .filter(Boolean);
-
-    const modelCount = new Set([
-        ...splitModels(channel.model),
-        ...splitModels(channel.custom_model),
-    ]).size;
-    const enabledKeyCount = channel.keys.filter((item) => item.enabled).length;
-
-    const handleEnableChange = (checked: boolean) => {
-        enableChannel.mutate(
-            { id: channel.id, enabled: checked },
-            {
-                onSuccess: () => {
-                    toast.success(checked ? t('toast.enabled') : t('toast.disabled'));
-                },
-                onError: (error) => {
-                    toast.error(error.message);
-                },
-            }
-        );
+    const handleEnableChange = (enabled: boolean) => {
+        enableChannel.mutate({ id: channel.id, enabled }, {
+            onSuccess: () => toast.success(t(enabled ? 'toast.enabled' : 'toast.disabled')),
+            onError: (error) => toast.error(error.message),
+        });
     };
 
     return (
         <MorphingDialog>
-            <MorphingDialogTrigger className="w-full">
-                <article className="page-card flex flex-col gap-4 p-4 transition-all duration-300">
-                    <header className="relative flex items-center justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                            <Tooltip side="top" sideOffset={10} align="center">
-                                <TooltipTrigger asChild>
-                                    <h3 className="text-lg font-bold truncate min-w-0">{channel.name}</h3>
-                                </TooltipTrigger>
-                                <TooltipContent key={channel.name}>{channel.name}</TooltipContent>
-                            </Tooltip>
-                            {channel.managed ? (
-                                <div className="mt-1">
-                                    <span className="inline-flex rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
-                                        站点投影
-                                    </span>
-                                </div>
-                            ) : null}
+            <MorphingDialogTrigger aria-label={t('openDetails', { name: channel.name })}
+                className="group h-full w-full rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <article className={cn(
+                    'flex h-full flex-col gap-4 rounded-2xl border border-border/70 bg-card p-5 text-left shadow-sm transition-colors hover:border-primary/35',
+                    layout === 'list' && 'md:grid md:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] md:items-center md:gap-x-6',
+                )}>
+                    <div className="min-w-0 space-y-4">
+                        <header className="flex items-center gap-3">
+                            <span className={cn('flex size-10 shrink-0 items-center justify-center rounded-xl', channel.enabled ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground')}>
+                                <Network aria-hidden className="size-5" />
+                            </span>
+                            <div className="min-w-0 flex-1">
+                                <h3 className="truncate text-base font-semibold tracking-tight" title={channel.name}>{channel.name}</h3>
+                                <p className="mt-1 truncate text-xs text-muted-foreground">{TYPE_LABELS[channel.type] ?? t('customType')} <span className="mx-1 text-border">/</span> #{channel.id}</p>
+                            </div>
+                            <Switch checked={channel.enabled} onCheckedChange={handleEnableChange}
+                                aria-label={t('toggle', { name: channel.name })}
+                                disabled={enableChannel.isPending || channel.managed}
+                                onClick={(event) => event.stopPropagation()}
+                                onKeyDown={(event) => event.stopPropagation()} />
+                        </header>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+                            <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-medium', channel.enabled ? 'bg-primary/8 text-primary' : 'bg-muted text-muted-foreground')}>
+                                <span className={cn('size-1.5 rounded-full', channel.enabled ? 'bg-primary' : 'bg-muted-foreground/50')} />
+                                {t(channel.enabled ? 'enabled' : 'disabled')}
+                            </span>
+                            <span className="inline-flex items-center gap-1" title={models.join(', ')}><Layers3 aria-hidden className="size-3.5" />{t('models', { count: models.length })}</span>
+                            <span className="inline-flex items-center gap-1"><KeyRound aria-hidden className="size-3.5" />{t('keys', { enabled: enabledKeyCount, total: channel.keys.length })}</span>
+                            {channel.managed && <span className="text-amber-700 dark:text-amber-300">{t('managed')}</span>}
                         </div>
-                        <Switch
-                            checked={channel.enabled}
-                            onCheckedChange={handleEnableChange}
-                            disabled={enableChannel.isPending || channel.managed}
-                            onClick={(e) => e.stopPropagation()}
-                        />
-                    </header>
+                    </div>
 
-                    {isListLayout ? (
-                        <dl className="grid grid-cols-2 gap-2 lg:grid-cols-6">
-                            <div className="rounded-2xl border border-border/70 bg-background/80 p-2">
-                                <dt className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
-                                    <MessageSquare className="size-3.5 text-primary" />
-                                    {t('requestCount')}
-                                </dt>
-                                <dd className="text-sm font-semibold">
-                                    {stats.request_count.formatted.value}
-                                    <span className="ml-1 text-xs text-muted-foreground">{stats.request_count.formatted.unit}</span>
-                                </dd>
-                            </div>
-                            <div className="rounded-2xl border border-border/70 bg-background/80 p-2">
-                                <dt className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
-                                    <Layers className="size-3.5 text-primary" />
-                                    {tForm('model')}
-                                </dt>
-                                <dd className="text-sm font-semibold">{modelCount}</dd>
-                            </div>
-                            <div className="rounded-2xl border border-border/70 bg-background/80 p-2">
-                                <dt className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
-                                    <Key className="size-3.5 text-primary" />
-                                    {tSections('keys')}
-                                </dt>
-                                <dd className="text-sm font-semibold">{enabledKeyCount}/{channel.keys.length}</dd>
-                            </div>
-                            <div className="rounded-2xl border border-border/70 bg-background/80 p-2">
-                                <dt className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
-                                    <CheckCircle2 className="size-3.5 text-emerald-500" />
-                                    {tMetrics('successRequests')}
-                                </dt>
-                                <dd className="text-sm font-semibold">{stats.request_success.formatted.value}</dd>
-                            </div>
-                            <div className="rounded-2xl border border-border/70 bg-background/80 p-2">
-                                <dt className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
-                                    <XCircle className="size-3.5 text-destructive" />
-                                    {tMetrics('failedRequests')}
-                                </dt>
-                                <dd className="text-sm font-semibold">{stats.request_failed.formatted.value}</dd>
-                            </div>
-                            <div className="rounded-2xl border border-border/70 bg-background/80 p-2">
-                                <dt className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
-                                    <DollarSign className="size-3.5 text-primary" />
-                                    {t('totalCost')}
-                                </dt>
-                                <dd className="text-sm font-semibold">
-                                    {stats.total_cost.formatted.value}
-                                    <span className="ml-1 text-xs text-muted-foreground">{stats.total_cost.formatted.unit}</span>
-                                </dd>
-                            </div>
-                        </dl>
-                    ) : (
-                        <dl className="grid grid-cols-1 gap-3">
-                            <div className="flex items-center justify-between rounded-2xl border border-border/70 bg-background/80 p-2">
-                                <div className="flex items-center gap-3">
-                                    <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                                        <MessageSquare className="h-5 w-5" />
-                                    </span>
-                                    <dt className="text-sm text-muted-foreground">{t('requestCount')}</dt>
-                                </div>
-                                <dd className="text-base">
-                                    {stats.request_count.formatted.value}
-                                    <span className="ml-1 text-xs text-muted-foreground">{stats.request_count.formatted.unit}</span>
-                                </dd>
-                            </div>
+                    <dl className="grid grid-cols-2 gap-3 rounded-xl bg-muted/35 p-3.5">
+                        <div className="min-w-0">
+                            <dt className="text-xs text-muted-foreground">{t('requestCount')}</dt>
+                            <dd className="mt-1.5 text-xl font-semibold tracking-tight tabular-nums">
+                                {stats.request_count.formatted.value}<span className="ml-1 text-xs font-normal text-muted-foreground">{stats.request_count.formatted.unit}</span>
+                            </dd>
+                            <p className="mt-1 text-[11px] text-muted-foreground">{t('successRate')} <span className="font-medium text-foreground/80">{successRate}</span></p>
+                        </div>
+                        <div className="min-w-0 border-l border-border/60 pl-3.5">
+                            <dt className="text-xs text-muted-foreground">{t('totalCost')}</dt>
+                            <dd className="mt-1.5 text-xl font-semibold tracking-tight tabular-nums">
+                                <span className="mr-0.5 text-sm font-normal text-muted-foreground">$</span>{stats.total_cost.formatted.value}
+                                <span className="ml-0.5 text-xs font-normal text-muted-foreground">{stats.total_cost.formatted.unit.replace('$', '')}</span>
+                            </dd>
+                            <p className="mt-1 text-[11px] text-muted-foreground">{t('lifetime')}</p>
+                        </div>
+                    </dl>
 
-                            <div className="flex items-center justify-between rounded-2xl border border-border/70 bg-background/80 p-2">
-                                <div className="flex items-center gap-3">
-                                    <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                                        <DollarSign className="h-5 w-5" />
-                                    </span>
-                                    <dt className="text-sm text-muted-foreground">{t('totalCost')}</dt>
-                                </div>
-                                <dd className="text-base">
-                                    {stats.total_cost.formatted.value}
-                                    <span className="ml-1 text-xs text-muted-foreground">{stats.total_cost.formatted.unit}</span>
-                                </dd>
-                            </div>
-                        </dl>
-                    )}
-
+                    <footer className={cn('mt-auto flex items-center justify-between gap-2 border-t border-border/60 pt-3 text-[11px] text-muted-foreground', layout === 'list' && 'md:col-span-2')}>
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 tabular-nums">
+                            <span>{tMetrics('successRequests')} <span className="text-foreground/80">{stats.request_success.formatted.value}{stats.request_success.formatted.unit}</span></span>
+                            <span>{tMetrics('failedRequests')} <span className={stats.request_failed.raw > 0 ? 'text-destructive' : 'text-foreground/80'}>{stats.request_failed.formatted.value}{stats.request_failed.formatted.unit}</span></span>
+                        </div>
+                        <span className="inline-flex shrink-0 items-center gap-1 font-medium transition-colors group-hover:text-primary">{t('details')}<ArrowUpRight aria-hidden className="size-3.5" /></span>
+                    </footer>
                 </article>
             </MorphingDialogTrigger>
-
             <MorphingDialogContainer>
                 <MorphingDialogContent className="w-full md:max-w-xl bg-card text-card-foreground px-4 py-2 rounded-3xl max-h-[90vh] overflow-y-auto">
                     <CardContent channel={channel} stats={stats} />

@@ -180,14 +180,15 @@ html.dark,
 
   body {
     @apply bg-background text-foreground;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
     isolation: isolate;
   }
 
   /*
     纯装饰性背景光斑。原实现是 radial-gradient + filter: blur(40px)，但渐变
     本身已经是平滑过渡，模糊它几乎不改变观感，代价却是浏览器要为每个光斑
-    栅格化一个独立的模糊层。这里保持原有尺寸与锚点，改用多级停靠点做衰减，
-    并把原来的 opacity: 0.6 直接烘进颜色的 alpha —— 省掉一层合成上下文。
+    栅格化一个独立的模糊层。使用低透明度与多级停靠点衰减，让背景保持安静，
+    避免装饰色块干扰数据阅读。
   */
   body::before,
   body::after {
@@ -201,10 +202,10 @@ html.dark,
     width: 300px;
     height: 300px;
     background: radial-gradient(circle at 30% 20%,
-        oklch(0.68 0.05 150 / 0.6) 0%,
-        oklch(0.68 0.05 150 / 0.34) 35%,
-        oklch(0.68 0.05 150 / 0.12) 60%,
-        oklch(0.68 0.05 150 / 0.03) 80%,
+        oklch(0.68 0.05 150 / 0.12) 0%,
+        oklch(0.68 0.05 150 / 0.07) 35%,
+        oklch(0.68 0.05 150 / 0.025) 60%,
+        oklch(0.68 0.05 150 / 0.008) 80%,
         transparent 95%);
     top: 10%;
     right: 10%;
@@ -214,10 +215,10 @@ html.dark,
     width: 250px;
     height: 250px;
     background: radial-gradient(circle at 60% 40%,
-        oklch(0.82 0.03 200 / 0.6) 0%,
-        oklch(0.82 0.03 200 / 0.34) 35%,
-        oklch(0.82 0.03 200 / 0.12) 60%,
-        oklch(0.82 0.03 200 / 0.03) 80%,
+        oklch(0.82 0.03 200 / 0.12) 0%,
+        oklch(0.82 0.03 200 / 0.07) 35%,
+        oklch(0.82 0.03 200 / 0.025) 60%,
+        oklch(0.82 0.03 200 / 0.008) 80%,
         transparent 95%);
     bottom: 10%;
     left: 5%;

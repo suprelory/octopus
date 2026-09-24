@@ -14,7 +14,7 @@ import {
 import { cn, formatCount, formatMoney } from '@/lib/utils';
 import { type JumpTarget } from '@/stores/jump';
 import { useSettingStore } from '@/stores/setting';
-import { CheckCircle2, Clock, DollarSign, MessageSquare, XCircle } from 'lucide-react';
+import { ArrowUpRight, CheckCircle2, Clock, DollarSign, Globe2, Layers3, MessageSquare, Users, XCircle } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { getRouteTypeTone, SITE_ROUTE_DISPLAY_ORDER } from './constants';
@@ -78,22 +78,22 @@ export function SiteCardImpl({
             <div
                 ref={(node) => registerCardRef(card.site_id, node)}
                 className={cn(
-                    'h-full rounded-xl transition-all',
+                    'h-full rounded-2xl transition-shadow',
                     highlighted && 'ring-2 ring-primary/35 ring-offset-2 ring-offset-background',
                 )}
             >
-                <MorphingDialogTrigger className="h-full w-full">
-                    <article className="page-card flex h-full w-full flex-col gap-4 border-border/70 p-4 text-left transition hover:border-primary/20 hover:bg-card/90">
+                <MorphingDialogTrigger aria-label={tCard('openDetails', { name: card.site_name })} className="group h-full w-full rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <article className="flex h-full w-full flex-col gap-4 rounded-2xl border border-border/70 bg-card p-5 text-left shadow-sm transition-colors hover:border-primary/35">
                         <header className="flex items-center justify-between gap-3">
-                            <div className="flex min-w-0 flex-1 items-center gap-2">
-                                <span
-                                    className={cn(
-                                        'inline-block size-2 shrink-0 rounded-full',
-                                        card.enabled ? 'bg-emerald-500' : 'bg-destructive',
-                                    )}
-                                    title={tCard(card.enabled ? 'statusEnabled' : 'statusDisabled')}
-                                />
-                                <div className="truncate text-lg font-bold">{card.site_name}</div>
+                            <div className="flex min-w-0 flex-1 items-center gap-3">
+                                <span className={cn('flex size-10 shrink-0 items-center justify-center rounded-xl', card.enabled ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground')}><Globe2 aria-hidden className="size-5" /></span>
+                                <div className="min-w-0">
+                                    <h3 className="truncate text-base font-semibold tracking-tight" title={card.site_name}>{card.site_name}</h3>
+                                    <span className={cn('mt-1 inline-flex items-center gap-1.5 text-[11px]', card.enabled ? 'text-primary' : 'text-muted-foreground')}>
+                                        <span className={cn('size-1.5 rounded-full', card.enabled ? 'bg-primary' : 'bg-muted-foreground/50')} />
+                                        {tCard(card.enabled ? 'statusEnabled' : 'statusDisabled')}
+                                    </span>
+                                </div>
                             </div>
                             <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                                 <Badge variant="outline" className="h-6 px-2 text-[11px]">
@@ -110,14 +110,14 @@ export function SiteCardImpl({
                             </div>
                         </header>
 
-                        <dl className={cn('grid gap-2', layout === 'list' ? 'grid-cols-5' : 'grid-cols-2')}>
+                        <dl className={cn('grid gap-x-4 gap-y-4 rounded-xl bg-muted/35 p-3.5', layout === 'list' ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5' : 'grid-cols-2')}>
                             {layout === 'list' ? (
-                                <div className="rounded-2xl border border-border/70 bg-background/80 p-2">
+                                <div className="min-w-0">
                                     <dt className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
                                         <MessageSquare className="size-3.5 text-primary" />
                                         {tMetrics('totalRequests')}
                                     </dt>
-                                    <dd className="text-sm font-semibold tabular-nums">
+                                    <dd className="text-base font-semibold tabular-nums">
                                         {totalRequestsFmt.value}
                                         {totalRequestsFmt.unit && (
                                             <span className="ml-1 text-xs font-normal text-muted-foreground">
@@ -127,12 +127,12 @@ export function SiteCardImpl({
                                     </dd>
                                 </div>
                             ) : null}
-                            <div className="rounded-2xl border border-border/70 bg-background/80 p-2">
+                            <div className="min-w-0">
                                 <dt className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
                                     <CheckCircle2 className="size-3.5 text-emerald-500" />
                                     {tMetrics('successRequests')}
                                 </dt>
-                                <dd className="text-sm font-semibold tabular-nums">
+                                <dd className="text-base font-semibold tabular-nums">
                                     {successFmt.value}
                                     {successFmt.unit && (
                                         <span className="ml-1 text-xs font-normal text-muted-foreground">
@@ -141,12 +141,12 @@ export function SiteCardImpl({
                                     )}
                                 </dd>
                             </div>
-                            <div className="rounded-2xl border border-border/70 bg-background/80 p-2">
+                            <div className="min-w-0">
                                 <dt className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
                                     <XCircle className="size-3.5 text-destructive" />
                                     {tMetrics('failedRequests')}
                                 </dt>
-                                <dd className="text-sm font-semibold tabular-nums">
+                                <dd className="text-base font-semibold tabular-nums">
                                     {failureFmt.value}
                                     {failureFmt.unit && (
                                         <span className="ml-1 text-xs font-normal text-muted-foreground">
@@ -155,12 +155,12 @@ export function SiteCardImpl({
                                     )}
                                 </dd>
                             </div>
-                            <div className="rounded-2xl border border-border/70 bg-background/80 p-2">
+                            <div className="min-w-0">
                                 <dt className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
                                     <DollarSign className="size-3.5 text-primary" />
                                     {tMetrics('totalCost')}
                                 </dt>
-                                <dd className="text-sm font-semibold tabular-nums">
+                                <dd className="text-base font-semibold tabular-nums">
                                     {costFmt.value}
                                     {costFmt.unit && (
                                         <span className="ml-1 text-xs font-normal text-muted-foreground">
@@ -169,19 +169,24 @@ export function SiteCardImpl({
                                     )}
                                 </dd>
                             </div>
-                            <div className="rounded-2xl border border-border/70 bg-background/80 p-2">
+                            <div className="min-w-0">
                                 <dt className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
                                     <Clock className="size-3.5 text-primary" />
                                     {tMetrics('lastRequestAt')}
                                 </dt>
-                                <dd className="text-sm font-semibold tabular-nums">
+                                <dd className="text-base font-semibold tabular-nums">
                                     {lastUsedText ?? <span className="text-muted-foreground">—</span>}
                                 </dd>
                             </div>
                         </dl>
 
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+                            <span className="inline-flex items-center gap-1"><Users aria-hidden className="size-3.5" />{tCard('accountCount', { count: card.account_count })}</span>
+                            <span className="inline-flex items-center gap-1"><Layers3 aria-hidden className="size-3.5" />{tCard('modelCount', { count: summary.modelCount })}</span>
+                        </div>
+
                         {summary.routeCounts.size > 0 ? (
-                            <div className="flex flex-1 flex-wrap content-center gap-2">
+                            <div className="flex flex-1 flex-wrap content-start gap-1.5">
                                 {SITE_ROUTE_DISPLAY_ORDER.filter(
                                     (routeType) => (summary.routeCounts.get(routeType) ?? 0) > 0,
                                 ).map((routeType) => (
@@ -200,6 +205,10 @@ export function SiteCardImpl({
                                 {tCard('noRouteDistribution')}
                             </div>
                         )}
+                        <footer className="mt-auto flex items-center justify-between gap-2 border-t border-border/60 pt-3 text-[11px] text-muted-foreground">
+                            <span>{tCard('enabledKeys', { enabled: summary.enabledKeys, total: summary.totalKeys })}</span>
+                            <span className="inline-flex items-center gap-1 font-medium transition-colors group-hover:text-primary">{tCard('viewDetails')}<ArrowUpRight aria-hidden className="size-3.5" /></span>
+                        </footer>
                     </article>
                 </MorphingDialogTrigger>
             </div>

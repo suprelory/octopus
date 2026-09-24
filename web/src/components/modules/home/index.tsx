@@ -7,10 +7,9 @@ import { PageWrapper } from '@/components/common/PageWrapper';
 
 export function Home() {
     return (
-        <PageWrapper className="page-scroll-area space-y-6">
-            <StatsChart />
+        <PageWrapper className="page-scroll-area space-y-5" animateChildren={false}>
+            <StatsChart><Rank /></StatsChart>
             <Activity />
-            <Rank />
         </PageWrapper>
     );
 }

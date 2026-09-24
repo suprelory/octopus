@@ -2,6 +2,21 @@ import { expect, type Page } from '@playwright/test';
 import type { Site } from '../../src/api/endpoints/site';
 import type { SiteChannelCard } from '../../src/api/endpoints/site-channel';
 import type { Group } from '../../src/api/endpoints/group';
+import type { Channel } from '../../src/api/endpoints/channel';
+import type { StatsDaily, StatsHourly, StatsTotal } from '../../src/api/endpoints/stats';
+
+export const emptyStats = { input_token: 0, output_token: 0, input_cost: 0, output_cost: 0, wait_time: 0, request_success: 0, request_failed: 0 };
+
+export function makeChannel(id = 1, name = 'OpenAI Primary', overrides: Partial<Channel> = {}): Channel {
+    return {
+        id, name, type: 0, enabled: true, base_urls: [{ url: 'https://api.example/v1', delay: 120 }],
+        keys: [{ id, channel_id: id, enabled: true, channel_key: 'demo-key', status_code: 200, last_use_time_stamp: 0, total_cost: 0, remark: '' }],
+        model: 'gpt-4.1,gpt-4.1-mini', custom_model: '', proxy_mode: 'direct', auto_sync: false,
+        auto_group: 0, custom_header: [], ws_mode: 'inherit', passthrough_mode: 'auto', managed: false,
+        stats: { ...emptyStats, channel_id: id, request_success: 1200 * id, request_failed: 5 * id, input_token: 250000 * id, output_token: 120000 * id, input_cost: 12.8 * id, output_cost: 8.6 * id },
+        ...overrides,
+    };
+}
 
 export function makeSite(id = 1, name = 'Alpha site'): Site {
     return {
@@ -52,16 +67,21 @@ export function makeSiteChannelCard(): SiteChannelCard {
 export type Mutation = { method: string; path: string; body: unknown };
 type MockResponse = { status?: number; data?: unknown; message?: string };
 
-export async function mockApp(page: Page, nav: 'site' | 'channel' | 'group', options: {
+export async function mockApp(page: Page, nav: 'home' | 'site' | 'channel' | 'group', options: {
     sites?: Site[];
     siteChannels?: SiteChannelCard[];
     groups?: Group[];
+    channels?: Channel[];
+    statsDaily?: StatsDaily[];
+    statsHourly?: StatsHourly[];
+    statsTotal?: StatsTotal;
     mutate?: (request: Mutation) => MockResponse | Promise<MockResponse>;
 } = {}) {
     const state = {
         sites: options.sites ?? [makeSite()],
         siteChannels: options.siteChannels ?? [makeSiteChannelCard()],
         groups: options.groups ?? [],
+        channels: options.channels ?? [],
         mutations: [] as Mutation[],
         unexpectedRequests: [] as string[],
         pageErrors: [] as string[],
@@ -93,7 +113,10 @@ export async function mockApp(page: Page, nav: 'site' | 'channel' | 'group', opt
             '/api/v1/user/bootstrap': { required: false },
             '/api/v1/site/list': state.sites,
             '/api/v1/site-channel/list': state.siteChannels,
-            '/api/v1/channel/list': [],
+            '/api/v1/channel/list': state.channels,
+            '/api/v1/stats/daily': options.statsDaily ?? [],
+            '/api/v1/stats/hourly': options.statsHourly ?? [],
+            '/api/v1/stats/total': options.statsTotal ?? { id: 1, ...emptyStats },
             '/api/v1/group/list': state.groups,
             '/api/v1/model/channel': [],
             '/api/v1/model/list': [],

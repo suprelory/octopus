@@ -135,6 +135,8 @@
         "setting": "設定"
     },
     "toolbar": {
+        "search": "搜尋",
+        "clearSearch": "清空搜尋",
         "popover": {
             "ariaLabel": "檢視選項",
             "layout": "佈局",
@@ -207,6 +209,11 @@
     },
     "home": {
         "activity": {
+            "title": "請求活躍度",
+            "description": "過去一年的每日請求記錄",
+            "legend": "請求活躍度等級",
+            "less": "少",
+            "more": "多",
             "requestCount": "請求次數",
             "waitTime": "等待時間",
             "totalToken": "消耗 Token",
@@ -214,6 +221,14 @@
             "noData": "無數據"
         },
         "summary": {
+            "title": "用量概覽",
+            "description": "請求、Token 與費用，盡在掌握。",
+            "periodLabel": "統計時間範圍",
+            "totalDuration": "累計請求耗時",
+            "trend": "費用趨勢",
+            "noData": "還沒有用量資料",
+            "noDataHint": "發起模型請求後，即可在這裡查看用量與費用趨勢。",
+            "loadFailed": "統計資料暫時無法載入，請稍後重試。",
             "periods": {
                 "today": "今日",
                 "last7Days": "7 天",
@@ -233,6 +248,9 @@
             }
         },
         "rank": {
+            "allTime": "累計資料",
+            "sortLabel": "供應源排行指標",
+            "loadFailed": "供應源資料暫時無法載入",
             "title": "排行榜",
             "sortByCost": "金額",
             "sortByCount": "次數",
@@ -939,11 +957,41 @@
         }
     },
     "channel": {
+        "list": {
+            "title": "供應源概覽",
+            "description": "連線狀態與呼叫情況，一目了然。",
+            "total": "全部",
+            "enabled": "啟用",
+            "disabled": "停用",
+            "results": "搜尋結果",
+            "visible": "顯示 {count} 個",
+            "targeted": "定位的託管供應源",
+            "targetedHint": "此供應源由站點帳號統一管理。",
+            "loadFailed": "供應源載入失敗：{message}",
+            "noResults": "沒有找到符合的供應源",
+            "noResultsHint": "試試其他名稱，或清空搜尋查看全部供應源。",
+            "empty": "連接你的第一個供應源",
+            "emptyHint": "使用上方的新增按鈕，接入模型服務商。",
+            "siteEmpty": "還沒有站點供應源",
+            "siteEmptyHint": "新增站點帳號並同步模型後，即可在這裡查看供應源。"
+        },
         "tabs": {
+            "label": "供應源來源",
             "site": "站點供應源",
             "manual": "一般供應源"
         },
         "card": {
+            "openDetails": "查看 {name}",
+            "toggle": "啟用 {name}",
+            "customType": "自訂服務商",
+            "enabled": "已啟用",
+            "disabled": "已停用",
+            "models": "{count} 個模型",
+            "keys": "金鑰 {enabled}/{total}",
+            "managed": "站點託管",
+            "successRate": "成功率",
+            "lifetime": "累計用量",
+            "details": "詳情",
             "requestCount": "請求次數",
             "totalCost": "總成本",
             "toast": {
@@ -1047,6 +1095,11 @@
     },
     "siteChannel": {
         "card": {
+            "openDetails": "查看 {name}",
+            "accountCount": "{count} 個帳號",
+            "modelCount": "{count} 個模型",
+            "enabledKeys": "啟用金鑰 {enabled}/{total}",
+            "viewDetails": "詳情",
             "statusEnabled": "啟用",
             "statusDisabled": "停用",
             "maskedPending": "{n} 待同步",

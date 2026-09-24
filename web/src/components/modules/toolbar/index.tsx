@@ -271,6 +271,8 @@ export function Toolbar({ activeItem }: { activeItem: NavItem }) {
                     {!searchExpanded ? (
                         <motion.button
                             layoutId="search-box"
+                            type="button"
+                            aria-label={t('search')}
                             onClick={() => setExpandedSearchItem(toolbarItem)}
                             className={buttonVariants({
                                 variant: 'ghost',
@@ -294,12 +296,15 @@ export function Toolbar({ activeItem }: { activeItem: NavItem }) {
                             </motion.span>
                             <input
                                 type="text"
+                                aria-label={t('search')}
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(toolbarItem, e.target.value)}
                                 autoFocus
                                 className="w-20 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
                             />
                             <button
+                                type="button"
+                                aria-label={t('clearSearch')}
                                 onClick={() => {
                                     setSearchTerm(toolbarItem, '');
                                     setExpandedSearchItem(null);

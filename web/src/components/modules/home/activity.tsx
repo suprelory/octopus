@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom';
 import { useTranslations } from 'next-intl';
 import { Fragment } from 'react';
 import dayjs from 'dayjs';
+import { CalendarDays } from 'lucide-react';
 
 interface StatsDailyData {
     dateStr: string;
@@ -87,11 +88,22 @@ export function Activity() {
     }, [days, isLoading, checkScroll]);
 
     return (
-        <div className="page-card">
+        <section aria-label={t('title')} className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
+            <header className="flex flex-wrap items-center justify-between gap-3 px-5 pt-5">
+                <div>
+                    <h3 className="flex items-center gap-2 font-semibold"><CalendarDays aria-hidden className="size-4 text-primary" />{t('title')}</h3>
+                    <p className="mt-1 text-xs text-muted-foreground">{t('description')}</p>
+                </div>
+                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground" aria-label={t('legend')}>
+                    <span className="mr-1">{t('less')}</span>
+                    {[0, 1, 2, 3, 4].map(level => <span key={level} className="size-2.5 rounded-xs" style={{ backgroundColor: level === 0 ? 'var(--muted)' : `color-mix(in oklch, var(--primary) ${level * 25}%, var(--muted))` }} />)}
+                    <span className="ml-1">{t('more')}</span>
+                </div>
+            </header>
             <div
                 ref={scrollRef}
                 onScroll={checkScroll}
-                className="overflow-x-auto p-4"
+                className="overflow-x-auto p-5"
                 style={{ maskImage, WebkitMaskImage: maskImage }}
             >
                 <div className="ml-auto w-fit">
@@ -112,7 +124,7 @@ export function Activity() {
                             return (
                                 <div
                                     key={day.dateStr}
-                                    className="rounded-sm transition-all cursor-pointer hover:scale-150"
+                                    className="cursor-pointer rounded-sm transition-transform hover:scale-125 motion-reduce:transition-none"
                                     onMouseEnter={(e) => {
                                         const rect = e.currentTarget.getBoundingClientRect();
                                         setTooltip({ day, x: rect.left + rect.width / 2, y: rect.top, visible: true });
@@ -148,7 +160,7 @@ export function Activity() {
 
                     return (
                         <div
-                            className={`fixed z-50 w-fit min-w-max text-sm bg-background text-foreground border rounded-3xl p-3 transition-opacity duration-500 pointer-events-none ${tooltip.visible ? 'opacity-100' : 'opacity-0'}`}
+                            className={`fixed z-50 w-fit min-w-max text-sm bg-popover text-popover-foreground border rounded-xl p-3 shadow-lg transition-opacity duration-150 pointer-events-none ${tooltip.visible ? 'opacity-100' : 'opacity-0'}`}
                             style={{
                                 left: tooltip.x,
                                 top: tooltip.y,
@@ -180,6 +192,6 @@ export function Activity() {
                 })(),
                 document.body
             )}
-        </div>
+        </section>
     );
 }

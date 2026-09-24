@@ -7,7 +7,7 @@ import { useSearchStore, useToolbarViewOptionsStore } from '@/components/modules
 import { SiteChannelSection } from '@/components/modules/site-channel';
 import { cn } from '@/lib/utils';
 import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
     isChannelJumpTarget,
     type ChannelJumpTarget,
@@ -15,10 +15,15 @@ import {
     useJumpStore,
 } from '@/stores/jump';
 import { useChannelTabStore } from './tab-store';
+import { ChannelListSummary } from './ListSummary';
+import { Network, SearchX } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
 type ChannelPendingJump = PendingJump & { target: ChannelJumpTarget };
 
 export function Channel() {
+    const t = useTranslations('channel.list');
+    const reducedMotion = useReducedMotion();
     const { data: channelsData, isLoading, error } = useChannelList();
     const pendingJump = useJumpStore((state) => state.pending);
     const clearPending = useJumpStore((state) => state.clearPending);
@@ -109,7 +114,7 @@ export function Channel() {
         <div
             ref={(node) => setChannelCardRef(item.raw.id, node)}
             className={cn(
-                'rounded-xl transition-all',
+                'h-full rounded-2xl transition-shadow',
                 highlightedChannelId === item.raw.id && 'ring-2 ring-primary/35 ring-offset-2 ring-offset-background',
             )}
         >
@@ -125,31 +130,37 @@ export function Channel() {
         return Math.max(1, Math.min(6, cols));
     }, [layout]);
 
-    const manualHeader = targetedManagedChannel ? (
+    const manualChannels = sortedChannels.filter(channel => !channel.raw.managed);
+    const manualHeader = <>
+        {!isLoading && !error && <ChannelListSummary total={manualChannels.length} enabled={manualChannels.filter(channel => channel.raw.enabled).length} visible={visibleManualChannels.length} />}
+        {targetedManagedChannel && (
         <section className="space-y-3 px-1 pb-4">
             <div>
-                <div className="text-sm font-semibold">定位的托管渠道</div>
+                <div className="text-sm font-semibold">{t('targeted')}</div>
                 <div className="text-xs text-muted-foreground">
-                    这个渠道由站点账号投影生成，默认不会出现在普通渠道列表中。
+                    {t('targetedHint')}
                 </div>
             </div>
             {renderChannelCard(targetedManagedChannel)}
         </section>
-    ) : undefined;
+        )}
+    </>;
 
     const manualFooter = isLoading ? (
         <div className={cn('grid gap-4', layout === 'list' ? 'grid-cols-1' : 'md:grid-cols-2 lg:grid-cols-3')}>
             {Array.from({ length: layout === 'list' ? 2 : 3 }).map((_, index) => (
-                <div key={index} className="page-card h-56 animate-pulse bg-muted/40" />
+                <div key={index} className="h-65 animate-pulse rounded-2xl border border-border/60 bg-muted/40" />
             ))}
         </div>
     ) : error ? (
         <div className="page-card border-destructive/30 bg-destructive/10 px-4 py-6 text-sm text-destructive">
-            普通渠道加载失败：{error.message}
+            {t('loadFailed', { message: error.message })}
         </div>
     ) : visibleManualChannels.length === 0 && !targetedManagedChannel ? (
-        <div className="page-empty-state bg-card/70 px-4 py-8 text-sm">
-            当前筛选下没有普通渠道
+        <div className="flex flex-col items-center rounded-2xl border border-dashed border-border bg-card/60 px-5 py-12 text-center">
+            <span className="mb-4 rounded-2xl bg-primary/8 p-3 text-primary">{searchTerm ? <SearchX className="size-6" /> : <Network className="size-6" />}</span>
+            <p className="text-sm font-medium">{t(searchTerm ? 'noResults' : 'empty')}</p>
+            <p className="mt-2 max-w-xs text-xs leading-relaxed text-muted-foreground">{t(searchTerm ? 'noResultsHint' : 'emptyHint')}</p>
         </div>
     ) : null;
 
@@ -159,10 +170,10 @@ export function Channel() {
                 <AnimatePresence mode="wait" initial={false}>
                     <motion.div
                         key={activeTab}
-                        initial={{ opacity: 0, y: 6 }}
+                        initial={reducedMotion ? false : { opacity: 0, y: 6 }}
                         animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -4 }}
-                        transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+                        exit={{ opacity: 0, y: reducedMotion ? 0 : -4 }}
+                        transition={{ duration: reducedMotion ? 0 : 0.18, ease: [0.4, 0, 0.2, 1] }}
                         className="absolute inset-0 flex flex-col min-h-0"
                     >
                         {activeTab === 'site' ? (
@@ -177,7 +188,7 @@ export function Channel() {
                                 items={visibleManualChannels}
                                 layout={layout}
                                 columns={manualColumnCompute}
-                                estimateItemHeight={216}
+                                estimateItemHeight={layout === 'list' ? 200 : 280}
                                 header={manualHeader}
                                 footer={manualFooter}
                                 getItemKey={(item) => `channel-${item.raw.id}`}

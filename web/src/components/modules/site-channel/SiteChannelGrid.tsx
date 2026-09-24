@@ -3,7 +3,7 @@
 import { type SiteChannelCard } from '@/api/endpoints/site-channel';
 import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
 import { type JumpTarget } from '@/stores/jump';
-import { useCallback } from 'react';
+import { useCallback, type ReactNode } from 'react';
 import { SiteCard } from './SiteCard';
 import { SiteChannelPendingJump } from './types';
 
@@ -15,6 +15,7 @@ export function SiteChannelGrid({
     registerCardRef,
     clearPending,
     requestJump,
+    header,
 }: {
     cards: SiteChannelCard[];
     layout: 'grid' | 'list';
@@ -23,6 +24,7 @@ export function SiteChannelGrid({
     registerCardRef: (siteId: number, node: HTMLDivElement | null) => void;
     clearPending: (requestId?: number) => void;
     requestJump: (target: JumpTarget) => void;
+    header?: ReactNode;
 }) {
     const columnCompute = useCallback(
         (width: number) => {
@@ -56,7 +58,8 @@ export function SiteChannelGrid({
             items={cards}
             layout={layout}
             columns={columnCompute}
-            estimateItemHeight={240}
+            estimateItemHeight={310}
+            header={header}
             getItemKey={(card) => `site-channel-${card.site_id}`}
             renderItem={renderCard}
         />

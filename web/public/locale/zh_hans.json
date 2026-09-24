@@ -135,6 +135,8 @@
         "setting": "设置"
     },
     "toolbar": {
+        "search": "搜索",
+        "clearSearch": "清空搜索",
         "popover": {
             "ariaLabel": "视图选项",
             "layout": "布局",
@@ -207,6 +209,11 @@
     },
     "home": {
         "activity": {
+            "title": "请求活跃度",
+            "description": "过去一年的每日请求记录",
+            "legend": "请求活跃度等级",
+            "less": "少",
+            "more": "多",
             "requestCount": "请求次数",
             "waitTime": "等待时间",
             "totalToken": "消耗 Token",
@@ -214,6 +221,14 @@
             "noData": "无数据"
         },
         "summary": {
+            "title": "用量概览",
+            "description": "请求、Token 与费用，尽在掌握。",
+            "periodLabel": "统计时间范围",
+            "totalDuration": "累计请求耗时",
+            "trend": "费用趋势",
+            "noData": "还没有用量数据",
+            "noDataHint": "发起模型请求后，即可在这里查看用量与费用趋势。",
+            "loadFailed": "统计数据暂时无法加载，请稍后重试。",
             "periods": {
                 "today": "今日",
                 "last7Days": "7 天",
@@ -233,6 +248,9 @@
             }
         },
         "rank": {
+            "allTime": "累计数据",
+            "sortLabel": "渠道排行指标",
+            "loadFailed": "渠道数据暂时无法加载",
             "title": "排行榜",
             "sortByCost": "金额",
             "sortByCount": "次数",
@@ -939,11 +957,41 @@
         }
     },
     "channel": {
+        "list": {
+            "title": "渠道概览",
+            "description": "连接状态与调用情况，一目了然。",
+            "total": "全部",
+            "enabled": "启用",
+            "disabled": "停用",
+            "results": "搜索结果",
+            "visible": "显示 {count} 个",
+            "targeted": "定位的托管渠道",
+            "targetedHint": "此渠道由站点账号统一管理。",
+            "loadFailed": "渠道加载失败：{message}",
+            "noResults": "没有找到匹配的渠道",
+            "noResultsHint": "试试其他名称，或清空搜索查看全部渠道。",
+            "empty": "连接你的第一个渠道",
+            "emptyHint": "使用上方的新增按钮，接入模型服务商。",
+            "siteEmpty": "还没有站点渠道",
+            "siteEmptyHint": "添加站点账号并同步模型后，即可在这里查看渠道。"
+        },
         "tabs": {
+            "label": "渠道来源",
             "site": "站点渠道",
             "manual": "普通渠道"
         },
         "card": {
+            "openDetails": "查看 {name}",
+            "toggle": "启用 {name}",
+            "customType": "自定义服务商",
+            "enabled": "已启用",
+            "disabled": "已停用",
+            "models": "{count} 个模型",
+            "keys": "密钥 {enabled}/{total}",
+            "managed": "站点托管",
+            "successRate": "成功率",
+            "lifetime": "累计用量",
+            "details": "详情",
             "requestCount": "请求次数",
             "totalCost": "总成本",
             "toast": {
@@ -1047,6 +1095,11 @@
     },
     "siteChannel": {
         "card": {
+            "openDetails": "查看 {name}",
+            "accountCount": "{count} 个账号",
+            "modelCount": "{count} 个模型",
+            "enabledKeys": "启用密钥 {enabled}/{total}",
+            "viewDetails": "详情",
             "statusEnabled": "启用",
             "statusDisabled": "停用",
             "maskedPending": "{n} 待同步",

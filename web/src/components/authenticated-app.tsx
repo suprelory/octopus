@@ -134,9 +134,9 @@ export function AuthenticatedApp() {
             >
                 <NavBar />
                 <main className="flex min-h-0 w-full min-w-0 flex-1 flex-col pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0">
-                    <header className="my-6 flex flex-none items-start gap-x-2 px-2">
+                    <header className="my-6 flex flex-none flex-wrap items-start gap-x-2 gap-y-3 px-2">
                         <Logo size={48} />
-                        <div className="flex-1 overflow-hidden pb-2 sm:pb-0">
+                        <div className={`flex-1 overflow-hidden pb-2 sm:pb-0 ${visibleItem === 'channel' ? 'sm:flex-none' : ''}`}>
                             <AnimatePresence mode="wait" custom={direction}>
                                 <motion.div
                                     key={visibleItem}
@@ -162,14 +162,14 @@ export function AuthenticatedApp() {
                                     className="flex flex-col gap-2 sm:flex-row sm:items-baseline sm:gap-6"
                                 >
                                     <span className="mt-1 text-3xl font-bold">{t(visibleItem)}</span>
-                                    {visibleItem === 'channel' && (
-                                        <Suspense fallback={null}>
-                                            <ChannelTabSwitcher />
-                                        </Suspense>
-                                    )}
                                 </motion.div>
                             </AnimatePresence>
                         </div>
+                        {visibleItem === 'channel' && (
+                            <div className="order-last w-full sm:order-none sm:ml-4 sm:w-auto sm:self-center">
+                                <Suspense fallback={null}><ChannelTabSwitcher /></Suspense>
+                            </div>
+                        )}
                         {showToolbar && (
                             <div className="relative ml-auto flex min-h-[36px] items-center gap-3">
                                 <Suspense fallback={null}>

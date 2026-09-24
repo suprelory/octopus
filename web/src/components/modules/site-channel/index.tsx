@@ -13,6 +13,8 @@ import { useCompletionStore } from './completion-store';
 import { SiteChannelGrid } from './SiteChannelGrid';
 import { SiteChannelPendingJump } from './types';
 import { UnifiedCompletionDialog } from './UnifiedCompletionDialog';
+import { ChannelListSummary } from '../channel/ListSummary';
+import { Network, SearchX } from 'lucide-react';
 
 export function SiteChannelSection({
     searchTerm,
@@ -109,7 +111,7 @@ export function SiteChannelSection({
         return (
             <section className={cn('grid gap-4', layout === 'list' ? 'grid-cols-1' : 'md:grid-cols-2 xl:grid-cols-3')}>
                 {Array.from({ length: layout === 'list' ? 2 : 3 }).map((_, index) => (
-                    <div key={index} className="h-56 animate-pulse rounded-3xl border border-border/70 bg-muted/40" />
+                    <div key={index} className="h-76 animate-pulse rounded-2xl border border-border/70 bg-muted/40" />
                 ))}
             </section>
         );
@@ -123,6 +125,9 @@ export function SiteChannelSection({
         );
     }
 
+    const allCards = (data ?? []).filter(card => card.account_count > 0);
+    const summary = <ChannelListSummary total={allCards.length} enabled={allCards.filter(card => card.enabled).length} visible={cards.length} />;
+
     return (
         <>
             {cards.length > 0 && (
@@ -134,8 +139,17 @@ export function SiteChannelSection({
                     registerCardRef={registerCardRef}
                     clearPending={clearPending}
                     requestJump={requestJump}
+                    header={summary}
                 />
             )}
+            {cards.length === 0 && <div className="page-scroll-area">
+                {summary}
+                <div className="flex flex-col items-center rounded-2xl border border-dashed border-border bg-card/60 px-5 py-12 text-center">
+                    <span className="mb-4 rounded-2xl bg-primary/8 p-3 text-primary">{searchTerm ? <SearchX className="size-6" /> : <Network className="size-6" />}</span>
+                    <p className="text-sm font-medium">{t(searchTerm ? 'channel.list.noResults' : 'channel.list.siteEmpty')}</p>
+                    <p className="mt-2 max-w-xs text-xs leading-relaxed text-muted-foreground">{t(searchTerm ? 'channel.list.noResultsHint' : 'channel.list.siteEmptyHint')}</p>
+                </div>
+            </div>}
             <UnifiedCompletionDialog
                 open={completionDialogOpen && totalPendingCompletionCount > 0}
                 onOpenChange={setCompletionDialogOpen}

@@ -135,6 +135,8 @@
         "setting": "Setting"
     },
     "toolbar": {
+        "search": "Search",
+        "clearSearch": "Clear search",
         "popover": {
             "ariaLabel": "View options",
             "layout": "Layout",
@@ -207,6 +209,11 @@
     },
     "home": {
         "activity": {
+            "title": "Request activity",
+            "description": "Daily requests over the past year",
+            "legend": "Request activity intensity",
+            "less": "Less",
+            "more": "More",
             "requestCount": "Requests",
             "waitTime": "Wait Time",
             "totalToken": "Tokens Used",
@@ -214,6 +221,14 @@
             "noData": "No Data"
         },
         "summary": {
+            "title": "Usage overview",
+            "description": "A clear view of your requests, tokens and spending.",
+            "periodLabel": "Statistics period",
+            "totalDuration": "Total request time",
+            "trend": "Spending trend",
+            "noData": "No usage yet",
+            "noDataHint": "Usage will appear here after your first model request.",
+            "loadFailed": "Statistics could not be loaded. Please try again later.",
             "periods": {
                 "today": "Today",
                 "last7Days": "7 days",
@@ -233,6 +248,9 @@
             }
         },
         "rank": {
+            "allTime": "All time",
+            "sortLabel": "Rank channels by",
+            "loadFailed": "Unable to load channels",
             "title": "Ranking",
             "sortByCost": "Cost",
             "sortByCount": "Count",
@@ -939,11 +957,41 @@
         }
     },
     "channel": {
+        "list": {
+            "title": "Channel overview",
+            "description": "Connections, status and usage at a glance.",
+            "total": "Total",
+            "enabled": "Enabled",
+            "disabled": "Disabled",
+            "results": "Search results",
+            "visible": "{count} shown",
+            "targeted": "Linked managed channel",
+            "targetedHint": "This channel is managed by a site account.",
+            "loadFailed": "Unable to load channels: {message}",
+            "noResults": "No matching channels",
+            "noResultsHint": "Try another name or clear the search to see all channels.",
+            "empty": "Add your first channel",
+            "emptyHint": "Use the add button above to connect a model provider.",
+            "siteEmpty": "No site channels yet",
+            "siteEmptyHint": "Add a site account and sync its models to see channels here."
+        },
         "tabs": {
+            "label": "Channel source",
             "site": "Site Channels",
             "manual": "Manual Channels"
         },
         "card": {
+            "openDetails": "View {name}",
+            "toggle": "Enable {name}",
+            "customType": "Custom provider",
+            "enabled": "Enabled",
+            "disabled": "Disabled",
+            "models": "{count} models",
+            "keys": "Keys {enabled}/{total}",
+            "managed": "Site managed",
+            "successRate": "Success rate",
+            "lifetime": "All-time usage",
+            "details": "Details",
             "requestCount": "Requests",
             "totalCost": "Total Cost",
             "toast": {
@@ -1047,6 +1095,11 @@
     },
     "siteChannel": {
         "card": {
+            "openDetails": "View {name}",
+            "accountCount": "{count} accounts",
+            "modelCount": "{count} models",
+            "enabledKeys": "Enabled keys {enabled}/{total}",
+            "viewDetails": "Details",
             "statusEnabled": "Enabled",
             "statusDisabled": "Disabled",
             "maskedPending": "{n} pending",
