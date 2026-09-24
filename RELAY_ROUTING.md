@@ -16,3 +16,15 @@ limit. Image connections and first content share the precommit deadline, includi
 the response-header wait. SSE comments and metadata do not commit a response.
 Once image content starts, the precommit timer stops and failures cannot change
 the route. Client cancellation still stops the active upstream request.
+
+Credential authentication and permission errors isolate the key across models.
+Explicit key quota/rate-limit errors (`key_quota`, `key_rate_limit`, `api key quota`,
+or `per-key`) do the same. Ambiguous quota/rate-limit errors are conservatively
+treated as shared channel failures. Unsupported models isolate the channel/model;
+network and service failures affect the channel. A key failure does not contribute
+to the channel health penalty. Failure scope is included in each attempt log.
+
+Before output, stateless requests can try another healthy key in the same channel
+after a key-scoped rejection. They never repeat that failed key in the request.
+All replacement sends use the original budget. Native `previous_response_id`
+continuations keep their own recovery rules and cannot switch keys this way.

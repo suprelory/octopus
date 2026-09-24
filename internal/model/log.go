@@ -57,6 +57,7 @@ type ChannelAttempt struct {
 	CapabilityReasons []string                 `json:"capability_reasons,omitempty"`
 	FallbackReason    string                   `json:"fallback_reason,omitempty"`
 	FailureClass      string                   `json:"failure_class,omitempty"`
+	FailureScope      string                   `json:"failure_scope,omitempty"`
 	Retryable         bool                     `json:"retryable,omitempty"`
 	RetryAt           *time.Time               `json:"retry_at,omitempty"`
 	Stream            *StreamDiagnostics       `json:"stream,omitempty"`

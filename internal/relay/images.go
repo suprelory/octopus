@@ -189,81 +189,94 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 			continue
 		}
 
-		log.Debugf("images request model %s, mode: %d, forwarding to channel: %s model: %s (attempt %d/%d, sticky=%t, stream=%t)",
-			requestModel, group.Mode, channel.Name, item.ModelName,
-			iter.Index()+1, iter.Len(), iter.IsSticky(), stream)
+		for {
+			log.Debugf("images request model %s, mode: %d, forwarding to channel: %s model: %s (attempt %d/%d, sticky=%t, stream=%t)",
+				requestModel, group.Mode, channel.Name, item.ModelName,
+				iter.Index()+1, iter.Len(), iter.IsSticky(), stream)
 
-		span := iter.StartAttempt(channel.ID, usedKey.ID, channel.Name)
-		span.SetCapability(capabilityTrace(decision, capabilityPolicy, channel.Type.String()))
+			span := iter.StartAttempt(channel.ID, usedKey.ID, channel.Name)
+			span.SetCapability(capabilityTrace(decision, capabilityPolicy, channel.Type.String()))
 
-		// 尝试一次转发
-		var retryAt time.Time
-		statusCode, written, usage, upstreamCT, fwdErr := imagesAttempt(ctx, endpoint, c, bc, isMultipart, boundary, jsonPayload, stream, channel, usedKey.ChannelKey, group.FirstTokenTimeOut, metrics, item.ModelName, hb, &retryAt, execution)
-		releaseKey()
+			// 尝试一次转发
+			var retryAt time.Time
+			statusCode, written, usage, upstreamCT, fwdErr := imagesAttempt(ctx, endpoint, c, bc, isMultipart, boundary, jsonPayload, stream, channel, usedKey.ChannelKey, group.FirstTokenTimeOut, metrics, item.ModelName, hb, &retryAt, execution)
+			releaseKey()
 
-		// 更新 channel key 状态
-		usedKey.StatusCode = statusCode
-		usedKey.LastUseTimeStamp = time.Now().Unix()
+			// 更新 channel key 状态
+			usedKey.StatusCode = statusCode
+			usedKey.LastUseTimeStamp = time.Now().Unix()
 
-		if fwdErr == nil {
-			// ====== 成功 ======
-			actualModel := strings.TrimSpace(metrics.ActualModel)
-			if actualModel == "" {
-				actualModel = item.ModelName
-				metrics.ActualModel = actualModel
+			if fwdErr == nil {
+				// ====== 成功 ======
+				actualModel := strings.TrimSpace(metrics.ActualModel)
+				if actualModel == "" {
+					actualModel = item.ModelName
+					metrics.ActualModel = actualModel
+				}
+				if usage != nil {
+					metrics.SetUsageFromImages(actualModel, *usage)
+				}
+				metrics.ResponseContent = buildImagesResponseContentForLog(stream, upstreamCT, usage)
+
+				op.ChannelKeyUpdateWithDelta(usedKey, metrics.Stats.InputCost+metrics.Stats.OutputCost)
+
+				span.End(model.AttemptSuccess, statusCode, "")
+
+				// Channel 维度统计
+				op.StatsChannelUpdate(channel.ID, model.StatsMetrics{
+					WaitTime:       span.Duration().Milliseconds(),
+					RequestSuccess: 1,
+				})
+
+				// 熔断器：记录成功
+				balancer.RecordSuccess(channel.ID, usedKey.ID, item.ModelName)
+				// Refresh affinity only after the complete image response succeeds.
+				balancer.SetRoutingAffinity(apiKeyID, group.ID, requestModel, channel.ID, usedKey.ID)
+
+				metrics.SaveWithChannelStats(ctx, true, nil, iter.Attempts(), false)
+				return
 			}
-			if usage != nil {
-				metrics.SetUsageFromImages(actualModel, *usage)
-			}
-			metrics.ResponseContent = buildImagesResponseContentForLog(stream, upstreamCT, usage)
 
-			op.ChannelKeyUpdateWithDelta(usedKey, metrics.Stats.InputCost+metrics.Stats.OutputCost)
-
-			span.End(model.AttemptSuccess, statusCode, "")
+			// ====== 失败 ======
+			failure := classifyRelayFailureContext(ctx, statusCode, fwdErr, retryAt)
+			op.ChannelKeyUpdateWithDelta(usedKey, 0)
+			span.SetFailure(string(failure.Class), failure.Retryable, failure.RetryAt, failure.Scope)
+			span.End(model.AttemptFailed, statusCode, fwdErr.Error())
 
 			// Channel 维度统计
 			op.StatsChannelUpdate(channel.ID, model.StatsMetrics{
-				WaitTime:       span.Duration().Milliseconds(),
-				RequestSuccess: 1,
+				WaitTime:      span.Duration().Milliseconds(),
+				RequestFailed: 1,
 			})
 
-			// 熔断器：记录成功
-			balancer.RecordSuccess(channel.ID, usedKey.ID, item.ModelName)
-			// Refresh affinity only after the complete image response succeeds.
-			balancer.SetRoutingAffinity(apiKeyID, group.ID, requestModel, channel.ID, usedKey.ID)
+			// 熔断器：只记录可归因于上游的失败；请求错误和客户端取消不污染渠道状态。
+			if failure.Record {
+				retryAt = recordFailureAndResolveRetryAt(channel.ID, usedKey.ID, item.ModelName, failure, retryAt)
+				failure.RetryAt = retryAt
+			}
 
-			metrics.SaveWithChannelStats(ctx, true, nil, iter.Attempts(), false)
-			return
+			if written {
+				metrics.SaveWithChannelStats(ctx, false, fwdErr, iter.Attempts(), false)
+				return
+			}
+
+			iter.InvalidateCurrentPreference()
+			lastErr = fmt.Errorf("channel %s failed: %w", channel.Name, fwdErr)
+			lastRetryAt = retryAt
+			lastFailure = failure
+			if failure.Class == FailureBudgetExceeded || failure.Class == FailureClientCanceled {
+				break
+			}
+			if failure.Scope == "key" {
+				excludedKeyIDs[usedKey.ID] = struct{}{}
+				usedKey, releaseKey = selectAndReserveRelayKey(iter, channel, excludedKeyIDs)
+				if usedKey.ChannelKey != "" {
+					continue
+				}
+			}
+			break
 		}
-
-		// ====== 失败 ======
-		failure := classifyRelayFailureContext(ctx, statusCode, fwdErr, retryAt)
-		op.ChannelKeyUpdateWithDelta(usedKey, 0)
-		span.SetFailure(string(failure.Class), failure.Retryable, failure.RetryAt)
-		span.End(model.AttemptFailed, statusCode, fwdErr.Error())
-
-		// Channel 维度统计
-		op.StatsChannelUpdate(channel.ID, model.StatsMetrics{
-			WaitTime:      span.Duration().Milliseconds(),
-			RequestFailed: 1,
-		})
-
-		// 熔断器：只记录可归因于上游的失败；请求错误和客户端取消不污染渠道状态。
-		if failure.Record {
-			retryAt = recordFailureAndResolveRetryAt(channel.ID, usedKey.ID, item.ModelName, failure, retryAt)
-			failure.RetryAt = retryAt
-		}
-
-		if written {
-			metrics.SaveWithChannelStats(ctx, false, fwdErr, iter.Attempts(), false)
-			return
-		}
-
-		iter.InvalidateCurrentPreference()
-		lastErr = fmt.Errorf("channel %s failed: %w", channel.Name, fwdErr)
-		lastRetryAt = retryAt
-		lastFailure = failure
-		if failure.Class == FailureBudgetExceeded || failure.Class == FailureClientCanceled {
+		if lastFailure.Class == FailureBudgetExceeded || lastFailure.Class == FailureClientCanceled {
 			break
 		}
 	}

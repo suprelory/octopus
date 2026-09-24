@@ -623,7 +623,7 @@ func (s *AttemptSpan) End(status model.AttemptStatus, statusCode int, msg string
 	s.attempt.Duration = int(duration.Milliseconds())
 	s.attempt.Msg = msg
 	if s.reservation != nil {
-		globalChannelHealth.record(s.attempt.ChannelID, s.attempt.ModelName, status, duration, s.attempt.FailureClass, valueOrZeroTime(s.attempt.RetryAt))
+		globalChannelHealth.record(s.attempt.ChannelID, s.attempt.ModelName, status, duration, s.attempt.FailureClass, valueOrZeroTime(s.attempt.RetryAt), s.attempt.FailureScope)
 	}
 	if s.iter != nil {
 		s.iter.releaseReservation(s.reservation)
@@ -683,8 +683,11 @@ func (s *AttemptSpan) SetCapability(trace CapabilityTrace) {
 // SetFailure records the structured relay failure without importing relay
 // (which would create a package cycle). RetryAt is copied so later mutation of
 // the caller's time value cannot alter the persisted attempt.
-func (s *AttemptSpan) SetFailure(class string, retryable bool, retryAt time.Time) {
+func (s *AttemptSpan) SetFailure(class string, retryable bool, retryAt time.Time, scope ...string) {
 	s.attempt.FailureClass = class
+	if len(scope) > 0 {
+		s.attempt.FailureScope = scope[0]
+	}
 	s.attempt.Retryable = retryable
 	if !retryAt.IsZero() {
 		deadline := retryAt

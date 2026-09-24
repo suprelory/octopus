@@ -171,71 +171,84 @@ func HandleResponsesCompact(c *gin.Context) {
 			continue
 		}
 
-		var attemptErr error
-		var statusCode int
-		var retryAt time.Time
-		var failure FailureClassification
-		var success bool
+		for {
+			var attemptErr error
+			var statusCode int
+			var retryAt time.Time
+			var failure FailureClassification
+			var success bool
 
-		for attemptNum := 0; attemptNum < maxSameChannelAttempts; attemptNum++ {
-			if attemptNum > 0 {
-				delay := computeBackoffUntil(attemptNum, retryAt)
-				if err := execution.wait(c.Request.Context(), delay); err != nil {
-					attemptErr = err
-					failure = classifyRelayFailureContext(c.Request.Context(), 0, err, time.Time{})
+			for attemptNum := 0; attemptNum < maxSameChannelAttempts; attemptNum++ {
+				if attemptNum > 0 {
+					delay := computeBackoffUntil(attemptNum, retryAt)
+					if err := execution.wait(c.Request.Context(), delay); err != nil {
+						attemptErr = err
+						failure = classifyRelayFailureContext(c.Request.Context(), 0, err, time.Time{})
+						break
+					}
+				}
+
+				statusCode, retryAt, attemptErr = forwardResponsesCompactWithRetryAt(
+					c,
+					metrics,
+					iter,
+					channel,
+					usedKey,
+					item.ModelName,
+					body,
+					capabilityTrace(decision, capabilityPolicy, channel.Type.String()),
+					execution,
+				)
+				if attemptErr == nil {
+					success = true
+					break
+				}
+				failure = classifyRelayFailureContext(c.Request.Context(), statusCode, attemptErr, retryAt)
+				if failure.Class == FailureRateLimit && iter.HasRemainingDifferentChannelExcept(channel.ID, rateLimitedChannels) {
+					rateLimitedChannels[channel.ID] = struct{}{}
+					break
+				}
+				if failure.Scope == "key" || !failure.Retryable {
 					break
 				}
 			}
+			releaseKey()
 
-			statusCode, retryAt, attemptErr = forwardResponsesCompactWithRetryAt(
-				c,
-				metrics,
-				iter,
-				channel,
-				usedKey,
-				item.ModelName,
-				body,
-				capabilityTrace(decision, capabilityPolicy, channel.Type.String()),
-				execution,
-			)
-			if attemptErr == nil {
-				success = true
+			usedKey.StatusCode = statusCode
+			usedKey.LastUseTimeStamp = time.Now().Unix()
+			op.ChannelKeyUpdateWithDelta(usedKey, 0)
+
+			if success {
+				op.StatsChannelUpdate(channel.ID, dbmodel.StatsMetrics{RequestSuccess: 1})
+				balancer.RecordSuccess(channel.ID, usedKey.ID, item.ModelName)
+				balancer.SetRoutingAffinity(apiKeyID, group.ID, requestModel, channel.ID, usedKey.ID)
+				metrics.SaveWithChannelStats(c.Request.Context(), true, nil, iter.Attempts(), false)
+				return
+			}
+
+			op.StatsChannelUpdate(channel.ID, dbmodel.StatsMetrics{RequestFailed: 1})
+			if failure.Record {
+				retryAt = recordFailureAndResolveRetryAt(channel.ID, usedKey.ID, item.ModelName, failure, retryAt)
+				failure.RetryAt = retryAt
+			}
+			iter.InvalidateCurrentPreference()
+			lastErr = attemptErr
+			lastStatusCode = statusCode
+			lastRetryAt = retryAt
+			lastFailure = failure
+			if failure.Class == FailureBudgetExceeded || failure.Class == FailureClientCanceled {
 				break
 			}
-			failure = classifyRelayFailureContext(c.Request.Context(), statusCode, attemptErr, retryAt)
-			if failure.Class == FailureRateLimit && iter.HasRemainingDifferentChannelExcept(channel.ID, rateLimitedChannels) {
-				rateLimitedChannels[channel.ID] = struct{}{}
-				break
+			if failure.Scope == "key" && (compactReq.PreviousResponseID == nil || strings.TrimSpace(*compactReq.PreviousResponseID) == "") {
+				excludedKeyIDs[usedKey.ID] = struct{}{}
+				usedKey, releaseKey = selectAndReserveRelayKey(iter, channel, excludedKeyIDs)
+				if usedKey.ChannelKey != "" {
+					continue
+				}
 			}
-			if !failure.Retryable {
-				break
-			}
+			break
 		}
-		releaseKey()
-
-		usedKey.StatusCode = statusCode
-		usedKey.LastUseTimeStamp = time.Now().Unix()
-		op.ChannelKeyUpdateWithDelta(usedKey, 0)
-
-		if success {
-			op.StatsChannelUpdate(channel.ID, dbmodel.StatsMetrics{RequestSuccess: 1})
-			balancer.RecordSuccess(channel.ID, usedKey.ID, item.ModelName)
-			balancer.SetRoutingAffinity(apiKeyID, group.ID, requestModel, channel.ID, usedKey.ID)
-			metrics.SaveWithChannelStats(c.Request.Context(), true, nil, iter.Attempts(), false)
-			return
-		}
-
-		op.StatsChannelUpdate(channel.ID, dbmodel.StatsMetrics{RequestFailed: 1})
-		if failure.Record {
-			retryAt = recordFailureAndResolveRetryAt(channel.ID, usedKey.ID, item.ModelName, failure, retryAt)
-			failure.RetryAt = retryAt
-		}
-		iter.InvalidateCurrentPreference()
-		lastErr = attemptErr
-		lastStatusCode = statusCode
-		lastRetryAt = retryAt
-		lastFailure = failure
-		if failure.Class == FailureBudgetExceeded || failure.Class == FailureClientCanceled {
+		if lastFailure.Class == FailureBudgetExceeded || lastFailure.Class == FailureClientCanceled {
 			break
 		}
 	}
@@ -332,7 +345,7 @@ func forwardResponsesCompactWithRetryAt(c *gin.Context, metrics *RelayMetrics, i
 		}
 		wrapped := fmt.Errorf("failed to send compact request: %w", err)
 		failure := classifyRelayFailureContext(c.Request.Context(), 0, wrapped, time.Time{})
-		span.SetFailure(string(failure.Class), failure.Retryable, failure.RetryAt)
+		span.SetFailure(string(failure.Class), failure.Retryable, failure.RetryAt, failure.Scope)
 		span.End(dbmodel.AttemptFailed, 0, wrapped.Error())
 		return 0, time.Time{}, wrapped
 	}
@@ -345,7 +358,7 @@ func forwardResponsesCompactWithRetryAt(c *gin.Context, metrics *RelayMetrics, i
 		}
 		wrapped := fmt.Errorf("failed to read compact response body: %w", readErr)
 		failure := classifyRelayFailureContext(c.Request.Context(), responseProcessingErrorStatus(response.StatusCode), wrapped, time.Time{})
-		span.SetFailure(string(failure.Class), failure.Retryable, failure.RetryAt)
+		span.SetFailure(string(failure.Class), failure.Retryable, failure.RetryAt, failure.Scope)
 		span.End(dbmodel.AttemptFailed, response.StatusCode, wrapped.Error())
 		return responseProcessingErrorStatus(response.StatusCode), time.Time{}, wrapped
 	}
@@ -355,7 +368,7 @@ func forwardResponsesCompactWithRetryAt(c *gin.Context, metrics *RelayMetrics, i
 		statusCode := normalizeUpstreamStatusCode(response.StatusCode, string(body))
 		responseErr := transformerModel.NormalizeHTTPError(statusCode, response.Header, body, "api_error")
 		failure := classifyRelayFailureContext(c.Request.Context(), statusCode, responseErr, retryAt)
-		span.SetFailure(string(failure.Class), failure.Retryable, retryAt)
+		span.SetFailure(string(failure.Class), failure.Retryable, retryAt, failure.Scope)
 		span.End(dbmodel.AttemptFailed, statusCode, responseErr.Error())
 		return statusCode, retryAt, responseErr
 	}

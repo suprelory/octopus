@@ -160,7 +160,10 @@ func (s *channelHealthStore) release(key channelHealthKey) {
 	}
 }
 
-func (s *channelHealthStore) record(channelID int, modelName string, status model.AttemptStatus, duration time.Duration, failureClass string, retryAt time.Time) {
+func (s *channelHealthStore) record(channelID int, modelName string, status model.AttemptStatus, duration time.Duration, failureClass string, retryAt time.Time, scope ...string) {
+	if status != model.AttemptSuccess && (failureClass == "authentication" || failureClass == "permission" || (len(scope) > 0 && scope[0] == "key")) {
+		return
+	}
 	key := channelHealthKey{channelID: channelID, modelName: strings.TrimSpace(modelName)}
 	now := s.now()
 	s.mu.Lock()

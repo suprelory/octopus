@@ -94,7 +94,7 @@ func (ra *relayAttempt) attempt() attemptResult {
 	}
 
 	failure := classifyRelayFailureContext(ra.requestContext(), statusCode, fwdErr, ra.retryAt)
-	span.SetFailure(string(failure.Class), failure.Retryable, failure.RetryAt)
+	span.SetFailure(string(failure.Class), failure.Retryable, failure.RetryAt, failure.Scope)
 	op.ChannelKeyUpdateWithDelta(ra.usedKey, 0)
 	span.End(dbmodel.AttemptFailed, statusCode, fwdErr.Error())
 

@@ -115,34 +115,49 @@ func (r *relayExecutor) run() relayOutcome {
 			}
 			continue
 		}
-		result, attempt := r.runChannelAttempts(channel, key, release, item.ModelName, decision)
-		outcome.result, outcome.channel, outcome.key = result, channel, key
-		if attempt != nil {
-			outcome.attempt = attempt
-		}
-		// Health accounting is independent of whether a response can be retried.
-		if !result.Success && !result.Canceled && !result.ResetConversation && result.Failure.Record {
-			result.RetryAt = recordFailureAndResolveRetryAt(channel.ID, key.ID, item.ModelName, result.Failure, result.RetryAt)
-			result.Failure.RetryAt = result.RetryAt
-			outcome.result = result
-			if failureCircuitKind(result.Failure) == balancer.FailureTransient {
-				maybeLearnManagedRoute(ctx, channel.ID, item.ModelName, req.inboundType, result.Err)
+		for {
+			result, attempt := r.runChannelAttempts(channel, key, release, item.ModelName, decision)
+			outcome.result, outcome.channel, outcome.key = result, channel, key
+			if attempt != nil {
+				outcome.attempt = attempt
 			}
-		}
-		if decideRetry(result, false, false) == retryStop {
-			return outcome
-		}
-		// Native response IDs belong to their upstream session. Only transport or
-		// session failures may request replay after same-candidate recovery stops.
-		if requiresUpstreamWSContinuation(req.internalRequest) {
-			if isContinuationTransportFailure(result.Err) {
-				outcome.result.ResetConversation = true
-				outcome.result.StatusCode = http.StatusConflict
-				outcome.result.Err = fmt.Errorf("upstream continuation transport unavailable; please restart the conversation: %w", result.Err)
+			// Health accounting is independent of whether a response can be retried.
+			if !result.Success && !result.Canceled && !result.ResetConversation && result.Failure.Record {
+				result.RetryAt = recordFailureAndResolveRetryAt(channel.ID, key.ID, item.ModelName, result.Failure, result.RetryAt)
+				result.Failure.RetryAt = result.RetryAt
+				outcome.result = result
+				if failureCircuitKind(result.Failure) == balancer.FailureTransient {
+					maybeLearnManagedRoute(ctx, channel.ID, item.ModelName, req.inboundType, result.Err)
+				}
 			}
-			return outcome
+			if mayRotateKey(result, currentPreviousResponseID(req.internalRequest) != "") {
+				excludedKeys[key.ID] = struct{}{}
+				if err := execution.attemptError(time.Now()); err != nil {
+					outcome.result = relayBudgetAttemptResult(err)
+					return outcome
+				}
+				nextKey, nextRelease := selectAndReserveRelayKey(iter, channel, excludedKeys)
+				if nextKey.ChannelKey != "" {
+					key, release = nextKey, nextRelease
+					continue
+				}
+			}
+			if decideRetry(result, false, false) == retryStop {
+				return outcome
+			}
+			// Native response IDs belong to their upstream session. Only transport or
+			// session failures may request replay after same-candidate recovery stops.
+			if requiresUpstreamWSContinuation(req.internalRequest) {
+				if isContinuationTransportFailure(result.Err) {
+					outcome.result.ResetConversation = true
+					outcome.result.StatusCode = http.StatusConflict
+					outcome.result.Err = fmt.Errorf("upstream continuation transport unavailable; please restart the conversation: %w", result.Err)
+				}
+				return outcome
+			}
+			iter.InvalidateCurrentPreference()
+			break
 		}
-		iter.InvalidateCurrentPreference()
 	}
 	outcome.result, _ = resolveFinalAttemptResult(sawSupportedCapability, outcome.result.Err, outcome.result, capabilityErr, capabilityResult)
 	return outcome
@@ -200,7 +215,7 @@ func (r *relayExecutor) runChannelAttempts(channel *dbmodel.Channel, key dbmodel
 		fallback := !requiresUpstreamWSContinuation(req.internalRequest) &&
 			!result.Written && result.Failure.Class == FailureRateLimit &&
 			req.iter.HasRemainingDifferentCandidateMatching(channel.ID, execution.rateLimitedChannels, r.candidateAvailable)
-		action := decideRetry(result, execution.candidateAttempts[candidate] < execution.maxSameChannelAttempts, fallback)
+		action := decideRetry(result, result.Failure.Scope != "key" && execution.candidateAttempts[candidate] < execution.maxSameChannelAttempts, fallback)
 		if action != retrySameCandidate {
 			if fallback && action == retryNextCandidate {
 				execution.rateLimitedChannels[channel.ID] = struct{}{}

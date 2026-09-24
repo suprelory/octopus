@@ -34,6 +34,7 @@ const (
 // RetryAt is absolute so a retry remains correct after queueing or failover.
 type FailureClassification struct {
 	Class       FailureClass
+	Scope       string // key, model or channel; empty for local/request failures
 	Retryable   bool
 	Record      bool
 	Passthrough bool
@@ -92,7 +93,27 @@ func classifyRelayFailureContext(ctx context.Context, statusCode int, err error,
 	return classifyRelayFailureWithContext(ctx, true, statusCode, err, retryAt)
 }
 
-func classifyRelayFailureWithContext(ctx context.Context, hasRequestContext bool, statusCode int, err error, retryAt time.Time) FailureClassification {
+func classifyRelayFailureWithContext(ctx context.Context, hasRequestContext bool, statusCode int, err error, retryAt time.Time) (result FailureClassification) {
+	defer func() {
+		if !result.Record {
+			return
+		}
+		switch result.Class {
+		case FailureAuthentication, FailurePermission:
+			result.Scope = "key"
+		case FailureModelUnsupported:
+			result.Scope = "model"
+		case FailureQuota, FailureRateLimit:
+			code, typ, message := responseErrorFields(err)
+			text := strings.ToLower(strings.Join([]string{code, typ, message, relayErrorMessage(err)}, " "))
+			result.Scope = "channel"
+			if strings.Contains(text, "key_quota") || strings.Contains(text, "key_rate_limit") || strings.Contains(text, "api key quota") || strings.Contains(text, "per-key") {
+				result.Scope = "key"
+			}
+		default:
+			result.Scope = "channel"
+		}
+	}()
 	if isLocalRelayBudgetExceeded(ctx, err) {
 		return FailureClassification{Class: FailureBudgetExceeded, StatusCode: statusCode, RetryAt: retryAt}
 	}
@@ -277,9 +298,13 @@ func failureCircuitKind(classification FailureClassification) balancer.FailureKi
 }
 
 func recordFailureAndResolveRetryAt(channelID, keyID int, modelName string, classification FailureClassification, retryAt time.Time) time.Time {
-	balancer.RecordFailureAt(channelID, keyID, modelName, failureCircuitKind(classification), retryAt)
+	balancer.RecordScopedFailureAt(channelID, keyID, modelName, failureCircuitKind(classification), retryAt, classification.Scope)
 	if deadline, ok := balancer.RetryAt(channelID, keyID, modelName); ok {
 		return deadline
 	}
 	return retryAt
+}
+
+func mayRotateKey(result attemptResult, stateful bool) bool {
+	return !stateful && !result.Success && !result.Written && !result.Canceled && !result.ResetConversation && result.Failure.Scope == "key"
 }

@@ -124,7 +124,16 @@ func GetCooldown(tripCount int) time.Duration {
 // CanAttempt checks availability without claiming a half-open probe. Selection
 // must still call IsTripped immediately before using the key.
 func CanAttempt(channelID, keyID int, modelName string) bool {
-	v, ok := globalBreaker.Load(circuitKey(channelID, keyID, modelName))
+	for _, key := range scopedCircuitKeys(channelID, keyID, modelName) {
+		if !canAttemptCircuit(key) {
+			return false
+		}
+	}
+	return true
+}
+
+func canAttemptCircuit(key string) bool {
+	v, ok := globalBreaker.Load(key)
 	if !ok {
 		return true
 	}
@@ -147,7 +156,35 @@ func CanAttempt(channelID, keyID int, modelName string) bool {
 // IsTripped 检查通道是否处于熔断状态
 // 返回 tripped=true 表示该通道应被跳过，remaining 为剩余冷却时间
 func IsTripped(channelID, keyID int, modelName string) (tripped bool, remaining time.Duration) {
-	key := circuitKey(channelID, keyID, modelName)
+	// Check every scope before claiming a half-open probe.
+	keys := scopedCircuitKeys(channelID, keyID, modelName)
+	for _, key := range keys {
+		if !canAttemptCircuit(key) {
+			return isCircuitTripped(key)
+		}
+	}
+	for _, key := range keys {
+		if tripped, remaining := isCircuitTripped(key); tripped {
+			return true, remaining
+		}
+	}
+	return false, 0
+}
+
+func scopedCircuitKeys(channelID, keyID int, modelName string) []string {
+	keys := []string{circuitKey(channelID, 0, ""), circuitKey(channelID, 0, modelName), circuitKey(channelID, keyID, ""), circuitKey(channelID, keyID, modelName)}
+	result := make([]string, 0, len(keys))
+	seen := make(map[string]bool)
+	for _, key := range keys {
+		if !seen[key] {
+			seen[key] = true
+			result = append(result, key)
+		}
+	}
+	return result
+}
+
+func isCircuitTripped(key string) (tripped bool, remaining time.Duration) {
 	v, ok := globalBreaker.Load(key)
 	if !ok {
 		return false, 0 // 无记录，视为 Closed
@@ -199,7 +236,12 @@ func IsTripped(channelID, keyID int, modelName string) (tripped bool, remaining 
 
 // RecordSuccess 记录成功，重置熔断器状态
 func RecordSuccess(channelID, keyID int, modelName string) {
-	key := circuitKey(channelID, keyID, modelName)
+	for _, key := range scopedCircuitKeys(channelID, keyID, modelName) {
+		recordCircuitSuccess(key)
+	}
+}
+
+func recordCircuitSuccess(key string) {
 	v, ok := globalBreaker.Load(key)
 	if !ok {
 		return
@@ -224,7 +266,16 @@ func RecordSuccess(channelID, keyID int, modelName string) {
 // RetryAt returns the currently stored absolute breaker deadline. It is useful
 // for diagnostics and for callers that need to forward an exact cooldown.
 func RetryAt(channelID, keyID int, modelName string) (time.Time, bool) {
-	key := circuitKey(channelID, keyID, modelName)
+	var deadline time.Time
+	for _, key := range scopedCircuitKeys(channelID, keyID, modelName) {
+		if at, ok := circuitRetryAt(key); ok && at.After(deadline) {
+			deadline = at
+		}
+	}
+	return deadline, !deadline.IsZero()
+}
+
+func circuitRetryAt(key string) (time.Time, bool) {
 	v, ok := globalBreaker.Load(key)
 	if !ok {
 		return time.Time{}, false
@@ -242,6 +293,18 @@ func RetryAt(channelID, keyID int, modelName string) (time.Time, bool) {
 // New relay code should prefer RecordFailureAt when Retry-After was present.
 func RecordFailure(channelID, keyID int, modelName string, kind FailureKind) {
 	RecordFailureAt(channelID, keyID, modelName, kind, time.Time{})
+}
+
+func RecordScopedFailureAt(channelID, keyID int, modelName string, kind FailureKind, retryAt time.Time, scope string) {
+	switch scope {
+	case "key":
+		modelName = ""
+	case "model":
+		keyID = 0
+	case "channel":
+		keyID, modelName = 0, ""
+	}
+	RecordFailureAt(channelID, keyID, modelName, kind, retryAt)
 }
 
 // RecordFailureAt records a failure and, for rate/quota/provider errors, the
