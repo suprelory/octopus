@@ -252,6 +252,9 @@
             }
         },
         "relayBudget": {
+			"images": "圖片請求預算",
+			"compact": "Compact 請求預算",
+			"inherit": "設為 0 時沿用全域預算。所有發送與退避共用本次請求的預算，有效輸出開始後不再換路。",
             "title": "HTTP/WS 故障轉移預算",
             "description": "聊天和 Responses 的每個 HTTP 請求或 WS response.create 共用一份預算，包含重新連線後重送和對話重播；WS 每一輪請求單獨計算。",
             "maxChannels": {

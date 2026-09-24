@@ -93,6 +93,19 @@ export function SettingReliability() {
             />
 
             {/* 熔断器 */}
+			{(['images', 'compact'] as const).map((operation) => (
+				<div key={operation} className="space-y-5">
+					<SettingSection title={t(`relayBudget.${operation}`)} tooltip={t('relayBudget.inherit')} />
+					{[
+						['max_channel_attempts', 'maxChannels', 64],
+						['max_total_attempts', 'maxAttempts', 256],
+						['timeout_seconds', 'timeout', 3600],
+					].map(([suffix, label, max]) => (
+						<NumberFieldRow key={suffix} settingKey={`relay_${operation}_${suffix}`}
+							label={t(`relayBudget.${label}.label`)} placeholder="0" min={0} max={Number(max)} />
+					))}
+				</div>
+			))}
             <SettingSection title={t('circuitBreaker.title')} tooltip={t('circuitBreaker.hint')} />
             <NumberFieldRow
                 settingKey={SettingKey.CircuitBreakerThreshold}

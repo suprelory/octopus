@@ -75,6 +75,12 @@ func (ra *relayAttempt) startFirstTokenBudget(parent context.Context) context.Co
 		timeout = 0
 	}
 
+	budget := newFirstTokenBudget(parent, timeout, cause)
+	ra.firstTokenBudget = budget
+	return budget.ctx
+}
+
+func newFirstTokenBudget(parent context.Context, timeout time.Duration, cause error) *firstTokenBudget {
 	ctx, cancel := context.WithCancelCause(parent)
 	budget := &firstTokenBudget{ctx: ctx, cancel: cancel}
 	budget.timer = time.AfterFunc(timeout, func() {
@@ -85,8 +91,7 @@ func (ra *relayAttempt) startFirstTokenBudget(parent context.Context) context.Co
 		}
 		cancel(cause)
 	})
-	ra.firstTokenBudget = budget
-	return ctx
+	return budget
 }
 
 func (ra *relayAttempt) firstTokenBudgetSpec() (time.Duration, error, bool) {

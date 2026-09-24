@@ -129,6 +129,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 	var lastRetryAt time.Time
 	var lastFailure FailureClassification
 	capabilityPolicy := getCapabilityDegradationPolicy()
+	execution := newOperationExecution(group, "images")
 
 	for iter.Next() {
 		select {
@@ -137,6 +138,10 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 			metrics.SaveWithChannelStats(ctx, false, context.Canceled, iter.Attempts(), false)
 			return
 		default:
+		}
+		if err := execution.attemptError(time.Now()); err != nil {
+			lastErr, lastFailure = err, relayBudgetAttemptResult(err).Failure
+			break
 		}
 
 		item := iter.Item()
@@ -166,6 +171,12 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 			continue
 		}
 		sawSupportedCapability = true
+		if !execution.canAttemptChannel(channel.ID, time.Now()) {
+			iter.Skip(channel.ID, 0, channel.Name, "candidate channel budget exhausted")
+			lastErr = newRelayBudgetError("candidate channel budget exhausted")
+			lastFailure = relayBudgetAttemptResult(lastErr).Failure
+			continue
+		}
 
 		excludedKeyIDs := make(map[int]struct{})
 		usedKey, releaseKey := selectAndReserveRelayKey(iter, channel, excludedKeyIDs)
@@ -187,7 +198,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 
 		// 尝试一次转发
 		var retryAt time.Time
-		statusCode, written, usage, upstreamCT, fwdErr := imagesAttempt(ctx, endpoint, c, bc, isMultipart, boundary, jsonPayload, stream, channel, usedKey.ChannelKey, group.FirstTokenTimeOut, metrics, item.ModelName, hb, &retryAt)
+		statusCode, written, usage, upstreamCT, fwdErr := imagesAttempt(ctx, endpoint, c, bc, isMultipart, boundary, jsonPayload, stream, channel, usedKey.ChannelKey, group.FirstTokenTimeOut, metrics, item.ModelName, hb, &retryAt, execution)
 		releaseKey()
 
 		// 更新 channel key 状态
@@ -252,6 +263,9 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 		lastErr = fmt.Errorf("channel %s failed: %w", channel.Name, fwdErr)
 		lastRetryAt = retryAt
 		lastFailure = failure
+		if failure.Class == FailureBudgetExceeded || failure.Class == FailureClientCanceled {
+			break
+		}
 	}
 
 	// 所有通道都失败

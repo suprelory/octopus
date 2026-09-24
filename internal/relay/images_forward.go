@@ -38,7 +38,33 @@ func imagesAttempt(
 	actualModel string,
 	hb *earlyHeartbeat,
 	retryAtOut *time.Time,
+	executions ...*relayExecution,
 ) (statusCode int, written bool, usage *imagesUsage, upstreamCT string, err error) {
+	var execution *relayExecution
+	var budget *firstTokenBudget
+	if len(executions) > 0 {
+		execution = executions[0]
+	}
+	if execution != nil {
+		timeout, cause := time.Until(execution.deadline()), error(errLocalRelayBudgetExceeded)
+		if stream && firstTokenTimeOutSec > 0 && time.Duration(firstTokenTimeOutSec)*time.Second < timeout {
+			timeout, cause = time.Duration(firstTokenTimeOutSec)*time.Second, errFirstTokenTimeout
+		}
+		budget = newFirstTokenBudget(ctx, timeout, cause)
+		ctx = budget.ctx
+		defer budget.close()
+		defer func() {
+			if err != nil && context.Cause(ctx) != nil {
+				err = context.Cause(ctx)
+			}
+		}()
+	}
+	commit := func() {
+		budget.stopTimer()
+		if execution != nil {
+			execution.committed.Store(true)
+		}
+	}
 	// 构建 URL（baseUrl.Path 后追加 endpoint）
 	baseURL := channel.GetBaseUrl()
 	parsedURL, err := url.Parse(strings.TrimSuffix(baseURL, "/"))
@@ -55,6 +81,7 @@ func imagesAttempt(
 		mw := multipart.NewWriter(pw)
 		contentType = mw.FormDataContentType()
 		bodyReader = pr
+		defer pr.Close()
 
 		go func() {
 			src, err := bc.NewReader()
@@ -119,6 +146,11 @@ func imagesAttempt(
 		return 0, false, nil, "", classifyLocalRelayError(FailureConfiguration, err)
 	}
 
+	if execution != nil {
+		if err := execution.reserveSubmission(ctx, relayCandidate{channel.ID, executionKeyID(channel, channelKey), actualModel}); err != nil {
+			return 0, false, nil, "", err
+		}
+	}
 	respUp, err := httpClient.Do(req)
 	if err != nil {
 		return 0, false, nil, "", fmt.Errorf("failed to send request: %w", err)
@@ -136,7 +168,7 @@ func imagesAttempt(
 			b, _ := io.ReadAll(io.LimitReader(respUp.Body, imagesUpstreamErrorBodyLimit))
 			return respUp.StatusCode, false, nil, upstreamCT, transformerModel.NormalizeHTTPError(respUp.StatusCode, respUp.Header, b, "api_error")
 		}
-		u, w, err := proxySSE(ctx, c, respUp, firstTokenTimeOutSec, metrics, hb)
+		u, w, err := proxySSE(ctx, c, respUp, firstTokenTimeOutSec, metrics, hb, commit)
 		return respUp.StatusCode, w, u, upstreamCT, err
 	}
 
@@ -149,7 +181,7 @@ func imagesAttempt(
 		return respUp.StatusCode, false, nil, upstreamCT, transformerModel.NormalizeHTTPError(respUp.StatusCode, respUp.Header, b, "api_error")
 	}
 
-	u, w, err := proxyNonStream(c, respUp)
+	u, w, err := proxyNonStream(c, respUp, commit)
 
 	// Empty response detection: if nothing was written, treat as empty response
 	if err == nil && !w {
@@ -160,7 +192,7 @@ func imagesAttempt(
 }
 
 // proxyNonStream 将上游非流式响应原样透传到下游，同时尽量提取 usage（避免解析巨大 b64_json）。
-func proxyNonStream(c *gin.Context, respUp *http.Response) (*imagesUsage, bool, error) {
+func proxyNonStream(c *gin.Context, respUp *http.Response, onCommit ...func()) (*imagesUsage, bool, error) {
 	ct := respUp.Header.Get("Content-Type")
 	if ct == "" {
 		ct = "application/json"
@@ -174,6 +206,9 @@ func proxyNonStream(c *gin.Context, respUp *http.Response) (*imagesUsage, bool, 
 	for {
 		n, rerr := respUp.Body.Read(buf)
 		if n > 0 {
+			for _, commit := range onCommit {
+				commit()
+			}
 			chunk := buf[:n]
 			scanner.Feed(chunk)
 			if _, werr := c.Writer.Write(chunk); werr != nil {
@@ -189,4 +224,13 @@ func proxyNonStream(c *gin.Context, respUp *http.Response) (*imagesUsage, bool, 
 	}
 
 	return scanner.Usage(), c.Writer.Written(), nil
+}
+
+func executionKeyID(channel *model.Channel, value string) int {
+	for _, key := range channel.Keys {
+		if key.ChannelKey == value {
+			return key.ID
+		}
+	}
+	return 0
 }

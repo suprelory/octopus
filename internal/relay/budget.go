@@ -55,6 +55,18 @@ func newRelayFailoverBudget(now time.Time) *relayFailoverBudget {
 	}
 }
 
+// Operation overrides inherit the global limits when zero or absent.
+func newOperationExecution(group dbmodel.Group, operation string) *relayExecution {
+	e := newRelayExecution(group, true)
+	prefix := "relay_" + operation + "_"
+	e.budget.maxChannelAttempts = relayBudgetSetting(dbmodel.SettingKey(prefix+"max_channel_attempts"), e.budget.maxChannelAttempts, 1, 64)
+	e.budget.maxTotalAttempts = relayBudgetSetting(dbmodel.SettingKey(prefix+"max_total_attempts"), e.budget.maxTotalAttempts, 1, 256)
+	if seconds := relayBudgetSetting(dbmodel.SettingKey(prefix+"timeout_seconds"), 0, 1, 3600); seconds > 0 {
+		e.budget.deadline = time.Now().Add(time.Duration(seconds) * time.Second)
+	}
+	return e
+}
+
 func relayBudgetSetting(key dbmodel.SettingKey, fallback, minValue, maxValue int) int {
 	value, err := op.SettingGetInt(key)
 	if err != nil || value < minValue || value > maxValue {

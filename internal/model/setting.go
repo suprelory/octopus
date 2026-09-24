@@ -12,23 +12,29 @@ type SettingKey string
 
 const (
 	SettingKeyProxyURL                         SettingKey = "proxy_url"
-	SettingKeyTrustedProxies                   SettingKey = "trusted_proxies"                      // 可信反向代理 IP/CIDR 列表（逗号或换行分隔）
-	SettingKeyStatsSaveInterval                SettingKey = "stats_save_interval"                  // 将统计信息写入数据库的周期(分钟)
-	SettingKeyModelInfoUpdateInterval          SettingKey = "model_info_update_interval"           // 模型信息更新间隔(小时)
-	SettingKeySyncLLMInterval                  SettingKey = "sync_llm_interval"                    // LLM 同步间隔(小时)
-	SettingKeySiteSyncInterval                 SettingKey = "site_sync_interval"                   // 站点账号同步间隔(小时)
-	SettingKeyRelayLogKeepPeriod               SettingKey = "relay_log_keep_period"                // 日志保存时间范围(天)
-	SettingKeyRelayLogKeepEnabled              SettingKey = "relay_log_keep_enabled"               // 是否保留历史日志
-	SettingKeyCORSAllowOrigins                 SettingKey = "cors_allow_origins"                   // 跨域白名单(逗号分隔的完整 origin, 如 "https://example.com,https://example2.com"). 为空不允许跨域, "*"允许所有来源但不下发凭证
-	SettingKeyCircuitBreakerThreshold          SettingKey = "circuit_breaker_threshold"            // 熔断触发阈值（连续失败次数）
-	SettingKeyCircuitBreakerCooldown           SettingKey = "circuit_breaker_cooldown"             // 熔断基础冷却时间（秒）
-	SettingKeyCircuitBreakerMaxCooldown        SettingKey = "circuit_breaker_max_cooldown"         // 熔断最大冷却时间（秒），指数退避上限
-	SettingKeyChannelAffinityEnabled           SettingKey = "channel_affinity_enabled"             // 是否优先复用同一 API Key/分组/模型上次成功的渠道
-	SettingKeyChannelAffinityTTLSeconds        SettingKey = "channel_affinity_ttl_seconds"         // 渠道亲和记录 TTL（秒）
-	SettingKeyEmptyResponseDetectionEnabled    SettingKey = "empty_response_detection_enabled"     // 是否全局启用空回检测
-	SettingKeyRelayMaxChannelAttempts          SettingKey = "relay_max_channel_attempts"           // 单个 HTTP 请求或 WS response.create 最多尝试的不同渠道数
-	SettingKeyRelayMaxTotalAttempts            SettingKey = "relay_max_total_attempts"             // 单个逻辑请求的上游发送总数，包含重连重发和 replay
-	SettingKeyRelayFailoverTimeoutSeconds      SettingKey = "relay_failover_timeout_seconds"       // HTTP/WS 提交响应前的故障转移总预算（秒）
+	SettingKeyTrustedProxies                   SettingKey = "trusted_proxies"                  // 可信反向代理 IP/CIDR 列表（逗号或换行分隔）
+	SettingKeyStatsSaveInterval                SettingKey = "stats_save_interval"              // 将统计信息写入数据库的周期(分钟)
+	SettingKeyModelInfoUpdateInterval          SettingKey = "model_info_update_interval"       // 模型信息更新间隔(小时)
+	SettingKeySyncLLMInterval                  SettingKey = "sync_llm_interval"                // LLM 同步间隔(小时)
+	SettingKeySiteSyncInterval                 SettingKey = "site_sync_interval"               // 站点账号同步间隔(小时)
+	SettingKeyRelayLogKeepPeriod               SettingKey = "relay_log_keep_period"            // 日志保存时间范围(天)
+	SettingKeyRelayLogKeepEnabled              SettingKey = "relay_log_keep_enabled"           // 是否保留历史日志
+	SettingKeyCORSAllowOrigins                 SettingKey = "cors_allow_origins"               // 跨域白名单(逗号分隔的完整 origin, 如 "https://example.com,https://example2.com"). 为空不允许跨域, "*"允许所有来源但不下发凭证
+	SettingKeyCircuitBreakerThreshold          SettingKey = "circuit_breaker_threshold"        // 熔断触发阈值（连续失败次数）
+	SettingKeyCircuitBreakerCooldown           SettingKey = "circuit_breaker_cooldown"         // 熔断基础冷却时间（秒）
+	SettingKeyCircuitBreakerMaxCooldown        SettingKey = "circuit_breaker_max_cooldown"     // 熔断最大冷却时间（秒），指数退避上限
+	SettingKeyChannelAffinityEnabled           SettingKey = "channel_affinity_enabled"         // 是否优先复用同一 API Key/分组/模型上次成功的渠道
+	SettingKeyChannelAffinityTTLSeconds        SettingKey = "channel_affinity_ttl_seconds"     // 渠道亲和记录 TTL（秒）
+	SettingKeyEmptyResponseDetectionEnabled    SettingKey = "empty_response_detection_enabled" // 是否全局启用空回检测
+	SettingKeyRelayMaxChannelAttempts          SettingKey = "relay_max_channel_attempts"       // 单个 HTTP 请求或 WS response.create 最多尝试的不同渠道数
+	SettingKeyRelayMaxTotalAttempts            SettingKey = "relay_max_total_attempts"         // 单个逻辑请求的上游发送总数，包含重连重发和 replay
+	SettingKeyRelayFailoverTimeoutSeconds      SettingKey = "relay_failover_timeout_seconds"   // HTTP/WS 提交响应前的故障转移总预算（秒）
+	SettingKeyRelayImagesMaxChannelAttempts    SettingKey = "relay_images_max_channel_attempts"
+	SettingKeyRelayImagesMaxTotalAttempts      SettingKey = "relay_images_max_total_attempts"
+	SettingKeyRelayImagesTimeoutSeconds        SettingKey = "relay_images_timeout_seconds"
+	SettingKeyRelayCompactMaxChannelAttempts   SettingKey = "relay_compact_max_channel_attempts"
+	SettingKeyRelayCompactMaxTotalAttempts     SettingKey = "relay_compact_max_total_attempts"
+	SettingKeyRelayCompactTimeoutSeconds       SettingKey = "relay_compact_timeout_seconds"
 	SettingKeyCapabilityDegradationPolicy      SettingKey = "capability_degradation_policy"        // 能力降级策略：allow/warn/strict
 	SettingKeyResponsesWSEnabled               SettingKey = "responses_ws_enabled"                 // 是否启用 OpenAI Responses WS 上游能力（仅客户端 WS 入站）
 	SettingKeyResponsesWSDefaultMode           SettingKey = "responses_ws_default_mode"            // OpenAI Responses WS 默认模式：off/transform/passthrough
@@ -71,6 +77,12 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyRelayMaxChannelAttempts, Value: "4"},          // 默认最多尝试 4 个候选渠道
 		{Key: SettingKeyRelayMaxTotalAttempts, Value: "12"},           // 默认最多发起 12 次上游转发尝试
 		{Key: SettingKeyRelayFailoverTimeoutSeconds, Value: "300"},    // 默认故障转移预算 5 分钟
+		{Key: SettingKeyRelayImagesMaxChannelAttempts, Value: "0"},
+		{Key: SettingKeyRelayImagesMaxTotalAttempts, Value: "0"},
+		{Key: SettingKeyRelayImagesTimeoutSeconds, Value: "0"},
+		{Key: SettingKeyRelayCompactMaxChannelAttempts, Value: "0"},
+		{Key: SettingKeyRelayCompactMaxTotalAttempts, Value: "0"},
+		{Key: SettingKeyRelayCompactTimeoutSeconds, Value: "0"},
 		{Key: SettingKeyCapabilityDegradationPolicy, Value: "warn"},   // 默认允许降级并写入诊断日志
 		{Key: SettingKeyResponsesWSEnabled, Value: "false"},           // 默认关闭 OpenAI Responses WS 新路径
 		{Key: SettingKeyResponsesWSDefaultMode, Value: "passthrough"}, // 启用后默认使用协议保真的 passthrough
@@ -103,6 +115,12 @@ func (s *Setting) Validate() error {
 		return validateIntMin(s.Value, 1)
 	case SettingKeyRelayMaxChannelAttempts:
 		return validateIntRange(s.Value, 1, 64)
+	case SettingKeyRelayImagesMaxChannelAttempts, SettingKeyRelayCompactMaxChannelAttempts:
+		return validateIntRange(s.Value, 0, 64)
+	case SettingKeyRelayImagesMaxTotalAttempts, SettingKeyRelayCompactMaxTotalAttempts:
+		return validateIntRange(s.Value, 0, 256)
+	case SettingKeyRelayImagesTimeoutSeconds, SettingKeyRelayCompactTimeoutSeconds:
+		return validateIntRange(s.Value, 0, 3600)
 	case SettingKeyRelayMaxTotalAttempts:
 		return validateIntRange(s.Value, 1, 256)
 	case SettingKeyRelayFailoverTimeoutSeconds:

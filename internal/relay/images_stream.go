@@ -12,146 +12,53 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bestruirui/octopus/internal/utils/log"
+	"github.com/bestruirui/octopus/internal/relay/stream"
 	"github.com/gin-gonic/gin"
 )
 
 // proxySSE 将上游 SSE 逐行解析 event/data/空行并透传到下游；首事件计为 FirstTokenTime；支持 FirstTokenTimeOut 切换。
-func proxySSE(ctx context.Context, c *gin.Context, respUp *http.Response, firstTokenTimeOutSec int, metrics *imagesRelayMetrics, hb *earlyHeartbeat) (*imagesUsage, bool, error) {
+func proxySSE(ctx context.Context, c *gin.Context, respUp *http.Response, firstTokenTimeOutSec int, metrics *imagesRelayMetrics, hb *earlyHeartbeat, onCommit ...func()) (*imagesUsage, bool, error) {
 	if ct := respUp.Header.Get("Content-Type"); ct != "" && !strings.Contains(strings.ToLower(ct), "text/event-stream") {
 		b, _ := io.ReadAll(io.LimitReader(respUp.Body, imagesUpstreamErrorBodyLimit))
 		return nil, false, fmt.Errorf("upstream returned non-SSE content-type %q for stream request: %s", ct, string(b))
 	}
 
-	// 交接早期心跳给本函数内层 ticker
 	hb.Hand()
-
-	// 设置 SSE 响应头
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("X-Accel-Buffering", "no")
-
-	heartbeatTicker, heartbeatC := newStreamHeartbeatTicker()
-	if heartbeatTicker != nil {
-		defer heartbeatTicker.Stop()
-	}
-
-	type lineResult struct {
-		line []byte
-		err  error
-		eof  bool
-	}
-
-	results := make(chan lineResult, 1)
-	go func() {
-		defer close(results)
-		br := bufio.NewReaderSize(respUp.Body, 64*1024)
-		for {
-			line, err := readLineLimited(br, maxSSEEventSize)
-			if err != nil {
-				if errors.Is(err, io.EOF) {
-					results <- lineResult{eof: true}
-					return
-				}
-				results <- lineResult{err: err}
-				return
-			}
-			results <- lineResult{line: line}
+	scanner := newUsageScanner()
+	semantic := false
+	observer := stream.NewIncrementalSSEObserver(maxSSEEventSize, nil, func(_ context.Context, eventType string, data []byte) error {
+		if eventType == "error" {
+			return fmt.Errorf("upstream image stream error: %s", data)
 		}
-	}()
-
-	var firstTokenTimer *time.Timer
-	var firstTokenC <-chan time.Time
-	if firstTokenTimeOutSec > 0 {
-		firstTokenTimer = time.NewTimer(time.Duration(firstTokenTimeOutSec) * time.Second)
-		firstTokenC = firstTokenTimer.C
-		defer func() {
-			if firstTokenTimer != nil {
-				firstTokenTimer.Stop()
-			}
-		}()
-	}
-
-	var (
-		firstWrite       = true
-		currentEvent     string
-		completedScanner = newUsageScanner()
-	)
-
-	for {
-		select {
-		case <-ctx.Done():
-			log.Infof("client disconnected, stopping stream")
-			return completedScanner.Usage(), !firstWrite, nil
-
-		case <-firstTokenC:
-			log.Warnf("first token timeout (%ds), switching channel", firstTokenTimeOutSec)
-			_ = respUp.Body.Close()
-			return completedScanner.Usage(), !firstWrite, fmt.Errorf("first token timeout (%ds)", firstTokenTimeOutSec)
-
-		case <-heartbeatC:
-			if err := writeSSEHeartbeat(c.Writer); err != nil {
-				return completedScanner.Usage(), false, err
-			}
-
-		case r, ok := <-results:
-			if !ok {
-				usage, written := completedScanner.Usage(), !firstWrite
-				// Empty stream detection: no data written
-				if !written {
-					return usage, written, fmt.Errorf("empty image stream: no events received")
-				}
-				return usage, written, nil
-			}
-			if r.eof {
-				usage, written := completedScanner.Usage(), !firstWrite
-				// Empty stream detection: no data written
-				if !written {
-					return usage, written, fmt.Errorf("empty image stream: no events received")
-				}
-				return usage, written, nil
-			}
-			if r.err != nil {
-				return completedScanner.Usage(), !firstWrite, fmt.Errorf("failed to read stream line: %w", r.err)
-			}
-
-			line := r.line
-			trimmed := bytes.TrimRight(line, "\r\n")
-			if len(trimmed) == 0 {
-				// 空行：事件边界
-				currentEvent = ""
-			} else if bytes.HasPrefix(trimmed, []byte("event:")) {
-				currentEvent = strings.TrimSpace(string(trimmed[len("event:"):]))
-			} else if bytes.HasPrefix(trimmed, []byte("data:")) {
-				// 仅在 completed 事件上尝试提取 usage（避免解析/分配巨大 b64_json）
-				payload := bytes.TrimSpace(trimmed[len("data:"):])
-				if currentEvent == "image_generation.completed" || bytes.Contains(payload, []byte(`"type":"image_generation.completed"`)) {
-					completedScanner.Feed(payload)
-				}
-			}
-
-			if _, werr := c.Writer.Write(line); werr != nil {
-				return completedScanner.Usage(), true, werr
-			}
-			c.Writer.Flush()
-
-			if firstWrite {
-				metrics.SetFirstTokenTime(time.Now())
-				firstWrite = false
-				if firstTokenTimer != nil {
-					if !firstTokenTimer.Stop() {
-						select {
-						case <-firstTokenTimer.C:
-						default:
-						}
-					}
-					firstTokenTimer = nil
-					firstTokenC = nil
-				}
-			}
+		if eventType == "image_generation.completed" || eventType == "image_generation.partial_image" ||
+			bytes.Contains(data, []byte(`"b64_json"`)) {
+			semantic = true
 		}
+		scanner.Feed(data)
+		return nil
+	})
+	committed := false
+	processor := stream.NewStreamProcessor(stream.StreamConfig{
+		Source: stream.NewRawSource(respUp.Body, 32*1024), Observer: observer,
+		Writer: c.Writer, Context: ctx,
+		FirstTokenTimeout:  time.Duration(firstTokenTimeOutSec) * time.Second,
+		HeartbeatInterval:  streamHeartbeatInterval(),
+		PrecommitPredicate: func(_, _ []byte) bool { return semantic },
+		PrecommitMaxBytes:  maxSSEEventSize + 64*1024,
+		PrecommitMaxEvents: maxSSEEventSize/(32*1024) + 8,
+		OnCommit: func() {
+			committed = true
+			for _, commit := range onCommit {
+				commit()
+			}
+		},
+		OnFirstToken: func() { metrics.SetFirstTokenTime(time.Now()) },
+	})
+	err := processor.Run()
+	if err != nil && context.Cause(ctx) != nil {
+		err = context.Cause(ctx)
 	}
+	return scanner.Usage(), committed, err
 }
 
 func readLineLimited(br *bufio.Reader, limit int) ([]byte, error) {

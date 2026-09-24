@@ -252,6 +252,9 @@
             }
         },
         "relayBudget": {
+			"images": "图片请求预算",
+			"compact": "Compact 请求预算",
+			"inherit": "设为 0 时沿用全局预算。所有发送与退避共用本次请求的预算，有效输出开始后不再换路。",
             "title": "HTTP/WS 故障转移预算",
             "description": "聊天和 Responses 的每个 HTTP 请求或 WS response.create 共享一份预算，包含重连重发和会话回放；WS 每一轮请求单独计算。",
             "maxChannels": {

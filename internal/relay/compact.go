@@ -110,6 +110,7 @@ func HandleResponsesCompact(c *gin.Context) {
 	capabilityPolicy := getCapabilityDegradationPolicy()
 
 	maxSameChannelAttempts := sameChannelMaxAttempts(group.RetryEnabled, group.MaxRetries)
+	execution := newOperationExecution(group, "compact")
 	rateLimitedChannels := make(map[int]struct{})
 
 	for iter.Next() {
@@ -119,6 +120,10 @@ func HandleResponsesCompact(c *gin.Context) {
 			metrics.SaveWithChannelStats(c.Request.Context(), false, context.Canceled, iter.Attempts(), false)
 			return
 		default:
+		}
+		if err := execution.attemptError(time.Now()); err != nil {
+			lastErr, lastFailure = err, relayBudgetAttemptResult(err).Failure
+			break
 		}
 
 		item := iter.Item()
@@ -148,6 +153,12 @@ func HandleResponsesCompact(c *gin.Context) {
 			continue
 		}
 		sawSupportedCapability = true
+		if !execution.canAttemptChannel(channel.ID, time.Now()) {
+			iter.Skip(channel.ID, 0, channel.Name, "candidate channel budget exhausted")
+			lastErr = newRelayBudgetError("candidate channel budget exhausted")
+			lastFailure = relayBudgetAttemptResult(lastErr).Failure
+			continue
+		}
 
 		excludedKeyIDs := make(map[int]struct{})
 		usedKey, releaseKey := selectAndReserveRelayKey(iter, channel, excludedKeyIDs)
@@ -169,10 +180,10 @@ func HandleResponsesCompact(c *gin.Context) {
 		for attemptNum := 0; attemptNum < maxSameChannelAttempts; attemptNum++ {
 			if attemptNum > 0 {
 				delay := computeBackoffUntil(attemptNum, retryAt)
-				if !waitBackoff(c.Request.Context(), delay) {
-					releaseKey()
-					metrics.SaveWithChannelStats(c.Request.Context(), false, context.Canceled, iter.Attempts(), false)
-					return
+				if err := execution.wait(c.Request.Context(), delay); err != nil {
+					attemptErr = err
+					failure = classifyRelayFailureContext(c.Request.Context(), 0, err, time.Time{})
+					break
 				}
 			}
 
@@ -185,6 +196,7 @@ func HandleResponsesCompact(c *gin.Context) {
 				item.ModelName,
 				body,
 				capabilityTrace(decision, capabilityPolicy, channel.Type.String()),
+				execution,
 			)
 			if attemptErr == nil {
 				success = true
@@ -223,6 +235,9 @@ func HandleResponsesCompact(c *gin.Context) {
 		lastStatusCode = statusCode
 		lastRetryAt = retryAt
 		lastFailure = failure
+		if failure.Class == FailureBudgetExceeded || failure.Class == FailureClientCanceled {
+			break
+		}
 	}
 
 	finalErr := lastErr
@@ -262,7 +277,9 @@ func writeCompactFailure(c *gin.Context, result attemptResult, err error) {
 	resp.ErrorWithCode(c, responseError.StatusCode, responseError.Detail.Code, responseError.Detail.Message)
 }
 
-func forwardResponsesCompactWithRetryAt(c *gin.Context, metrics *RelayMetrics, iter *balancer.Iterator, channel *dbmodel.Channel, usedKey dbmodel.ChannelKey, mappedModel string, requestBody []byte, trace balancer.CapabilityTrace) (int, time.Time, error) {
+func forwardResponsesCompactWithRetryAt(c *gin.Context, metrics *RelayMetrics, iter *balancer.Iterator, channel *dbmodel.Channel, usedKey dbmodel.ChannelKey, mappedModel string, requestBody []byte, trace balancer.CapabilityTrace, execution *relayExecution) (int, time.Time, error) {
+	ctx, cancel := execution.budget.attemptContext(c.Request.Context())
+	defer cancel()
 	span := iter.StartAttempt(channel.ID, usedKey.ID, channel.Name)
 	span.SetCapability(trace)
 	requestBody, err := replaceRequiredJSONModel(requestBody, mappedModel)
@@ -272,7 +289,7 @@ func forwardResponsesCompactWithRetryAt(c *gin.Context, metrics *RelayMetrics, i
 		span.End(dbmodel.AttemptFailed, 0, classified.Error())
 		return 0, time.Time{}, classified
 	}
-	request, err := buildResponsesCompactRequest(c.Request.Context(), channel, usedKey.ChannelKey, requestBody)
+	request, err := buildResponsesCompactRequest(ctx, channel, usedKey.ChannelKey, requestBody)
 	if err != nil {
 		classified := classifyLocalRelayError(FailureConfiguration, fmt.Errorf("failed to create compact request: %w", err))
 		span.SetFailure(string(FailureConfiguration), false, time.Time{})
@@ -306,8 +323,13 @@ func forwardResponsesCompactWithRetryAt(c *gin.Context, metrics *RelayMetrics, i
 	metrics.ActualModel = actualModel
 	copyProxyHeaders(c.Request.Header, channel, request.Header)
 
-	response, err := sendCompactRequest(channel, request)
+	response, err := sendCompactRequest(channel, request, func() error {
+		return execution.reserveSubmission(ctx, relayCandidate{channel.ID, usedKey.ID, mappedModel})
+	})
 	if err != nil {
+		if context.Cause(ctx) != nil {
+			err = context.Cause(ctx)
+		}
 		wrapped := fmt.Errorf("failed to send compact request: %w", err)
 		failure := classifyRelayFailureContext(c.Request.Context(), 0, wrapped, time.Time{})
 		span.SetFailure(string(failure.Class), failure.Retryable, failure.RetryAt)
@@ -318,6 +340,9 @@ func forwardResponsesCompactWithRetryAt(c *gin.Context, metrics *RelayMetrics, i
 
 	body, readErr := httpio.ReadResponseBody(response.Body)
 	if readErr != nil {
+		if context.Cause(ctx) != nil {
+			readErr = context.Cause(ctx)
+		}
 		wrapped := fmt.Errorf("failed to read compact response body: %w", readErr)
 		failure := classifyRelayFailureContext(c.Request.Context(), responseProcessingErrorStatus(response.StatusCode), wrapped, time.Time{})
 		span.SetFailure(string(failure.Class), failure.Retryable, failure.RetryAt)
@@ -340,6 +365,7 @@ func forwardResponsesCompactWithRetryAt(c *gin.Context, metrics *RelayMetrics, i
 	if strings.TrimSpace(contentType) == "" {
 		contentType = "application/json"
 	}
+	execution.committed.Store(true)
 	c.Data(response.StatusCode, contentType, body)
 
 	var compactResp responsesCompactResponse
@@ -402,10 +428,13 @@ func copyProxyResponseHeaders(dst http.Header, src http.Header) {
 	}
 }
 
-func sendCompactRequest(channel *dbmodel.Channel, req *http.Request) (*http.Response, error) {
+func sendCompactRequest(channel *dbmodel.Channel, req *http.Request, reserve func() error) (*http.Response, error) {
 	httpClient, err := helper.ChannelHTTPClientWithContext(req.Context(), channel)
 	if err != nil {
 		return nil, classifyLocalRelayError(FailureConfiguration, err)
+	}
+	if err := reserve(); err != nil {
+		return nil, err
 	}
 	return httpClient.Do(req)
 }

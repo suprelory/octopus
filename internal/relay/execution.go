@@ -92,32 +92,36 @@ func (e *relayExecution) wait(ctx context.Context, delay time.Duration) error {
 // reserveSubmission is called immediately before Do/SendRaw. Dial-only failures
 // do not consume generation quota; every send, including a failed send, does.
 func (ra *relayAttempt) reserveSubmission(ctx context.Context) error {
+	return ra.execution.reserveSubmission(ctx, relayCandidate{ra.channel.ID, ra.usedKey.ID, ra.internalRequest.Model})
+}
+
+// reserveSubmission is shared by text, Images and Compact. Only actual sends
+// consume the budget; validation and skipped candidates do not.
+func (e *relayExecution) reserveSubmission(ctx context.Context, candidate relayCandidate) error {
 	if err := contextError(ctx); err != nil {
 		return err
 	}
-	e := ra.execution
 	if e == nil {
 		return nil
 	}
-	if ra.responseCommitted() {
+	if e.committed.Load() {
 		return fmt.Errorf("cannot resend a committed response")
 	}
 	now := time.Now()
 	if err := e.attemptError(now); err != nil {
 		return err
 	}
-	if !e.canAttemptChannel(ra.channel.ID, now) {
+	if !e.canAttemptChannel(candidate.channelID, now) {
 		return newRelayBudgetError("candidate channel limit reached")
 	}
-	candidate := relayCandidate{ra.channel.ID, ra.usedKey.ID, ra.internalRequest.Model}
 	if e.candidateAttempts[candidate] >= e.maxSameChannelAttempts {
 		return newRelayBudgetError("same-channel attempt limit reached")
 	}
 	// All checks precede mutation. Attempts for one logical request run serially.
-	_ = e.budget.reserveChannel(ra.channel.ID, now)
+	_ = e.budget.reserveChannel(candidate.channelID, now)
 	_ = e.budget.reserveAttempt(now)
 	if e.replayBudget != nil {
-		_ = e.replayBudget.reserveChannel(ra.channel.ID, now)
+		_ = e.replayBudget.reserveChannel(candidate.channelID, now)
 		_ = e.replayBudget.reserveAttempt(now)
 	}
 	e.candidateAttempts[candidate]++
