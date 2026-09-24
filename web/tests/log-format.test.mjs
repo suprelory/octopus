@@ -45,6 +45,9 @@ test('retries with different keys, models or outcomes remain separate', () => {
         { model_name: 'another-model' },
         { status: 'success' },
         { msg: 'different failure' },
+        { failure_scope: 'key' },
+        { selection_reason: 'channel_affinity' },
+        { routing: { stop_reason: 'budget_exceeded', attempts_used: 2 } },
     ]) {
         assert.equal(mergeAdjacentAttempts([attempt(1), attempt(2, change)]).length, 2);
     }

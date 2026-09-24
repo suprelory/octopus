@@ -61,6 +61,20 @@ type ChannelAttempt struct {
 	Retryable         bool                     `json:"retryable,omitempty"`
 	RetryAt           *time.Time               `json:"retry_at,omitempty"`
 	Stream            *StreamDiagnostics       `json:"stream,omitempty"`
+	Routing           *RoutingSummary          `json:"routing,omitempty"`
+}
+
+// RoutingSummary is stored with the final attempt, inside the existing JSON log.
+type RoutingSummary struct {
+	StopReason      string `json:"stop_reason,omitempty"`
+	AttemptsUsed    int    `json:"attempts_used"`
+	AttemptLimit    int    `json:"attempt_limit"`
+	ChannelsUsed    int    `json:"channels_used"`
+	ChannelLimit    int    `json:"channel_limit"`
+	RemainingMillis int64  `json:"remaining_millis"`
+	Committed       bool   `json:"committed"`
+	AffinityMode    string `json:"affinity_mode,omitempty"`
+	AffinitySource  string `json:"affinity_source,omitempty"`
 }
 
 // ChannelSelectionMetrics captures the local health signals used when the

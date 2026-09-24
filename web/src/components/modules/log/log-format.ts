@@ -126,6 +126,10 @@ export function mergeAdjacentAttempts(attempts: ChannelAttempt[]): MergedAttempt
             && last.model_name === a.model_name
             && last.status === a.status
             && (last.msg ?? '') === (a.msg ?? '')
+            && last.failure_scope === a.failure_scope
+            && last.failure_class === a.failure_class
+            && last.selection_reason === a.selection_reason
+            && !last.routing && !a.routing
         ) {
             last.repeat += 1;
             last.lastAttemptNum = a.attempt_num;

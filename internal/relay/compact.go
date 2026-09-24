@@ -111,6 +111,8 @@ func HandleResponsesCompact(c *gin.Context) {
 
 	maxSameChannelAttempts := sameChannelMaxAttempts(group.RetryEnabled, group.MaxRetries)
 	execution := newOperationExecution(group, "compact")
+	metrics.execution, metrics.affinity = execution, iter.Affinity()
+	execution.strictAffinity = iter.StrictAffinity()
 	rateLimitedChannels := make(map[int]struct{})
 
 	for iter.Next() {

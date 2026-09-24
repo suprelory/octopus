@@ -46,6 +46,8 @@ func decideRetry(result attemptResult, sameCandidateAvailable, fallbackAvailable
 func (r *relayExecutor) run() relayOutcome {
 	req := r.request
 	iter, execution, ctx := req.iter, req.execution, req.requestContext()
+	req.metrics.execution, req.metrics.affinity = execution, iter.Affinity()
+	execution.strictAffinity = iter.StrictAffinity()
 	defer iter.Close()
 	var outcome relayOutcome
 	var capabilityErr error

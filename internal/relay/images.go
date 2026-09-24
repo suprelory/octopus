@@ -132,6 +132,8 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 	var lastFailure FailureClassification
 	capabilityPolicy := getCapabilityDegradationPolicy()
 	execution := newOperationExecution(group, "images")
+	metrics.execution, metrics.affinity = execution, iter.Affinity()
+	execution.strictAffinity = iter.StrictAffinity()
 
 	for iter.Next() {
 		select {

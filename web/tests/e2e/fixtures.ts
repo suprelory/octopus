@@ -1,6 +1,7 @@
 import { expect, type Page } from '@playwright/test';
 import type { Site } from '../../src/api/endpoints/site';
 import type { SiteChannelCard } from '../../src/api/endpoints/site-channel';
+import type { Group } from '../../src/api/endpoints/group';
 
 export function makeSite(id = 1, name = 'Alpha site'): Site {
     return {
@@ -51,14 +52,16 @@ export function makeSiteChannelCard(): SiteChannelCard {
 export type Mutation = { method: string; path: string; body: unknown };
 type MockResponse = { status?: number; data?: unknown; message?: string };
 
-export async function mockApp(page: Page, nav: 'site' | 'channel', options: {
+export async function mockApp(page: Page, nav: 'site' | 'channel' | 'group', options: {
     sites?: Site[];
     siteChannels?: SiteChannelCard[];
+    groups?: Group[];
     mutate?: (request: Mutation) => MockResponse | Promise<MockResponse>;
 } = {}) {
     const state = {
         sites: options.sites ?? [makeSite()],
         siteChannels: options.siteChannels ?? [makeSiteChannelCard()],
+        groups: options.groups ?? [],
         mutations: [] as Mutation[],
         unexpectedRequests: [] as string[],
         pageErrors: [] as string[],
@@ -91,7 +94,7 @@ export async function mockApp(page: Page, nav: 'site' | 'channel', options: {
             '/api/v1/site/list': state.sites,
             '/api/v1/site-channel/list': state.siteChannels,
             '/api/v1/channel/list': [],
-            '/api/v1/group/list': [],
+            '/api/v1/group/list': state.groups,
             '/api/v1/model/channel': [],
             '/api/v1/model/list': [],
             '/api/v1/setting/list': [],

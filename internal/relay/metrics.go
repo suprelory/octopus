@@ -11,6 +11,7 @@ import (
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/price"
+	"github.com/bestruirui/octopus/internal/relay/balancer"
 	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
 	"github.com/bestruirui/octopus/internal/utils/log"
 	"github.com/bestruirui/octopus/internal/utils/tokenizer"
@@ -18,6 +19,8 @@ import (
 
 // RelayMetrics 负责最终的日志收集与持久化
 type RelayMetrics struct {
+	execution    *relayExecution
+	affinity     balancer.AffinityOptions
 	APIKeyID     int
 	RequestModel string
 	EndpointType string
@@ -220,6 +223,7 @@ func finalChannel(attempts []model.ChannelAttempt) (int, string) {
 }
 
 func (m *RelayMetrics) saveLog(ctx context.Context, success bool, err error, duration time.Duration, attempts []model.ChannelAttempt, channelID int, channelName string) {
+	attempts = explainRouting(attempts, m.execution, m.affinity, success, err)
 	actualModel := m.ActualModel
 	if actualModel == "" {
 		actualModel = m.RequestModel

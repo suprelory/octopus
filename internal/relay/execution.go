@@ -29,6 +29,7 @@ type relayExecution struct {
 	candidateAttempts      map[relayCandidate]int
 	rateLimitedChannels    map[int]struct{}
 	previousAttempts       []dbmodel.ChannelAttempt
+	strictAffinity         bool
 }
 
 func newRelayExecution(group dbmodel.Group, emptyResponseDetection bool) *relayExecution {

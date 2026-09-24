@@ -28,6 +28,43 @@ export interface ChannelAttempt {
     duration: number;       // 耗时(毫秒)
     sticky?: boolean;
     msg?: string;
+    selection_reason?: string;
+    selection_strategy?: string;
+    quality_rank?: number;
+    candidate_count?: number;
+    capability_status?: string;
+    capability_reasons?: string[];
+    conversion_path?: string[];
+    failure_class?: string;
+    failure_scope?: string;
+    retry_at?: string;
+    selection_metrics?: ChannelSelectionMetrics;
+    routing?: RoutingSummary;
+}
+
+export interface ChannelSelectionMetrics {
+    base_rank?: number;
+    priority: number;
+    dynamic_score: number;
+    composite_score: number;
+    in_flight: number;
+    recent_load: number;
+    failure_rate: number;
+    latency_millis: number;
+    consecutive_failures: number;
+    cooldown_until?: string;
+}
+
+export interface RoutingSummary {
+    stop_reason?: string;
+    attempts_used: number;
+    attempt_limit: number;
+    channels_used: number;
+    channel_limit: number;
+    remaining_millis: number;
+    committed: boolean;
+    affinity_mode?: string;
+    affinity_source?: string;
 }
 
 /**

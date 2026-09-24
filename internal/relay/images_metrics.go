@@ -10,6 +10,7 @@ import (
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/price"
+	"github.com/bestruirui/octopus/internal/relay/balancer"
 	"github.com/bestruirui/octopus/internal/relay/bodycache"
 	"github.com/bestruirui/octopus/internal/utils/log"
 )
@@ -21,6 +22,8 @@ type imagesUsage struct {
 }
 
 type imagesRelayMetrics struct {
+	execution    *relayExecution
+	affinity     balancer.AffinityOptions
 	APIKeyID     int
 	RequestModel string
 	ClientIP     string
@@ -117,6 +120,7 @@ func (m *imagesRelayMetrics) SaveWithChannelStats(ctx context.Context, success b
 }
 
 func (m *imagesRelayMetrics) saveLog(ctx context.Context, success bool, err error, duration time.Duration, attempts []model.ChannelAttempt, channelID int, channelName string) {
+	attempts = explainRouting(attempts, m.execution, m.affinity, success, err)
 	actualModel := m.ActualModel
 	if actualModel == "" {
 		actualModel = m.RequestModel

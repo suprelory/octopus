@@ -1,4 +1,67 @@
 {
+    "routing": {
+        "title": "路由預覽",
+        "description": "按已儲存的分組設定模擬請求，不發送上游流量，也不改變路由狀態。結果反映目前服務實例在預覽時的狀態。",
+        "rules": "故障轉移模式中，優先級數字越小越先嘗試。權重只影響加權模式，權重越大請求占比越高。同 Key 重試上限包含首次發送，所有重試和換路共用請求預算。",
+        "endpoint": "接口",
+        "apiKeyID": "API Key ID（親和命名空間）",
+        "request": "請求 JSON",
+        "headers": "會話 Header（JSON 字串值）",
+        "run": "預覽路由",
+        "running": "計算中…",
+        "failed": "預覽失敗",
+        "invalidJSON": "請求和 Header 必須是 JSON 物件。",
+        "invalidKeyID": "API Key ID 必須是非負整數。",
+        "invalidHeaders": "Header 值必須是字串。",
+        "selected": "首個可用渠道：{channel}",
+        "noCandidate": "沒有可用候選",
+        "previewBudget": "有效輸出前最多 {channels} 個渠道 / {attempts} 次發送 / {seconds} 秒",
+        "affinity": "親和",
+        "channel": "渠道 / 模型",
+        "decision": "選擇依據",
+        "health": "健康 / Key",
+        "priority": "優先級",
+        "weight": "權重",
+        "quality": "語義品質等級",
+        "keys": "Key：{healthy} 個可用 / {blocked} 個隔離",
+        "score": "分數",
+        "inFlight": "進行中",
+        "retryAt": "可重試時間",
+        "failureRate": "失敗率",
+        "failure": "失敗分類",
+        "scope": "影響範圍",
+        "stop": "停止原因",
+        "usage": "發送 {attempts}/{attemptLimit} · 渠道 {channels}/{channelLimit}",
+        "selection": {
+            "normal": "按策略排序",
+            "channel_affinity": "複用會話成功綁定",
+            "responses_replay": "Responses 回放路由"
+        },
+        "scopeLabels": {
+            "key": "Key",
+            "model": "渠道＋模型",
+            "channel": "渠道"
+        },
+        "stops": {
+            "continuation_unavailable": "上游續接需要恢復",
+            "success": "回應完成",
+            "budget_exceeded": "請求預算耗盡",
+            "client_canceled": "客戶端取消",
+            "response_committed": "已開始輸出",
+            "candidates_exhausted": "無剩餘候選",
+            "strict_affinity_unavailable": "嚴格綁定不可用"
+        },
+        "reasons": {
+            "eligible": "可用",
+            "channel_not_found": "渠道不存在",
+            "channel_disabled": "渠道已停用",
+            "unsupported_channel_type": "渠道類型不支援",
+            "capability_rejected": "能力不匹配",
+            "invalid_param_override": "參數覆寫設定無效",
+            "no_available_key": "無可用 Key",
+            "affinity_filtered": "親和規則排除"
+        }
+    },
     "login": {
         "username": "使用者名稱",
         "usernamePlaceholder": "請輸入使用者名稱",

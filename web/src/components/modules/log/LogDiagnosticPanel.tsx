@@ -11,6 +11,7 @@ import type { LogSiteActionTarget, LogSiteActionTargets } from '@/api/endpoints/
 import { AttemptDisableButton } from './AttemptDisableButton';
 import { formatAttemptAdapterLabel, formatDuration, mergeAdjacentAttempts, sanitizeErrorMessage } from './log-format';
 import { getAttemptStatusMeta } from './log-status';
+import { RoutingDetails } from './RoutingDetails';
 
 export function LogDiagnosticPanel({
     log,
@@ -157,6 +158,7 @@ export function LogDiagnosticPanel({
                                                         {sanitizedMsg}
                                                     </div>
                                                 ) : null}
+                                                <RoutingDetails attempt={attempt} />
                                             </div>
                                         );
                                     })}

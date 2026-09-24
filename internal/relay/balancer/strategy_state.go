@@ -103,6 +103,32 @@ func (s *strategyStateStore) roundRobin(scope balanceScope, items []model.GroupI
 	return result
 }
 
+// preview copies only the relevant strategy entry. Existing ordering code runs
+// against the private copy, so previews cannot consume turns or weighted credit.
+func (s *strategyStateStore) preview(mode model.GroupMode, scope balanceScope, items []model.GroupItem) []model.GroupItem {
+	if mode == model.GroupModeFailover {
+		return sortByPriority(items)
+	}
+	items = canonicalCandidates(items)
+	key := newStrategyStateKey(scope, mode, items)
+	scratch := newStrategyStateStore(2, s.ttl, s.cleanupInterval)
+	s.mu.Lock()
+	if entry, ok := s.entries[key]; ok {
+		entry.mu.Lock()
+		scratch.entries[key] = &strategyStateEntry{candidates: append([]candidateState(nil), entry.candidates...), next: entry.next, lastUsed: entry.lastUsed, lastUsedSeq: entry.lastUsedSeq}
+		entry.mu.Unlock()
+	}
+	scratch.lastCleanup, scratch.now = s.lastCleanup, s.now
+	if len(s.entries) >= s.maxEntries {
+		scratch.lastCleanup = time.Time{}
+	}
+	s.mu.Unlock()
+	if mode == model.GroupModeWeighted {
+		return scratch.weighted(scope, items)
+	}
+	return scratch.roundRobin(scope, items)
+}
+
 func (s *strategyStateStore) weighted(scope balanceScope, items []model.GroupItem) []model.GroupItem {
 	if len(items) == 0 {
 		return nil

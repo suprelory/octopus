@@ -1,4 +1,67 @@
 {
+    "routing": {
+        "title": "路由预览",
+        "description": "按已保存的分组配置模拟请求，不发送上游流量，也不改变路由状态。结果反映当前服务实例在预览时的状态。",
+        "rules": "故障转移模式中，优先级数字越小越先尝试。权重只影响加权模式，权重越大请求占比越高。同 Key 重试上限包含首次发送，所有重试和换路共用请求预算。",
+        "endpoint": "接口",
+        "apiKeyID": "API Key ID（亲和命名空间）",
+        "request": "请求 JSON",
+        "headers": "会话 Header（JSON 字符串值）",
+        "run": "预览路由",
+        "running": "计算中…",
+        "failed": "预览失败",
+        "invalidJSON": "请求和 Header 必须是 JSON 对象。",
+        "invalidKeyID": "API Key ID 必须是非负整数。",
+        "invalidHeaders": "Header 值必须是字符串。",
+        "selected": "首个可用渠道：{channel}",
+        "noCandidate": "没有可用候选",
+        "previewBudget": "有效输出前最多 {channels} 个渠道 / {attempts} 次发送 / {seconds} 秒",
+        "affinity": "亲和",
+        "channel": "渠道 / 模型",
+        "decision": "选择依据",
+        "health": "健康 / Key",
+        "priority": "优先级",
+        "weight": "权重",
+        "quality": "语义质量等级",
+        "keys": "Key：{healthy} 个可用 / {blocked} 个隔离",
+        "score": "分数",
+        "inFlight": "进行中",
+        "retryAt": "可重试时间",
+        "failureRate": "失败率",
+        "failure": "失败分类",
+        "scope": "影响范围",
+        "stop": "停止原因",
+        "usage": "发送 {attempts}/{attemptLimit} · 渠道 {channels}/{channelLimit}",
+        "selection": {
+            "normal": "按策略排序",
+            "channel_affinity": "复用会话成功绑定",
+            "responses_replay": "Responses 回放路由"
+        },
+        "scopeLabels": {
+            "key": "Key",
+            "model": "渠道＋模型",
+            "channel": "渠道"
+        },
+        "stops": {
+            "continuation_unavailable": "上游续接需要恢复",
+            "success": "响应完成",
+            "budget_exceeded": "请求预算耗尽",
+            "client_canceled": "客户端取消",
+            "response_committed": "已开始输出",
+            "candidates_exhausted": "无剩余候选",
+            "strict_affinity_unavailable": "严格绑定不可用"
+        },
+        "reasons": {
+            "eligible": "可用",
+            "channel_not_found": "渠道不存在",
+            "channel_disabled": "渠道已禁用",
+            "unsupported_channel_type": "渠道类型不支持",
+            "capability_rejected": "能力不匹配",
+            "invalid_param_override": "参数覆盖配置无效",
+            "no_available_key": "无可用 Key",
+            "affinity_filtered": "亲和规则排除"
+        }
+    },
     "login": {
         "username": "用户名",
         "usernamePlaceholder": "请输入用户名",

@@ -7,6 +7,7 @@ import (
 	"github.com/bestruirui/octopus/internal/apperror"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
+	"github.com/bestruirui/octopus/internal/relay"
 	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/server/resp"
 	"github.com/bestruirui/octopus/internal/server/router"
@@ -18,6 +19,9 @@ func init() {
 	router.NewGroupRouter("/api/v1/group").
 		Use(middleware.Auth()).
 		Use(middleware.RequireJSON()).
+		AddRoute(
+			router.NewRoute("/preview", http.MethodPost).Handle(previewGroupRouting),
+		).
 		AddRoute(
 			router.NewRoute("/list", http.MethodGet).
 				Handle(getGroupList),
@@ -34,6 +38,21 @@ func init() {
 			router.NewRoute("/delete/:id", http.MethodDelete).
 				Handle(deleteGroup),
 		)
+}
+
+func previewGroupRouting(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 2<<20)
+	var input relay.RoutingPreviewRequest
+	if err := c.ShouldBindJSON(&input); err != nil {
+		resp.InvalidJSON(c)
+		return
+	}
+	result, err := relay.PreviewRouting(c.Request.Context(), input)
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	resp.Success(c, result)
 }
 
 func getGroupList(c *gin.Context) {

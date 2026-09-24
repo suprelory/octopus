@@ -32,6 +32,7 @@ import { getGroupIcon } from '@/lib/model-icons';
 import { GroupEditor, type GroupEditorValues } from './Editor';
 import { MemberList, type SelectedMember } from './ItemList';
 import { PresetPopover } from './PresetPopover';
+import { RoutingPreviewDialog } from './RoutingPreviewDialog';
 import { MODE_LABELS, modelChannelKey } from './utils';
 
 interface EditDialogContentProps {
@@ -489,6 +490,7 @@ export function GroupCard({ group }: { group: Group }) {
                                 </Tooltip>
 
                                 <PresetPopover group={group} />
+                                <RoutingPreviewDialog group={group} />
 
                                 <Tooltip side="top" sideOffset={10} align="center">
                                     <TooltipTrigger asChild>

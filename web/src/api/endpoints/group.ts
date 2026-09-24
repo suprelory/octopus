@@ -2,6 +2,46 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../client';
 import { logger } from '@/lib/logger';
 import { AutoGroupType } from './channel';
+import type { ChannelSelectionMetrics, RoutingSummary } from './log';
+
+export interface RoutingPreviewRequest {
+    group_id: number;
+    api_key_id: number;
+    endpoint: string;
+    headers: Record<string, string[]>;
+    request: Record<string, unknown>;
+}
+
+export interface RoutingPreview {
+    group_id: number;
+    model: string;
+    affinity: {mode: string; source: string};
+    budget: RoutingSummary;
+    warnings: string[];
+    candidates: Array<{
+        item: GroupItem;
+        channel_name: string;
+        order: number;
+        eligible: boolean;
+        reason: string;
+        selection_reason?: string;
+        strategy?: string;
+        quality_rank: number;
+        capability_status?: string;
+        capability_reasons?: string[];
+        conversion_path?: string[];
+        healthy_keys: number;
+        blocked_keys: number;
+        retry_at?: string;
+        metrics?: ChannelSelectionMetrics;
+    }>;
+}
+
+export function usePreviewGroupRouting() {
+    return useMutation({
+        mutationFn: (request: RoutingPreviewRequest) => apiClient.post<RoutingPreview>('/api/v1/group/preview', request),
+    });
+}
 
 /**
  * 分组项信息

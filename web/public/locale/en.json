@@ -1,4 +1,67 @@
 {
+    "routing": {
+        "title": "Routing preview",
+        "description": "Simulate a request against saved group settings without sending upstream traffic or changing routing state. Results reflect this server instance at the time of preview.",
+        "rules": "Lower priority numbers run first in failover mode. Weights affect weighted mode only; larger weights receive more requests. Same-key retry limits include the initial send. All retries and route changes share the request budget.",
+        "endpoint": "Endpoint",
+        "apiKeyID": "API key ID (affinity namespace)",
+        "request": "Request JSON",
+        "headers": "Session headers (JSON string values)",
+        "run": "Preview routing",
+        "running": "Calculating…",
+        "failed": "Preview failed",
+        "invalidJSON": "Enter JSON objects for the request and headers.",
+        "invalidKeyID": "Enter a nonnegative integer API key ID.",
+        "invalidHeaders": "Header values must be strings.",
+        "selected": "First eligible channel: {channel}",
+        "noCandidate": "No eligible candidate",
+        "previewBudget": "Up to {channels} channels / {attempts} sends / {seconds}s before output",
+        "affinity": "Affinity",
+        "channel": "Channel / model",
+        "decision": "Decision",
+        "health": "Health / keys",
+        "priority": "Priority",
+        "weight": "Weight",
+        "quality": "Quality rank",
+        "keys": "Keys: {healthy} available / {blocked} blocked",
+        "score": "Score",
+        "inFlight": "In flight",
+        "retryAt": "Retry after",
+        "failureRate": "Failure rate",
+        "failure": "Failure",
+        "scope": "Scope",
+        "stop": "Routing stopped",
+        "usage": "Sends {attempts}/{attemptLimit} · Channels {channels}/{channelLimit}",
+        "selection": {
+            "normal": "Strategy ordering",
+            "channel_affinity": "Successful session binding",
+            "responses_replay": "Responses replay route"
+        },
+        "scopeLabels": {
+            "key": "Key",
+            "model": "Channel + model",
+            "channel": "Channel"
+        },
+        "stops": {
+            "continuation_unavailable": "Upstream continuation requires recovery",
+            "success": "Response completed",
+            "budget_exceeded": "Request budget exhausted",
+            "client_canceled": "Client canceled",
+            "response_committed": "Output already started",
+            "candidates_exhausted": "No remaining candidate",
+            "strict_affinity_unavailable": "Strict binding unavailable"
+        },
+        "reasons": {
+            "eligible": "Eligible",
+            "channel_not_found": "Channel missing",
+            "channel_disabled": "Channel disabled",
+            "unsupported_channel_type": "Unsupported channel type",
+            "capability_rejected": "Capability rejected",
+            "invalid_param_override": "Invalid parameter override",
+            "no_available_key": "No available key",
+            "affinity_filtered": "Excluded by affinity"
+        }
+    },
     "login": {
         "username": "Username",
         "usernamePlaceholder": "Enter your username",

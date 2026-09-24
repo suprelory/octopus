@@ -206,8 +206,9 @@ func (s *channelHealthStore) snapshot(channelID int, modelName string) channelHe
 	if !ok {
 		return channelHealthSnapshot{}
 	}
-	s.decayLoadLocked(state, now)
-	return s.snapshotLocked(state, now)
+	copy := *state
+	s.decayLoadLocked(&copy, now)
+	return s.snapshotLocked(&copy, now)
 }
 
 func (s *channelHealthStore) snapshotLocked(state *channelHealthState, now time.Time) channelHealthSnapshot {

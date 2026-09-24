@@ -45,3 +45,28 @@ header. WebSocket requests use handshake headers and each response.create body.
 Session identifiers are hashed, then namespaced by API key, group and requested
 model. Bindings are process-local, expire using `channel_affinity_ttl_seconds`,
 and are periodically pruned to a bounded cache. They are not durable session state.
+
+The group card's routing preview accepts a protocol, a simulated JSON request,
+an API key ID for the affinity namespace, and optional session headers. The admin
+endpoint is `POST /api/v1/group/preview` with `group_id`, `api_key_id`, `endpoint`,
+`request` (an object), and `headers` (header names to string arrays). Supported
+endpoints are `chat`, `responses`, `messages`, `embeddings`, `websocket`, `images`
+and `compact`. The simulated model must match the selected group. Native
+`previous_response_id` continuations are excluded because they require their
+separate recovery state. The simulated request is limited to 1 MiB, and the
+entire preview payload (including headers) is limited to 2 MiB.
+
+Preview shows candidate order, eligibility/exclusion reasons, capability quality,
+health scores, key availability, affinity source and request budgets. It uses the
+live ordering implementation with private copies of scheduler state; it does not
+send upstream requests, advance counters, acquire key/probe reservations, refresh
+health, or invalidate affinity. Results are a snapshot of this process, so concurrent
+traffic or configuration edits can change a later real selection.
+
+Attempt logs expose strategy/preference, capability path, health score, failure
+scope and retry time. The final attempt includes a routing summary with the stop
+reason and actual sends/channels consumed against their limits. Skipped candidates
+remain separate from the actual send count. Smaller semantic quality ranks and
+health scores are preferred. Failover uses smaller priority values first; weights
+only control weighted mode. Same-key attempts include the initial send and share
+the overall budget with key/channel changes.
