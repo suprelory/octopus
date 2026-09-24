@@ -256,7 +256,7 @@ func newWSRelayRequest(
 	iter := balancer.NewIteratorWithPreferenceAndQuality(group, apiKeyID, requestModel, preferredSticky, func(item dbmodel.GroupItem) int {
 		channel, _ := candidateSnapshot.Channel(item.ChannelID)
 		return capabilityPlanner.rankChannel(channel, item)
-	})
+	}, resolveRequestAffinity(affinityHeaders(ctx), rawBody))
 	if iter.Len() == 0 {
 		return nil, nil, fmt.Errorf("no available channel")
 	}
@@ -294,10 +294,13 @@ func prepareWSReplayRequest(ctx context.Context, base *relayRequest, group dbmod
 	base.execution.previousAttempts = base.attempts()
 	base.iter.Close()
 	planner := newRelayCapabilityPlanner(replay, base.rawBody, true)
+	// Recovery may need a new upstream route even when ordinary affinity is strict.
+	recoveryAffinity := base.iter.Affinity()
+	recoveryAffinity.Mode = "off"
 	iter := balancer.NewIteratorWithPreferenceAndQuality(group, base.apiKeyID, base.requestModel, nil, func(item dbmodel.GroupItem) int {
 		channel, _ := base.candidateSnapshot.Channel(item.ChannelID)
 		return planner.rankChannel(channel, item)
-	})
+	}, recoveryAffinity)
 	return &relayRequest{
 		ctx: ctx, inAdapter: base.inAdapter, inboundType: base.inboundType, internalRequest: replay,
 		metrics: base.metrics, apiKeyID: base.apiKeyID, requestModel: base.requestModel,

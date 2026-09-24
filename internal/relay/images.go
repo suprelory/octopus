@@ -2,6 +2,7 @@ package relay
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"mime"
@@ -104,7 +105,8 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 	candidateSnapshot := newCandidateSnapshot(ctx, group)
 
 	// 创建迭代器（策略排序 + 粘性优先）
-	iter := balancer.NewIterator(group, apiKeyID, requestModel)
+	affinityBody, _ := json.Marshal(jsonPayload)
+	iter := balancer.NewIterator(group, apiKeyID, requestModel, resolveRequestAffinity(c.Request.Header, affinityBody))
 	if iter.Len() == 0 {
 		resp.ErrorWithCode(c, http.StatusServiceUnavailable, CodeRelayNoAvailableChannel, "no available channel")
 		return
@@ -231,7 +233,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 				// 熔断器：记录成功
 				balancer.RecordSuccess(channel.ID, usedKey.ID, item.ModelName)
 				// Refresh affinity only after the complete image response succeeds.
-				balancer.SetRoutingAffinity(apiKeyID, group.ID, requestModel, channel.ID, usedKey.ID)
+				iter.RecordAffinity(channel.ID, usedKey.ID)
 
 				metrics.SaveWithChannelStats(ctx, true, nil, iter.Attempts(), false)
 				return

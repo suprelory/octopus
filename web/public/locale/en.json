@@ -239,6 +239,9 @@
             "description": "Applies to all groups. When enabled, an upstream 200 response with no meaningful content (text, tool calls, or reasoning) is treated as failed and retried on another channel."
         },
         "channelAffinity": {
+			"mode": {"label": "Binding mode", "description": "Prefer allows failover. Strict keeps an existing channel binding even when it fails. Responses continuation recovery remains independent.", "off": "Off", "prefer": "Prefer", "strict": "Strict"},
+			"source": {"label": "Session identifier", "description": "Auto tries the configured header, session_id, then prompt_cache_key, and falls back to API key scope. An explicit source with no value disables affinity.", "auto": "Auto", "header": "Header", "session_id": "Session ID", "prompt_cache_key": "Prompt cache key", "api_key": "API key (legacy)"},
+			"header": "Session header",
             "title": "Channel Affinity",
             "description": "Remembers the channel and channel key from the latest fully successful request for each API key, group, and requested model, then prefers them on later requests. Responses continuation routing still takes precedence.",
             "enabled": {

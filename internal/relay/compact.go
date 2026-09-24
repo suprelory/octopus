@@ -89,7 +89,7 @@ func HandleResponsesCompact(c *gin.Context) {
 	}
 	candidateSnapshot := newCandidateSnapshot(c.Request.Context(), group)
 
-	iter := balancer.NewIterator(group, apiKeyID, requestModel)
+	iter := balancer.NewIterator(group, apiKeyID, requestModel, resolveRequestAffinity(c.Request.Header, body))
 	if iter.Len() == 0 {
 		resp.ErrorWithCode(c, http.StatusServiceUnavailable, CodeRelayNoAvailableChannel, "no available channel")
 		return
@@ -221,7 +221,7 @@ func HandleResponsesCompact(c *gin.Context) {
 			if success {
 				op.StatsChannelUpdate(channel.ID, dbmodel.StatsMetrics{RequestSuccess: 1})
 				balancer.RecordSuccess(channel.ID, usedKey.ID, item.ModelName)
-				balancer.SetRoutingAffinity(apiKeyID, group.ID, requestModel, channel.ID, usedKey.ID)
+				iter.RecordAffinity(channel.ID, usedKey.ID)
 				metrics.SaveWithChannelStats(c.Request.Context(), true, nil, iter.Attempts(), false)
 				return
 			}

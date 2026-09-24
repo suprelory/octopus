@@ -28,3 +28,20 @@ Before output, stateless requests can try another healthy key in the same channe
 after a key-scoped rejection. They never repeat that failed key in the request.
 All replacement sends use the original budget. Native `previous_response_id`
 continuations keep their own recovery rules and cannot switch keys this way.
+
+Ordinary affinity has `off`, `prefer` (default), and `strict` modes. Prefer can
+migrate after a failure or channel cooldown. Strict restricts an existing live
+binding to its channel; a missing/disabled/broken channel fails rather than
+migrating. The first successful request establishes the binding. Responses replay
+preferences and native continuation recovery take precedence over ordinary affinity.
+
+`channel_affinity_source` supports `auto`, `header`, `session_id`, `prompt_cache_key`
+and legacy `api_key`. Auto checks the configured header (`X-Session-Id` by default),
+body `session_id` (also `metadata.session_id`), then `prompt_cache_key`. If none is
+present it retains legacy API-key affinity. An explicitly selected source with no
+value disables ordinary affinity for that request. Multipart Images can supply the
+header. WebSocket requests use handshake headers and each response.create body.
+
+Session identifiers are hashed, then namespaced by API key, group and requested
+model. Bindings are process-local, expire using `channel_affinity_ttl_seconds`,
+and are periodically pruned to a bounded cache. They are not durable session state.

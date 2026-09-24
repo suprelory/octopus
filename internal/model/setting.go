@@ -12,19 +12,22 @@ type SettingKey string
 
 const (
 	SettingKeyProxyURL                         SettingKey = "proxy_url"
-	SettingKeyTrustedProxies                   SettingKey = "trusted_proxies"                  // 可信反向代理 IP/CIDR 列表（逗号或换行分隔）
-	SettingKeyStatsSaveInterval                SettingKey = "stats_save_interval"              // 将统计信息写入数据库的周期(分钟)
-	SettingKeyModelInfoUpdateInterval          SettingKey = "model_info_update_interval"       // 模型信息更新间隔(小时)
-	SettingKeySyncLLMInterval                  SettingKey = "sync_llm_interval"                // LLM 同步间隔(小时)
-	SettingKeySiteSyncInterval                 SettingKey = "site_sync_interval"               // 站点账号同步间隔(小时)
-	SettingKeyRelayLogKeepPeriod               SettingKey = "relay_log_keep_period"            // 日志保存时间范围(天)
-	SettingKeyRelayLogKeepEnabled              SettingKey = "relay_log_keep_enabled"           // 是否保留历史日志
-	SettingKeyCORSAllowOrigins                 SettingKey = "cors_allow_origins"               // 跨域白名单(逗号分隔的完整 origin, 如 "https://example.com,https://example2.com"). 为空不允许跨域, "*"允许所有来源但不下发凭证
-	SettingKeyCircuitBreakerThreshold          SettingKey = "circuit_breaker_threshold"        // 熔断触发阈值（连续失败次数）
-	SettingKeyCircuitBreakerCooldown           SettingKey = "circuit_breaker_cooldown"         // 熔断基础冷却时间（秒）
-	SettingKeyCircuitBreakerMaxCooldown        SettingKey = "circuit_breaker_max_cooldown"     // 熔断最大冷却时间（秒），指数退避上限
-	SettingKeyChannelAffinityEnabled           SettingKey = "channel_affinity_enabled"         // 是否优先复用同一 API Key/分组/模型上次成功的渠道
-	SettingKeyChannelAffinityTTLSeconds        SettingKey = "channel_affinity_ttl_seconds"     // 渠道亲和记录 TTL（秒）
+	SettingKeyTrustedProxies                   SettingKey = "trusted_proxies"              // 可信反向代理 IP/CIDR 列表（逗号或换行分隔）
+	SettingKeyStatsSaveInterval                SettingKey = "stats_save_interval"          // 将统计信息写入数据库的周期(分钟)
+	SettingKeyModelInfoUpdateInterval          SettingKey = "model_info_update_interval"   // 模型信息更新间隔(小时)
+	SettingKeySyncLLMInterval                  SettingKey = "sync_llm_interval"            // LLM 同步间隔(小时)
+	SettingKeySiteSyncInterval                 SettingKey = "site_sync_interval"           // 站点账号同步间隔(小时)
+	SettingKeyRelayLogKeepPeriod               SettingKey = "relay_log_keep_period"        // 日志保存时间范围(天)
+	SettingKeyRelayLogKeepEnabled              SettingKey = "relay_log_keep_enabled"       // 是否保留历史日志
+	SettingKeyCORSAllowOrigins                 SettingKey = "cors_allow_origins"           // 跨域白名单(逗号分隔的完整 origin, 如 "https://example.com,https://example2.com"). 为空不允许跨域, "*"允许所有来源但不下发凭证
+	SettingKeyCircuitBreakerThreshold          SettingKey = "circuit_breaker_threshold"    // 熔断触发阈值（连续失败次数）
+	SettingKeyCircuitBreakerCooldown           SettingKey = "circuit_breaker_cooldown"     // 熔断基础冷却时间（秒）
+	SettingKeyCircuitBreakerMaxCooldown        SettingKey = "circuit_breaker_max_cooldown" // 熔断最大冷却时间（秒），指数退避上限
+	SettingKeyChannelAffinityEnabled           SettingKey = "channel_affinity_enabled"     // 是否优先复用同一 API Key/分组/模型上次成功的渠道
+	SettingKeyChannelAffinityTTLSeconds        SettingKey = "channel_affinity_ttl_seconds" // 渠道亲和记录 TTL（秒）
+	SettingKeyChannelAffinityMode              SettingKey = "channel_affinity_mode"
+	SettingKeyChannelAffinitySource            SettingKey = "channel_affinity_source"
+	SettingKeyChannelAffinityHeader            SettingKey = "channel_affinity_header"
 	SettingKeyEmptyResponseDetectionEnabled    SettingKey = "empty_response_detection_enabled" // 是否全局启用空回检测
 	SettingKeyRelayMaxChannelAttempts          SettingKey = "relay_max_channel_attempts"       // 单个 HTTP 请求或 WS response.create 最多尝试的不同渠道数
 	SettingKeyRelayMaxTotalAttempts            SettingKey = "relay_max_total_attempts"         // 单个逻辑请求的上游发送总数，包含重连重发和 replay
@@ -61,18 +64,21 @@ func DefaultSettings() []Setting {
 	return []Setting{
 		{Key: SettingKeyProxyURL, Value: ""},
 		{Key: SettingKeyTrustedProxies, Value: ""},
-		{Key: SettingKeyStatsSaveInterval, Value: "10"},               // 默认10分钟保存一次统计信息
-		{Key: SettingKeyCORSAllowOrigins, Value: ""},                  // CORS 默认不允许跨域，设置为 "*" 才允许所有来源
-		{Key: SettingKeyModelInfoUpdateInterval, Value: "24"},         // 默认24小时更新一次模型信息
-		{Key: SettingKeySyncLLMInterval, Value: "24"},                 // 默认24小时同步一次LLM
-		{Key: SettingKeySiteSyncInterval, Value: "12"},                // 默认12小时同步一次站点账号信息
-		{Key: SettingKeyRelayLogKeepPeriod, Value: "7"},               // 默认日志保存7天
-		{Key: SettingKeyRelayLogKeepEnabled, Value: "true"},           // 默认保留历史日志
-		{Key: SettingKeyCircuitBreakerThreshold, Value: "5"},          // 默认连续失败5次触发熔断
-		{Key: SettingKeyCircuitBreakerCooldown, Value: "60"},          // 默认基础冷却60秒
-		{Key: SettingKeyCircuitBreakerMaxCooldown, Value: "600"},      // 默认最大冷却600秒（10分钟）
-		{Key: SettingKeyChannelAffinityEnabled, Value: "true"},        // 默认启用同 API Key/分组/模型的成功渠道亲和
-		{Key: SettingKeyChannelAffinityTTLSeconds, Value: "3600"},     // 默认保留 1 小时
+		{Key: SettingKeyStatsSaveInterval, Value: "10"},           // 默认10分钟保存一次统计信息
+		{Key: SettingKeyCORSAllowOrigins, Value: ""},              // CORS 默认不允许跨域，设置为 "*" 才允许所有来源
+		{Key: SettingKeyModelInfoUpdateInterval, Value: "24"},     // 默认24小时更新一次模型信息
+		{Key: SettingKeySyncLLMInterval, Value: "24"},             // 默认24小时同步一次LLM
+		{Key: SettingKeySiteSyncInterval, Value: "12"},            // 默认12小时同步一次站点账号信息
+		{Key: SettingKeyRelayLogKeepPeriod, Value: "7"},           // 默认日志保存7天
+		{Key: SettingKeyRelayLogKeepEnabled, Value: "true"},       // 默认保留历史日志
+		{Key: SettingKeyCircuitBreakerThreshold, Value: "5"},      // 默认连续失败5次触发熔断
+		{Key: SettingKeyCircuitBreakerCooldown, Value: "60"},      // 默认基础冷却60秒
+		{Key: SettingKeyCircuitBreakerMaxCooldown, Value: "600"},  // 默认最大冷却600秒（10分钟）
+		{Key: SettingKeyChannelAffinityEnabled, Value: "true"},    // 默认启用同 API Key/分组/模型的成功渠道亲和
+		{Key: SettingKeyChannelAffinityTTLSeconds, Value: "3600"}, // 默认保留 1 小时
+		{Key: SettingKeyChannelAffinityMode, Value: "prefer"},
+		{Key: SettingKeyChannelAffinitySource, Value: "auto"},
+		{Key: SettingKeyChannelAffinityHeader, Value: "X-Session-Id"},
 		{Key: SettingKeyEmptyResponseDetectionEnabled, Value: "true"}, // 默认启用空回检测
 		{Key: SettingKeyRelayMaxChannelAttempts, Value: "4"},          // 默认最多尝试 4 个候选渠道
 		{Key: SettingKeyRelayMaxTotalAttempts, Value: "12"},           // 默认最多发起 12 次上游转发尝试
@@ -103,6 +109,27 @@ func DefaultSettings() []Setting {
 
 func (s *Setting) Validate() error {
 	switch s.Key {
+	case SettingKeyChannelAffinityMode:
+		if s.Value != "off" && s.Value != "prefer" && s.Value != "strict" {
+			return fmt.Errorf("affinity mode must be off, prefer or strict")
+		}
+		return nil
+	case SettingKeyChannelAffinitySource:
+		switch s.Value {
+		case "auto", "header", "session_id", "prompt_cache_key", "api_key":
+			return nil
+		}
+		return fmt.Errorf("invalid affinity source")
+	case SettingKeyChannelAffinityHeader:
+		if len(s.Value) == 0 || len(s.Value) > 128 {
+			return fmt.Errorf("invalid affinity header name")
+		}
+		for _, ch := range s.Value {
+			if !(ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || ch == '-') {
+				return fmt.Errorf("invalid affinity header name")
+			}
+		}
+		return nil
 	case SettingKeyModelInfoUpdateInterval, SettingKeySyncLLMInterval, SettingKeySiteSyncInterval,
 		SettingKeyRelayLogKeepPeriod,
 		SettingKeyCircuitBreakerThreshold, SettingKeyCircuitBreakerCooldown, SettingKeyCircuitBreakerMaxCooldown:

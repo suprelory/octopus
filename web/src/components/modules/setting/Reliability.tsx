@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl';
 import { CircleAlert, Hash, Route, ShieldCheck, Timer, TimerOff, type LucideIcon } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SettingKey } from '@/api/endpoints/setting';
 import { SETTING_CONTROL_WIDTH, SettingCard, SettingRow, SettingSection, useSettingField, useSettingToggle } from './shared';
 
@@ -38,6 +39,9 @@ export function SettingReliability() {
     const t = useTranslations('setting');
     const channelAffinity = useSettingToggle(SettingKey.ChannelAffinityEnabled);
     const emptyResponseDetection = useSettingToggle(SettingKey.EmptyResponseDetectionEnabled);
+	const affinityMode = useSettingField('channel_affinity_mode');
+	const affinitySource = useSettingField('channel_affinity_source');
+	const affinityHeader = useSettingField('channel_affinity_header');
 
     return (
         <SettingCard icon={ShieldCheck} title={t('reliability.title')}>
@@ -52,6 +56,21 @@ export function SettingReliability() {
                 <Switch checked={channelAffinity.enabled} onCheckedChange={channelAffinity.toggle} />
             </SettingRow>
             {channelAffinity.enabled && (
+				<div className="space-y-5">
+					{[
+						{field: affinityMode, name: 'mode', values: ['off', 'prefer', 'strict']},
+						{field: affinitySource, name: 'source', values: ['auto', 'header', 'session_id', 'prompt_cache_key', 'api_key']},
+					].map(({field, name, values}) => (
+						<SettingRow key={name} label={t(`channelAffinity.${name}.label`)} tooltip={t(`channelAffinity.${name}.description`)}>
+							<Select value={field.value} onValueChange={field.commit}>
+								<SelectTrigger className={`${SETTING_CONTROL_WIDTH} rounded-xl`}><SelectValue /></SelectTrigger>
+								<SelectContent>{values.map((value) => <SelectItem key={value} value={value}>{t(`channelAffinity.${name}.${value}`)}</SelectItem>)}</SelectContent>
+							</Select>
+						</SettingRow>
+					))}
+					{['auto', 'header'].includes(affinitySource.value) && <SettingRow label={t('channelAffinity.header')}>
+						<Input value={affinityHeader.value} onChange={(e) => affinityHeader.setValue(e.target.value)} onBlur={affinityHeader.save} className={`${SETTING_CONTROL_WIDTH} rounded-xl`} />
+					</SettingRow>}
                 <NumberFieldRow
                     settingKey={SettingKey.ChannelAffinityTTLSeconds}
                     label={t('channelAffinity.ttl.label')}
@@ -60,6 +79,7 @@ export function SettingReliability() {
                     icon={Timer}
                     min={1}
                 />
+				</div>
             )}
 
             {/* HTTP/WS 故障转移预算 */}

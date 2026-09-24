@@ -59,7 +59,7 @@ func prepareHTTPRelay(inboundType inbound.InboundType, c *gin.Context) *httpRela
 	iter := balancer.NewIteratorWithPreferenceAndQuality(group, apiKeyID, requestModel, preferredSticky, func(item dbmodel.GroupItem) int {
 		channel, _ := candidateSnapshot.Channel(item.ChannelID)
 		return capabilityPlanner.rankChannel(channel, item)
-	})
+	}, resolveRequestAffinity(c.Request.Header, rawBody))
 	if iter.Len() == 0 {
 		writeInboundProtocolError(c, nil, inAdapter, relayProtocolError(http.StatusServiceUnavailable, CodeRelayNoAvailableChannel, "no available channel"))
 		return nil

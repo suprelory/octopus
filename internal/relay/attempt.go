@@ -69,7 +69,7 @@ func (ra *relayAttempt) attempt() attemptResult {
 		// 熔断器：记录成功
 		balancer.RecordSuccess(ra.channel.ID, ra.usedKey.ID, ra.breakerModelName())
 		// Refresh model affinity only after the complete response succeeds.
-		balancer.SetRoutingAffinity(ra.apiKeyID, ra.groupID, ra.requestModel, ra.channel.ID, ra.usedKey.ID)
+		ra.iter.RecordAffinity(ra.channel.ID, ra.usedKey.ID)
 
 		return attemptResult{Success: true}
 	}

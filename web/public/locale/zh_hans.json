@@ -239,6 +239,9 @@
             "description": "对所有分组生效。启用后，上游返回 200 但无有效内容（无文本、工具调用或推理）时判定为失败并切换渠道重试。"
         },
         "channelAffinity": {
+			"mode": {"label": "绑定模式", "description": "优先绑定允许故障迁移。严格绑定在已绑定渠道故障时停止换路。Responses 续接恢复独立处理。", "off": "关闭", "prefer": "优先绑定", "strict": "严格绑定"},
+			"source": {"label": "会话标识来源", "description": "自动按指定 Header、session_id、prompt_cache_key 顺序查找，未提供时沿用 API Key 范围。指定来源但未提供标识时关闭亲和。", "auto": "自动", "header": "指定 Header", "session_id": "会话 ID", "prompt_cache_key": "Prompt cache key", "api_key": "API Key（兼容）"},
+			"header": "会话 Header",
             "title": "渠道亲和",
             "description": "按 API Key、分组和请求模型记录最近一次完整成功的渠道与渠道密钥，并在后续请求中优先复用；Responses 会话续接仍具有更高优先级。",
             "enabled": {

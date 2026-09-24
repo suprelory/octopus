@@ -33,6 +33,7 @@ func HandleWSResponse(c *gin.Context) {
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), wsClientMaxAge)
 	defer cancel()
+	ctx = context.WithValue(ctx, affinityHeadersKey{}, c.Request.Header.Clone())
 
 	apiKeyID := c.GetInt("api_key_id")
 	supportedModels := c.GetString("supported_models")

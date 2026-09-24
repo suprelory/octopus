@@ -11,15 +11,17 @@ import (
 // Iterator 统一的负载均衡迭代器
 // 内部编排：策略排序 + 粘性优先 + 决策追踪
 type Iterator struct {
-	candidates   []model.GroupItem
-	tiers        []candidateTier
-	index        int
-	preferences  map[int]routingPreference
-	apiKeyID     int
-	groupID      int
-	requestModel string
-	modelName    string // 请求模型名（用于熔断检查）
-	mode         model.GroupMode
+	candidates     []model.GroupItem
+	tiers          []candidateTier
+	index          int
+	preferences    map[int]routingPreference
+	apiKeyID       int
+	groupID        int
+	requestModel   string
+	modelName      string // 请求模型名（用于熔断检查）
+	mode           model.GroupMode
+	affinity       AffinityOptions
+	strictAffinity bool
 
 	// 内嵌追踪
 	attempts []model.ChannelAttempt
@@ -85,8 +87,8 @@ type CapabilityTrace struct {
 
 // NewIterator 创建负载均衡迭代器
 // 自动处理：策略排序 + 粘性通道提前
-func NewIterator(group model.Group, apiKeyID int, requestModel string) *Iterator {
-	return NewIteratorWithPreferenceAndQuality(group, apiKeyID, requestModel, nil, nil)
+func NewIterator(group model.Group, apiKeyID int, requestModel string, affinity ...AffinityOptions) *Iterator {
+	return NewIteratorWithPreferenceAndQuality(group, apiKeyID, requestModel, nil, nil, affinity...)
 }
 
 // NewIteratorWithPreference 创建带优先通道偏好的负载均衡迭代器。
@@ -98,7 +100,19 @@ func NewIteratorWithPreference(group model.Group, apiKeyID int, requestModel str
 // NewIteratorWithPreferenceAndQuality is the request-aware iterator constructor.
 // Quality is evaluated before sticky preferences are applied; a sticky route
 // therefore remains preferred only among candidates in the same quality tier.
-func NewIteratorWithPreferenceAndQuality(group model.Group, apiKeyID int, requestModel string, preferred *SessionEntry, quality QualityRanker) *Iterator {
+func NewIteratorWithPreferenceAndQuality(group model.Group, apiKeyID int, requestModel string, preferred *SessionEntry, quality QualityRanker, options ...AffinityOptions) *Iterator {
+	option := affinityOptions(options)
+	bound := GetChannelAffinity(apiKeyID, group.ID, requestModel, option)
+	strict := preferred == nil && option.Mode == "strict" && bound != nil
+	if strict {
+		items := make([]model.GroupItem, 0, len(group.Items))
+		for _, item := range group.Items {
+			if item.ChannelID == bound.ChannelID {
+				items = append(items, item)
+			}
+		}
+		group.Items = items
+	}
 	rankedTiers := partitionQualityTiers(group.Items, quality)
 	preferenceCandidates := make([]routingPreference, 0, 2)
 	if preferred != nil && preferred.ChannelID > 0 {
@@ -107,7 +121,7 @@ func NewIteratorWithPreferenceAndQuality(group model.Group, apiKeyID int, reques
 			entry:  *preferred,
 		})
 	}
-	if affinity := GetChannelAffinity(apiKeyID, group.ID, requestModel); affinity != nil {
+	if affinity := bound; affinity != nil {
 		preferenceCandidates = append(preferenceCandidates, routingPreference{
 			source: PreferenceChannelAffinity,
 			entry:  *affinity,
@@ -127,12 +141,15 @@ func NewIteratorWithPreferenceAndQuality(group model.Group, apiKeyID int, reques
 
 		preferredItem, preferredTier, found := findPreferredCandidate(rankedTiers, channelID)
 		if !found {
-			if preference.source == PreferenceChannelAffinity {
-				DeleteChannelAffinity(apiKeyID, group.ID, requestModel)
+			if preference.source == PreferenceChannelAffinity && !strict {
+				DeleteChannelAffinity(apiKeyID, group.ID, requestModel, option)
 			}
 			continue
 		}
 		if preferredTier != 0 {
+			continue
+		}
+		if preference.source == PreferenceChannelAffinity && !strict && healthCooldownActive(globalChannelHealth.snapshot(channelID, preferredItem.ModelName), time.Now()) {
 			continue
 		}
 
@@ -184,6 +201,8 @@ func NewIteratorWithPreferenceAndQuality(group model.Group, apiKeyID int, reques
 		requestModel:    requestModel,
 		modelName:       requestModel,
 		mode:            group.Mode,
+		affinity:        option,
+		strictAffinity:  strict,
 		healthBaseRanks: make(map[candidateIdentity]int),
 	}
 }
@@ -408,17 +427,26 @@ func (it *Iterator) QualityRank() int {
 // channel proves unusable before downstream payload is written. Replay state
 // and replay routing preferences remain independent and untouched.
 func (it *Iterator) InvalidateCurrentPreference() {
+	if it.strictAffinity {
+		return
+	}
 	preference, ok := it.preferences[it.index]
 	if !ok || preference.source == PreferenceResponsesReplay {
 		return
 	}
-	DeleteRoutingAffinity(it.apiKeyID, it.groupID, it.requestModel)
+	DeleteRoutingAffinity(it.apiKeyID, it.groupID, it.requestModel, it.affinity)
 	for index, remainingPreference := range it.preferences {
 		if index >= it.index && remainingPreference.source != PreferenceResponsesReplay {
 			delete(it.preferences, index)
 		}
 	}
 }
+
+func (it *Iterator) RecordAffinity(channelID, keyID int) {
+	SetRoutingAffinity(it.apiKeyID, it.groupID, it.requestModel, channelID, keyID, it.affinity)
+}
+
+func (it *Iterator) Affinity() AffinityOptions { return it.affinity }
 
 // Len 返回候选列表长度
 func (it *Iterator) Len() int {
