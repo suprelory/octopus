@@ -1255,6 +1255,8 @@
             "circuit_breaker_tripped": "通道熔斷中，請稍後重試。"
         },
         "site": {
+            "name_exists": "站點名稱「{name}」已存在，請使用其他名稱。",
+            "archived_name_exists": "歸檔站點中已存在「{name}」。請開啟右上角「檢視選項 → 全局操作 → 歸檔站點」還原，或使用其他名稱。",
             "sync": {
                 "missing_group_key": "分組「{groupKey}」沒有可用的 Key。請先到站點建立這個分組的 Key，再重新同步。",
                 "group_models_unresolved": "無法確認分組「{groupKey}」的模型，請檢查分組模型配置或 Key 權限。",

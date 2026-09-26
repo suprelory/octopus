@@ -1255,6 +1255,8 @@
             "circuit_breaker_tripped": "The channel circuit breaker is tripped. Try again later."
         },
         "site": {
+            "name_exists": "A site named \"{name}\" already exists. Choose a different name.",
+            "archived_name_exists": "An archived site named \"{name}\" already exists. Restore it from View options → Global actions → Archived sites in the top right, or choose a different name.",
             "sync": {
                 "missing_group_key": "Group \"{groupKey}\" has no available key. Create a key for this group on the site and sync again.",
                 "group_models_unresolved": "Could not resolve models for group \"{groupKey}\". Check the group model configuration or key permissions.",

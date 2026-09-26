@@ -49,6 +49,49 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
             expect(state.pageErrors).toEqual([]);
         });
 
+        test('an archived name conflict explains recovery and preserves the site draft for retry', async ({ page }, testInfo) => {
+            const state = await mockApp(page, 'site', {
+                sites: [],
+                mutate: request => {
+                    expect(request.method).toBe('POST');
+                    expect(request.path).toBe('/api/v1/site/create');
+                    if ((request.body as { name: string }).name === '方舟') {
+                        return {
+                            status: 409,
+                            errorCode: 'site.archived_name_exists',
+                            params: { name: '方舟', site_id: 9 },
+                            message: 'An archived site already exists.',
+                        };
+                    }
+                    state.sites = [{ ...makeSite(10), ...request.body as object }];
+                    return { data: state.sites[0] };
+                },
+            });
+            await page.goto('/');
+            await page.getByRole('button', { name: '新增第一个站点', exact: true }).click();
+            const dialog = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: '新增站点', exact: true }) });
+            await dialog.getByLabel('站点名称', { exact: true }).fill('  方舟  ');
+            await dialog.getByLabel('站点地址', { exact: true }).fill('https://new.example');
+            await dialog.getByRole('combobox').first().click();
+            await page.getByRole('option', { name: 'New API', exact: true }).click();
+            await dialog.getByRole('button', { name: '创建站点', exact: true }).click();
+
+            await expect(page.getByText('归档站点中已存在「方舟」。请打开右上角「视图选项 → 全局操作 → 归档站点」恢复，或使用其他名称。', { exact: true })).toBeVisible();
+            await expect(dialog).toBeVisible();
+            await expect(dialog.getByLabel('站点名称', { exact: true })).toHaveValue('  方舟  ');
+            await expect(dialog.getByLabel('站点地址', { exact: true })).toHaveValue('https://new.example');
+            expect(state.sites).toEqual([]);
+            await page.screenshot({ path: testInfo.outputPath('archived-name-conflict.png') });
+
+            await dialog.getByLabel('站点名称', { exact: true }).fill('方舟新站点');
+            await dialog.getByRole('button', { name: '创建站点', exact: true }).click();
+            await expect(dialog).not.toBeVisible();
+            expect(state.mutations).toHaveLength(2);
+            expect(state.sites[0].name).toBe('方舟新站点');
+            expect(state.unexpectedRequests).toEqual([]);
+            expect(state.pageErrors).toEqual([]);
+        });
+
         test('account credential changes and scheduling fields produce one consistent payload', async ({ page }, testInfo) => {
             let finishSave!: () => void;
             const pendingSave = new Promise<void>(resolve => { finishSave = resolve; });

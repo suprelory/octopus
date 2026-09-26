@@ -9,6 +9,7 @@ import type { RelayLog } from '../../src/api/endpoints/log';
 import type { APIKey, APIKeyStatsResponse } from '../../src/api/endpoints/apikey';
 import type { Setting } from '../../src/api/endpoints/setting';
 import type { NavItem } from '../../src/components/modules/navbar/nav-store';
+import type { ApiErrorParams } from '../../src/api/types';
 import { APP_VERSION } from '../../src/lib/info';
 
 export const emptyStats = { input_token: 0, output_token: 0, input_cost: 0, output_cost: 0, wait_time: 0, request_success: 0, request_failed: 0 };
@@ -71,7 +72,7 @@ export function makeSiteChannelCard(): SiteChannelCard {
 }
 
 export type Mutation = { method: string; path: string; body: unknown };
-type MockResponse = { status?: number; data?: unknown; message?: string };
+type MockResponse = { status?: number; data?: unknown; message?: string; errorCode?: string; params?: ApiErrorParams };
 
 export async function mockApp(page: Page, nav: NavItem, options: {
     sites?: Site[];
@@ -119,7 +120,13 @@ export async function mockApp(page: Page, nav: NavItem, options: {
             if (!response) state.unexpectedRequests.push(`${request.method()} ${path}`);
             await route.fulfill({
                 status: response?.status ?? (response ? 200 : 500),
-                json: { code: response?.status ?? (response ? 200 : 500), data: response?.data ?? null, message: response?.message ?? 'Unexpected mutation' },
+                json: {
+                    code: response?.status ?? (response ? 200 : 500),
+                    data: response?.data ?? null,
+                    message: response?.message ?? 'Unexpected mutation',
+                    error_code: response?.errorCode,
+                    params: response?.params,
+                },
             });
             return;
         }
