@@ -34,9 +34,9 @@ export function LogSummary({ log, displayFields, tokenUsage, endpointLabel, chan
     );
 
     return (
-        <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3 p-4 sm:gap-4 sm:p-5">
-            <div className="sm:hidden"><ModelAvatar size={36} /></div>
-            <div className="hidden sm:block"><ModelAvatar size={40} /></div>
+        <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 p-4 sm:gap-4 sm:p-5">
+            <div className="flex sm:hidden"><ModelAvatar size={36} /></div>
+            <div className="hidden sm:flex"><ModelAvatar size={40} /></div>
             <div className="min-w-0 flex flex-col gap-2">
                 <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm md:flex-nowrap">
                     <span className="min-w-0 max-w-full font-semibold text-card-foreground truncate md:max-w-[32%]" title={displayRequestModelName}>
