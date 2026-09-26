@@ -149,7 +149,7 @@ export const ModelItem = memo(function ModelItem({ model, layout = 'grid' }: Mod
             )}
         >
             <header className={cn('flex min-w-0 items-center gap-3', isListLayout && 'md:flex-1')}>
-                <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-muted/50"><ModelAvatar size={32} /></span>
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-xl"><ModelAvatar size={32} /></span>
                 <div className="min-w-0 flex-1">
                     <h3 className="truncate text-base font-semibold tracking-tight" title={model.name}>{model.name}</h3>
                     <p className="mt-1 text-xs text-muted-foreground">{tOverview('unit')}</p>
