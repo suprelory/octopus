@@ -73,7 +73,7 @@ export function LogSummary({ log, displayFields, tokenUsage, endpointLabel, chan
                     {log.attempts?.some((attempt) => attempt.sticky) ? <Pin className="size-3.5 shrink-0 text-amber-500" /> : null}
                     <WSModeBadge log={log} />
                 </div>
-                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-2 border-t border-border/50 pt-3 text-xs tabular-nums text-muted-foreground [&>div]:min-w-0 [&>div]:max-w-full [&>div>svg]:text-muted-foreground/70">
+                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-2 border-t border-border/50 pt-3 text-xs tabular-nums text-muted-foreground [&>div]:min-w-0 [&>div]:max-w-full">
                     <div className="flex items-center gap-1.5">
                         <Clock className="size-3.5 shrink-0" />
                         <span>{formatTime(log.time)}</span>
