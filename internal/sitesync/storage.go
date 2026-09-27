@@ -198,7 +198,7 @@ func updateAccountCheckinState(tx *gorm.DB, siteRecord *model.Site, account *mod
 		account.CheckinFailureCount++
 		updatePayload["checkin_failure_count"] = account.CheckinFailureCount
 		var nextAt *time.Time
-		if siteRecord.Enabled && account.Enabled && account.AutoCheckin {
+		if siteRecord.Enabled && account.Enabled && account.AutoCheckin && siteRecord.ResolveCheckinCapability().Enabled {
 			nextAt = buildNextCheckinRetryAt(siteRecord, now, status, message, account.CheckinFailureCount)
 		}
 		account.NextAutoCheckinAt = nextAt

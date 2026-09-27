@@ -22,7 +22,7 @@ import {
   Waypoints,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { accountHasCheckinEnabled, sitePlatformSupportsCheckin } from "./checkin-status";
+import { accountHasCheckinEnabled, siteCanVerifyCheckin, siteHasCheckinEnabled } from "./checkin-status";
 import { translateSiteMessage } from "./site-message";
 import { siteAccountHasActivePartialSync } from "./sync-health";
 
@@ -56,6 +56,7 @@ export function SiteAccountRow({
   layout: SiteLayout;
 }) {
   const t = useTranslations();
+  const checkinT = useTranslations('siteCheckinCapability');
   const locale = useSettingStore((state) => state.locale);
   const tProxy = useTranslations("proxyPool");
   const {
@@ -79,8 +80,14 @@ export function SiteAccountRow({
       : account.enabled
         ? "default"
         : "muted";
-  const supportsCheckin = sitePlatformSupportsCheckin(site.platform);
-  const canShowManualCheckin = supportsCheckin && accountHasCheckinEnabled(account, site.platform);
+  const checkinEnabled = siteHasCheckinEnabled(site);
+  const canShowManualCheckin = siteCanVerifyCheckin(site);
+  const checkinSupport = site.checkin_capability?.support ?? 'unknown';
+  const checkinPolicyLabel = site.checkin_mode === 'disabled'
+    ? 'disabledForSite'
+    : !canShowManualCheckin ? 'requiresCustom'
+      : checkinEnabled ? 'enabledForSite'
+        : checkinSupport === 'unsupported' ? 'unavailableForSite' : 'defaultDisabled';
 
   return (
     <article
@@ -196,7 +203,7 @@ export function SiteAccountRow({
                     hidden={!canShowManualCheckin}
                   >
                     <CalendarCheck2 className="size-4" />
-                    <span>立即签到</span>
+                    <span>{checkinT(checkinSupport === 'supported' ? 'checkinNow' : 'verifyNow')}</span>
                   </button>
                   <button
                     type="button"
@@ -235,21 +242,20 @@ export function SiteAccountRow({
             at={account.last_sync_at}
             message={translateSiteMessage(locale, account.last_sync_message, t) || "等待首次同步"}
           />
-          {supportsCheckin ? (
-            accountHasCheckinEnabled(account, site.platform) ? (
-              <ExecutionSummary
-                label="签到"
-                status={normalizedStatus(account.last_checkin_status)}
-                at={account.last_checkin_at}
-                message={account.last_checkin_message || "等待首次签到"}
-              />
-            ) : (
-              <StaticSummary text="签到未启用" />
-            )
-          ) : (
-            <StaticSummary tone="warning" text="当前平台不支持签到" />
-          )}
-          {account.auto_checkin ? (
+          {checkinEnabled || account.last_checkin_at ? (
+            <ExecutionSummary
+              label="签到"
+              status={normalizedStatus(account.last_checkin_status)}
+              at={account.last_checkin_at}
+              message={account.last_checkin_message || "等待首次签到"}
+            />
+          ) : null}
+          <StaticSummary tone={checkinSupport === 'unsupported' ? 'warning' : undefined} text={checkinT(checkinPolicyLabel)} />
+          <div className="pl-4 text-xs text-muted-foreground">
+            {checkinT(checkinSupport)}
+            {site.checkin_capability?.verified_at ? ` · ${formatDateTime(site.checkin_capability.verified_at)}` : ''}
+          </div>
+          {accountHasCheckinEnabled(account, site) ? (
             <div className="pl-4 text-xs text-muted-foreground">
               下次自动签到{" "}
               {account.next_auto_checkin_at

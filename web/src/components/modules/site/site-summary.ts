@@ -134,7 +134,7 @@ export function buildSiteSummary(site: SiteRecord): SiteSummary {
     (account) =>
       account.enabled &&
       normalizedStatus(account.last_sync_status) === "idle" &&
-      (!accountHasCheckinEnabled(account, site.platform) ||
+      (!accountHasCheckinEnabled(account, site) ||
         deriveCheckinStatus(site, account) === "idle"),
   );
 

@@ -15,9 +15,10 @@ func checkinAnyRouter(ctx context.Context, siteRecord *model.Site, account *mode
 	}
 
 	userID, _ := anyRouterDiscoverUserID(ctx, siteRecord, account, accessToken)
-	if result, bearerErr := anyRouterTryCheckinWithBearer(ctx, siteRecord, account, accessToken, userID); result != nil {
+	result, bearerErr := anyRouterTryCheckinWithBearer(ctx, siteRecord, account, accessToken, userID)
+	if result != nil {
 		return result, accessToken, nil
-	} else if bearerErr != nil && !anyRouterShouldFallbackToCookieCheckin(bearerErr.Error()) {
+	} else if bearerErr != nil && !isUnsupportedCheckinError(bearerErr) && !anyRouterShouldFallbackToCookieCheckin(bearerErr.Error()) {
 		return nil, accessToken, bearerErr
 	}
 
@@ -25,16 +26,31 @@ func checkinAnyRouter(ctx context.Context, siteRecord *model.Site, account *mode
 	if result != nil {
 		return result, accessToken, nil
 	}
+	checkinErr = preferCheckinFailure(bearerErr, checkinErr)
 
 	alternateUserID, _ := anyRouterProbeAlternateUserIDByCookie(ctx, siteRecord, account, accessToken, userID)
 	if alternateUserID > 0 {
-		result, checkinErr = anyRouterTryCheckinWithCookies(ctx, siteRecord, account, accessToken, alternateUserID)
+		var alternateErr error
+		result, alternateErr = anyRouterTryCheckinWithCookies(ctx, siteRecord, account, accessToken, alternateUserID)
 		if result != nil {
 			return result, accessToken, nil
 		}
+		checkinErr = preferCheckinFailure(checkinErr, alternateErr)
 	}
 
+	if isUnsupportedCheckinError(checkinErr) {
+		return newUnsupportedCheckinResult(""), accessToken, nil
+	}
 	return nil, accessToken, checkinErr
+}
+
+// An unavailable fallback route must not hide an authentication or transient
+// failure from another route. Only unanimous, explicit failures prove absence.
+func preferCheckinFailure(current, candidate error) error {
+	if current == nil || (isUnsupportedCheckinError(current) && candidate != nil && !isUnsupportedCheckinError(candidate)) {
+		return candidate
+	}
+	return current
 }
 
 func anyRouterTryCheckinWithBearer(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int) (*model.SiteCheckinResult, error) {
@@ -56,7 +72,7 @@ func anyRouterTryCheckinWithBearer(ctx context.Context, siteRecord *model.Site, 
 	if message := anyRouterExtractResponseMessage(payload); message != "" {
 		return nil, newSiteBusinessError(message)
 	}
-	return nil, nil
+	return nil, newSiteBusinessError("checkin returned an unrecognized response")
 }
 
 func anyRouterTryCheckinWithCookies(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int) (*model.SiteCheckinResult, error) {
@@ -74,16 +90,13 @@ func anyRouterTryCheckinWithCookies(ctx context.Context, siteRecord *model.Site,
 			},
 			account,
 		)
-		if signInErr == nil && signInPayload != nil {
+		if signInErr == nil {
 			if result, ok := anyRouterBuildCheckinResult(signInPayload); ok {
 				return result, nil
 			}
-			if message := anyRouterExtractResponseMessage(signInPayload); message != "" && firstFailure == nil {
-				firstFailure = newSiteBusinessError(message)
-			}
-		} else if signInErr != nil && firstFailure == nil {
-			firstFailure = signInErr
+			signInErr = newSiteBusinessError(firstNonEmptyString(anyRouterExtractResponseMessage(signInPayload), "checkin returned an unrecognized response"))
 		}
+		firstFailure = preferCheckinFailure(firstFailure, signInErr)
 
 		headers := map[string]string{"Cookie": cookie}
 		anyRouterAddUserIDHeaders(headers, userID)
@@ -96,18 +109,13 @@ func anyRouterTryCheckinWithCookies(ctx context.Context, siteRecord *model.Site,
 			headers,
 			account,
 		)
-		if err == nil && payload != nil {
+		if err == nil {
 			if result, ok := anyRouterBuildCheckinResult(payload); ok {
 				return result, nil
 			}
-			if message := anyRouterExtractResponseMessage(payload); message != "" {
-				firstFailure = newSiteBusinessError(message)
-			}
-			continue
+			err = newSiteBusinessError(firstNonEmptyString(anyRouterExtractResponseMessage(payload), "checkin returned an unrecognized response"))
 		}
-		if err != nil {
-			firstFailure = err
-		}
+		firstFailure = preferCheckinFailure(firstFailure, err)
 	}
 
 	if firstFailure == nil {
@@ -133,6 +141,7 @@ func anyRouterShouldFallbackToCookieCheckin(message string) bool {
 		return true
 	}
 	return strings.Contains(text, "unexpected token") ||
+		strings.Contains(text, "unrecognized response") ||
 		strings.Contains(text, "not valid json") ||
 		strings.Contains(text, "<html") ||
 		strings.Contains(text, "new-api-user") ||

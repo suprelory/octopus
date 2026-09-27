@@ -825,8 +825,8 @@ func TestSiteImportMetAPIImportsSiteBasics(t *testing.T) {
 	if direct.APIKey != "sk-direct-token" {
 		t.Fatalf("expected direct account API key, got %q", direct.APIKey)
 	}
-	if direct.AutoCheckin {
-		t.Fatalf("expected direct account auto checkin disabled")
+	if !direct.AutoCheckin {
+		t.Fatalf("expected explicit imported auto checkin preference to be retained")
 	}
 
 	result, err = SiteImportMetAPI(ctx, mustJSONMarshal(t, buildMetAPIImportPayload("metapi-user-renamed")))

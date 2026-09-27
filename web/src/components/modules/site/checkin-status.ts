@@ -1,8 +1,4 @@
-import {
-  type Site,
-  type SiteAccount,
-  SitePlatform,
-} from "@/api/endpoints/site";
+import type { Site, SiteAccount } from "@/api/endpoints/site";
 import {
   createEmptyCheckinSummary,
   recordCheckinSummaryAccount,
@@ -31,22 +27,23 @@ function normalizeExecutionStatus(status?: string | null) {
   return status || "idle";
 }
 
-export function sitePlatformSupportsCheckin(platform: Site["platform"]) {
-  switch (platform) {
-    case SitePlatform.DoneHub:
-    case SitePlatform.Sub2API:
-    case SitePlatform.API:
-      return false;
-    default:
-      return true;
-  }
+export type SiteCheckinPolicy = Pick<Site, "checkin_capability" | "checkin_mode" | "checkin_http_enabled">;
+
+export function siteHasCheckinEnabled(site: SiteCheckinPolicy) {
+  if (site.checkin_mode === "disabled") return false;
+  return site.checkin_capability?.enabled ?? (site.checkin_mode === "enabled" || !!site.checkin_http_enabled);
+}
+
+export function siteCanVerifyCheckin(site: SiteCheckinPolicy) {
+  if (site.checkin_mode === "disabled") return false;
+  return site.checkin_capability?.can_verify ?? true;
 }
 
 export function accountHasCheckinEnabled(
   account: Pick<SiteAccount, "auto_checkin">,
-  platform: Site["platform"],
+  site: SiteCheckinPolicy,
 ) {
-  return sitePlatformSupportsCheckin(platform) && account.auto_checkin;
+  return siteHasCheckinEnabled(site) && account.auto_checkin;
 }
 
 export function accountIsDisabled(
@@ -85,7 +82,7 @@ function happenedToday(value: string | null | undefined, now: Date, timeZone: st
 }
 
 export function deriveCheckinStatus(
-  site: Pick<Site, "enabled" | "platform" | "checkin_timezone">,
+  site: Pick<Site, "enabled" | "checkin_timezone"> & SiteCheckinPolicy,
   account: Pick<
     SiteAccount,
     "enabled" | "auto_checkin" | "last_checkin_at" | "last_checkin_success_at" | "last_checkin_status"
@@ -96,7 +93,7 @@ export function deriveCheckinStatus(
     return "disabled";
   }
 
-  if (!accountHasCheckinEnabled(account, site.platform)) {
+  if (!accountHasCheckinEnabled(account, site)) {
     return null;
   }
 
@@ -120,7 +117,7 @@ export function deriveCheckinStatus(
 }
 
 export function accountMatchesCheckinFilters(
-  site: Pick<Site, "enabled" | "platform" | "checkin_timezone">,
+  site: Pick<Site, "enabled" | "checkin_timezone"> & SiteCheckinPolicy,
   account: Pick<
     SiteAccount,
     | "enabled"

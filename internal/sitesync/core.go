@@ -225,7 +225,7 @@ func CheckinAllWithOptions(ctx context.Context, opts SiteBatchOptions) SiteBatch
 				summary.recordFailure(item.site.ID, item.site.Platform, item.account.ID, sanitizeSiteError(scheduleErr))
 				continue
 			}
-			if nextAt != nil && now.Before(*nextAt) {
+			if nextAt == nil || now.Before(*nextAt) {
 				summary.clearCurrent()
 				summary.emitProgress()
 				summary.recordSkip(item.site.ID, item.site.Platform, SiteBatchReasonScheduledLater, 1)
@@ -278,7 +278,7 @@ func eligibleCheckinAccounts(sites []model.Site) []siteBatchAccount {
 	items := make([]siteBatchAccount, 0)
 	for siteIndex := range sites {
 		siteRecord := &sites[siteIndex]
-		if !siteRecord.Enabled {
+		if !siteRecord.Enabled || !siteRecord.ResolveCheckinCapability().Enabled {
 			continue
 		}
 		for accountIndex := range siteRecord.Accounts {

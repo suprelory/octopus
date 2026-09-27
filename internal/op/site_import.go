@@ -162,12 +162,3 @@ func isDirectImportPlatform(platform model.SitePlatform) bool {
 	_, ok := directImportPlatforms[platform]
 	return ok
 }
-
-func platformSupportsCheckin(platform model.SitePlatform) bool {
-	switch platform {
-	case model.SitePlatformDoneHub, model.SitePlatformSub2API, model.SitePlatformAPI:
-		return false
-	default:
-		return true
-	}
-}

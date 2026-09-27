@@ -45,7 +45,7 @@ func TestCheckinResponseStatusAndMessage(t *testing.T) {
 		{"already checked in", 200, `{"success":false,"message":"You have already checked in today"}`, model.SiteExecutionStatusSuccess, "You have already checked in today", ""},
 		{"already checked in Chinese", 200, `{"success":false,"message":"今天已经签到过了"}`, model.SiteExecutionStatusSuccess, "今天已经签到过了", ""},
 		{"success without message", 200, `{"success":true}`, model.SiteExecutionStatusSuccess, "checkin success", ""},
-		{"unsupported endpoint", 404, `{"message":"not found"}`, model.SiteExecutionStatusSkipped, "checkin is not supported by this platform", ""},
+		{"unsupported endpoint", 404, `{"message":"not found"}`, model.SiteExecutionStatusSkipped, "checkin endpoint is unavailable on this site", ""},
 		{"account not found is a server failure", 500, `{"message":"account not found"}`, "", "http 500: account not found", CodeSiteUpstreamHTTPError},
 		{"missing account is not an unsupported endpoint", 404, `{"message":"account not found"}`, "", "http 404: account not found", CodeSiteUpstreamHTTPError},
 		{"404 in message is not the status", 502, `{"message":"upstream account 404 unavailable"}`, "", "http 502: upstream account 404 unavailable", CodeSiteUpstreamHTTPError},

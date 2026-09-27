@@ -259,7 +259,7 @@ func parseMetAPIAccountRow(row rawImportObject, sites map[int]importedSiteInput,
 		Username:       asString(row["username"]),
 		Enabled:        metAPIAccountEnabled(row["status"]),
 		AutoSync:       true,
-		AutoCheckin:    asBool(row["checkinEnabled"], true) && platformSupportsCheckin(siteInput.Platform),
+		AutoCheckin:    asBool(row["checkinEnabled"], model.PlatformCheckinDefaults(siteInput.Platform).Enabled),
 		Balance:        asFloat64(row["balance"]),
 		BalanceUsed:    asFloat64(row["balanceUsed"]),
 		PlatformUserID: asIntPointer(extraConfig["platformUserId"]),
@@ -272,7 +272,6 @@ func parseMetAPIAccountRow(row rawImportObject, sites map[int]importedSiteInput,
 		}
 		input.CredentialType = model.SiteCredentialTypeAPIKey
 		input.APIKey = apiToken
-		input.AutoCheckin = false
 		return input, "", true
 	}
 

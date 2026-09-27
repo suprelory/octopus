@@ -27,6 +27,8 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
             expect(state.mutations).toEqual([]);
 
             await dialog.getByLabel('结束时间', { exact: true }).fill('18:00');
+            await dialog.getByRole('combobox', { name: '站点签到能力', exact: true }).click();
+            await page.getByRole('option', { name: '启用', exact: true }).click();
             await dialog.getByRole('switch', { name: '启用自定义 HTTP 签到', exact: true }).check();
             await dialog.getByLabel('请求路径', { exact: true }).fill('/api/checkin/spin?day=today');
             await dialog.getByRole('button', { name: '添加', exact: true }).click();
@@ -45,7 +47,7 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
                 method: 'POST', path: '/api/v1/site/update', body: {
                     id: 1, name: 'Updated site', platform: 'new-api', base_url: 'https://site-1.example',
                     enabled: true, proxy_mode: 'direct', proxy_config_id: null,
-                    external_checkin_url: null, checkin_http_enabled: true, checkin_http_method: 'POST',
+                    external_checkin_url: null, checkin_mode: 'enabled', checkin_http_enabled: true, checkin_http_method: 'POST',
                     checkin_http_path: '/api/checkin/spin?day=today', checkin_http_body: '{"source":"{{username}}"}',
                     checkin_http_headers: [{ header_key: 'X-Checkin-Mode', header_value: 'daily' }],
                     checkin_timezone: 'UTC', checkin_window_start: '09:00',

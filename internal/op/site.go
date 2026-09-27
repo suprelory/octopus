@@ -86,6 +86,10 @@ func SiteCreate(site *model.Site, ctx context.Context) error {
 	if err := site.Validate(); err != nil {
 		return err
 	}
+	// Capability evidence can only originate from an actual upstream execution.
+	site.CheckinVerificationStatus = model.SiteCheckinSupportUnknown
+	site.CheckinVerificationFingerprint = ""
+	site.CheckinVerifiedAt = nil
 	if site.ProxyMode == model.ProxyUsageModePool && site.ProxyConfigID != nil {
 		if _, err := ProxyURLForConfig(*site.ProxyConfigID, ctx); err != nil {
 			return err
@@ -153,6 +157,10 @@ func SiteUpdate(req *model.SiteUpdateRequest, ctx context.Context) (*model.Site,
 	if req.CheckinHTTPEnabled != nil {
 		merged.CheckinHTTPEnabled = *req.CheckinHTTPEnabled
 		selectFields = append(selectFields, "checkin_http_enabled")
+	}
+	if req.CheckinMode != nil {
+		merged.CheckinMode = *req.CheckinMode
+		selectFields = append(selectFields, "checkin_mode")
 	}
 	if req.CheckinHTTPMethod != nil {
 		merged.CheckinHTTPMethod = *req.CheckinHTTPMethod
@@ -240,6 +248,9 @@ func SiteUpdate(req *model.SiteUpdateRequest, ctx context.Context) (*model.Site,
 	if req.CheckinHTTPEnabled != nil {
 		updates.CheckinHTTPEnabled = merged.CheckinHTTPEnabled
 	}
+	if req.CheckinMode != nil {
+		updates.CheckinMode = merged.CheckinMode
+	}
 	if req.CheckinHTTPMethod != nil {
 		updates.CheckinHTTPMethod = merged.CheckinHTTPMethod
 	}
@@ -280,6 +291,10 @@ func SiteUpdate(req *model.SiteUpdateRequest, ctx context.Context) (*model.Site,
 		updates.Tags = merged.Tags
 	}
 	if len(selectFields) > 0 {
+		if site.CheckinConfigFingerprint() != merged.CheckinConfigFingerprint() {
+			updates.CheckinVerificationStatus = model.SiteCheckinSupportUnknown
+			selectFields = append(selectFields, "checkin_verification_status", "checkin_verification_fingerprint", "checkin_verified_at")
+		}
 		if err := db.GetDB().WithContext(ctx).
 			Model(&model.Site{}).
 			Where("id = ?", req.ID).

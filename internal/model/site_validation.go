@@ -109,6 +109,9 @@ func (s *Site) Normalize() {
 	if s.CheckinHTTPMethod == "" {
 		s.CheckinHTTPMethod = http.MethodPost
 	}
+	if s.CheckinMode == "" {
+		s.CheckinMode = SiteCheckinModeAuto
+	}
 	s.CheckinHTTPPath = strings.TrimSpace(s.CheckinHTTPPath)
 	s.CheckinHTTPBody = strings.TrimSpace(s.CheckinHTTPBody)
 	for i := range s.CheckinHTTPHeaders {
@@ -143,6 +146,14 @@ func (s *Site) Validate() error {
 	}
 	if err := s.Platform.Validate(); err != nil {
 		return err
+	}
+	switch s.CheckinMode {
+	case SiteCheckinModeAuto, SiteCheckinModeEnabled, SiteCheckinModeDisabled:
+	default:
+		return fmt.Errorf("site checkin mode must be auto, enabled or disabled")
+	}
+	if s.CheckinMode == SiteCheckinModeEnabled && s.CheckinAdapter() == "" {
+		return fmt.Errorf("configure a custom HTTP checkin endpoint before enabling checkin on this platform")
 	}
 	if s.DefaultRouteType == SiteModelRouteTypeUnknown {
 		return fmt.Errorf("site default route type is unsupported")

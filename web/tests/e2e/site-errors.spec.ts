@@ -66,7 +66,7 @@ for (const status of ['failed', 'skipped'] as const) {
         await page.goto('/');
         await page.getByRole('button', { name: '展开账号', exact: true }).click();
         await page.getByRole('button', { name: '更多账号操作', exact: true }).click();
-        await page.getByRole('button', { name: '立即签到', exact: true }).click();
+        await page.getByRole('button', { name: '签到并验证', exact: true }).click();
         const expected = `${status === 'failed' ? '失败' : '跳过'}：${message}`;
         await expect(page.getByText(expected, { exact: true })).toBeVisible();
         await expect(page.getByRole('article').filter({ hasText: 'Primary account' })).toContainText(message);

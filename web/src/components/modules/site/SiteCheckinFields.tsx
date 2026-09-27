@@ -5,11 +5,33 @@ import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Plus, X } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { useSiteCheckinDefaults } from '@/api/endpoints/site-checkin';
+import type { SiteCheckinMode } from '@/api/endpoints/site';
 import type { SiteFormFieldsProps } from './site-form';
 
 export function SiteCheckinFields({ siteForm, setSiteForm }: SiteFormFieldsProps) {
+    const t = useTranslations('siteCheckinCapability');
+    const { data: defaults } = useSiteCheckinDefaults();
+    const platformDefaults = siteForm.platform ? defaults?.[siteForm.platform] : undefined;
     return (
         <>
+            <div className="grid gap-2 rounded-xl border border-border/60 p-4 text-sm">
+                <label htmlFor="site-checkin-mode" className="font-medium">{t('mode')}</label>
+                <Select value={siteForm.checkin_mode} onValueChange={(value: SiteCheckinMode) => setSiteForm((current) => ({ ...current, checkin_mode: value }))}>
+                    <SelectTrigger id="site-checkin-mode" aria-label={t('mode')} className="w-full rounded-xl"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="auto">{t('auto')}</SelectItem>
+                        <SelectItem value="enabled">{t('enabled')}</SelectItem>
+                        <SelectItem value="disabled">{t('disabled')}</SelectItem>
+                    </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">{t('modeHint')}</p>
+                {platformDefaults ? <p className="text-xs text-muted-foreground">{t(platformDefaults.enabled ? 'defaultEnabled' : 'defaultDisabled')}</p> : null}
+                {platformDefaults && !platformDefaults.has_builtin && !siteForm.checkin_http_enabled ? <p className="text-xs text-amber-600">{t('requiresCustom')}</p> : null}
+                <p className="text-xs text-muted-foreground">{t('verifyHint')}</p>
+            </div>
+
             <label className="grid gap-2 text-sm">
                 <span className="font-medium">手动签到 URL</span>
                 <Input

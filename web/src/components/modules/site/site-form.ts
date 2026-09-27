@@ -1,4 +1,4 @@
-import { Site as SiteRecord, SitePlatform, type CustomHeader, type SiteRouteBaseURL } from '@/api/endpoints/site';
+import { Site as SiteRecord, SitePlatform, type CustomHeader, type SiteRouteBaseURL, type SiteCheckinMode } from '@/api/endpoints/site';
 import type { ProxyMode } from '@/api/endpoints/proxy-pool';
 import type { Dispatch, SetStateAction } from 'react';
 
@@ -10,6 +10,7 @@ export type SiteFormState = {
     proxy_mode: Exclude<ProxyMode, 'inherit'>;
     proxy_config_id: number | null;
     external_checkin_url: string;
+    checkin_mode: SiteCheckinMode;
     checkin_http_enabled: boolean;
     checkin_http_method: 'GET' | 'POST';
     checkin_http_path: string;
@@ -62,6 +63,7 @@ export function createEmptySiteForm(): SiteFormState {
         proxy_mode: 'direct',
         proxy_config_id: null,
         external_checkin_url: '',
+        checkin_mode: 'auto',
         checkin_http_enabled: false,
         checkin_http_method: 'POST',
         checkin_http_path: '',
@@ -89,6 +91,7 @@ export function createSiteForm(site: SiteRecord): SiteFormState {
         proxy_mode: site.proxy_mode ?? 'direct',
         proxy_config_id: site.proxy_config_id ?? null,
         external_checkin_url: site.external_checkin_url ?? '',
+        checkin_mode: site.checkin_mode ?? 'auto',
         checkin_http_enabled: site.checkin_http_enabled ?? false,
         checkin_http_method: site.checkin_http_method ?? 'POST',
         checkin_http_path: site.checkin_http_path ?? '',
@@ -118,6 +121,7 @@ export function normalizeSiteRecord(site: SiteRecord): SiteRecord {
         proxy_mode: site.proxy_mode ?? 'direct',
         proxy_config_id: site.proxy_config_id ?? null,
         external_checkin_url: site.external_checkin_url ?? null,
+        checkin_mode: site.checkin_mode ?? 'auto',
         checkin_http_enabled: site.checkin_http_enabled ?? false,
         checkin_http_method: site.checkin_http_method ?? 'POST',
         checkin_http_path: site.checkin_http_path ?? '',

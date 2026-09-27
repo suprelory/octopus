@@ -7,6 +7,9 @@ const (
 	SiteCheckinReasonAlreadyCheckedIn = "already_checked_in"
 	SiteCheckinReasonAlreadyRunning   = "already_running"
 	SiteCheckinReasonUnsupported      = "unsupported_checkin"
+	SiteCheckinReasonDisabled         = "checkin_disabled"
+	SiteCheckinReasonDefaultDisabled  = "checkin_default_disabled"
+	SiteCheckinReasonNotConfigured    = "checkin_not_configured"
 )
 
 // SiteCheckinLog is an immutable outcome, separate from the account's latest

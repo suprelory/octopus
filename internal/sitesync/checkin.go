@@ -3,6 +3,7 @@ package sitesync
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/utils/snowflake"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // All in-process entry points share this guard. The map contains only active
@@ -40,10 +42,14 @@ func releaseAccountCheckin(accountID int) {
 }
 
 func CheckinAccount(ctx context.Context, accountID int) (*model.SiteCheckinResult, error) {
-	return checkinAccountWithTrigger(ctx, accountID, SiteBatchTriggerManual)
+	return runAccountCheckin(ctx, accountID, SiteBatchTriggerManual, true)
 }
 
 func checkinAccountWithTrigger(ctx context.Context, accountID int, trigger SiteBatchTrigger) (*model.SiteCheckinResult, error) {
+	return runAccountCheckin(ctx, accountID, trigger, false)
+}
+
+func runAccountCheckin(ctx context.Context, accountID int, trigger SiteBatchTrigger, allowVerify bool) (*model.SiteCheckinResult, error) {
 	started := time.Now()
 	acquired := acquireAccountCheckin(accountID)
 	if acquired {
@@ -60,6 +66,9 @@ func checkinAccountWithTrigger(ctx context.Context, accountID int, trigger SiteB
 			Status: model.SiteExecutionStatusSkipped, Reason: model.SiteCheckinReasonAlreadyRunning,
 			Message: "checkin is already running",
 		}, "", false)
+	}
+	if result := checkinCapabilitySkip(siteRecord, allowVerify); result != nil {
+		return persistCheckinOutcome(ctx, siteRecord, account, trigger, started, result, "", false)
 	}
 	if trigger == SiteBatchTriggerScheduled {
 		// A manual run or an account edit may have completed after the batch
@@ -111,6 +120,27 @@ func checkinAccountWithTrigger(ctx context.Context, accountID int, trigger SiteB
 	return result, nil
 }
 
+func checkinCapabilitySkip(siteRecord *model.Site, allowVerify bool) *model.SiteCheckinResult {
+	capability := siteRecord.ResolveCheckinCapability()
+	reason, message := "", ""
+	switch {
+	case siteRecord.CheckinMode == model.SiteCheckinModeDisabled:
+		reason, message = model.SiteCheckinReasonDisabled, "checkin is disabled for this site"
+	case !capability.CanVerify:
+		reason, message = model.SiteCheckinReasonNotConfigured, "configure a custom HTTP checkin endpoint for this site"
+	case !allowVerify && !capability.Enabled:
+		if capability.Support == model.SiteCheckinSupportUnsupported {
+			reason, message = model.SiteCheckinReasonUnsupported, "this site's checkin endpoint was verified as unavailable; manually check in to verify again"
+		} else {
+			reason, message = model.SiteCheckinReasonDefaultDisabled, "checkin is disabled by default; enable it for this site or manually check in to verify"
+		}
+	}
+	if reason == "" {
+		return nil
+	}
+	return &model.SiteCheckinResult{Status: model.SiteExecutionStatusSkipped, Reason: reason, Message: message}
+}
+
 func newSuccessfulCheckinResult(message, reward string) *model.SiteCheckinResult {
 	reason := model.SiteCheckinReasonCheckedIn
 	if isAlreadyCheckedInMessage(message) {
@@ -120,6 +150,15 @@ func newSuccessfulCheckinResult(message, reward string) *model.SiteCheckinResult
 	return &model.SiteCheckinResult{
 		Status: model.SiteExecutionStatusSuccess, Reason: reason,
 		Message: firstNonEmptyString(message, "checkin success"), Reward: reward,
+		CapabilityEvidence: model.SiteCheckinSupportSupported,
+	}
+}
+
+func newUnsupportedCheckinResult(message string) *model.SiteCheckinResult {
+	return &model.SiteCheckinResult{
+		Status: model.SiteExecutionStatusSkipped, Reason: model.SiteCheckinReasonUnsupported,
+		Message:            firstNonEmptyString(message, "checkin endpoint is unavailable on this site"),
+		CapabilityEvidence: model.SiteCheckinSupportUnsupported,
 	}
 }
 
@@ -150,13 +189,44 @@ func persistCheckinOutcome(ctx context.Context, siteRecord *model.Site, account 
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	err := db.GetDB().WithContext(persistCtx).Transaction(func(tx *gorm.DB) error {
+		// A request may finish after the URL or policy was edited. Keep the log,
+		// but only attach its evidence to the configuration that was executed.
+		var current model.Site
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&current, siteRecord.ID).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+			// Deleting a site during a request must not discard its actual outcome.
+			return tx.Create(&entry).Error
+		} else if err != nil {
+			return err
+		}
+		if updateAccount && current.CheckinConfigFingerprint() == siteRecord.CheckinConfigFingerprint() &&
+			(result.CapabilityEvidence == model.SiteCheckinSupportSupported || result.CapabilityEvidence == model.SiteCheckinSupportUnsupported) {
+			current.CheckinVerificationStatus = result.CapabilityEvidence
+			current.CheckinVerificationFingerprint = current.CheckinConfigFingerprint()
+			verifiedAt := finished.UTC()
+			current.CheckinVerifiedAt = &verifiedAt
+			if err := tx.Model(&current).Updates(map[string]any{
+				"checkin_verification_status":      current.CheckinVerificationStatus,
+				"checkin_verification_fingerprint": current.CheckinVerificationFingerprint,
+				"checkin_verified_at":              current.CheckinVerifiedAt,
+			}).Error; err != nil {
+				return err
+			}
+		}
+		capability := current.ResolveCheckinCapability()
+		result.Capability = &capability
+		if !capability.Enabled {
+			if err := tx.Model(&model.SiteAccount{}).Where("site_id = ? AND next_auto_checkin_at IS NOT NULL", current.ID).
+				Update("next_auto_checkin_at", nil).Error; err != nil {
+				return err
+			}
+		}
 		if err := tx.Create(&entry).Error; err != nil {
 			return err
 		}
 		if !updateAccount {
 			return nil
 		}
-		return updateAccountCheckinState(tx, siteRecord, account, result.Status, result.Message, accessToken, finished)
+		return updateAccountCheckinState(tx, &current, account, result.Status, result.Message, accessToken, finished)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("persist checkin outcome: %w", err)

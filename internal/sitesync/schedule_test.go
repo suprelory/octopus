@@ -9,6 +9,7 @@ import (
 
 func checkinTestSite() *model.Site {
 	return &model.Site{
+		Platform:           model.SitePlatformOneAPI,
 		Enabled:            true,
 		CheckinTimezone:    "Asia/Shanghai",
 		CheckinWindowStart: "08:00",

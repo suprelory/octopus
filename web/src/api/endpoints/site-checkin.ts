@@ -1,5 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../client';
+import type { SiteCheckinDefaults, SitePlatform } from './site-types';
+
+export function useSiteCheckinDefaults() {
+  return useQuery({
+    queryKey: ['sites', 'checkin-capabilities'],
+    queryFn: () => apiClient.get<Record<SitePlatform, SiteCheckinDefaults>>('/api/v1/site/checkin-capabilities'),
+    staleTime: Infinity,
+  });
+}
 
 export type SiteCheckinLog = {
   id: number;

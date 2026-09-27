@@ -154,7 +154,7 @@ func parseAllAPIHubAccountRow(row rawImportObject) (importedAccountInput, string
 		Name:           username,
 		Enabled:        !asBool(row["disabled"], false),
 		AutoSync:       true,
-		AutoCheckin:    asBool(checkin["autoCheckInEnabled"], true) && platformSupportsCheckin(platform),
+		AutoCheckin:    asBool(checkin["autoCheckInEnabled"], model.PlatformCheckinDefaults(platform).Enabled),
 		RefreshToken:   refreshTokenCandidate,
 		TokenExpiresAt: tokenExpiresAt,
 	}
@@ -176,7 +176,6 @@ func parseAllAPIHubAccountRow(row rawImportObject) (importedAccountInput, string
 		if isDirectImportPlatform(platform) {
 			input.CredentialType = model.SiteCredentialTypeAPIKey
 			input.APIKey = accessTokenCandidate
-			input.AutoCheckin = false
 		} else {
 			input.CredentialType = model.SiteCredentialTypeAccessToken
 			input.AccessToken = accessTokenCandidate
@@ -187,7 +186,6 @@ func parseAllAPIHubAccountRow(row rawImportObject) (importedAccountInput, string
 		}
 		input.CredentialType = model.SiteCredentialTypeAPIKey
 		input.APIKey = accessTokenCandidate
-		input.AutoCheckin = false
 	default:
 		return importedAccountInput{}, fmt.Sprintf("跳过 ALL-API-Hub 账号 %s：authType=%s 不支持离线导入", rowID, firstNonEmptyString(authType, "unknown")), false
 	}

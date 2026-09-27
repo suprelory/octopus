@@ -128,6 +128,8 @@ export function useSiteActions(setExpandedSiteIds: Dispatch<SetStateAction<Set<n
         toast.error(message);
       } else if (result.status === "skipped") {
         toast.warning(message);
+      } else if (result.checkin_capability?.support === "unknown") {
+        toast.warning(t('siteCheckinCapability.inconclusive'));
       } else {
         toast.success(message);
       }

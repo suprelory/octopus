@@ -29,6 +29,8 @@ export function makeSite(id = 1, name = 'Alpha site'): Site {
     return {
         id, name, platform: 'new-api' as Site['platform'], base_url: `https://site-${id}.example`,
         enabled: true, proxy_mode: 'direct', checkin_timezone: 'Asia/Shanghai',
+        checkin_mode: 'auto',
+        checkin_capability: { enabled: true, can_verify: true, default_enabled: true, source: 'platform_default', support: 'unknown' },
         checkin_window_start: '00:00', checkin_window_end: '23:59', is_pinned: false,
         sort_order: 0, global_weight: 1, custom_header: [], route_base_urls: [], tags: [],
         archived: false, accounts: [],
@@ -134,6 +136,12 @@ export async function mockApp(page: Page, nav: NavItem, options: {
             '/api/v1/user/status': null,
             '/api/v1/user/bootstrap': { required: options.bootstrapRequired ?? false },
             '/api/v1/site/list': state.sites,
+            '/api/v1/site/checkin-capabilities': {
+                'new-api': { enabled: true, has_builtin: true }, 'one-api': { enabled: true, has_builtin: true },
+                'one-hub': { enabled: true, has_builtin: true }, 'anyrouter': { enabled: true, has_builtin: true },
+                'done-hub': { enabled: false, has_builtin: true }, 'sub2api': { enabled: false, has_builtin: false },
+                'api': { enabled: false, has_builtin: false },
+            },
             '/api/v1/site-channel/list': state.siteChannels,
             '/api/v1/channel/list': state.channels,
             '/api/v1/stats/daily': options.statsDaily ?? [],

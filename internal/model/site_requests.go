@@ -15,6 +15,7 @@ type SiteUpdateRequest struct {
 	ProxyConfigIDSet   bool                `json:"-"`
 	ExternalCheckinURL *string             `json:"external_checkin_url,omitempty"`
 	ExternalCheckinSet bool                `json:"-"`
+	CheckinMode        *SiteCheckinMode    `json:"checkin_mode,omitempty"`
 	CheckinHTTPEnabled *bool               `json:"checkin_http_enabled,omitempty"`
 	CheckinHTTPMethod  *string             `json:"checkin_http_method,omitempty"`
 	CheckinHTTPPath    *string             `json:"checkin_http_path,omitempty"`
@@ -115,13 +116,15 @@ type SiteSyncGroupResult struct {
 }
 
 type SiteCheckinResult struct {
-	LogID     int64               `json:"log_id,omitempty"`
-	AccountID int                 `json:"account_id"`
-	SiteID    int                 `json:"site_id"`
-	Status    SiteExecutionStatus `json:"status"`
-	Reason    string              `json:"reason"`
-	Message   string              `json:"message"`
-	Reward    string              `json:"reward,omitempty"`
+	LogID              int64                  `json:"log_id,omitempty"`
+	AccountID          int                    `json:"account_id"`
+	SiteID             int                    `json:"site_id"`
+	Status             SiteExecutionStatus    `json:"status"`
+	Reason             string                 `json:"reason"`
+	Message            string                 `json:"message"`
+	Reward             string                 `json:"reward,omitempty"`
+	Capability         *SiteCheckinCapability `json:"checkin_capability,omitempty"`
+	CapabilityEvidence SiteCheckinSupport     `json:"-"`
 }
 
 type SiteBatchRequest struct {

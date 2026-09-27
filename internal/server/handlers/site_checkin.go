@@ -11,6 +11,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func getSiteCheckinCapabilities(c *gin.Context) {
+	resp.Success(c, model.AllPlatformCheckinDefaults())
+}
+
 func listSiteCheckinLogs(c *gin.Context) {
 	filter := op.SiteCheckinLogFilter{
 		Status: model.SiteExecutionStatus(c.Query("status")),

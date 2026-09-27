@@ -26,12 +26,28 @@ func isAlreadyCheckedInMessage(message string) bool {
 }
 
 func isUnsupportedCheckinError(err error) bool {
+	if apperror.IsCode(err, CodeSiteUpstreamBusinessError) {
+		return isUnsupportedCheckinMessage(apperror.Message(err))
+	}
 	if !apperror.IsCode(err, CodeSiteUpstreamHTTPError) || siteErrorStatusCode(err) != http.StatusNotFound {
 		return false
 	}
 	reason, _ := apperror.Params(err)["reason"].(string)
 	switch strings.ToLower(strings.TrimSpace(reason)) {
-	case "not found", "page not found", "404 not found", "404 page not found", "invalid url (post /api/user/checkin)":
+	case "not found", "page not found", "404 not found", "404 page not found", "invalid url (post /api/user/checkin)", "invalid url (post /api/user/sign_in)":
+		return true
+	default:
+		return false
+	}
+}
+
+// Only explicit feature-level responses are evidence. Account, permission and
+// transport failures must not disable check-in for every account on the site.
+func isUnsupportedCheckinMessage(message string) bool {
+	switch strings.ToLower(strings.TrimRight(strings.TrimSpace(message), ".!。！")) {
+	case "checkin is disabled", "check-in is disabled", "checkin is not enabled", "check-in is not enabled",
+		"checkin is not supported", "check-in is not supported", "checkin feature is disabled", "check-in feature is disabled",
+		"签到功能未启用", "签到功能未开启", "签到功能暂未开启", "签到功能已禁用", "签到功能已关闭", "不支持签到", "本站不支持签到":
 		return true
 	default:
 		return false
@@ -60,16 +76,12 @@ func checkinAccountState(ctx context.Context, siteRecord *model.Site, account *m
 	if siteRecord == nil || account == nil {
 		return nil, "", fmt.Errorf("site or account is nil")
 	}
-	if siteRecord.CheckinHTTPEnabled {
+	switch siteRecord.CheckinAdapter() {
+	case model.SiteCheckinAdapterHTTP:
 		return checkinConfiguredHTTP(ctx, siteRecord, account)
-	}
-
-	switch siteRecord.Platform {
-	case model.SitePlatformDoneHub, model.SitePlatformSub2API, model.SitePlatformAPI:
-		return &model.SiteCheckinResult{Status: model.SiteExecutionStatusSkipped, Message: "checkin is not supported by this platform"}, "", nil
-	case model.SitePlatformAnyRouter:
+	case model.SiteCheckinAdapterAnyRouter:
 		return checkinAnyRouter(ctx, siteRecord, account)
-	case model.SitePlatformNewAPI, model.SitePlatformOneAPI, model.SitePlatformOneHub:
+	case model.SiteCheckinAdapterManagement:
 		accessToken, err := resolveManagedAccessToken(ctx, siteRecord, account)
 		if err != nil {
 			return nil, accessToken, err
@@ -77,7 +89,7 @@ func checkinAccountState(ctx context.Context, siteRecord *model.Site, account *m
 		payload, err := requestJSONWithManagedAccessToken(ctx, siteRecord, http.MethodPost, buildSiteURL(siteRecord.BaseURL, "/api/user/checkin"), nil, accessToken, account)
 		if err != nil {
 			if isUnsupportedCheckinError(err) {
-				return &model.SiteCheckinResult{Status: model.SiteExecutionStatusSkipped, Message: "checkin is not supported by this platform"}, accessToken, nil
+				return newUnsupportedCheckinResult(""), accessToken, nil
 			}
 			return nil, accessToken, err
 		}
@@ -86,9 +98,12 @@ func checkinAccountState(ctx context.Context, siteRecord *model.Site, account *m
 		if success || isAlreadyCheckedInMessage(message) {
 			return newSuccessfulCheckinResult(message, checkinRewardString(nestedValue(payload, "data", "reward"))), accessToken, nil
 		}
+		if isUnsupportedCheckinMessage(message) {
+			return newUnsupportedCheckinResult(message), accessToken, nil
+		}
 		return &model.SiteCheckinResult{Status: model.SiteExecutionStatusFailed, Message: firstNonEmptyString(message, "checkin failed")}, accessToken, nil
 	default:
-		return nil, "", newUnsupportedSitePlatformError(siteRecord.Platform)
+		return &model.SiteCheckinResult{Status: model.SiteExecutionStatusSkipped, Reason: model.SiteCheckinReasonNotConfigured, Message: "configure a custom HTTP checkin endpoint for this site"}, "", nil
 	}
 }
 

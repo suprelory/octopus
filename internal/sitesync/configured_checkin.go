@@ -100,15 +100,24 @@ func checkinConfiguredHTTP(ctx context.Context, siteRecord *model.Site, account 
 		message = extractSiteResponseMessage(payload)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		if isJSON && isAlreadyCheckedInMessage(message) {
+		if isJSON && (resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusConflict) && isAlreadyCheckedInMessage(message) {
 			return newSuccessfulCheckinResult(message, ""), token, nil
 		}
-		return nil, token, formatSiteHTTPError(resp.StatusCode, resp.Header, responseBody)
+		err := formatSiteHTTPError(resp.StatusCode, resp.Header, responseBody)
+		if isUnsupportedCheckinError(err) {
+			return newUnsupportedCheckinResult(""), token, nil
+		}
+		return nil, token, err
 	}
 	if !isJSON {
-		return newSuccessfulCheckinResult("HTTP "+resp.Status+" (non-JSON response)", ""), token, nil
+		result := newSuccessfulCheckinResult("HTTP "+resp.Status+" (non-JSON response; checkin support is unverified)", "")
+		result.CapabilityEvidence = model.SiteCheckinSupportUnknown
+		return result, token, nil
 	}
 	if !isAlreadyCheckedInMessage(message) {
+		if !jsonBool(payload["success"]) && isUnsupportedCheckinMessage(message) {
+			return newUnsupportedCheckinResult(message), token, nil
+		}
 		if success, present := payload["success"]; present && success != nil && !jsonBool(success) {
 			return &model.SiteCheckinResult{
 				Status:  model.SiteExecutionStatusFailed,
@@ -116,7 +125,14 @@ func checkinConfiguredHTTP(ctx context.Context, siteRecord *model.Site, account 
 			}, token, nil
 		}
 	}
-	return newSuccessfulCheckinResult(message, checkinRewardString(nestedValue(payload, "data", "reward"))), token, nil
+	result := newSuccessfulCheckinResult(message, checkinRewardString(nestedValue(payload, "data", "reward")))
+	if !jsonBool(payload["success"]) && !isAlreadyCheckedInMessage(message) {
+		// Preserve configured HTTP success semantics, but a generic 2xx/JSON
+		// response (including a login page) does not prove check-in support.
+		result.CapabilityEvidence = model.SiteCheckinSupportUnknown
+		result.Message = firstNonEmptyString(message, "HTTP "+resp.Status+" (checkin support is unverified)")
+	}
+	return result, token, nil
 }
 
 func resolveCheckinHTTPAccessToken(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount) (string, error) {

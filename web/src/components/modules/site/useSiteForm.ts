@@ -160,6 +160,7 @@ export function useSiteForm({ site, onOpenChange, onCreated }: {
                 proxy_config_id:
                     siteForm.proxy_mode === 'pool' ? siteForm.proxy_config_id : null,
                 external_checkin_url: siteForm.external_checkin_url.trim() || null,
+                checkin_mode: siteForm.checkin_mode,
                 checkin_http_enabled: siteForm.checkin_http_enabled,
                 checkin_http_method: siteForm.checkin_http_method,
                 checkin_http_path: siteForm.checkin_http_path.trim(),

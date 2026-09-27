@@ -112,6 +112,19 @@ export type SiteAccount = {
   channel_bindings: SiteChannelBinding[];
 };
 
+export type SiteCheckinMode = "auto" | "enabled" | "disabled";
+
+export type SiteCheckinCapability = {
+  enabled: boolean;
+  can_verify: boolean;
+  default_enabled: boolean;
+  source: "platform_default" | "verified" | "custom_http" | "disabled" | "instance";
+  support: "unknown" | "supported" | "unsupported";
+  verified_at?: string | null;
+};
+
+export type SiteCheckinDefaults = { enabled: boolean; has_builtin: boolean };
+
 export type Site = {
   id: number;
   name: string;
@@ -121,6 +134,8 @@ export type Site = {
   proxy_mode: Exclude<ProxyMode, "inherit">;
   proxy_config_id?: number | null;
   external_checkin_url?: string | null;
+  checkin_mode?: SiteCheckinMode;
+  checkin_capability?: SiteCheckinCapability;
   checkin_http_enabled?: boolean;
   checkin_http_method?: "GET" | "POST";
   checkin_http_path?: string;
@@ -276,6 +291,7 @@ export type SiteManualSyncApplyResult = {
 };
 
 export type SiteCheckinResult = {
+  checkin_capability?: SiteCheckinCapability;
   log_id?: number;
 	account_id: number;
   site_id: number;

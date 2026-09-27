@@ -121,6 +121,9 @@ export type {
   SiteManualSyncPreview,
   SiteManualSyncApplyResult,
   SiteCheckinResult,
+  SiteCheckinMode,
+  SiteCheckinCapability,
+  SiteCheckinDefaults,
   AllAPIHubImportResult,
   MetAPIImportResult,
 } from './site-types';
