@@ -382,18 +382,16 @@ func buildSiteModelRouteDetection(
 
 	supportedEndpointTypes = dedupeStringsPreserveOrder(supportedEndpointTypes)
 	enableGroups = model.NormalizeSiteModelRouteMetadataGroupKeys(enableGroups)
-	heuristicEndpointTypes := inferHeuristicEndpointTypes(modelName, supportedEndpointTypes)
-	if len(supportedEndpointTypes) == 0 && len(enableGroups) == 0 && len(heuristicEndpointTypes) == 0 {
+	if len(supportedEndpointTypes) == 0 && len(enableGroups) == 0 {
 		return siteModelRouteDetection{}, false
 	}
 
-	knownRouteTypes := normalizeSupportedRouteTypes(append(append([]string{}, supportedEndpointTypes...), heuristicEndpointTypes...))
+	knownRouteTypes := normalizeSupportedRouteTypes(supportedEndpointTypes)
 	metadata := model.SiteModelRouteMetadata{
 		Source:                  strings.TrimSpace(source),
 		RouteSupported:          len(knownRouteTypes) > 0,
 		EnableGroups:            enableGroups,
 		SupportedEndpointTypes:  supportedEndpointTypes,
-		HeuristicEndpointTypes:  heuristicEndpointTypes,
 		NormalizedEndpointTypes: routeTypesToStrings(knownRouteTypes),
 	}
 	if metadata.RouteSupported {
@@ -409,30 +407,6 @@ func buildSiteModelRouteDetection(
 		RouteType:       metadata.RouteType,
 		RouteRawPayload: metadata.Marshal(),
 	}, true
-}
-
-func inferHeuristicEndpointTypes(modelName string, supportedEndpointTypes []string) []string {
-	if !shouldHeuristicallyAddOpenAIResponse(modelName) {
-		return nil
-	}
-	if explicitSupportsResponse(supportedEndpointTypes) {
-		return nil
-	}
-	return []string{"/v1/responses"}
-}
-
-func shouldHeuristicallyAddOpenAIResponse(modelName string) bool {
-	lower := strings.ToLower(strings.TrimSpace(modelName))
-	return strings.HasPrefix(lower, "gpt-5")
-}
-
-func explicitSupportsResponse(supportedEndpointTypes []string) bool {
-	for _, endpointType := range supportedEndpointTypes {
-		if routeType, ok := mapSupportedEndpointType(endpointType); ok && routeType == model.SiteModelRouteTypeOpenAIResponse {
-			return true
-		}
-	}
-	return false
 }
 
 func normalizeSupportedRouteTypes(values []string) []model.SiteModelRouteType {

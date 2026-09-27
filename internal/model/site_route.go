@@ -162,6 +162,8 @@ func InferSiteModelRouteType(modelName string) SiteModelRouteType {
 		return SiteModelRouteTypeAnthropic
 	case strings.HasPrefix(lower, "gemini"):
 		return SiteModelRouteTypeGemini
+	case strings.HasPrefix(lower, "gpt"):
+		return SiteModelRouteTypeOpenAIResponse
 	case strings.Contains(lower, "embedding"):
 		return SiteModelRouteTypeOpenAIEmbedding
 	default:

@@ -54,7 +54,7 @@ func TestPickPreferredDetectedRouteType(t *testing.T) {
 	}
 }
 
-func TestBuildSiteModelRouteDetectionAddsHeuristicResponsesForGPT5(t *testing.T) {
+func TestBuildSiteModelRouteDetectionKeepsDeclaredChatForGPT5(t *testing.T) {
 	detection, ok := buildSiteModelRouteDetection(
 		"gpt-5.4",
 		nil,
@@ -63,24 +63,24 @@ func TestBuildSiteModelRouteDetectionAddsHeuristicResponsesForGPT5(t *testing.T)
 		map[string]struct{}{"gpt-5.4": {}},
 	)
 	if !ok {
-		t.Fatalf("expected heuristic response detection to be produced")
+		t.Fatalf("expected declared chat detection to be produced")
 	}
 
 	metadata, ok := model.ParseSiteModelRouteMetadata(detection.RouteRawPayload)
 	if !ok {
 		t.Fatalf("expected route metadata to parse")
 	}
-	if metadata.RouteType != model.SiteModelRouteTypeOpenAIResponse {
-		t.Fatalf("expected heuristic detection route type %q, got %q", model.SiteModelRouteTypeOpenAIResponse, metadata.RouteType)
+	if metadata.RouteType != model.SiteModelRouteTypeOpenAIChat {
+		t.Fatalf("expected declared chat route type %q, got %q", model.SiteModelRouteTypeOpenAIChat, metadata.RouteType)
 	}
 	if len(metadata.SupportedEndpointTypes) != 1 || metadata.SupportedEndpointTypes[0] != "/v1/chat/completions" {
 		t.Fatalf("expected upstream endpoint list to remain intact, got %#v", metadata.SupportedEndpointTypes)
 	}
-	if len(metadata.HeuristicEndpointTypes) != 1 || metadata.HeuristicEndpointTypes[0] != "/v1/responses" {
-		t.Fatalf("expected heuristic endpoint list to record injected response support, got %#v", metadata.HeuristicEndpointTypes)
+	if len(metadata.HeuristicEndpointTypes) != 0 {
+		t.Fatalf("expected no heuristic endpoint list, got %#v", metadata.HeuristicEndpointTypes)
 	}
-	if len(metadata.NormalizedEndpointTypes) != 2 {
-		t.Fatalf("expected normalized endpoint list to include explicit and heuristic routes, got %#v", metadata.NormalizedEndpointTypes)
+	if len(metadata.NormalizedEndpointTypes) != 1 || metadata.NormalizedEndpointTypes[0] != string(model.SiteModelRouteTypeOpenAIChat) {
+		t.Fatalf("expected normalized endpoint list to contain only chat, got %#v", metadata.NormalizedEndpointTypes)
 	}
 }
 
@@ -103,6 +103,18 @@ func TestBuildSiteModelRouteDetectionGuessesRouteFromModelName(t *testing.T) {
 			modelName:              "claude-3-5-sonnet",
 			supportedEndpointTypes: []string{"/vendor/custom"},
 			expected:               model.SiteModelRouteTypeAnthropic,
+		},
+		{
+			name:                   "unmappable endpoint types fall back to gpt responses guess",
+			modelName:              "gpt-4.1",
+			supportedEndpointTypes: []string{"/vendor/custom"},
+			expected:               model.SiteModelRouteTypeOpenAIResponse,
+		},
+		{
+			name:         "gpt groups without endpoint types fall back to responses guess",
+			modelName:    "gpt-5.4",
+			enableGroups: []string{"default"},
+			expected:     model.SiteModelRouteTypeOpenAIResponse,
 		},
 		{
 			name:         "enable groups without endpoint types fall back to chat guess",

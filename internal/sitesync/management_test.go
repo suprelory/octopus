@@ -1027,7 +1027,7 @@ func TestSyncManagementPlatformExpandsModelsToExplicitGroupsWithoutKey(t *testin
 	}
 }
 
-func TestSyncManagementPlatformAddsHeuristicResponsesForGPT5(t *testing.T) {
+func TestSyncManagementPlatformKeepsDeclaredChatForGPT5(t *testing.T) {
 	platformUserID := 7788
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1069,8 +1069,8 @@ func TestSyncManagementPlatformAddsHeuristicResponsesForGPT5(t *testing.T) {
 	if len(snapshot.models) != 1 {
 		t.Fatalf("expected one synced model, got %+v", snapshot.models)
 	}
-	if snapshot.models[0].RouteType != model.SiteModelRouteTypeOpenAIResponse {
-		t.Fatalf("expected gpt-5.4 route type %q, got %q", model.SiteModelRouteTypeOpenAIResponse, snapshot.models[0].RouteType)
+	if snapshot.models[0].RouteType != model.SiteModelRouteTypeOpenAIChat {
+		t.Fatalf("expected gpt-5.4 route type %q, got %q", model.SiteModelRouteTypeOpenAIChat, snapshot.models[0].RouteType)
 	}
 	metadata, ok := model.ParseSiteModelRouteMetadata(snapshot.models[0].RouteRawPayload)
 	if !ok {
@@ -1079,7 +1079,7 @@ func TestSyncManagementPlatformAddsHeuristicResponsesForGPT5(t *testing.T) {
 	if len(metadata.SupportedEndpointTypes) != 1 || metadata.SupportedEndpointTypes[0] != "/v1/chat/completions" {
 		t.Fatalf("expected upstream endpoint types to remain chat-only, got %#v", metadata.SupportedEndpointTypes)
 	}
-	if len(metadata.HeuristicEndpointTypes) != 1 || metadata.HeuristicEndpointTypes[0] != "/v1/responses" {
-		t.Fatalf("expected heuristic endpoint types to record injected responses support, got %#v", metadata.HeuristicEndpointTypes)
+	if len(metadata.HeuristicEndpointTypes) != 0 {
+		t.Fatalf("expected no heuristic endpoint types, got %#v", metadata.HeuristicEndpointTypes)
 	}
 }

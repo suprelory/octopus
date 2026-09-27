@@ -311,11 +311,11 @@ func TestInferSiteModelRouteType(t *testing.T) {
 		{name: "anthropic models stay anthropic", modelName: "claude-3-5-sonnet", expected: SiteModelRouteTypeAnthropic},
 		{name: "gemini models stay gemini", modelName: "gemini-2.0-flash", expected: SiteModelRouteTypeGemini},
 		{name: "embedding models use embedding route", modelName: "text-embedding-3-large", expected: SiteModelRouteTypeOpenAIEmbedding},
-		{name: "gpt 4o defaults to chat without metadata", modelName: "gpt-4o-mini", expected: SiteModelRouteTypeOpenAIChat},
-		{name: "gpt 4.1 defaults to chat without metadata", modelName: "gpt-4.1", expected: SiteModelRouteTypeOpenAIChat},
-		{name: "gpt 5 defaults to chat without metadata", modelName: "gpt-5-mini", expected: SiteModelRouteTypeOpenAIChat},
+		{name: "gpt 4o defaults to responses without metadata", modelName: "gpt-4o-mini", expected: SiteModelRouteTypeOpenAIResponse},
+		{name: "gpt 4.1 defaults to responses without metadata", modelName: "gpt-4.1", expected: SiteModelRouteTypeOpenAIResponse},
+		{name: "gpt 5 defaults to responses without metadata", modelName: "gpt-5-mini", expected: SiteModelRouteTypeOpenAIResponse},
+		{name: "gpt prefix is case insensitive and trimmed", modelName: " GPT-4o ", expected: SiteModelRouteTypeOpenAIResponse},
 		{name: "o series defaults to chat without metadata", modelName: "o3-mini", expected: SiteModelRouteTypeOpenAIChat},
-		{name: "older openai chat models remain chat", modelName: "gpt-4-turbo", expected: SiteModelRouteTypeOpenAIChat},
 		{name: "generic compat models remain chat", modelName: "deepseek-chat", expected: SiteModelRouteTypeOpenAIChat},
 	}
 
