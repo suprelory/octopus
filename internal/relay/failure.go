@@ -107,7 +107,7 @@ func classifyRelayFailureWithContext(ctx context.Context, hasRequestContext bool
 			code, typ, message := responseErrorFields(err)
 			text := strings.ToLower(strings.Join([]string{code, typ, message, relayErrorMessage(err)}, " "))
 			result.Scope = "channel"
-			if strings.Contains(text, "key_quota") || strings.Contains(text, "key_rate_limit") || strings.Contains(text, "api key quota") || strings.Contains(text, "per-key") {
+			if !isBalanceExhaustedText(text) && (isKeyQuotaExhaustedText(text) || strings.Contains(text, "key_quota") || strings.Contains(text, "key_rate_limit") || strings.Contains(text, "api key quota") || strings.Contains(text, "per-key")) {
 				result.Scope = "key"
 			}
 		default:
@@ -147,8 +147,10 @@ func classifyRelayFailureWithContext(ctx context.Context, hasRequestContext bool
 
 	if isQuotaText(text) {
 		return FailureClassification{
-			Class:       FailureQuota,
-			Retryable:   true,
+			Class: FailureQuota,
+			// Exhausted funds cannot recover by retrying the same credential.
+			// The executor can still rotate an exhausted key or switch channels.
+			Retryable:   !isBalanceExhaustedText(text) && !isKeyQuotaExhaustedText(text),
 			Record:      true,
 			Passthrough: failurePassthroughStatus(statusCode),
 			RetryAt:     retryAt,
@@ -232,12 +234,38 @@ func responseErrorFields(err error) (code, typ, message string) {
 }
 
 func isQuotaText(text string) bool {
-	return strings.Contains(text, "insufficient_quota") ||
+	return isBalanceExhaustedText(text) ||
+		isKeyQuotaExhaustedText(text) ||
+		strings.Contains(text, "insufficient_quota") ||
 		strings.Contains(text, "quota exceeded") ||
 		strings.Contains(text, "quota_exceeded") ||
 		strings.Contains(text, "no available account") ||
 		(strings.Contains(text, "billing") && strings.Contains(text, "hard limit")) ||
 		strings.Contains(text, "exceeded your current quota")
+}
+
+func isBalanceExhaustedText(text string) bool {
+	// new-api omits its error code in Claude responses, while sub2api also
+	// reports balance failures under the generic billing_error type/code.
+	return strings.Contains(text, "insufficient_user_quota") ||
+		strings.Contains(text, "insufficient_balance") ||
+		strings.Contains(text, "insufficient account balance") ||
+		strings.Contains(text, "insufficient balance") ||
+		strings.Contains(text, "wallet quota insufficient") ||
+		strings.Contains(text, "用户额度不足") ||
+		strings.Contains(text, "订阅额度不足") ||
+		(strings.Contains(text, "预扣费额度失败") && strings.Contains(text, "用户剩余额度"))
+}
+
+func isKeyQuotaExhaustedText(text string) bool {
+	// pre_consume_token_quota_failed alone is not sufficient: new-api uses
+	// that code for reservation database failures as well as exhausted keys.
+	return strings.Contains(text, "api_key_quota_exhausted") ||
+		strings.Contains(text, "key_quota_exceeded") ||
+		strings.Contains(text, "api key quota exhausted") ||
+		strings.Contains(text, "api key quota exceeded") ||
+		strings.Contains(text, "api key 额度已用完") ||
+		strings.Contains(text, "token quota is not enough")
 }
 
 func isRateLimitText(text string) bool {
