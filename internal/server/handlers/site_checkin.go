@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"net/http"
 	"strconv"
 	"time"
 
@@ -73,4 +74,46 @@ func listSiteCheckinLogs(c *gin.Context) {
 		return
 	}
 	resp.Success(c, page)
+}
+
+func getSiteCheckinStats(c *gin.Context) {
+	filter := op.SiteCheckinLogFilter{}
+	if timezone := c.Query("timezone"); timezone != "" {
+		location, err := time.LoadLocation(timezone)
+		if err != nil {
+			resp.InvalidParam(c)
+			return
+		}
+		filter.Location = location
+	}
+	for name, target := range map[string]*int{"site_id": &filter.SiteID, "account_id": &filter.AccountID} {
+		if raw := c.Query(name); raw != "" {
+			value, err := strconv.Atoi(raw)
+			if err != nil || value <= 0 {
+				resp.InvalidParam(c)
+				return
+			}
+			*target = value
+		}
+	}
+	for name, target := range map[string]**time.Time{"from": &filter.From, "until": &filter.Until} {
+		if raw := c.Query(name); raw != "" {
+			value, err := time.Parse(time.RFC3339Nano, raw)
+			if err != nil {
+				resp.Error(c, http.StatusBadRequest, "invalid "+name+" timestamp")
+				return
+			}
+			*target = &value
+		}
+	}
+	if filter.From != nil && filter.Until != nil && !filter.From.Before(*filter.Until) {
+		resp.InvalidParam(c)
+		return
+	}
+	stats, err := op.SiteCheckinStats(c.Request.Context(), filter)
+	if err != nil {
+		resp.InternalErrorWithLog(c, err)
+		return
+	}
+	resp.Success(c, stats)
 }

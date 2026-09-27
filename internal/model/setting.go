@@ -2,8 +2,10 @@ package model
 
 import (
 	"fmt"
+	"math"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/bestruirui/octopus/internal/clientip"
 )
@@ -53,6 +55,10 @@ const (
 	SettingKeyWebDAVBackupInterval             SettingKey = "webdav_backup_interval"               // WebDAV 自动备份间隔(小时)，0=禁用
 	SettingKeyWebDAVRetentionCount             SettingKey = "webdav_retention_count"               // WebDAV 保留备份份数
 	SettingKeyWebDAVIncludeStats               SettingKey = "webdav_include_stats"                 // WebDAV 备份是否包含统计数据
+	SettingKeyCheckinNotifyEnabled             SettingKey = "checkin_notify_enabled"               // 是否发送定时签到异常通知
+	SettingKeyCheckinNotifyWebhookURL          SettingKey = "checkin_notify_webhook_url"           // 签到异常通知 Webhook
+	SettingKeyCheckinNotifyCooldownSeconds     SettingKey = "checkin_notify_cooldown_seconds"      // 同一账号/原因通知冷却时间（秒）
+	SettingKeyCheckinLowBalanceThreshold       SettingKey = "checkin_low_balance_threshold"        // 低余额通知阈值，0 表示关闭
 )
 
 type Setting struct {
@@ -104,6 +110,10 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyWebDAVBackupInterval, Value: "0"},             // 默认禁用自动备份
 		{Key: SettingKeyWebDAVRetentionCount, Value: "10"},            // 默认保留10份
 		{Key: SettingKeyWebDAVIncludeStats, Value: "true"},            // 默认包含统计数据
+		{Key: SettingKeyCheckinNotifyEnabled, Value: "false"},         // 默认关闭签到异常通知
+		{Key: SettingKeyCheckinNotifyWebhookURL, Value: ""},           // 默认不发送通知
+		{Key: SettingKeyCheckinNotifyCooldownSeconds, Value: "3600"},  // 默认同一账号/原因冷却1小时
+		{Key: SettingKeyCheckinLowBalanceThreshold, Value: "0"},       // 默认关闭低余额通知
 	}
 }
 
@@ -140,6 +150,14 @@ func (s *Setting) Validate() error {
 		return nil
 	case SettingKeyWebDAVRetentionCount, SettingKeyChannelAffinityTTLSeconds:
 		return validateIntMin(s.Value, 1)
+	case SettingKeyCheckinNotifyCooldownSeconds:
+		return validateIntRange(s.Value, 0, 7*24*60*60)
+	case SettingKeyCheckinLowBalanceThreshold:
+		value, err := strconv.ParseFloat(s.Value, 64)
+		if err != nil || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
+			return fmt.Errorf("setting value must be a non-negative number")
+		}
+		return nil
 	case SettingKeyRelayMaxChannelAttempts:
 		return validateIntRange(s.Value, 1, 64)
 	case SettingKeyRelayImagesMaxChannelAttempts, SettingKeyRelayCompactMaxChannelAttempts:
@@ -161,7 +179,7 @@ func (s *Setting) Validate() error {
 			return fmt.Errorf("setting value must be non-negative")
 		}
 		return nil
-	case SettingKeyRelayLogKeepEnabled, SettingKeyResponsesWSEnabled, SettingKeyWebDAVIncludeStats, SettingKeyChannelAffinityEnabled, SettingKeyEmptyResponseDetectionEnabled:
+	case SettingKeyRelayLogKeepEnabled, SettingKeyResponsesWSEnabled, SettingKeyWebDAVIncludeStats, SettingKeyChannelAffinityEnabled, SettingKeyEmptyResponseDetectionEnabled, SettingKeyCheckinNotifyEnabled:
 		if s.Value != "true" && s.Value != "false" {
 			return fmt.Errorf("setting value must be true or false")
 		}
@@ -240,6 +258,16 @@ func (s *Setting) Validate() error {
 		}
 		if parsedURL.Host == "" {
 			return fmt.Errorf("WebDAV URL must have a host")
+		}
+		return nil
+	case SettingKeyCheckinNotifyWebhookURL:
+		s.Value = strings.TrimSpace(s.Value)
+		if s.Value == "" {
+			return nil
+		}
+		parsedURL, err := url.Parse(s.Value)
+		if err != nil || parsedURL.Hostname() == "" || parsedURL.User != nil || parsedURL.Fragment != "" || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
+			return fmt.Errorf("check-in notification webhook URL must be an http or https URL")
 		}
 		return nil
 	}

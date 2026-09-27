@@ -91,6 +91,10 @@ func TestManualFullCheckinPersistsQueryableBatchProgress(t *testing.T) {
 	defer unblock()
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/user/checkin" {
+			http.NotFound(w, r)
+			return
+		}
 		calls.Add(1)
 		close(entered)
 		select {
@@ -160,6 +164,10 @@ func TestCheckinGuardCoversScheduledBatchAndManualRuns(t *testing.T) {
 	unblock := func() { releaseOnce.Do(func() { close(release) }) }
 	var mainCalls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/user/checkin" {
+			http.NotFound(w, r)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		if r.Header.Get("Authorization") == "Bearer checkin-secret-value" {
 			if mainCalls.Add(1) == 1 {

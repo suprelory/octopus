@@ -64,13 +64,20 @@ export function useSiteCheckinBatch(taskID: string | null) {
 }
 
 export function useLatestSiteCheckinBatch() {
+  const queryClient = useQueryClient();
   return useQuery({
     queryKey: ["sites", "checkin-batch", "latest"],
     queryFn: async () => {
       const response = await apiClient.get<SiteCheckinBatchJob | { code?: number }>("/api/v1/site/checkin-batches/latest");
-      return response && typeof response === 'object' && 'status' in response
+      const job = response && typeof response === 'object' && 'status' in response
         ? response as SiteCheckinBatchJob
         : null;
+      const previous = queryClient.getQueryData<SiteCheckinBatchJob | null>(["sites", "checkin-batch", "latest"]);
+      if (job && job.status !== 'queued' && job.status !== 'running'
+          && (previous?.id !== job.id || previous?.status !== job.status)) {
+        invalidateSiteQueries(queryClient);
+      }
+      return job;
     },
     refetchInterval: 5000,
   });

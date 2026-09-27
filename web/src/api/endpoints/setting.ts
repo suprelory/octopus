@@ -43,6 +43,10 @@ export const SettingKey = {
     WebDAVBackupInterval: 'webdav_backup_interval',
     WebDAVRetentionCount: 'webdav_retention_count',
     WebDAVIncludeStats: 'webdav_include_stats',
+    CheckinNotifyEnabled: 'checkin_notify_enabled',
+    CheckinNotifyWebhookURL: 'checkin_notify_webhook_url',
+    CheckinNotifyCooldownSeconds: 'checkin_notify_cooldown_seconds',
+    CheckinLowBalanceThreshold: 'checkin_low_balance_threshold',
 } as const;
 
 /**

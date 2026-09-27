@@ -96,6 +96,13 @@ func checkinAccountWithTrigger(ctx context.Context, accountID int, trigger SiteB
 	if err != nil {
 		return nil, sanitizeSiteError(err)
 	}
+	var balance siteBalanceFetchResult
+	if result.Status == model.SiteExecutionStatusSuccess {
+		balance = refreshAccountBalanceAfterCheckin(ctx, siteRecord, account, accessToken)
+	}
+	if trigger == SiteBatchTriggerScheduled {
+		checkinNotifications.notify(siteRecord, account, result, balance)
+	}
 	if runErr != nil {
 		safeErr := sanitizeSiteError(runErr)
 		return result, apperror.Wrap(apperror.Code(safeErr), result.Message, safeErr).

@@ -71,6 +71,7 @@ export function invalidateSiteQueries(queryClient: ReturnType<typeof useQueryCli
   queryClient.invalidateQueries({ queryKey: ["sites", "list"] });
   queryClient.invalidateQueries({ queryKey: ["sites", "archived"] });
   queryClient.invalidateQueries({ queryKey: ["sites", "checkin-logs"] });
+  queryClient.invalidateQueries({ queryKey: ["sites", "checkin-stats"] });
   queryClient.invalidateQueries({ queryKey: ["site-channel", "list"] });
   queryClient.invalidateQueries({ queryKey: ["channels", "list"] });
   queryClient.invalidateQueries({ queryKey: ["models", "channel"] });

@@ -82,3 +82,42 @@ func TestCheckinLogQueryRejectsInvalidFilters(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckinStatsAPI(t *testing.T) {
+	setupSiteHandlerTestDB(t)
+	row := model.SiteCheckinLog{ID: 1, SiteID: 1, AccountID: 11, SiteName: "Site", Status: model.SiteExecutionStatusSuccess, Reward: "1.25", FinishedAt: time.Now().Add(-time.Second).UTC()}
+	if err := db.GetDB().Create(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		query  string
+		status int
+		reward float64
+	}{
+		{"?timezone=Asia%2FShanghai&site_id=1&account_id=11", 200, 1.25},
+		{"?account_id=99", 200, 0},
+		{"?timezone=Invalid%2FZone", 400, 0},
+		{"?site_id=0", 400, 0}, {"?account_id=oops", 400, 0},
+		{"?from=bad", 400, 0}, {"?until=bad", 400, 0},
+		{"?from=2026-09-28T00:00:00Z&until=2026-09-27T00:00:00Z", 400, 0},
+	} {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/site/checkin-stats"+tc.query, nil)
+		getSiteCheckinStats(c)
+		if w.Code != tc.status {
+			t.Fatalf("query %s: %d %s", tc.query, w.Code, w.Body.String())
+		}
+		if tc.status == 200 {
+			var response struct {
+				Data model.SiteCheckinStats `json:"data"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+				t.Fatal(err)
+			}
+			if response.Data.TotalReward != tc.reward || response.Data.BySite == nil {
+				t.Fatalf("query %s: %s", tc.query, w.Body.String())
+			}
+		}
+	}
+}

@@ -42,6 +42,7 @@ func init() {
 		AddRoute(router.NewRoute("/checkin-batches/latest", http.MethodGet).Handle(getLatestSiteCheckinBatch)).
 		AddRoute(router.NewRoute("/checkin-batches/:id", http.MethodGet).Handle(getSiteCheckinBatch)).
 		AddRoute(router.NewRoute("/checkin-logs", http.MethodGet).Handle(listSiteCheckinLogs)).
+		AddRoute(router.NewRoute("/checkin-stats", http.MethodGet).Handle(getSiteCheckinStats)).
 		AddRoute(router.NewRoute("/last-sync-time", http.MethodGet).Handle(getSiteLastSyncTime)).
 		AddRoute(router.NewRoute("/last-checkin-time", http.MethodGet).Handle(getSiteLastCheckinTime)).
 		AddRoute(router.NewRoute("/:id/available-models", http.MethodGet).Handle(getSiteAvailableModels))

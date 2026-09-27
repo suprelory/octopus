@@ -154,6 +154,11 @@ export async function mockApp(page: Page, nav: NavItem, options: {
             '/api/v1/site/last-sync-time': '',
             '/api/v1/site/last-checkin-time': '',
             '/api/v1/site/checkin-batches/latest': null,
+            '/api/v1/site/checkin-stats': {
+                today_reward: 0, recent_7_days_reward: 0, recent_30_days_reward: 0, total_reward: 0,
+                total_count: 0, success_count: 0, failed_count: 0, skipped_count: 0,
+                invalid_reward_count: 0, unknown_reward_count: 0, timezone: 'Asia/Shanghai', by_site: [],
+            },
             '/api/v1/webdav-backup/list': [],
             '/api/v1/log/site-action-targets': {},
         };

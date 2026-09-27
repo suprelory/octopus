@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { useTranslations } from 'next-intl';
 import { CheckinHistoryDialog } from './CheckinHistoryDialog';
 import { CheckinBatchTaskStatus } from './CheckinBatchTaskStatus';
+import { CheckinStatsPanel } from './CheckinStatsPanel';
 import {
   buildCheckinSummary,
   type CheckinActiveFilterStatus,
@@ -216,6 +217,7 @@ export function CheckinPanel({
       </div>
 
       <CheckinBatchTaskStatus />
+      <CheckinStatsPanel sites={sites ?? []} />
 
       <div className="rounded-2xl border border-border/60 bg-card/60 px-4 py-4 sm:px-5">
         <div className="flex flex-wrap items-center justify-between gap-2">

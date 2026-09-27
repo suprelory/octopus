@@ -2,6 +2,7 @@ package sitesync
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
@@ -10,7 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/utils/log"
 )
 
 const (
@@ -24,29 +27,86 @@ var (
 	logIncomeContentNumberRE = regexp.MustCompile(`[-+]?\d+(?:\.\d+)?`)
 )
 
-func fetchSiteAccountBalance(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int) (float64, float64, float64) {
+type siteBalanceFetchResult struct {
+	balance     float64
+	balanceUsed float64
+	todayIncome float64
+	usedKnown   bool
+	incomeKnown bool
+	ok          bool
+}
+
+// refreshAccountBalanceAfterCheckin performs a bounded, best-effort refresh
+// after the check-in transaction has committed. A failed upstream probe leaves
+// the previous projection untouched, including a legitimate zero balance.
+func refreshAccountBalanceAfterCheckin(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string) siteBalanceFetchResult {
 	if siteRecord == nil || account == nil {
-		return 0, 0, 0
+		return siteBalanceFetchResult{}
+	}
+	refreshCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	result := fetchSiteAccountBalanceResult(refreshCtx, siteRecord, account, accessToken, firstManagedPlatformUserID(account))
+	if !result.ok {
+		return result
+	}
+	updates := map[string]any{"balance": result.balance}
+	if result.usedKnown {
+		updates["balance_used"] = result.balanceUsed
+	}
+	if result.incomeKnown {
+		updates["today_income"] = result.todayIncome
+	}
+	saved := db.GetDB().WithContext(refreshCtx).Model(&model.SiteAccount{}).Where("id = ? AND site_id = ?", account.ID, siteRecord.ID).Updates(updates)
+	if saved.Error != nil {
+		log.Warnf("could not save balance after checkin for account %d: %v", account.ID, saved.Error)
+		return siteBalanceFetchResult{}
+	}
+	if saved.RowsAffected == 0 {
+		return siteBalanceFetchResult{}
+	}
+	account.Balance = result.balance
+	if result.usedKnown {
+		account.BalanceUsed = result.balanceUsed
+	}
+	if result.incomeKnown {
+		account.TodayIncome = result.todayIncome
+	}
+	return result
+}
+
+func fetchSiteAccountBalance(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int) (float64, float64, float64) {
+	result := fetchSiteAccountBalanceResult(ctx, siteRecord, account, accessToken, userID)
+	return result.balance, result.balanceUsed, result.todayIncome
+}
+
+func fetchSiteAccountBalanceResult(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int) siteBalanceFetchResult {
+	if siteRecord == nil || account == nil {
+		return siteBalanceFetchResult{}
 	}
 	switch siteRecord.Platform {
 	case model.SitePlatformOneAPI,
 		model.SitePlatformOneHub:
-		return fetchManagementQuotaBalance(ctx, siteRecord, account, accessToken, userID, false)
+		return fetchManagementQuotaBalanceResult(ctx, siteRecord, account, accessToken, userID, false)
 	case model.SitePlatformNewAPI,
 		model.SitePlatformAnyRouter,
 		model.SitePlatformDoneHub:
-		return fetchManagementQuotaBalance(ctx, siteRecord, account, accessToken, userID, true)
+		return fetchManagementQuotaBalanceResult(ctx, siteRecord, account, accessToken, userID, true)
 	case model.SitePlatformSub2API:
-		balance, used := fetchSub2APIBalance(ctx, siteRecord, account, accessToken)
-		return balance, used, 0
+		balance, used, ok := fetchSub2APIBalanceResult(ctx, siteRecord, account, accessToken)
+		return siteBalanceFetchResult{balance: balance, balanceUsed: used, ok: ok}
 	default:
-		return 0, 0, 0
+		return siteBalanceFetchResult{}
 	}
 }
 
 func fetchManagementQuotaBalance(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int, quotaIsRemaining bool) (float64, float64, float64) {
+	result := fetchManagementQuotaBalanceResult(ctx, siteRecord, account, accessToken, userID, quotaIsRemaining)
+	return result.balance, result.balanceUsed, result.todayIncome
+}
+
+func fetchManagementQuotaBalanceResult(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int, quotaIsRemaining bool) siteBalanceFetchResult {
 	if strings.TrimSpace(accessToken) == "" {
-		return 0, 0, 0
+		return siteBalanceFetchResult{}
 	}
 	knownUserID := userID > 0
 	if !knownUserID {
@@ -94,16 +154,19 @@ func fetchManagementQuotaBalance(ctx context.Context, siteRecord *model.Site, ac
 		}
 	}
 
-	if err != nil || payload == nil {
-		return 0, 0, 0
+	if !isValidUserSelfPayload(payload, err) {
+		return siteBalanceFetchResult{}
 	}
 
 	data, ok := payload["data"].(map[string]any)
 	if !ok {
 		data = payload
 	}
-	quota := jsonFloat(data["quota"])
-	used := jsonFloat(data["used_quota"])
+	quota, quotaKnown := balanceJSONNumber(data["quota"])
+	used, usedKnown := balanceJSONNumber(data["used_quota"])
+	if !quotaKnown || (!quotaIsRemaining && !usedKnown) {
+		return siteBalanceFetchResult{}
+	}
 
 	var balance, balanceUsed float64
 	if quotaIsRemaining {
@@ -118,19 +181,22 @@ func fetchManagementQuotaBalance(ctx context.Context, siteRecord *model.Site, ac
 		balanceUsed = used / siteBalanceQuotaPerUSD
 	}
 
-	todayIncomeRaw, todayIncomeKnown := data["today_income"]
-	todayIncome := 0.0
+	todayIncome, todayIncomeKnown := balanceJSONNumber(data["today_income"])
 	if todayIncomeKnown {
-		todayIncome = jsonFloat(todayIncomeRaw) / siteBalanceQuotaPerUSD
+		todayIncome /= siteBalanceQuotaPerUSD
 	}
 
 	if !todayIncomeKnown && supportsTodayIncomeLogFallback(siteRecord.Platform) {
 		if fallback, ok := fetchTodayIncomeFromLogs(ctx, siteRecord, account, accessToken, userID); ok {
 			todayIncome = fallback
+			todayIncomeKnown = true
 		}
 	}
 
-	return balance, balanceUsed, todayIncome
+	if math.IsInf(balance, 0) || math.IsNaN(balance) {
+		return siteBalanceFetchResult{}
+	}
+	return siteBalanceFetchResult{balance: balance, balanceUsed: balanceUsed, todayIncome: todayIncome, usedKnown: usedKnown, incomeKnown: todayIncomeKnown, ok: true}
 }
 
 func supportsTodayIncomeLogFallback(platform model.SitePlatform) bool {
@@ -159,9 +225,8 @@ func fetchTodayIncomeFromLogs(ctx context.Context, siteRecord *model.Site, accou
 	headers := anyRouterAuthHeaders(accessToken, userID)
 
 	var total float64
-	anyResponse := false
-
 	for _, logType := range logIncomeTypes {
+		complete := false
 		for page := 1; page <= logFallbackMaxPages; page++ {
 			requestURL := fmt.Sprintf("%s?p=%d&page_size=%d&type=%d&token_name=&model_name=&start_timestamp=%d&end_timestamp=%d&group=",
 				baseURL, page, logFallbackPageSize, logType, startTs, endTs)
@@ -169,11 +234,16 @@ func fetchTodayIncomeFromLogs(ctx context.Context, siteRecord *model.Site, accou
 			payload, _, err := anyRouterRequestJSONWithCookies(ctx, siteRecord, http.MethodGet, requestURL, nil,
 				headers, account)
 			if err != nil || payload == nil {
-				break
+				return 0, false
 			}
-			anyResponse = true
+			if success, exists := payload["success"]; exists && !jsonBool(success) {
+				return 0, false
+			}
 
 			items := extractLogItems(payload)
+			if items == nil {
+				return 0, false
+			}
 			for _, item := range items {
 				quotaRaw := jsonFloat(item["quota"])
 				if quotaRaw > 0 {
@@ -184,15 +254,20 @@ func fetchTodayIncomeFromLogs(ctx context.Context, siteRecord *model.Site, accou
 			}
 
 			if len(items) == 0 {
+				complete = true
 				break
 			}
 			if totalCount, ok := extractLogTotalCount(payload); ok && page*logFallbackPageSize >= totalCount {
+				complete = true
 				break
 			}
 		}
+		if !complete {
+			return 0, false
+		}
 	}
 
-	if !anyResponse {
+	if math.IsNaN(total) || math.IsInf(total*1_000_000, 0) {
 		return 0, false
 	}
 	return math.Round(total*1_000_000) / 1_000_000, true
@@ -300,21 +375,44 @@ func isValidUserSelfPayload(payload map[string]any, err error) bool {
 }
 
 func fetchSub2APIBalance(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string) (float64, float64) {
+	balance, used, _ := fetchSub2APIBalanceResult(ctx, siteRecord, account, accessToken)
+	return balance, used
+}
+
+func fetchSub2APIBalanceResult(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string) (float64, float64, bool) {
 	token := stripBearerPrefix(accessToken)
 	if token == "" {
-		return 0, 0
+		return 0, 0, false
 	}
 	payload, err := requestJSON(ctx, siteRecord, "GET", buildSiteURL(siteRecord.BaseURL, "/api/v1/auth/me"), nil, map[string]string{"Authorization": ensureBearer(token)}, account)
 	if err != nil {
-		return 0, 0
+		return 0, 0, false
 	}
 	unwrapped, err := unwrapSub2APIData(payload, "/api/v1/auth/me")
 	if err != nil {
-		return 0, 0
+		return 0, 0, false
 	}
 	data, ok := unwrapped.(map[string]any)
 	if !ok {
-		return 0, 0
+		return 0, 0, false
 	}
-	return jsonFloat(data["balance"]), 0
+	balance, known := balanceJSONNumber(data["balance"])
+	return balance, 0, known
+}
+
+// A missing, null or malformed field is different from a valid zero balance.
+func balanceJSONNumber(value any) (float64, bool) {
+	var number float64
+	var err error
+	switch value := value.(type) {
+	case float64:
+		number = value
+	case json.Number:
+		number, err = value.Float64()
+	case string:
+		number, err = strconv.ParseFloat(strings.TrimSpace(value), 64)
+	default:
+		return 0, false
+	}
+	return number, err == nil && !math.IsNaN(number) && !math.IsInf(number, 0)
 }

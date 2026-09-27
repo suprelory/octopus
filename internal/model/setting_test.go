@@ -2,6 +2,28 @@ package model
 
 import "testing"
 
+func TestCheckinNotificationSettings(t *testing.T) {
+	for _, tc := range []struct {
+		key   SettingKey
+		value string
+		valid bool
+	}{
+		{SettingKeyCheckinNotifyEnabled, "true", true}, {SettingKeyCheckinNotifyEnabled, "yes", false},
+		{SettingKeyCheckinNotifyCooldownSeconds, "0", true}, {SettingKeyCheckinNotifyCooldownSeconds, "604800", true},
+		{SettingKeyCheckinNotifyCooldownSeconds, "-1", false}, {SettingKeyCheckinNotifyCooldownSeconds, "604801", false},
+		{SettingKeyCheckinLowBalanceThreshold, "0.5", true}, {SettingKeyCheckinLowBalanceThreshold, "-1", false},
+		{SettingKeyCheckinLowBalanceThreshold, "NaN", false}, {SettingKeyCheckinLowBalanceThreshold, "Inf", false},
+		{SettingKeyCheckinNotifyWebhookURL, "", true}, {SettingKeyCheckinNotifyWebhookURL, " https://example.com/notify?key=secret ", true},
+		{SettingKeyCheckinNotifyWebhookURL, "file:///tmp/notify", false}, {SettingKeyCheckinNotifyWebhookURL, "https://", false},
+		{SettingKeyCheckinNotifyWebhookURL, "https://user:pass@example.com", false}, {SettingKeyCheckinNotifyWebhookURL, "https://example.com/#secret", false},
+	} {
+		setting := Setting{Key: tc.key, Value: tc.value}
+		if err := setting.Validate(); (err == nil) != tc.valid {
+			t.Errorf("%s = %q: %v", tc.key, tc.value, err)
+		}
+	}
+}
+
 func TestTrustedProxiesSetting(t *testing.T) {
 	defaults := make(map[SettingKey]string)
 	for _, setting := range DefaultSettings() {
