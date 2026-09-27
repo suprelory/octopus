@@ -124,7 +124,7 @@ export function useCheckinSiteAccount() {
         `/api/v1/site/account/checkin/${id}`,
         {},
       ),
-    onSuccess: () => invalidateSiteQueries(queryClient),
+    onSettled: () => invalidateSiteQueries(queryClient),
     onError: (error) => logger.error("站点账号签到失败:", error),
   });
 }

@@ -109,9 +109,36 @@ func DBExportZip(ctx context.Context, w io.Writer, includeLogs, includeStats boo
 		if err := writeZipRelayLogsNDJSON(ctx, zw, conn); err != nil {
 			return err
 		}
+		if err := writeZipSiteCheckinLogsNDJSON(zw, conn); err != nil {
+			return err
+		}
 	}
 
 	return nil
+}
+
+func writeZipSiteCheckinLogsNDJSON(zw *zip.Writer, conn *gorm.DB) error {
+	f, err := zw.Create("site_checkin_logs.ndjson")
+	if err != nil {
+		return err
+	}
+	enc := json.NewEncoder(f)
+	var lastID int64
+	for {
+		var batch []model.SiteCheckinLog
+		if err := conn.Where("id > ?", lastID).Order("id ASC").Limit(dbExportLogBatchSize).Find(&batch).Error; err != nil {
+			return fmt.Errorf("zip read site_checkin_logs: %w", err)
+		}
+		if len(batch) == 0 {
+			return nil
+		}
+		for _, entry := range batch {
+			if err := enc.Encode(entry); err != nil {
+				return err
+			}
+		}
+		lastID = batch[len(batch)-1].ID
+	}
 }
 
 func writeZipJSON(zw *zip.Writer, name string, value any) error {

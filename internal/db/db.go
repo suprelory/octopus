@@ -70,6 +70,7 @@ func initializeSchema(db *gorm.DB) error {
 		&model.ProxyConfiguration{},
 		&model.Site{},
 		&model.SiteAccount{},
+		&model.SiteCheckinLog{},
 		&model.SiteToken{},
 		&model.SiteUserGroup{},
 		&model.SiteModel{},

@@ -57,7 +57,7 @@ func TestInitializeSchemaCreatesCurrentTablesAndPreservesExistingData(t *testing
 	if err := initializeSchema(gormDB); err != nil {
 		t.Fatalf("initialize schema: %v", err)
 	}
-	for _, table := range []string{"channels", "channel_keys", "proxy_configurations", "sites", "site_accounts", "site_models", "groups", "group_items", "settings", "relay_logs", "stats_site_model_hourlies", "ws_response_affinities"} {
+	for _, table := range []string{"channels", "channel_keys", "proxy_configurations", "sites", "site_accounts", "site_checkin_logs", "site_models", "groups", "group_items", "settings", "relay_logs", "stats_site_model_hourlies", "ws_response_affinities"} {
 		if !gormDB.Migrator().HasTable(table) {
 			t.Errorf("missing current table %s", table)
 		}
@@ -69,6 +69,8 @@ func TestInitializeSchemaCreatesCurrentTablesAndPreservesExistingData(t *testing
 	}
 	for _, index := range []struct{ table, name string }{
 		{"site_models", "idx_site_account_group_model"},
+		{"site_checkin_logs", "idx_site_checkin_site_id"},
+		{"site_checkin_logs", "idx_site_checkin_account_id"},
 		{"stats_site_model_hourlies", "idx_stats_site_model_account_hour"},
 	} {
 		if !gormDB.Migrator().HasIndex(index.table, index.name) {

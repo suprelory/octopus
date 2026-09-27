@@ -122,6 +122,19 @@ func (s *dbImportState) importLogs() error {
 		} else {
 			res.RowsAffected["relay_logs"] = n
 		}
+		checkinLogs := make([]model.SiteCheckinLog, 0, len(dump.SiteCheckinLogs))
+		for _, entry := range dump.SiteCheckinLogs {
+			// Deleted sites/accounts have no mapping. Retain their name snapshots,
+			// but never associate their old IDs with unrelated destination rows.
+			entry.SiteID = s.siteIDs[entry.SiteID]
+			entry.AccountID = s.accountIDs[entry.AccountID]
+			checkinLogs = append(checkinLogs, entry)
+		}
+		if n, err := createDoNothing(tx, checkinLogs); err != nil {
+			return fmt.Errorf("import site_checkin_logs: %w", err)
+		} else {
+			res.RowsAffected["site_checkin_logs"] = n
+		}
 	}
 	return nil
 }

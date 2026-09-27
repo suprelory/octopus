@@ -69,6 +69,7 @@ export function normalizeSiteServerList(data: SiteServer[]): Site[] {
 export function invalidateSiteQueries(queryClient: ReturnType<typeof useQueryClient>) {
   queryClient.invalidateQueries({ queryKey: ["sites", "list"] });
   queryClient.invalidateQueries({ queryKey: ["sites", "archived"] });
+  queryClient.invalidateQueries({ queryKey: ["sites", "checkin-logs"] });
   queryClient.invalidateQueries({ queryKey: ["site-channel", "list"] });
   queryClient.invalidateQueries({ queryKey: ["channels", "list"] });
   queryClient.invalidateQueries({ queryKey: ["models", "channel"] });

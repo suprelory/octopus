@@ -81,7 +81,7 @@ func checkinAccountState(ctx context.Context, siteRecord *model.Site, account *m
 		success := jsonBool(payload["success"])
 		message := extractSiteResponseMessage(payload)
 		if success || isAlreadyCheckedInMessage(message) {
-			return &model.SiteCheckinResult{Status: model.SiteExecutionStatusSuccess, Message: firstNonEmptyString(message, "checkin success"), Reward: jsonString(nestedValue(payload, "data", "reward"))}, accessToken, nil
+			return newSuccessfulCheckinResult(message, checkinRewardString(nestedValue(payload, "data", "reward"))), accessToken, nil
 		}
 		return &model.SiteCheckinResult{Status: model.SiteExecutionStatusFailed, Message: firstNonEmptyString(message, "checkin failed")}, accessToken, nil
 	default:

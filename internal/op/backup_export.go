@@ -91,9 +91,27 @@ func DBExportAll(ctx context.Context, includeLogs, includeStats bool) (*model.DB
 		if err := exportRelayLogsPaged(ctx, conn, d); err != nil {
 			return nil, err
 		}
+		if err := exportSiteCheckinLogsPaged(conn, d); err != nil {
+			return nil, err
+		}
 	}
 
 	return d, nil
+}
+
+func exportSiteCheckinLogsPaged(conn *gorm.DB, dump *model.DBDump) error {
+	var lastID int64
+	for {
+		var batch []model.SiteCheckinLog
+		if err := conn.Where("id > ?", lastID).Order("id ASC").Limit(dbExportLogBatchSize).Find(&batch).Error; err != nil {
+			return fmt.Errorf("export site_checkin_logs: %w", err)
+		}
+		if len(batch) == 0 {
+			return nil
+		}
+		dump.SiteCheckinLogs = append(dump.SiteCheckinLogs, batch...)
+		lastID = batch[len(batch)-1].ID
+	}
 }
 
 func exportRelayLogsPaged(ctx context.Context, conn *gorm.DB, d *model.DBDump) error {

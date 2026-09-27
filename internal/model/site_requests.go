@@ -110,9 +110,11 @@ type SiteSyncGroupResult struct {
 }
 
 type SiteCheckinResult struct {
+	LogID     int64               `json:"log_id,omitempty"`
 	AccountID int                 `json:"account_id"`
 	SiteID    int                 `json:"site_id"`
 	Status    SiteExecutionStatus `json:"status"`
+	Reason    string              `json:"reason"`
 	Message   string              `json:"message"`
 	Reward    string              `json:"reward,omitempty"`
 }

@@ -122,11 +122,7 @@ func anyRouterBuildCheckinResult(payload map[string]any) (*model.SiteCheckinResu
 	}
 	message := anyRouterExtractResponseMessage(payload)
 	if jsonBool(payload["success"]) || isAlreadyCheckedInMessage(message) {
-		return &model.SiteCheckinResult{
-			Status:  model.SiteExecutionStatusSuccess,
-			Message: firstNonEmptyString(message, "checkin success"),
-			Reward:  jsonString(nestedValue(payload, "data", "reward")),
-		}, true
+		return newSuccessfulCheckinResult(message, checkinRewardString(nestedValue(payload, "data", "reward"))), true
 	}
 	return nil, false
 }

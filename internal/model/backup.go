@@ -33,7 +33,8 @@ type DBDump struct {
 	StatsAPIKey          []StatsAPIKey          `json:"stats_api_key,omitempty"`
 	StatsSiteModelHourly []StatsSiteModelHourly `json:"stats_site_model_hourly,omitempty"`
 
-	RelayLogs []RelayLog `json:"relay_logs,omitempty"`
+	RelayLogs       []RelayLog       `json:"relay_logs,omitempty"`
+	SiteCheckinLogs []SiteCheckinLog `json:"site_checkin_logs,omitempty"`
 }
 
 type DBImportResult struct {

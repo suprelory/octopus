@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useMemo, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   CalendarCheck2,
   ExternalLink,
   FilterX,
+  History,
   Layers3,
   Tag,
   TrendingUp,
@@ -16,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useTranslations } from 'next-intl';
+import { CheckinHistoryDialog } from './CheckinHistoryDialog';
 import {
   buildCheckinSummary,
   type CheckinActiveFilterStatus,
@@ -136,6 +138,8 @@ export function CheckinPanel({
   onTagFilterChange: (tag: string) => void;
 }) {
   const t = useTranslations('workspace.site');
+  const historyT = useTranslations('siteCheckinHistory');
+  const [historyOpen, setHistoryOpen] = useState(false);
   const summaryNow = useMemo(() => {
     const [year = "", month = "", day = ""] = statusDayKey.split("-");
     const parsed = new Date(Number(year), Number(month), Number(day));
@@ -238,6 +242,10 @@ export function CheckinPanel({
             })}
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="ghost" size="sm" className="rounded-xl text-xs" onClick={() => setHistoryOpen(true)}>
+              <History className="size-4" />
+              {historyT('title')}
+            </Button>
             {hasActiveFilters ? (
               <Button
                 type="button"
@@ -292,6 +300,7 @@ export function CheckinPanel({
           </div>
         ) : null}
       </div>
+      {historyOpen ? <CheckinHistoryDialog sites={sites ?? []} onOpenChange={setHistoryOpen} /> : null}
     </section>
   );
 }

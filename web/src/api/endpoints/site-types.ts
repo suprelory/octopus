@@ -270,9 +270,11 @@ export type SiteManualSyncApplyResult = {
 };
 
 export type SiteCheckinResult = {
-  account_id: number;
+  log_id?: number;
+	account_id: number;
   site_id: number;
-  status: string;
+	status: string;
+  reason?: string;
   message: string;
   reward?: string;
 };

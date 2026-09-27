@@ -175,11 +175,10 @@ func updateAccountSyncState(ctx context.Context, accountID int, status model.Sit
 	return db.GetDB().WithContext(ctx).Model(&model.SiteAccount{}).Where("id = ?", accountID).Updates(updatePayload).Error
 }
 
-func updateAccountCheckinState(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, status model.SiteExecutionStatus, message string, accessToken string) error {
+func updateAccountCheckinState(tx *gorm.DB, siteRecord *model.Site, account *model.SiteAccount, status model.SiteExecutionStatus, message string, accessToken string, now time.Time) error {
 	if siteRecord == nil || account == nil {
 		return fmt.Errorf("site or account is nil")
 	}
-	now := time.Now()
 	updatePayload := map[string]any{
 		"last_checkin_at":      &now,
 		"last_checkin_status":  status,
@@ -208,5 +207,5 @@ func updateAccountCheckinState(ctx context.Context, siteRecord *model.Site, acco
 	if strings.TrimSpace(accessToken) != "" {
 		updatePayload["access_token"] = strings.TrimSpace(accessToken)
 	}
-	return db.GetDB().WithContext(ctx).Model(&model.SiteAccount{}).Where("id = ?", account.ID).Updates(updatePayload).Error
+	return tx.Model(&model.SiteAccount{}).Where("id = ?", account.ID).Updates(updatePayload).Error
 }

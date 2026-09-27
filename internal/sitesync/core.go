@@ -101,35 +101,6 @@ func SyncAccount(ctx context.Context, accountID int) (*model.SiteSyncResult, err
 	return result, nil
 }
 
-func CheckinAccount(ctx context.Context, accountID int) (*model.SiteCheckinResult, error) {
-	siteRecord, account, err := loadSiteAccount(ctx, accountID)
-	if err != nil {
-		return nil, sanitizeSiteError(err)
-	}
-
-	result, resolvedAccessToken, err := checkinAccountState(ctx, siteRecord, account)
-	if err != nil {
-		status := model.SiteExecutionStatusFailed
-		message := sanitizeSiteStatusMessage(err)
-		updateErr := updateAccountCheckinState(ctx, siteRecord, account, status, message, resolvedAccessToken)
-		if updateErr != nil {
-			return nil, sanitizeSiteError(updateErr)
-		}
-		return &model.SiteCheckinResult{AccountID: account.ID, SiteID: siteRecord.ID, Status: status, Message: message}, sanitizeSiteError(err)
-	}
-
-	result.AccountID = account.ID
-	result.SiteID = siteRecord.ID
-	result.Message = sanitizeSiteStatusText(result.Message)
-	if err := updateAccountCheckinState(ctx, siteRecord, account, result.Status, result.Message, resolvedAccessToken); err != nil {
-		return nil, sanitizeSiteError(err)
-	}
-	if result.Status == model.SiteExecutionStatusFailed {
-		return result, newSiteBusinessError(result.Message)
-	}
-	return result, nil
-}
-
 // 全量同步/签到的上次执行时间（含定时与手动触发），仅内存记录，重启后清零
 var (
 	lastBatchTimeMu    sync.RWMutex
@@ -252,7 +223,7 @@ func CheckinAllWithOptions(ctx context.Context, opts SiteBatchOptions) SiteBatch
 			recordBatchCanceledSkips(summary, items[i:])
 			return *summary
 		}
-		result, err := CheckinAccount(ctx, item.account.ID)
+		result, err := checkinAccountWithTrigger(ctx, item.account.ID, trigger)
 		if err != nil {
 			summary.recordFailure(item.site.ID, item.site.Platform, item.account.ID, err)
 			if IsCloudflareProtectionError(err) || siteBatchReason(err) == SiteBatchReasonCloudflareProtection {
@@ -261,7 +232,7 @@ func CheckinAllWithOptions(ctx context.Context, opts SiteBatchOptions) SiteBatch
 			continue
 		}
 		if result.Status == model.SiteExecutionStatusSkipped {
-			summary.recordSkip(item.site.ID, item.site.Platform, SiteBatchReasonUnsupportedCheckin, 1)
+			summary.recordSkip(item.site.ID, item.site.Platform, SiteBatchReason(result.Reason), 1)
 			continue
 		}
 		summary.recordResult(item.site.ID, item.site.Platform, item.account.ID, result.Status, result.Message)
