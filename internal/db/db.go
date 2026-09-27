@@ -71,6 +71,7 @@ func initializeSchema(db *gorm.DB) error {
 		&model.Site{},
 		&model.SiteAccount{},
 		&model.SiteCheckinLog{},
+		&model.SiteCheckinBatchJob{},
 		&model.SiteToken{},
 		&model.SiteUserGroup{},
 		&model.SiteModel{},
@@ -100,6 +101,44 @@ func initializeSchema(db *gorm.DB) error {
 	}
 	if err := ensureSiteCheckinHTTPColumns(db); err != nil {
 		return err
+	}
+	if err := ensureSiteCheckinBatchJobSchema(db); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureSiteCheckinBatchJobSchema(db *gorm.DB) error {
+	if !db.Migrator().HasColumn(&model.SiteCheckinLog{}, "BatchJobID") {
+		if err := db.Migrator().AddColumn(&model.SiteCheckinLog{}, "BatchJobID"); err != nil {
+			return fmt.Errorf("add site checkin log batch job id: %w", err)
+		}
+	}
+	if !db.Migrator().HasIndex(&model.SiteCheckinLog{}, "idx_site_checkin_batch_job_id") {
+		if err := db.Migrator().CreateIndex(&model.SiteCheckinLog{}, "BatchJobID"); err != nil {
+			return fmt.Errorf("create site checkin log batch job index: %w", err)
+		}
+	}
+
+	var interruptedCount int64
+	if err := db.Model(&model.SiteCheckinBatchJob{}).
+		Where("status IN ?", []model.SiteCheckinBatchJobStatus{model.SiteCheckinBatchJobStatusQueued, model.SiteCheckinBatchJobStatusRunning}).
+		Count(&interruptedCount).Error; err != nil {
+		return fmt.Errorf("count unfinished site checkin batch jobs: %w", err)
+	}
+	if interruptedCount == 0 {
+		return nil
+	}
+	now := time.Now().UTC()
+	if err := db.Model(&model.SiteCheckinBatchJob{}).
+		Where("status IN ?", []model.SiteCheckinBatchJobStatus{model.SiteCheckinBatchJobStatusQueued, model.SiteCheckinBatchJobStatusRunning}).
+		Updates(map[string]any{
+			"status":        model.SiteCheckinBatchJobStatusInterrupted,
+			"error_message": "server restarted before the batch finished",
+			"updated_at":    now,
+			"finished_at":   now,
+		}).Error; err != nil {
+		return fmt.Errorf("mark unfinished site checkin batch jobs interrupted: %w", err)
 	}
 	return nil
 }

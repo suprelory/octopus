@@ -136,7 +136,7 @@ func persistCheckinOutcome(ctx context.Context, siteRecord *model.Site, account 
 		SiteName: siteRecord.Name, AccountName: account.Name, Platform: siteRecord.Platform,
 		Source: string(trigger), Status: result.Status, Reason: result.Reason,
 		Message: result.Message, Reward: result.Reward, DurationMs: finished.Sub(started).Milliseconds(),
-		StartedAt: started.UTC(), FinishedAt: finished.UTC(),
+		StartedAt: started.UTC(), FinishedAt: finished.UTC(), BatchJobID: siteBatchTaskID(ctx),
 	}
 	// A client disconnect or a batch deadline must not discard an upstream
 	// outcome that has already happened. Bound this final database write alone.

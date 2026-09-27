@@ -4,6 +4,30 @@ import { logger } from "@/lib/logger";
 import { CustomHeader } from './site-types';
 import { invalidateSiteQueries } from './site-query';
 
+export type SiteCheckinBatchJob = {
+  id: string;
+  status: 'queued' | 'running' | 'completed' | 'completed_with_errors' | 'canceled' | 'failed' | 'interrupted';
+  trigger: string;
+  total: number;
+  attempted: number;
+  success: number;
+  partial: number;
+  failed: number;
+  skipped: number;
+  warnings: number;
+  canceled: boolean;
+  cancel_reason?: string;
+  current_site_id?: number;
+  current_site_name?: string;
+  current_account_id?: number;
+  current_account_name?: string;
+  error_message?: string;
+  duration_ms: number;
+  started_at: string;
+  updated_at: string;
+  finished_at?: string;
+};
+
 export function useSyncAllSites() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -17,9 +41,38 @@ export function useCheckinAllSites() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async () =>
-      apiClient.post<null>("/api/v1/site/checkin-all", {}),
-    onSuccess: () => invalidateSiteQueries(queryClient),
+      apiClient.post<SiteCheckinBatchJob>("/api/v1/site/checkin-all", {}),
+    onSuccess: (job) => {
+      queryClient.setQueryData(["sites", "checkin-batch", "latest"], job);
+      void queryClient.invalidateQueries({ queryKey: ["sites", "checkin-batch", "latest"] });
+      invalidateSiteQueries(queryClient);
+    },
     onError: (error) => logger.error("站点批量签到失败:", error),
+  });
+}
+
+export function useSiteCheckinBatch(taskID: string | null) {
+  return useQuery({
+    queryKey: ["sites", "checkin-batch", taskID],
+    queryFn: () => apiClient.get<SiteCheckinBatchJob>(`/api/v1/site/checkin-batches/${taskID}`),
+    enabled: Boolean(taskID),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return taskID && (status === 'queued' || status === 'running') ? 1500 : false;
+    },
+  });
+}
+
+export function useLatestSiteCheckinBatch() {
+  return useQuery({
+    queryKey: ["sites", "checkin-batch", "latest"],
+    queryFn: async () => {
+      const response = await apiClient.get<SiteCheckinBatchJob | { code?: number }>("/api/v1/site/checkin-batches/latest");
+      return response && typeof response === 'object' && 'status' in response
+        ? response as SiteCheckinBatchJob
+        : null;
+    },
+    refetchInterval: 5000,
   });
 }
 

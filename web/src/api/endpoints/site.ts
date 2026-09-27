@@ -137,9 +137,12 @@ export {
 export {
   useSyncAllSites,
   useCheckinAllSites,
+  useSiteCheckinBatch,
+  useLatestSiteCheckinBatch,
   useSiteLastSyncTime,
   useSiteLastCheckinTime,
   useSiteBatchAction,
   useSiteBatchEdit,
 } from './site-batch';
+export type { SiteCheckinBatchJob } from './site-batch';
 export { useImportAllAPIHub, useImportMetAPI } from './site-import';

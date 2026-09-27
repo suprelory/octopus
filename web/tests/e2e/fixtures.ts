@@ -153,6 +153,7 @@ export async function mockApp(page: Page, nav: NavItem, options: {
             '/api/v1/channel/last-sync-time': '',
             '/api/v1/site/last-sync-time': '',
             '/api/v1/site/last-checkin-time': '',
+            '/api/v1/site/checkin-batches/latest': null,
             '/api/v1/webdav-backup/list': [],
             '/api/v1/log/site-action-targets': {},
         };

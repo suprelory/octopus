@@ -38,6 +38,9 @@ func init() {
 		AddRoute(router.NewRoute("/account/checkin/:id", http.MethodPost).Handle(checkinSiteAccount)).
 		AddRoute(router.NewRoute("/sync-all", http.MethodPost).Handle(syncAllSiteAccounts)).
 		AddRoute(router.NewRoute("/checkin-all", http.MethodPost).Handle(checkinAllSiteAccounts)).
+		AddRoute(router.NewRoute("/checkin-batches", http.MethodGet).Handle(listSiteCheckinBatches)).
+		AddRoute(router.NewRoute("/checkin-batches/latest", http.MethodGet).Handle(getLatestSiteCheckinBatch)).
+		AddRoute(router.NewRoute("/checkin-batches/:id", http.MethodGet).Handle(getSiteCheckinBatch)).
 		AddRoute(router.NewRoute("/checkin-logs", http.MethodGet).Handle(listSiteCheckinLogs)).
 		AddRoute(router.NewRoute("/last-sync-time", http.MethodGet).Handle(getSiteLastSyncTime)).
 		AddRoute(router.NewRoute("/last-checkin-time", http.MethodGet).Handle(getSiteLastCheckinTime)).
@@ -448,10 +451,66 @@ func syncAllSiteAccounts(c *gin.Context) {
 }
 
 func checkinAllSiteAccounts(c *gin.Context) {
-	safe.Go("site-checkin-all", func() {
-		sitesvc.CheckinAllWithOptions(context.Background(), sitesync.SiteBatchOptions{Trigger: sitesync.SiteBatchTriggerManual})
-	})
-	resp.Success(c, nil)
+	job, err := sitesvc.StartCheckinBatch(c.Request.Context())
+	if err != nil {
+		resp.InternalErrorWithLog(c, err)
+		return
+	}
+	resp.Success(c, job)
+}
+
+func getSiteCheckinBatch(c *gin.Context) {
+	taskID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || taskID <= 0 {
+		resp.InvalidParam(c)
+		return
+	}
+	job, err := sitesvc.GetCheckinBatch(c.Request.Context(), taskID)
+	if err != nil {
+		resp.InternalErrorWithLog(c, err)
+		return
+	}
+	if job == nil {
+		resp.NotFound(c)
+		return
+	}
+	resp.Success(c, job)
+}
+
+func getLatestSiteCheckinBatch(c *gin.Context) {
+	job, err := sitesvc.LatestCheckinBatch(c.Request.Context())
+	if err != nil {
+		resp.InternalErrorWithLog(c, err)
+		return
+	}
+	resp.Success(c, job)
+}
+
+func listSiteCheckinBatches(c *gin.Context) {
+	limit := 20
+	if raw := c.Query("limit"); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value <= 0 || value > 100 {
+			resp.InvalidParam(c)
+			return
+		}
+		limit = value
+	}
+	var beforeID int64
+	if raw := c.Query("before_id"); raw != "" {
+		value, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || value <= 0 {
+			resp.InvalidParam(c)
+			return
+		}
+		beforeID = value
+	}
+	page, err := sitesvc.ListCheckinBatches(c.Request.Context(), limit, beforeID)
+	if err != nil {
+		resp.InternalErrorWithLog(c, err)
+		return
+	}
+	resp.Success(c, page)
 }
 
 func getSiteLastSyncTime(c *gin.Context) {

@@ -168,15 +168,18 @@ func syncBatchAccounts(ctx context.Context, items []siteBatchAccount, opts SiteB
 	// Individual account messages are stored on the account status; console logs
 	// stay aggregated to avoid leaking upstream HTML and overwhelming operators.
 	summary := newSiteBatchSummary(SiteBatchPhaseSync, opts, len(items))
+	summary.emitProgress()
 	defer summary.emitLog()
 	for i := 0; i < len(items); i++ {
 		item := items[i]
+		summary.setCurrent(item)
 		if !waitSiteBatchInterval(ctx, 500*time.Millisecond) {
 			summary.markCanceled(ctx.Err())
 			recordBatchCanceledSkips(summary, items[i:])
 			return *summary
 		}
 		result, err := SyncAccount(ctx, item.account.ID)
+		summary.clearCurrent()
 		if err != nil {
 			summary.recordFailure(item.site.ID, item.site.Platform, item.account.ID, err)
 			if IsCloudflareProtectionError(err) || siteBatchReason(err) == SiteBatchReasonCloudflareProtection {
@@ -195,35 +198,48 @@ func CheckinAll(ctx context.Context) {
 
 func CheckinAllWithOptions(ctx context.Context, opts SiteBatchOptions) SiteBatchSummary {
 	trigger := normalizedSiteBatchTrigger(opts.Trigger)
+	if opts.TaskID > 0 {
+		ctx = withSiteBatchTaskID(ctx, opts.TaskID)
+	}
 	sites, err := op.SiteList(ctx)
 	if err != nil {
-		log.Warnw("sitesync.checkin.list_failed", "trigger", string(trigger), "reason", string(siteBatchReason(err)), "message", sanitizeSiteStatusMessage(err))
-		return SiteBatchSummary{Phase: SiteBatchPhaseCheckin, Trigger: trigger}
+		message := sanitizeSiteStatusMessage(err)
+		log.Warnw("sitesync.checkin.list_failed", "trigger", string(trigger), "reason", string(siteBatchReason(err)), "message", message)
+		return SiteBatchSummary{Phase: SiteBatchPhaseCheckin, Trigger: trigger, ErrorMessage: message}
 	}
 	defer markLastCheckinAllTime()
 	items := eligibleCheckinAccounts(sites)
 	summary := newSiteBatchSummary(SiteBatchPhaseCheckin, opts, len(items))
+	summary.emitProgress()
 	defer summary.emitLog()
 	now := time.Now()
 	for i := 0; i < len(items); i++ {
 		item := items[i]
+		summary.setCurrent(item)
+		summary.emitProgress()
 		if trigger == SiteBatchTriggerScheduled {
 			nextAt, scheduleErr := ensureAccountCheckinSchedule(ctx, item.site, item.account, now)
 			if scheduleErr != nil {
+				summary.clearCurrent()
+				summary.emitProgress()
 				summary.recordFailure(item.site.ID, item.site.Platform, item.account.ID, sanitizeSiteError(scheduleErr))
 				continue
 			}
 			if nextAt != nil && now.Before(*nextAt) {
+				summary.clearCurrent()
+				summary.emitProgress()
 				summary.recordSkip(item.site.ID, item.site.Platform, SiteBatchReasonScheduledLater, 1)
 				continue
 			}
 		}
 		if !waitSiteBatchInterval(ctx, 500*time.Millisecond) {
+			summary.clearCurrent()
 			summary.markCanceled(ctx.Err())
 			recordBatchCanceledSkips(summary, items[i:])
 			return *summary
 		}
 		result, err := checkinAccountWithTrigger(ctx, item.account.ID, trigger)
+		summary.clearCurrent()
 		if err != nil {
 			summary.recordFailure(item.site.ID, item.site.Platform, item.account.ID, err)
 			if IsCloudflareProtectionError(err) || siteBatchReason(err) == SiteBatchReasonCloudflareProtection {

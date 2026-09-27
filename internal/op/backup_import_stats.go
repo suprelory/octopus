@@ -122,6 +122,11 @@ func (s *dbImportState) importLogs() error {
 		} else {
 			res.RowsAffected["relay_logs"] = n
 		}
+		if n, err := createDoNothing(tx, dump.SiteCheckinBatchJobs); err != nil {
+			return fmt.Errorf("import site_checkin_batch_jobs: %w", err)
+		} else {
+			res.RowsAffected["site_checkin_batch_jobs"] = n
+		}
 		checkinLogs := make([]model.SiteCheckinLog, 0, len(dump.SiteCheckinLogs))
 		for _, entry := range dump.SiteCheckinLogs {
 			// Deleted sites/accounts have no mapping. Retain their name snapshots,

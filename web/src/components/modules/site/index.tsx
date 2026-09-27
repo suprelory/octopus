@@ -161,7 +161,7 @@ export function Site() {
       },
       checkinAll: () => {
         checkinAllSites.mutate(undefined, {
-          onSuccess: () => toast.success("已触发后台全量签到，页面会自动刷新"),
+          onSuccess: (job) => toast.success(`已创建全量签到任务 #${job.id}`),
           onError: (error) => toast.error(getSiteErrorMessage(locale, error, t)),
         });
       },

@@ -24,6 +24,7 @@ type SiteCheckinLog struct {
 	Reason      string              `json:"reason" gorm:"size:64;not null"`
 	Message     string              `json:"message"`
 	Reward      string              `json:"reward"`
+	BatchJobID  int64               `json:"batch_job_id,omitempty" gorm:"index:idx_site_checkin_batch_job_id"`
 	DurationMs  int64               `json:"duration_ms"`
 	StartedAt   time.Time           `json:"started_at"`
 	FinishedAt  time.Time           `json:"finished_at" gorm:"index"`

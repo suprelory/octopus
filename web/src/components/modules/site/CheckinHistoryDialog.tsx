@@ -33,9 +33,10 @@ function HistorySelect({ label, value, onChange, options }: {
   );
 }
 
-export function CheckinHistoryDialog({ sites, onOpenChange }: {
+export function CheckinHistoryDialog({ sites, onOpenChange, batchJobID }: {
   sites: Site[];
   onOpenChange: (open: boolean) => void;
+  batchJobID?: string;
 }) {
   const t = useTranslations('siteCheckinHistory');
   const allTranslations = useTranslations();
@@ -49,6 +50,7 @@ export function CheckinHistoryDialog({ sites, onOpenChange }: {
   const [cursors, setCursors] = useState<number[]>([0]);
   const invalidDates = Boolean(from && until && from > until);
   const filters: Record<string, string | number> = { limit: 20 };
+  if (batchJobID) filters.batch_id = batchJobID;
   if (siteID !== 'all') filters.site_id = siteID;
   if (accountID !== 'all') filters.account_id = accountID;
   if (status !== 'all') filters.status = status;

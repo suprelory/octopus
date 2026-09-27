@@ -27,6 +27,14 @@ func listSiteCheckinLogs(c *gin.Context) {
 		resp.InvalidParam(c)
 		return
 	}
+	if raw := c.Query("batch_id"); raw != "" {
+		value, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || value <= 0 {
+			resp.InvalidParam(c)
+			return
+		}
+		filter.BatchJobID = value
+	}
 	for name, target := range map[string]*int{"site_id": &filter.SiteID, "account_id": &filter.AccountID, "limit": &filter.Limit} {
 		if raw := c.Query(name); raw != "" {
 			value, err := strconv.Atoi(raw)

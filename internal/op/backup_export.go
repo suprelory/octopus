@@ -94,6 +94,9 @@ func DBExportAll(ctx context.Context, includeLogs, includeStats bool) (*model.DB
 		if err := exportSiteCheckinLogsPaged(conn, d); err != nil {
 			return nil, err
 		}
+		if err := conn.Order("id ASC").Find(&d.SiteCheckinBatchJobs).Error; err != nil {
+			return nil, fmt.Errorf("export site_checkin_batch_jobs: %w", err)
+		}
 	}
 
 	return d, nil

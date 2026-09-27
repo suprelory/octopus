@@ -31,7 +31,7 @@ func TestCheckinLogQueryFiltersAndStablePagination(t *testing.T) {
 	setupSiteHandlerTestDB(t)
 	day := time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC)
 	rows := []model.SiteCheckinLog{
-		{ID: 100, SiteID: 1, AccountID: 11, SiteName: "Original name", AccountName: "Original account", Source: "manual", Status: model.SiteExecutionStatusSuccess, FinishedAt: day.Add(time.Hour)},
+		{ID: 100, SiteID: 1, AccountID: 11, SiteName: "Original name", AccountName: "Original account", Source: "manual", Status: model.SiteExecutionStatusSuccess, BatchJobID: 778, FinishedAt: day.Add(time.Hour)},
 		{ID: 200, SiteID: 1, AccountID: 11, Source: "manual", Status: model.SiteExecutionStatusSuccess, FinishedAt: day.Add(2 * time.Hour)},
 		{ID: 300, SiteID: 1, AccountID: 11, Source: "scheduled", Status: model.SiteExecutionStatusFailed, FinishedAt: day.Add(3 * time.Hour)},
 		{ID: 400, SiteID: 2, AccountID: 22, Source: "manual", Status: model.SiteExecutionStatusSuccess, FinishedAt: day.Add(4 * time.Hour)},
@@ -58,6 +58,10 @@ func TestCheckinLogQueryFiltersAndStablePagination(t *testing.T) {
 	if w.Code != 200 || len(scheduled.Items) != 1 || scheduled.Items[0].ID != 300 {
 		t.Fatalf("status/source filter was ignored: %s", w.Body.String())
 	}
+	w, batch := requestCheckinLogs(t, "?batch_id=778")
+	if w.Code != 200 || len(batch.Items) != 1 || batch.Items[0].ID != 100 {
+		t.Fatalf("batch filter was ignored: %s", w.Body.String())
+	}
 	w, empty := requestCheckinLogs(t, "?account_id=999")
 	if w.Code != 200 || empty.Items == nil || len(empty.Items) != 0 {
 		t.Fatalf("empty result must be an array: %s", w.Body.String())
@@ -68,7 +72,7 @@ func TestCheckinLogQueryRejectsInvalidFilters(t *testing.T) {
 	for _, query := range []string{
 		"?limit=0", "?limit=101", "?limit=-1", "?site_id=-1", "?account_id=oops", "?before_id=-1",
 		"?before_id=9223372036854775808", "?status=running", "?source=unknown", "?from=not-a-date",
-		"?until=not-a-date", "?from=2026-09-28T00:00:00Z&until=2026-09-27T00:00:00Z",
+		"?until=not-a-date", "?batch_id=-1", "?batch_id=9223372036854775808", "?from=2026-09-28T00:00:00Z&until=2026-09-27T00:00:00Z",
 	} {
 		t.Run(query, func(t *testing.T) {
 			w, _ := requestCheckinLogs(t, query)

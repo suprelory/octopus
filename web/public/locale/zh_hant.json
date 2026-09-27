@@ -1,4 +1,25 @@
 {
+    "siteCheckinBatch": {
+        "title": "全量簽到任務",
+        "processed": "已處理",
+        "success": "成功",
+        "failed": "失敗",
+        "skipped": "跳過",
+        "current": "正在處理：{site} / {account}",
+        "progress": "進度 {value}%",
+        "taskID": "任務 {id}",
+        "refresh": "重新整理任務狀態",
+        "viewLogs": "查看本批紀錄",
+        "statuses": {
+            "queued": "排隊中",
+            "running": "執行中",
+            "completed": "已完成",
+            "completed_with_errors": "完成但有失敗",
+            "canceled": "已取消",
+            "failed": "任務失敗",
+            "interrupted": "服務重啟中斷"
+        }
+    },
     "siteCheckinHistory": {
         "title": "簽到紀錄",
         "description": "查看每次簽到的結果、來源與獎勵。時間依瀏覽器本地時區顯示。",
@@ -662,7 +683,17 @@
                 "pending": "簽到中...",
                 "cadence": "每 10 分鐘檢查",
                 "success": "已觸發後台站點全量簽到",
-                "failed": "觸發簽到失敗"
+                "failed": "觸發簽到失敗",
+                "progress": "進度 {value}%",
+                "statuses": {
+                    "queued": "排隊中",
+                    "running": "執行中",
+                    "completed": "已完成",
+                    "completed_with_errors": "完成但有失敗",
+                    "canceled": "已取消",
+                    "failed": "任務失敗",
+                    "interrupted": "服務重啟中斷"
+                }
             }
         },
         "data": {

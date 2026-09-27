@@ -57,7 +57,7 @@ func TestInitializeSchemaCreatesCurrentTablesAndPreservesExistingData(t *testing
 	if err := initializeSchema(gormDB); err != nil {
 		t.Fatalf("initialize schema: %v", err)
 	}
-	for _, table := range []string{"channels", "channel_keys", "proxy_configurations", "sites", "site_accounts", "site_checkin_logs", "site_models", "groups", "group_items", "settings", "relay_logs", "stats_site_model_hourlies", "ws_response_affinities"} {
+	for _, table := range []string{"channels", "channel_keys", "proxy_configurations", "sites", "site_accounts", "site_checkin_logs", "site_checkin_batch_jobs", "site_models", "groups", "group_items", "settings", "relay_logs", "stats_site_model_hourlies", "ws_response_affinities"} {
 		if !gormDB.Migrator().HasTable(table) {
 			t.Errorf("missing current table %s", table)
 		}
@@ -71,6 +71,7 @@ func TestInitializeSchemaCreatesCurrentTablesAndPreservesExistingData(t *testing
 		{"site_models", "idx_site_account_group_model"},
 		{"site_checkin_logs", "idx_site_checkin_site_id"},
 		{"site_checkin_logs", "idx_site_checkin_account_id"},
+		{"site_checkin_logs", "idx_site_checkin_batch_job_id"},
 		{"stats_site_model_hourlies", "idx_stats_site_model_account_hour"},
 	} {
 		if !gormDB.Migrator().HasIndex(index.table, index.name) {
@@ -104,6 +105,59 @@ func TestInitializeSchemaCreatesCurrentTablesAndPreservesExistingData(t *testing
 	var savedSetting model.Setting
 	if err := gormDB.First(&savedSetting, "key = ?", setting.Key).Error; err != nil || savedSetting.Value != setting.Value {
 		t.Fatalf("existing setting changed: %+v, error=%v", savedSetting, err)
+	}
+}
+
+func TestInitializeSchemaAddsBatchJobLinkToExistingCheckinLogs(t *testing.T) {
+	gormDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	if err := gormDB.Exec("CREATE TABLE site_checkin_logs (id integer PRIMARY KEY, site_id integer, account_id integer)").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := initializeSchema(gormDB); err != nil {
+		t.Fatalf("upgrade existing schema: %v", err)
+	}
+	if !gormDB.Migrator().HasColumn(&model.SiteCheckinLog{}, "BatchJobID") {
+		t.Fatal("batch job link column was not added")
+	}
+	if !gormDB.Migrator().HasIndex(&model.SiteCheckinLog{}, "idx_site_checkin_batch_job_id") {
+		t.Fatal("batch job link index was not added")
+	}
+}
+
+func TestInitializeSchemaMarksUnfinishedCheckinBatchJobsInterrupted(t *testing.T) {
+	gormDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	if err := initializeSchema(gormDB); err != nil {
+		t.Fatal(err)
+	}
+	job := model.SiteCheckinBatchJob{ID: 101, Status: model.SiteCheckinBatchJobStatusRunning, Trigger: "manual", StartedAt: time.Now().Add(-time.Minute)}
+	if err := gormDB.Create(&job).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := initializeSchema(gormDB); err != nil {
+		t.Fatalf("recover unfinished task: %v", err)
+	}
+	var saved model.SiteCheckinBatchJob
+	if err := gormDB.First(&saved, "id = ?", job.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if saved.Status != model.SiteCheckinBatchJobStatusInterrupted || saved.FinishedAt == nil || saved.ErrorMessage == "" {
+		t.Fatalf("unfinished task was not marked interrupted: %+v", saved)
 	}
 }
 

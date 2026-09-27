@@ -80,6 +80,77 @@ func TestCheckinLogsCaptureOutcomes(t *testing.T) {
 	}
 }
 
+func TestManualFullCheckinPersistsQueryableBatchProgress(t *testing.T) {
+	ctx := setupProjectTestDB(t)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	defer unblock()
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		close(entered)
+		select {
+		case <-release:
+		case <-r.Context().Done():
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"reward":1}}`))
+	}))
+	defer server.Close()
+	_, account := createCheckinFixture(t, ctx, server.URL)
+
+	job, err := StartCheckinBatch(ctx)
+	if err != nil || job == nil || job.ID == 0 {
+		t.Fatalf("start batch failed: %+v, %v", job, err)
+	}
+	select {
+	case <-entered:
+	case <-ctx.Done():
+		t.Fatal("batch did not reach the upstream")
+	}
+	duplicate, err := StartCheckinBatch(ctx)
+	if err != nil || duplicate == nil || duplicate.ID != job.ID {
+		t.Fatalf("duplicate trigger did not return active task: %+v, %v", duplicate, err)
+	}
+	active, err := op.SiteCheckinBatchJobGet(ctx, job.ID)
+	if err != nil || active == nil || active.Status != model.SiteCheckinBatchJobStatusRunning || active.Total != 1 || active.CurrentAccountID != account.ID {
+		t.Fatalf("active progress was not queryable: %+v, %v", active, err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("duplicate trigger started another batch: calls=%d", calls.Load())
+	}
+
+	unblock()
+	deadline := time.NewTicker(10 * time.Millisecond)
+	defer deadline.Stop()
+	for {
+		finished, err := op.SiteCheckinBatchJobGet(ctx, job.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if finished != nil && finished.Status != model.SiteCheckinBatchJobStatusQueued && finished.Status != model.SiteCheckinBatchJobStatusRunning {
+			if finished.Status != model.SiteCheckinBatchJobStatusCompleted || finished.Attempted != 1 || finished.Success != 1 || finished.CurrentAccountID != 0 {
+				t.Fatalf("unexpected final batch: %+v", finished)
+			}
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("batch did not finish")
+		case <-deadline.C:
+		}
+	}
+	logs, err := op.SiteCheckinLogList(ctx, op.SiteCheckinLogFilter{BatchJobID: job.ID})
+	if err != nil || len(logs.Items) != 1 || logs.Items[0].BatchJobID != job.ID || logs.Items[0].AccountID != account.ID {
+		t.Fatalf("batch-linked check-in log missing: %+v, %v", logs, err)
+	}
+}
+
 func TestCheckinGuardCoversScheduledBatchAndManualRuns(t *testing.T) {
 	ctx := setupProjectTestDB(t)
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)

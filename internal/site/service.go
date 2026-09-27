@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/sitesync"
 )
 
@@ -50,6 +51,22 @@ func CheckinAll(ctx context.Context) {
 
 func CheckinAllWithOptions(ctx context.Context, opts sitesync.SiteBatchOptions) sitesync.SiteBatchSummary {
 	return sitesync.CheckinAllWithOptions(ctx, opts)
+}
+
+func StartCheckinBatch(ctx context.Context) (*model.SiteCheckinBatchJob, error) {
+	return sitesync.StartCheckinBatch(ctx)
+}
+
+func GetCheckinBatch(ctx context.Context, taskID int64) (*model.SiteCheckinBatchJob, error) {
+	return op.SiteCheckinBatchJobGet(ctx, taskID)
+}
+
+func LatestCheckinBatch(ctx context.Context) (*model.SiteCheckinBatchJob, error) {
+	return op.SiteCheckinBatchJobLatest(ctx)
+}
+
+func ListCheckinBatches(ctx context.Context, limit int, beforeID int64) (*model.SiteCheckinBatchJobPage, error) {
+	return op.SiteCheckinBatchJobList(ctx, limit, beforeID)
 }
 
 func LastSyncAllTime() time.Time {

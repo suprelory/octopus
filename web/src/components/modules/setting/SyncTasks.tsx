@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { SettingKey } from '@/api/endpoints/setting';
 import { useLastSyncTime, useSyncChannel } from '@/api/endpoints/channel';
 import { useLastUpdateTime, useUpdateModelPrice } from '@/api/endpoints/model';
-import { useCheckinAllSites, useSiteLastCheckinTime, useSiteLastSyncTime, useSyncAllSites } from '@/api/endpoints/site';
+import { useCheckinAllSites, useLatestSiteCheckinBatch, useSiteLastCheckinTime, useSiteLastSyncTime, useSyncAllSites, type SiteCheckinBatchJob } from '@/api/endpoints/site';
 import { toast } from '@/components/common/Toast';
 import { useSettingStore } from '@/stores/setting';
 import { translateSiteMessage } from '@/components/modules/site/site-message';
@@ -106,6 +106,27 @@ function TaskActionRow({ icon: Icon, label, cadence, last, running, runLabel, pe
     );
 }
 
+function BatchStatus({ job }: { job: SiteCheckinBatchJob | null | undefined }) {
+    const t = useTranslations('setting.syncTasks.siteCheckin');
+    if (!job) return null;
+    const active = job.status === 'queued' || job.status === 'running';
+    const status = t.has(`statuses.${job.status}`) ? t(`statuses.${job.status}`) : job.status;
+    const processed = Math.min(job.total, job.attempted + job.skipped);
+    const progress = job.total > 0 ? Math.round((processed / job.total) * 100) : 0;
+    return (
+        <div className="ml-8 mt-2 min-w-0 text-xs text-muted-foreground" data-testid="site-checkin-batch-status">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className={active ? 'text-primary' : job.failed > 0 ? 'text-destructive' : 'text-foreground'}>{status}</span>
+                <span>{processed}/{job.total}</span>
+                {job.current_account_name ? <span className="truncate">{job.current_site_name} / {job.current_account_name}</span> : null}
+            </div>
+            <div className="mt-1 h-1.5 max-w-72 overflow-hidden rounded-full bg-muted" aria-label={t('progress', { value: progress })}>
+                <div className="h-full bg-primary transition-all" style={{ width: `${Math.min(100, progress)}%` }} />
+            </div>
+        </div>
+    );
+}
+
 export function SettingSyncTasks() {
     const t = useTranslations('setting');
     const tAll = useTranslations();
@@ -119,6 +140,7 @@ export function SettingSyncTasks() {
     const checkinAllSites = useCheckinAllSites();
     const { data: lastSiteSyncTime } = useSiteLastSyncTime();
     const { data: lastSiteCheckinTime } = useSiteLastCheckinTime();
+    const { data: latestCheckinBatch } = useLatestSiteCheckinBatch();
 
     const formatTime = (timeStr: string | undefined) => {
         if (!timeStr) return t('syncTasks.never');
@@ -176,19 +198,22 @@ export function SettingSyncTasks() {
             />
 
             {/* 站点全量签到 */}
-            <TaskActionRow
-                icon={CalendarCheck2}
-                label={t('syncTasks.siteCheckin.label')}
-                cadence={t('syncTasks.siteCheckin.cadence')}
-                last={formatTime(lastSiteCheckinTime)}
-                running={checkinAllSites.isPending}
-                runLabel={t('syncTasks.siteCheckin.button')}
-                pendingLabel={t('syncTasks.siteCheckin.pending')}
-                onRun={() => checkinAllSites.mutate(undefined, {
-                    onSuccess: () => toast.success(t('syncTasks.siteCheckin.success')),
-                    onError: (error) => toast.error(translateSiteMessage(locale, getErrorMessage(error, t('syncTasks.siteCheckin.failed')), tAll)),
-                })}
-            />
+            <div>
+                <TaskActionRow
+                    icon={CalendarCheck2}
+                    label={t('syncTasks.siteCheckin.label')}
+                    cadence={t('syncTasks.siteCheckin.cadence')}
+                    last={formatTime(lastSiteCheckinTime)}
+                    running={checkinAllSites.isPending || latestCheckinBatch?.status === 'queued' || latestCheckinBatch?.status === 'running'}
+                    runLabel={t('syncTasks.siteCheckin.button')}
+                    pendingLabel={t('syncTasks.siteCheckin.pending')}
+                    onRun={() => checkinAllSites.mutate(undefined, {
+                        onSuccess: () => toast.success(t('syncTasks.siteCheckin.success')),
+                        onError: (error) => toast.error(translateSiteMessage(locale, getErrorMessage(error, t('syncTasks.siteCheckin.failed')), tAll)),
+                    })}
+                />
+                <BatchStatus job={latestCheckinBatch} />
+            </div>
         </SettingCard>
     );
 }

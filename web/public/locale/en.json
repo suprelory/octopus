@@ -1,4 +1,25 @@
 {
+    "siteCheckinBatch": {
+        "title": "Full check-in task",
+        "processed": "Processed",
+        "success": "Success",
+        "failed": "Failed",
+        "skipped": "Skipped",
+        "current": "Processing: {site} / {account}",
+        "progress": "Progress {value}%",
+        "taskID": "Task {id}",
+        "refresh": "Refresh task status",
+        "viewLogs": "View batch logs",
+        "statuses": {
+            "queued": "Queued",
+            "running": "Running",
+            "completed": "Completed",
+            "completed_with_errors": "Completed with failures",
+            "canceled": "Canceled",
+            "failed": "Task failed",
+            "interrupted": "Interrupted by restart"
+        }
+    },
     "siteCheckinHistory": {
         "title": "Check-in history",
         "description": "Review each check-in result, source and reward. Times use your browser's local time zone.",
@@ -662,7 +683,17 @@
                 "pending": "Checking in...",
                 "cadence": "Checks every 10 minutes",
                 "success": "Background site check-in triggered",
-                "failed": "Failed to trigger site check-in"
+                "failed": "Failed to trigger site check-in",
+                "progress": "Progress {value}%",
+                "statuses": {
+                    "queued": "Queued",
+                    "running": "Running",
+                    "completed": "Completed",
+                    "completed_with_errors": "Completed with failures",
+                    "canceled": "Canceled",
+                    "failed": "Task failed",
+                    "interrupted": "Interrupted by restart"
+                }
             }
         },
         "data": {

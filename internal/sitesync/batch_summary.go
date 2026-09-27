@@ -56,12 +56,37 @@ const (
 )
 
 type SiteBatchOptions struct {
-	Trigger SiteBatchTrigger
+	Trigger    SiteBatchTrigger
+	TaskID     int64
+	OnProgress func(SiteBatchProgress)
+}
+
+// SiteBatchProgress is a point-in-time snapshot emitted after each account is
+// handled. It is intentionally independent from SiteBatchSummary so callers
+// can persist progress without exposing the summary's internal group maps.
+type SiteBatchProgress struct {
+	TaskID             int64
+	Phase              SiteBatchPhase
+	Trigger            SiteBatchTrigger
+	Total              int
+	Attempted          int
+	Success            int
+	Partial            int
+	Failed             int
+	Skipped            int
+	Warnings           int
+	Canceled           bool
+	CancelReason       SiteBatchReason
+	CurrentSiteID      int
+	CurrentSiteName    string
+	CurrentAccountID   int
+	CurrentAccountName string
 }
 
 type SiteBatchSummary struct {
 	Phase        SiteBatchPhase
 	Trigger      SiteBatchTrigger
+	ErrorMessage string
 	Total        int
 	Attempted    int
 	Success      int
@@ -73,11 +98,17 @@ type SiteBatchSummary struct {
 	CancelReason SiteBatchReason
 	Duration     time.Duration
 
-	failureGroups map[siteBatchGroupKey]*SiteBatchOutcomeGroup
-	warningGroups map[siteBatchGroupKey]*SiteBatchOutcomeGroup
-	skipGroups    map[siteBatchGroupKey]*SiteBatchOutcomeGroup
-	Samples       []SiteBatchFailureSample
-	startedAt     time.Time
+	failureGroups      map[siteBatchGroupKey]*SiteBatchOutcomeGroup
+	warningGroups      map[siteBatchGroupKey]*SiteBatchOutcomeGroup
+	skipGroups         map[siteBatchGroupKey]*SiteBatchOutcomeGroup
+	Samples            []SiteBatchFailureSample
+	startedAt          time.Time
+	taskID             int64
+	onProgress         func(SiteBatchProgress)
+	currentSiteID      int
+	currentSiteName    string
+	currentAccountID   int
+	currentAccountName string
 }
 
 type SiteBatchOutcomeGroup struct {
@@ -121,7 +152,45 @@ func newSiteBatchSummary(phase SiteBatchPhase, opts SiteBatchOptions, total int)
 		warningGroups: make(map[siteBatchGroupKey]*SiteBatchOutcomeGroup),
 		skipGroups:    make(map[siteBatchGroupKey]*SiteBatchOutcomeGroup),
 		startedAt:     time.Now(),
+		taskID:        opts.TaskID,
+		onProgress:    opts.OnProgress,
 	}
+}
+
+func (s *SiteBatchSummary) setCurrent(item siteBatchAccount) {
+	s.currentSiteID = item.site.ID
+	s.currentSiteName = item.site.Name
+	s.currentAccountID = item.account.ID
+	s.currentAccountName = item.account.Name
+}
+
+func (s *SiteBatchSummary) clearCurrent() {
+	s.currentSiteID = 0
+	s.currentSiteName = ""
+	s.currentAccountID = 0
+	s.currentAccountName = ""
+}
+
+func (s *SiteBatchSummary) progress() SiteBatchProgress {
+	return SiteBatchProgress{
+		TaskID: s.taskID, Phase: s.Phase, Trigger: s.Trigger,
+		Total: s.Total, Attempted: s.Attempted, Success: s.Success,
+		Partial: s.Partial, Failed: s.Failed, Skipped: s.Skipped,
+		Warnings: s.Warnings, Canceled: s.Canceled, CancelReason: s.CancelReason,
+		CurrentSiteID: s.currentSiteID, CurrentSiteName: s.currentSiteName,
+		CurrentAccountID: s.currentAccountID, CurrentAccountName: s.currentAccountName,
+	}
+}
+
+func (s *SiteBatchSummary) emitProgress() {
+	if s == nil || s.onProgress == nil {
+		return
+	}
+	progress := s.progress()
+	func() {
+		defer func() { _ = recover() }()
+		s.onProgress(progress)
+	}()
 }
 
 func (s *SiteBatchSummary) finish() {
@@ -148,12 +217,14 @@ func (s *SiteBatchSummary) recordResult(siteID int, platform model.SitePlatform,
 	default:
 		s.Success++
 	}
+	s.emitProgress()
 }
 
 func (s *SiteBatchSummary) recordFailure(siteID int, platform model.SitePlatform, accountID int, err error) {
 	s.Attempted++
 	s.Failed++
 	s.addFailure(siteID, platform, accountID, siteBatchReason(err), sanitizeSiteStatusMessage(err))
+	s.emitProgress()
 }
 
 func (s *SiteBatchSummary) recordSkip(siteID int, platform model.SitePlatform, reason SiteBatchReason, count int) {
@@ -162,11 +233,13 @@ func (s *SiteBatchSummary) recordSkip(siteID int, platform model.SitePlatform, r
 	}
 	s.Skipped += count
 	s.addGroupN(s.skipGroups, siteID, platform, reason, count, func(g *SiteBatchOutcomeGroup, n int) { g.Skipped += n })
+	s.emitProgress()
 }
 
 func (s *SiteBatchSummary) markCanceled(ctxErr error) {
 	s.Canceled = true
 	s.CancelReason = contextCancelReason(ctxErr)
+	s.emitProgress()
 }
 
 func (s *SiteBatchSummary) addFailure(siteID int, platform model.SitePlatform, accountID int, reason SiteBatchReason, message string) {

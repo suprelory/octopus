@@ -10,14 +10,15 @@ import (
 )
 
 type SiteCheckinLogFilter struct {
-	SiteID    int
-	AccountID int
-	Status    model.SiteExecutionStatus
-	Source    string
-	BeforeID  int64
-	Limit     int
-	From      *time.Time
-	Until     *time.Time
+	SiteID     int
+	AccountID  int
+	Status     model.SiteExecutionStatus
+	Source     string
+	BatchJobID int64
+	BeforeID   int64
+	Limit      int
+	From       *time.Time
+	Until      *time.Time
 }
 
 func SiteCheckinLogList(ctx context.Context, filter SiteCheckinLogFilter) (*model.SiteCheckinLogPage, error) {
@@ -40,6 +41,9 @@ func SiteCheckinLogList(ctx context.Context, filter SiteCheckinLogFilter) (*mode
 	}
 	if filter.Source != "" {
 		query = query.Where("source = ?", filter.Source)
+	}
+	if filter.BatchJobID > 0 {
+		query = query.Where("batch_job_id = ?", filter.BatchJobID)
 	}
 	if filter.BeforeID > 0 {
 		query = query.Where("id < ?", filter.BeforeID)
