@@ -75,7 +75,7 @@ export function LogSummary({ log, displayFields, tokenUsage, endpointLabel, chan
                 </div>
                 <div className="mt-1 flex flex-wrap gap-x-4 gap-y-2 border-t border-border/50 pt-3 text-xs tabular-nums text-muted-foreground [&>div]:min-w-0 [&>div]:max-w-full">
                     <div className="flex items-center gap-1.5">
-                        <Clock className="size-3.5 shrink-0" />
+                        <Clock className="size-3.5 shrink-0" style={{ color: brandColor }} />
                         <span>{formatTime(log.time)}</span>
                     </div>
                     {visibility.apiKeyName && requestAPIKeyName ? (
@@ -102,10 +102,10 @@ export function LogSummary({ log, displayFields, tokenUsage, endpointLabel, chan
                         <ArrowUpFromLine className="size-3.5 shrink-0 text-purple-500" />
                         <span>{t('output')} {log.output_tokens.toLocaleString()}</span>
                     </div>
-                    <div className="flex items-center gap-1.5"><Sigma className="size-3.5 shrink-0" /><span className="font-medium text-foreground/85">{t('totalTokens')} {totalTokens.toLocaleString()}</span></div>
+                    <div className="flex items-center gap-1.5"><Sigma className="size-3.5 shrink-0 text-rose-500" /><span className="font-medium text-rose-600 dark:text-rose-400">{t('totalTokens')} {totalTokens.toLocaleString()}</span></div>
                     {visibility.cost ? <div className="flex items-center gap-1.5">
                         <DollarSign className="size-3.5 shrink-0 text-emerald-500" />
-                        <span className="font-medium text-primary">
+                        <span className="font-medium text-emerald-600 dark:text-emerald-400">
                             {t('cost')} {Number(log.cost).toFixed(6)}
                         </span>
                     </div> : null}
