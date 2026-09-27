@@ -190,3 +190,49 @@ func TestInitializeSchemaAddsCustomHTTPCheckinColumnsToExistingSites(t *testing.
 		t.Fatalf("legacy site data changed: name=%q error=%v", name, err)
 	}
 }
+
+func TestInitializeSchemaAddsCheckinCapabilityColumnsToExistingSites(t *testing.T) {
+	gormDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	if err := gormDB.Exec("CREATE TABLE sites (id integer PRIMARY KEY, name text NOT NULL)").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := gormDB.Exec("INSERT INTO sites (id, name) VALUES (7, 'legacy')").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := initializeSchema(gormDB); err != nil {
+		t.Fatalf("upgrade existing schema: %v", err)
+	}
+	for _, column := range []string{"checkin_mode", "checkin_verification_status", "checkin_verification_fingerprint", "checkin_verified_at"} {
+		if !gormDB.Migrator().HasColumn(&model.Site{}, column) {
+			t.Errorf("missing migrated site column %s", column)
+		}
+	}
+	var values struct {
+		CheckinMode              string
+		CheckinVerificationState string
+	}
+	if err := gormDB.Raw("SELECT checkin_mode, checkin_verification_status AS checkin_verification_state FROM sites WHERE id = 7").Scan(&values).Error; err != nil {
+		t.Fatalf("read migrated checkin defaults: %v", err)
+	}
+	if values.CheckinMode != string(model.SiteCheckinModeAuto) {
+		t.Fatalf("expected checkin mode default %q, got %q", model.SiteCheckinModeAuto, values.CheckinMode)
+	}
+	if values.CheckinVerificationState != string(model.SiteCheckinSupportUnknown) {
+		t.Fatalf("expected checkin verification default %q, got %q", model.SiteCheckinSupportUnknown, values.CheckinVerificationState)
+	}
+	if err := gormDB.Model(&model.Site{}).Where("id = ?", 7).Update("checkin_mode", model.SiteCheckinModeDisabled).Error; err != nil {
+		t.Fatalf("update migrated checkin mode: %v", err)
+	}
+	var mode string
+	if err := gormDB.Raw("SELECT checkin_mode FROM sites WHERE id = 7").Scan(&mode).Error; err != nil || mode != string(model.SiteCheckinModeDisabled) {
+		t.Fatalf("migrated checkin mode was not writable: value=%q error=%v", mode, err)
+	}
+}
