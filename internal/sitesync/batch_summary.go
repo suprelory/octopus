@@ -41,6 +41,8 @@ const (
 	SiteBatchReasonUnsupportedCheckin      SiteBatchReason = "unsupported_checkin"
 	SiteBatchReasonMissingGroupKey         SiteBatchReason = "missing_group_key"
 	SiteBatchReasonUpstreamHTTPError       SiteBatchReason = "upstream_http_error"
+	SiteBatchReasonUpstreamBusinessError   SiteBatchReason = "upstream_business_error"
+	SiteBatchReasonNetworkError            SiteBatchReason = "network_error"
 	SiteBatchReasonUpstreamDecodeFailed    SiteBatchReason = "upstream_decode_failed"
 	SiteBatchReasonUpstreamHTMLResponse    SiteBatchReason = "upstream_html_response"
 	SiteBatchReasonScheduledLater          SiteBatchReason = "scheduled_later"
@@ -142,7 +144,7 @@ func (s *SiteBatchSummary) recordResult(siteID int, platform model.SitePlatform,
 		s.addGroup(s.skipGroups, siteID, platform, SiteBatchReasonUnsupportedCheckin, func(g *SiteBatchOutcomeGroup) { g.Skipped++ })
 	case model.SiteExecutionStatusFailed:
 		s.Failed++
-		s.addFailure(siteID, platform, accountID, SiteBatchReasonUnknown, safeMessage)
+		s.addFailure(siteID, platform, accountID, siteBatchReason(newSiteBusinessError(safeMessage)), safeMessage)
 	default:
 		s.Success++
 	}

@@ -15,32 +15,29 @@ func checkinAnyRouter(ctx context.Context, siteRecord *model.Site, account *mode
 	}
 
 	userID, _ := anyRouterDiscoverUserID(ctx, siteRecord, account, accessToken)
-	if result, message, ok := anyRouterTryCheckinWithBearer(ctx, siteRecord, account, accessToken, userID); ok {
+	if result, bearerErr := anyRouterTryCheckinWithBearer(ctx, siteRecord, account, accessToken, userID); result != nil {
 		return result, accessToken, nil
-	} else if message != "" && !anyRouterShouldFallbackToCookieCheckin(message) {
-		return &model.SiteCheckinResult{Status: model.SiteExecutionStatusFailed, Message: message}, accessToken, nil
+	} else if bearerErr != nil && !anyRouterShouldFallbackToCookieCheckin(bearerErr.Error()) {
+		return nil, accessToken, bearerErr
 	}
 
-	result, message := anyRouterTryCheckinWithCookies(ctx, siteRecord, account, accessToken, userID)
+	result, checkinErr := anyRouterTryCheckinWithCookies(ctx, siteRecord, account, accessToken, userID)
 	if result != nil {
 		return result, accessToken, nil
 	}
 
 	alternateUserID, _ := anyRouterProbeAlternateUserIDByCookie(ctx, siteRecord, account, accessToken, userID)
 	if alternateUserID > 0 {
-		result, message = anyRouterTryCheckinWithCookies(ctx, siteRecord, account, accessToken, alternateUserID)
+		result, checkinErr = anyRouterTryCheckinWithCookies(ctx, siteRecord, account, accessToken, alternateUserID)
 		if result != nil {
 			return result, accessToken, nil
 		}
 	}
 
-	return &model.SiteCheckinResult{
-		Status:  model.SiteExecutionStatusFailed,
-		Message: firstNonEmptyString(message, "checkin failed"),
-	}, accessToken, nil
+	return nil, accessToken, checkinErr
 }
 
-func anyRouterTryCheckinWithBearer(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int) (*model.SiteCheckinResult, string, bool) {
+func anyRouterTryCheckinWithBearer(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int) (*model.SiteCheckinResult, error) {
 	payload, _, err := anyRouterRequestJSONWithCookies(
 		ctx,
 		siteRecord,
@@ -51,19 +48,19 @@ func anyRouterTryCheckinWithBearer(ctx context.Context, siteRecord *model.Site, 
 		account,
 	)
 	if err != nil {
-		return nil, err.Error(), false
-	}
-	if payload == nil {
-		return nil, "", false
+		return nil, err
 	}
 	if result, ok := anyRouterBuildCheckinResult(payload); ok {
-		return result, result.Message, true
+		return result, nil
 	}
-	return nil, anyRouterExtractResponseMessage(payload), false
+	if message := anyRouterExtractResponseMessage(payload); message != "" {
+		return nil, newSiteBusinessError(message)
+	}
+	return nil, nil
 }
 
-func anyRouterTryCheckinWithCookies(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int) (*model.SiteCheckinResult, string) {
-	firstFailure := ""
+func anyRouterTryCheckinWithCookies(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int) (*model.SiteCheckinResult, error) {
+	var firstFailure error
 	for _, cookie := range anyRouterBuildCookieCandidates(accessToken) {
 		signInPayload, _, signInErr := anyRouterRequestJSONWithCookies(
 			ctx,
@@ -79,13 +76,13 @@ func anyRouterTryCheckinWithCookies(ctx context.Context, siteRecord *model.Site,
 		)
 		if signInErr == nil && signInPayload != nil {
 			if result, ok := anyRouterBuildCheckinResult(signInPayload); ok {
-				return result, result.Message
+				return result, nil
 			}
-			if message := anyRouterExtractResponseMessage(signInPayload); message != "" && firstFailure == "" {
-				firstFailure = message
+			if message := anyRouterExtractResponseMessage(signInPayload); message != "" && firstFailure == nil {
+				firstFailure = newSiteBusinessError(message)
 			}
-		} else if signInErr != nil && firstFailure == "" {
-			firstFailure = signInErr.Error()
+		} else if signInErr != nil && firstFailure == nil {
+			firstFailure = signInErr
 		}
 
 		headers := map[string]string{"Cookie": cookie}
@@ -101,30 +98,33 @@ func anyRouterTryCheckinWithCookies(ctx context.Context, siteRecord *model.Site,
 		)
 		if err == nil && payload != nil {
 			if result, ok := anyRouterBuildCheckinResult(payload); ok {
-				return result, result.Message
+				return result, nil
 			}
 			if message := anyRouterExtractResponseMessage(payload); message != "" {
-				firstFailure = message
+				firstFailure = newSiteBusinessError(message)
 			}
 			continue
 		}
 		if err != nil {
-			firstFailure = err.Error()
+			firstFailure = err
 		}
 	}
 
-	return nil, firstNonEmptyString(firstFailure, "checkin failed")
+	if firstFailure == nil {
+		firstFailure = newSiteBusinessError("checkin failed")
+	}
+	return nil, firstFailure
 }
 
 func anyRouterBuildCheckinResult(payload map[string]any) (*model.SiteCheckinResult, bool) {
 	if payload == nil {
 		return nil, false
 	}
-	message := firstNonEmptyString(anyRouterExtractResponseMessage(payload), "checkin success")
+	message := anyRouterExtractResponseMessage(payload)
 	if jsonBool(payload["success"]) || isAlreadyCheckedInMessage(message) {
 		return &model.SiteCheckinResult{
 			Status:  model.SiteExecutionStatusSuccess,
-			Message: message,
+			Message: firstNonEmptyString(message, "checkin success"),
 			Reward:  jsonString(nestedValue(payload, "data", "reward")),
 		}, true
 	}

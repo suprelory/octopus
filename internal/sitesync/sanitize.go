@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/bestruirui/octopus/internal/apperror"
+	"github.com/bestruirui/octopus/internal/helper"
 )
 
 const maxSiteStatusMessageRunes = 300
@@ -36,11 +39,11 @@ func sanitizeSiteStatusText(message string) string {
 	if message == "" {
 		return ""
 	}
-	if isLikelyHTML(message) {
-		return truncateSiteStatusMessage(summarizeHTMLForStatus(message))
-	}
 	if summary := embeddedHTMLSummaryForStatus(message); summary != "" {
 		return truncateSiteStatusMessage(summary)
+	}
+	if isLikelyHTML(message) {
+		return truncateSiteStatusMessage(summarizeHTMLForStatus(message))
 	}
 	message = stripControlCharacters(message)
 	message = maskSensitiveSiteText(message)
@@ -57,10 +60,26 @@ func sanitizeSiteError(err error) error {
 		message = "站点操作失败"
 	}
 	code := apperror.Code(err)
+	status := apperror.Status(err)
+	params := apperror.Params(err)
 	if code == "" {
-		code = apperror.CodeCommonInternalError
+		var networkErr net.Error
+		switch {
+		case errors.Is(err, context.Canceled):
+			code, status = CodeSiteOperationCanceled, http.StatusRequestTimeout
+		case errors.Is(err, context.DeadlineExceeded):
+			code, status = CodeSiteUpstreamTimeout, http.StatusGatewayTimeout
+		case errors.As(err, &networkErr):
+			code, status = CodeSiteUpstreamNetworkError, http.StatusBadGateway
+			if networkErr.Timeout() {
+				code, status = CodeSiteUpstreamTimeout, http.StatusGatewayTimeout
+			}
+		default:
+			code = apperror.CodeCommonInternalError
+		}
+		params = map[string]any{"reason": message}
 	}
-	return apperror.Wrap(code, message, err).WithStatus(apperror.Status(err)).WithParams(apperror.Params(err))
+	return apperror.Wrap(code, message, err).WithStatus(status).WithParams(params)
 }
 
 func siteBatchReason(err error) SiteBatchReason {
@@ -89,6 +108,12 @@ func siteBatchReason(err error) SiteBatchReason {
 		return SiteBatchReasonMissingGroupKey
 	case CodeSiteUpstreamDecodeFailed:
 		return SiteBatchReasonUpstreamDecodeFailed
+	case CodeSiteUpstreamNetworkError:
+		return SiteBatchReasonNetworkError
+	case CodeSiteUpstreamTimeout:
+		return SiteBatchReasonTimeout
+	case CodeSiteOperationCanceled:
+		return SiteBatchReasonContextCanceled
 	case CodeSiteUpstreamHTTPError:
 		if status := siteErrorStatusCode(err); status == 401 || status == 403 {
 			return SiteBatchReasonUnauthorized
@@ -103,7 +128,7 @@ func siteBatchReason(err error) SiteBatchReason {
 	}
 	lowered := strings.ToLower(apperror.Message(err))
 	switch {
-	case strings.Contains(lowered, "cloudflare") || strings.Contains(lowered, "just a moment"):
+	case helper.IsCloudflareProtectionMessage(lowered):
 		return SiteBatchReasonCloudflareProtection
 	case strings.Contains(lowered, "unauthorized") || strings.Contains(lowered, "forbidden") || strings.Contains(lowered, "invalid token") || strings.Contains(lowered, "未登录") || strings.Contains(lowered, "登录") || strings.Contains(lowered, "过期"):
 		return SiteBatchReasonUnauthorized
@@ -115,6 +140,12 @@ func siteBatchReason(err error) SiteBatchReason {
 		return SiteBatchReasonTimeout
 	case isLikelyHTML(lowered):
 		return SiteBatchReasonUpstreamHTMLResponse
+	case siteErrorStatusCode(err) >= 400:
+		return SiteBatchReasonUpstreamHTTPError
+	case code == CodeSiteUpstreamBusinessError:
+		return SiteBatchReasonUpstreamBusinessError
+	case code == apperror.CodeCommonInternalError:
+		return SiteBatchReasonInternalError
 	default:
 		return SiteBatchReasonUnknown
 	}
@@ -166,12 +197,11 @@ func embeddedHTMLSummaryForStatus(text string) string {
 	if prefix == "" {
 		return summary
 	}
-	return prefix + ": " + summary
+	return strings.TrimRight(prefix, ": ") + ": " + summary
 }
 
 func summarizeHTMLForStatus(text string) string {
-	lowered := strings.ToLower(text)
-	if strings.Contains(lowered, "cloudflare") || strings.Contains(lowered, "just a moment") || strings.Contains(lowered, "cf-error-code") || strings.Contains(lowered, "cloudflare ray id") {
+	if helper.IsCloudflareProtectionMessage(text) {
 		return "站点触发 Cloudflare 保护，请稍后重试，或手动访问站点完成验证/联系站点管理员放行"
 	}
 	if summary := anyRouterExtractHTMLErrorSummary(text); summary != "" {
@@ -187,9 +217,7 @@ func sanitizeHTMLTitle(title string) string {
 	title = stripControlCharacters(title)
 	title = maskSensitiveSiteText(title)
 	title = strings.TrimSpace(multiWhitespacePattern.ReplaceAllString(title, " "))
-	if pipe := strings.Index(title, "|"); pipe >= 0 {
-		title = strings.TrimSpace(title[:pipe])
-	}
+	title = helper.NormalizeHTMLTitle(title)
 	if title == "" {
 		return "无法解析为接口响应"
 	}

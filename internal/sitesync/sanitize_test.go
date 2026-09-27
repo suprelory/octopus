@@ -1,11 +1,56 @@
 package sitesync
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"unicode"
 	"unicode/utf8"
 )
+
+func TestSiteStatusPreservesCloudflareUpstreamFailures(t *testing.T) {
+	cases := []struct {
+		name   string
+		input  string
+		want   string
+		reason SiteBatchReason
+	}{
+		{
+			name:   "gateway HTML",
+			input:  `<html><title>502 Bad Gateway</title><body>Cloudflare Ray ID: abc123</body></html>`,
+			want:   "上游返回 HTML 页面：502 Bad Gateway",
+			reason: SiteBatchReasonUpstreamHTMLResponse,
+		},
+		{
+			name:   "tunnel HTML",
+			input:  `<html><title>Cloudflare Tunnel error | Cloudflare</title><body>Error 1033</body></html>`,
+			want:   "上游返回 HTML 页面：Cloudflare Tunnel error (Error 1033)",
+			reason: SiteBatchReasonUpstreamHTMLResponse,
+		},
+		{
+			name:   "model fetch failure",
+			input:  "http 502: Cloudflare Tunnel error",
+			want:   "http 502: Cloudflare Tunnel error",
+			reason: SiteBatchReasonUpstreamHTTPError,
+		},
+		{
+			name:   "challenge HTML",
+			input:  `<html><title>Attention Required! | Cloudflare</title><body>Cloudflare Ray ID: abc123</body></html>`,
+			want:   "站点触发 Cloudflare 保护，请稍后重试，或手动访问站点完成验证/联系站点管理员放行",
+			reason: SiteBatchReasonCloudflareProtection,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := sanitizeSiteStatusText(tc.input); got != tc.want {
+				t.Fatalf("status message = %q, want %q", got, tc.want)
+			}
+			if got := siteBatchReason(errors.New(tc.input)); got != tc.reason {
+				t.Fatalf("batch reason = %q, want %q", got, tc.reason)
+			}
+		})
+	}
+}
 
 func TestEmbeddedHTMLSummaryForStatusSanitizesPrefix(t *testing.T) {
 	message := "request failed api_key=secret-value\x00\n<html><title>Upstream Error</title></html>"

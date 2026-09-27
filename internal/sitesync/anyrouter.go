@@ -107,11 +107,14 @@ func fetchAnyRouterManagementTokens(ctx context.Context, siteRecord *model.Site,
 	requestURL := buildSiteURL(siteRecord.BaseURL, "/api/token/?p=0&size=100")
 
 	payload, _, err := anyRouterRequestJSONWithCookies(ctx, siteRecord, http.MethodGet, requestURL, nil, anyRouterAuthHeaders(accessToken, userID), account)
-	if err != nil {
-		return nil, err
+	if err == nil {
+		err = validateSiteBusinessResponse(payload)
+		if err == nil {
+			return buildSiteTokensFromPayload(payload), nil
+		}
 	}
-	if tokens := buildSiteTokensFromPayload(payload); len(tokens) > 0 {
-		return tokens, nil
+	if IsCloudflareProtectionError(err) {
+		return nil, err
 	}
 
 	cookieTokens, cookieErr := fetchAnyRouterTokensByCookie(ctx, siteRecord, account, accessToken, userID)
@@ -121,7 +124,7 @@ func fetchAnyRouterManagementTokens(ctx context.Context, siteRecord *model.Site,
 	if cookieErr != nil {
 		return nil, cookieErr
 	}
-	return nil, nil
+	return nil, err
 }
 
 func fetchAnyRouterManagementGroups(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int) ([]model.SiteUserGroup, error) {
@@ -169,8 +172,9 @@ func fetchAnyRouterSessionModels(ctx context.Context, siteRecord *model.Site, ac
 
 	payload, _, err := anyRouterRequestJSONWithCookies(ctx, siteRecord, http.MethodGet, requestURL, nil, anyRouterAuthHeaders(accessToken, userID), account)
 	if err == nil {
-		if models := anyRouterParseModelNames(payload); len(models) > 0 {
-			return models, nil
+		err = validateSiteBusinessResponse(payload)
+		if err == nil {
+			return anyRouterParseModelNames(payload), nil
 		}
 	}
 
@@ -181,8 +185,8 @@ func fetchAnyRouterSessionModels(ctx context.Context, siteRecord *model.Site, ac
 		if requestErr != nil {
 			continue
 		}
-		if models := anyRouterParseModelNames(payload); len(models) > 0 {
-			return models, nil
+		if validateSiteBusinessResponse(payload) == nil {
+			return anyRouterParseModelNames(payload), nil
 		}
 	}
 	return nil, err
@@ -196,20 +200,25 @@ func fetchAnyRouterTokensByCookie(ctx context.Context, siteRecord *model.Site, a
 	}
 	tryUserIDs = slices.Compact(tryUserIDs)
 
+	var firstErr error
 	for _, candidateUserID := range tryUserIDs {
 		for _, cookie := range anyRouterBuildCookieCandidates(accessToken) {
 			headers := map[string]string{"Cookie": cookie}
 			anyRouterAddUserIDHeaders(headers, candidateUserID)
 			payload, _, err := anyRouterRequestJSONWithCookies(ctx, siteRecord, http.MethodGet, requestURL, nil, headers, account)
+			if err == nil {
+				err = validateSiteBusinessResponse(payload)
+			}
 			if err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
 				continue
 			}
-			if tokens := buildSiteTokensFromPayload(payload); len(tokens) > 0 {
-				return tokens, nil
-			}
+			return buildSiteTokensFromPayload(payload), nil
 		}
 	}
-	return nil, nil
+	return nil, firstErr
 }
 
 func fetchAnyRouterGroupsByCookie(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int) ([]model.SiteUserGroup, error) {

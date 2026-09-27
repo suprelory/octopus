@@ -56,5 +56,8 @@ export function translateApiErrorCode(
         .map((source) => lookupMessage(source, normalizedCode))
         .find((message): message is string => Boolean(message));
 
-    return translated ? interpolate(translated, values) : fallback;
+    if (!translated) return fallback;
+    const missingValue = [...translated.matchAll(/\{(\w+)\}/g)]
+        .some(([, key]) => values?.[key] === undefined || values[key] === null);
+    return missingValue ? fallback : interpolate(translated, values);
 }

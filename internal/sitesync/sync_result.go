@@ -88,7 +88,7 @@ func buildSyncSnapshotMessage(results []siteGroupSyncResult) string {
 
 	switch buildSyncSnapshotStatus(results) {
 	case model.SiteExecutionStatusPartial:
-		return "部分分组同步完成：" + message
+		return "部分分组同步完成：" + message + "。" + strings.Join(siteGroupFailureMessages(results), "；")
 	case model.SiteExecutionStatusSuccess:
 		if counts[siteGroupSyncStatusSynced] == 0 && counts[siteGroupSyncStatusEmpty] > 0 && counts[siteGroupSyncStatusRemoved] == 0 {
 			return "上游当前无可用模型，已清空历史模型：" + message
@@ -98,7 +98,7 @@ func buildSyncSnapshotMessage(results []siteGroupSyncResult) string {
 		}
 		return "同步完成：" + message
 	default:
-		return "同步失败：所有分组都未能确认模型，已保留历史投影"
+		return buildSyncSnapshotFailure(results).Error()
 	}
 }
 
@@ -107,6 +107,14 @@ func buildSyncSnapshotFailure(results []siteGroupSyncResult) error {
 		return newNoGroupResultError()
 	}
 
+	parts := siteGroupFailureMessages(results)
+	if len(parts) == 0 {
+		return newAllGroupsUnresolvedError("")
+	}
+	return newAllGroupsUnresolvedError(fmt.Sprintf("站点账号同步失败：所有分组都未能确认模型，已保留历史投影。%s", strings.Join(parts, "；")))
+}
+
+func siteGroupFailureMessages(results []siteGroupSyncResult) []string {
 	parts := make([]string, 0, len(results))
 	for _, item := range results {
 		switch item.Status {
@@ -118,10 +126,7 @@ func buildSyncSnapshotFailure(results []siteGroupSyncResult) error {
 			parts = append(parts, fmt.Sprintf("%s（%s）", item.GroupKey, message))
 		}
 	}
-	if len(parts) == 0 {
-		return newAllGroupsUnresolvedError("")
-	}
-	return newAllGroupsUnresolvedError(fmt.Sprintf("站点账号同步失败：所有分组都未能确认模型，已保留历史投影。%s", strings.Join(parts, "；")))
+	return parts
 }
 
 func finalizeSiteGroupSyncResults(

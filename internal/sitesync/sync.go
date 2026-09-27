@@ -4,25 +4,38 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/bestruirui/octopus/internal/apperror"
 	"github.com/bestruirui/octopus/internal/model"
 )
 
+var (
+	alreadyCheckedInEnglishPattern = regexp.MustCompile(`(?i)\b(?:already\s+(?:been\s+)?(?:checked[ -]in|signed[ -]in)|(?:checked[ -]in|signed[ -]in)\s+(?:already|today))\b`)
+	alreadyCheckedInChinesePattern = regexp.MustCompile(`(?:已(?:经)?签到|签到过(?:了)?)(?:$|[了，。！!\s]|无法重复|不能重复)`)
+	negativeCheckinPattern         = regexp.MustCompile(`(?i)\b(?:not|never|haven't|hasn't|didn't)\s+(?:(?:yet|already)\s+)?(?:checked[ -]in|signed[ -]in)\b|(?:未|没|没有)(?:曾经|曾|有|进行|完成)?签到`)
+)
+
 func isAlreadyCheckedInMessage(message string) bool {
 	lowered := strings.ToLower(strings.TrimSpace(message))
-	if lowered == "" {
+	if lowered == "" || negativeCheckinPattern.MatchString(lowered) {
 		return false
 	}
-	return strings.Contains(lowered, "already") ||
-		strings.Contains(lowered, "already checked") ||
-		strings.Contains(lowered, "already check") ||
-		strings.Contains(lowered, "checked in today") ||
-		strings.Contains(lowered, "already signed") ||
-		strings.Contains(message, "已签到") ||
-		strings.Contains(message, "已经签到") ||
-		strings.Contains(message, "签到过")
+	return alreadyCheckedInEnglishPattern.MatchString(lowered) || alreadyCheckedInChinesePattern.MatchString(message)
+}
+
+func isUnsupportedCheckinError(err error) bool {
+	if !apperror.IsCode(err, CodeSiteUpstreamHTTPError) || siteErrorStatusCode(err) != http.StatusNotFound {
+		return false
+	}
+	reason, _ := apperror.Params(err)["reason"].(string)
+	switch strings.ToLower(strings.TrimSpace(reason)) {
+	case "not found", "page not found", "404 not found", "404 page not found", "invalid url (post /api/user/checkin)":
+		return true
+	default:
+		return false
+	}
 }
 
 func syncAccountState(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount) (*syncSnapshot, error) {
@@ -60,18 +73,17 @@ func checkinAccountState(ctx context.Context, siteRecord *model.Site, account *m
 		}
 		payload, err := requestJSONWithManagedAccessToken(ctx, siteRecord, http.MethodPost, buildSiteURL(siteRecord.BaseURL, "/api/user/checkin"), nil, accessToken, account)
 		if err != nil {
-			lowered := strings.ToLower(err.Error())
-			if strings.Contains(lowered, "404") || strings.Contains(lowered, "not found") {
+			if isUnsupportedCheckinError(err) {
 				return &model.SiteCheckinResult{Status: model.SiteExecutionStatusSkipped, Message: "checkin is not supported by this platform"}, accessToken, nil
 			}
 			return nil, accessToken, err
 		}
 		success := jsonBool(payload["success"])
-		message := firstNonEmptyString(jsonString(payload["message"]), "checkin success")
+		message := extractSiteResponseMessage(payload)
 		if success || isAlreadyCheckedInMessage(message) {
-			return &model.SiteCheckinResult{Status: model.SiteExecutionStatusSuccess, Message: message, Reward: jsonString(nestedValue(payload, "data", "reward"))}, accessToken, nil
+			return &model.SiteCheckinResult{Status: model.SiteExecutionStatusSuccess, Message: firstNonEmptyString(message, "checkin success"), Reward: jsonString(nestedValue(payload, "data", "reward"))}, accessToken, nil
 		}
-		return &model.SiteCheckinResult{Status: model.SiteExecutionStatusFailed, Message: message}, accessToken, nil
+		return &model.SiteCheckinResult{Status: model.SiteExecutionStatusFailed, Message: firstNonEmptyString(message, "checkin failed")}, accessToken, nil
 	default:
 		return nil, "", newUnsupportedSitePlatformError(siteRecord.Platform)
 	}

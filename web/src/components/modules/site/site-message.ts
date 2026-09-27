@@ -10,6 +10,13 @@ type MatchResult = {
 const missingGroupKeyNoUsableKeyPattern = /^site sync requires a key for group "([^"]+)"; create a key for that group on the site and sync again$/i;
 const missingGroupKeyFallbackPattern = /^site sync could not resolve models for group "([^"]+)"; create a key for that group on the site and sync again$/i;
 
+export function isCloudflareProtectionMessage(message?: string | null) {
+    const lowered = (message ?? '').toLowerCase();
+    return /cloudflare\s+(?:challenge\b|protection\b|保护|保護)|\/cdn-cgi\/challenge-platform\/|cf-chl-|_cf_chl_opt/.test(lowered)
+        || /(?:^|:\s*)just a moment[.!\s…]*$/.test(lowered)
+        || (lowered.includes('cloudflare') && (lowered.includes('attention required') || lowered.includes('sorry, you have been blocked')));
+}
+
 function matchSiteMessage(message: string): MatchResult | null {
     const trimmed = message.trim();
     if (!trimmed) {

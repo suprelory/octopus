@@ -126,6 +126,8 @@ export function useSiteActions(setExpandedSiteIds: Dispatch<SetStateAction<Set<n
       const message = `${statusLabel(result.status)}：${result.message}${suffix}`;
       if (result.status === "failed") {
         toast.error(message);
+      } else if (result.status === "skipped") {
+        toast.warning(message);
       } else {
         toast.success(message);
       }

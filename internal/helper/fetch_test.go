@@ -52,6 +52,59 @@ func TestFetchModelsUsesBrowserHeadersAndSummarizesHTMLError(t *testing.T) {
 	}
 }
 
+func TestFetchModelsDistinguishesCloudflareFailures(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		body   string
+		want   string
+	}{
+		{
+			name:   "gateway error with CDN branding and no title",
+			status: http.StatusBadGateway,
+			body:   `<html><body><h1>502 Bad Gateway</h1><footer>Cloudflare Ray ID: abc123</footer></body></html>`,
+			want:   "http 502: Bad Gateway",
+		},
+		{
+			name:   "unavailable error with CDN branding",
+			status: http.StatusServiceUnavailable,
+			body:   `<html><body>Service unavailable. Cloudflare Ray ID: abc123</body></html>`,
+			want:   "http 503: Service Unavailable",
+		},
+		{
+			name:   "tunnel error",
+			status: http.StatusBadGateway,
+			body:   `<html><body>Cloudflare Tunnel error</body></html>`,
+			want:   "http 502: Cloudflare Tunnel error",
+		},
+		{
+			name:   "challenge without title",
+			status: http.StatusForbidden,
+			body:   `<html><body><script src="/cdn-cgi/challenge-platform/test"></script></body></html>`,
+			want:   "http 403: Cloudflare challenge",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/html")
+				w.Header().Set("Server", "cloudflare")
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer server.Close()
+			_, err := FetchModels(context.Background(), model.Channel{
+				Type:     outbound.OutboundTypeOpenAIChat,
+				BaseUrls: []model.BaseUrl{{URL: server.URL}},
+				Keys:     []model.ChannelKey{{Enabled: true, ChannelKey: "test-key"}},
+			})
+			if err == nil || err.Error() != tc.want {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
 // hungModelServer serves requests that never respond until the test releases them.
 func hungModelServer(t *testing.T) *httptest.Server {
 	t.Helper()

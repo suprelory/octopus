@@ -298,7 +298,14 @@ func formatModelHTTPError(statusCode int, contentType string, bodyBytes []byte) 
 	if summary := extractModelHTMLResponseSummary(contentType, bodyBytes); summary != "" {
 		return fmt.Errorf("http %d: %s", statusCode, summary)
 	}
-	return fmt.Errorf("http %d: %s", statusCode, strings.TrimSpace(string(bodyBytes)))
+	message := strings.TrimSpace(string(bodyBytes))
+	if message == "" || IsHTMLResponse(contentType, message) {
+		message = http.StatusText(statusCode)
+	}
+	if message == "" {
+		return fmt.Errorf("http %d", statusCode)
+	}
+	return fmt.Errorf("http %d: %s", statusCode, message)
 }
 
 func parseModelErrorPayload(bodyBytes []byte) (map[string]any, bool) {
@@ -336,33 +343,23 @@ func extractModelHTMLResponseSummary(contentType string, bodyBytes []byte) strin
 		return ""
 	}
 	lowered := strings.ToLower(body)
-	loweredContentType := strings.ToLower(contentType)
-	if !strings.Contains(loweredContentType, "text/html") && !strings.Contains(lowered, "<html") && !strings.Contains(lowered, "<!doctype") {
-		if strings.Contains(lowered, "just a moment") {
+	if !IsHTMLResponse(contentType, body) {
+		if cloudflareWaitingTitlePattern.MatchString(body) {
 			return "Just a moment..."
 		}
 		return ""
 	}
-	if start := strings.Index(lowered, "<title>"); start >= 0 {
-		start += len("<title>")
-		if end := strings.Index(lowered[start:], "</title>"); end >= 0 {
-			title := strings.TrimSpace(body[start : start+end])
-			if pipe := strings.Index(title, "|"); pipe >= 0 {
-				title = strings.TrimSpace(title[:pipe])
-			}
-			if title != "" {
-				return title
-			}
+	if IsCloudflareProtectionMessage(body) {
+		if cloudflareWaitingTitlePattern.MatchString(ExtractHTMLTitle(body)) {
+			return "Just a moment..."
 		}
+		return "Cloudflare challenge"
 	}
-	if strings.Contains(lowered, "just a moment") {
-		return "Just a moment..."
+	if title := ExtractHTMLTitle(body); title != "" {
+		return title
 	}
 	if strings.Contains(lowered, "cloudflare tunnel error") {
 		return "Cloudflare Tunnel error"
-	}
-	if strings.Contains(lowered, "cloudflare") {
-		return "Cloudflare challenge"
 	}
 	return ""
 }

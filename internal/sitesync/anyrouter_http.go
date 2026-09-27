@@ -10,13 +10,13 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/bestruirui/octopus/internal/helper"
 	"github.com/bestruirui/octopus/internal/model"
 )
 
 const anyRouterUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36"
 
 var (
-	anyRouterTitlePattern     = regexp.MustCompile(`(?is)<title>\s*([^<]+?)\s*</title>`)
 	anyRouterHTMLCodePattern  = regexp.MustCompile(`(?is)<span[^>]*>\s*Error\s*</span>\s*<span[^>]*>\s*(\d{3,4})\s*</span>`)
 	anyRouterLooseCodePattern = regexp.MustCompile(`\bError\s*(\d{3,4})\b`)
 )
@@ -58,6 +58,7 @@ func anyRouterRequestJSONWithCookies(ctx context.Context, siteRecord *model.Site
 		mergedHeaders["Cookie"] = cookieHeader
 	}
 
+	var lastResponseErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		var bodyReader io.Reader
 		if len(payloadBytes) > 0 {
@@ -99,9 +100,11 @@ func anyRouterRequestJSONWithCookies(ctx context.Context, siteRecord *model.Site
 			mergedHeaders["Cookie"] = cookieHeader
 		}
 
-		if payload, ok := anyRouterParseJSONObject(bodyBytes); ok {
+		payload, responseErr := decodeSiteResponse(statusCode, respHeader, bodyBytes)
+		if responseErr == nil {
 			return payload, cookieHeader, nil
 		}
+		lastResponseErr = responseErr
 
 		text := strings.TrimSpace(string(bodyBytes))
 		if statusCode >= 200 && statusCode < 300 {
@@ -113,13 +116,12 @@ func anyRouterRequestJSONWithCookies(ctx context.Context, siteRecord *model.Site
 					continue
 				}
 			}
-			return nil, cookieHeader, nil
 		}
 
-		return nil, cookieHeader, anyRouterFormatHTTPError(statusCode, respHeader, text)
+		return nil, cookieHeader, responseErr
 	}
 
-	return nil, cookieHeader, nil
+	return nil, cookieHeader, lastResponseErr
 }
 
 func anyRouterParseJSONObject(body []byte) (map[string]any, bool) {
@@ -134,19 +136,7 @@ func anyRouterParseJSONObject(body []byte) (map[string]any, bool) {
 }
 
 func anyRouterFormatHTTPError(statusCode int, header http.Header, body string) error {
-	if payload, ok := anyRouterParseJSONObject([]byte(body)); ok {
-		if message := anyRouterExtractResponseMessage(payload); message != "" {
-			return newSiteHTTPError(statusCode, message)
-		}
-	}
-	bodyBytes := []byte(body)
-	if IsCloudflareProtectionResponse(statusCode, header, bodyBytes) {
-		return wrapCloudflareProtectionError(newCloudflareProtectionError(statusCode, header))
-	}
-	if summary := anyRouterExtractHTMLErrorSummary(body); summary != "" {
-		return newSiteHTTPError(statusCode, summary)
-	}
-	return newSiteHTTPError(statusCode, "上游返回非 JSON 响应，无法解析为接口响应")
+	return formatSiteHTTPError(statusCode, header, []byte(body))
 }
 
 func anyRouterExtractResponseMessage(payload map[string]any) string {
@@ -263,17 +253,11 @@ func anyRouterExtractHTMLErrorSummary(text string) string {
 		return ""
 	}
 	lowered := strings.ToLower(trimmed)
-	if !strings.Contains(lowered, "<html") && !strings.Contains(lowered, "<!doctype") {
+	if !helper.IsHTMLResponse("", trimmed) {
 		return ""
 	}
 
-	title := ""
-	if match := anyRouterTitlePattern.FindStringSubmatch(trimmed); len(match) >= 2 {
-		title = strings.TrimSpace(match[1])
-		if pipe := strings.Index(title, "|"); pipe >= 0 {
-			title = strings.TrimSpace(title[:pipe])
-		}
-	}
+	title := helper.ExtractHTMLTitle(trimmed)
 	if title == "" && strings.Contains(lowered, "cloudflare tunnel error") {
 		title = "Cloudflare Tunnel error"
 	}

@@ -36,7 +36,7 @@ func resolveAnyRouterManagedAccessToken(ctx context.Context, siteRecord *model.S
 		return "", err
 	}
 	if payload == nil {
-		return "", fmt.Errorf("shield challenge blocked login")
+		return "", wrapSiteDecodeError("login response is empty", nil)
 	}
 	if !jsonBool(payload["success"]) {
 		return "", newSiteLoginFailedError(firstNonEmptyString(anyRouterExtractResponseMessage(payload), "login failed"))

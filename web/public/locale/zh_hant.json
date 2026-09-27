@@ -1268,13 +1268,19 @@
             "auth": {
                 "access_token_required": "站點 Access Token 不能為空。",
                 "direct_token_required": "站點 Direct Token 不能為空。",
-                "login_failed": "站點登入失敗，請檢查帳號、密碼或站點狀態。",
+                "login_failed": "站點登入失敗：{reason}",
                 "login_token_missing": "站點登入成功但未返回 Access Token，請檢查站點相容性。"
             },
             "upstream": {
-                "http_error": "站點上游請求失敗（HTTP {statusCode}），請檢查站點狀態或稍後重試。",
-                "decode_failed": "站點回應解析失敗，請檢查站點相容性或稍後重試。",
+                "http_error": "站點上游請求失敗（HTTP {statusCode}）：{reason}",
+                "business_error": "站點拒絕了請求：{reason}",
+                "network_error": "無法連接站點：{reason}",
+                "timeout": "站點請求逾時：{reason}",
+                "decode_failed": "站點回應解析失敗：{reason}",
                 "cloudflare_challenge": "站點觸發 Cloudflare 保護，請稍後重試，或手動訪問站點完成驗證。"
+            },
+            "operation": {
+                "canceled": "站點操作已取消。"
             },
             "import": {
                 "invalid_json": "匯入內容不是有效的 JSON，請檢查檔案格式或貼上的內容。",

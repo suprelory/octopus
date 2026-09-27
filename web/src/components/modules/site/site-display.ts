@@ -4,6 +4,8 @@ import { useTranslations } from "next-intl";
 import { translateSiteMessage } from "./site-message";
 import { HealthTone } from "./types";
 
+export { isCloudflareProtectionMessage } from "./site-message";
+
 export const PLATFORM_LABELS: Record<SitePlatform, string> = {
   [SitePlatform.API]: "API 直连",
   [SitePlatform.NewAPI]: "New API",
@@ -125,9 +127,4 @@ export function cardToneClass(tone: HealthTone) {
     default:
       return "border-border/70 bg-card";
   }
-}
-
-export function isCloudflareProtectionMessage(message?: string | null) {
-  const lowered = (message ?? "").toLowerCase();
-  return lowered.includes("cloudflare") || message?.includes("Cloudflare 保护") === true;
 }

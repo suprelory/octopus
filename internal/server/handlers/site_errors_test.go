@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -16,6 +17,35 @@ import (
 	"github.com/bestruirui/octopus/internal/server/resp"
 	"github.com/gin-gonic/gin"
 )
+
+func TestCheckinFailureRemainsAUsableResult(t *testing.T) {
+	ctx := setupSiteHandlerTestDB(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"message":"account not found"}`))
+	}))
+	defer upstream.Close()
+	site := &model.Site{Name: "Checkin failure", Platform: model.SitePlatformOneAPI, BaseURL: upstream.URL, Enabled: true}
+	if err := op.SiteCreate(site, ctx); err != nil {
+		t.Fatal(err)
+	}
+	account := &model.SiteAccount{SiteID: site.ID, Name: "Test", CredentialType: model.SiteCredentialTypeAccessToken, AccessToken: "test-token", Enabled: true}
+	if err := op.SiteAccountCreate(account, ctx); err != nil {
+		t.Fatal(err)
+	}
+	w, response := requestSiteMutation(t, "/api/v1/site/account/checkin/"+strconv.Itoa(account.ID), func(c *gin.Context) {
+		c.Params = gin.Params{{Key: "id", Value: strconv.Itoa(account.ID)}}
+		checkinSiteAccount(c)
+	}, map[string]any{})
+	if w.Code != http.StatusOK {
+		t.Fatalf("checkin outcome must remain available to the UI: %d %s", w.Code, w.Body.String())
+	}
+	data, ok := response.Data.(map[string]any)
+	if !ok || data["status"] != "failed" || data["message"] != "http 500: account not found" {
+		t.Fatalf("checkin failure was misreported: %s", w.Body.String())
+	}
+}
 
 func setupSiteHandlerTestDB(t *testing.T) context.Context {
 	t.Helper()

@@ -27,6 +27,9 @@ func fetchManagementTokens(ctx context.Context, siteRecord *model.Site, account 
 	if err != nil {
 		return nil, err
 	}
+	if err := validateSiteBusinessResponse(payload); err != nil {
+		return nil, err
+	}
 	items := parseTokenItems(payload)
 	tokens := make([]model.SiteToken, 0, len(items))
 	for index, item := range items {
@@ -47,6 +50,9 @@ func fetchManagementGroups(ctx context.Context, siteRecord *model.Site, account 
 	for _, endpoint := range endpoints {
 		payload, err := requestJSONWithManagedAccessToken(ctx, siteRecord, "GET", buildSiteURL(siteRecord.BaseURL, endpoint), nil, accessToken, account)
 		if err != nil {
+			continue
+		}
+		if err := validateSiteBusinessResponse(payload); err != nil {
 			continue
 		}
 		for _, group := range parseGroupItems(payload) {
@@ -164,7 +170,7 @@ func fetchManagementModels(
 		if strings.TrimSpace(fallbackResult.message) == "" {
 			fallbackResult.message = "本次未能确认该分组模型，已保留历史模型"
 		}
-		return fallbackResult, err
+		return fallbackResult, fmt.Errorf("%s；模型接口请求失败：%w", fallbackResult.message, err)
 	}
 	if fallbackErr != nil {
 		return fallbackResult, fallbackErr
@@ -181,6 +187,9 @@ func fetchManagedSessionModels(ctx context.Context, siteRecord *model.Site, acco
 	}
 	payload, err := requestJSONWithManagedAccessToken(ctx, siteRecord, "GET", buildSiteURL(siteRecord.BaseURL, "/api/user/models"), nil, accessToken, account)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateSiteBusinessResponse(payload); err != nil {
 		return nil, err
 	}
 	return anyRouterParseModelNames(payload), nil

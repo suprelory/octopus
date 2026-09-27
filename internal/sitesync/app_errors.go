@@ -22,8 +22,12 @@ const (
 	CodeSiteAuthLoginTokenMissing   = "site.auth.login_token_missing"
 
 	CodeSiteUpstreamHTTPError           = "site.upstream.http_error"
+	CodeSiteUpstreamBusinessError       = "site.upstream.business_error"
+	CodeSiteUpstreamNetworkError        = "site.upstream.network_error"
+	CodeSiteUpstreamTimeout             = "site.upstream.timeout"
 	CodeSiteUpstreamDecodeFailed        = "site.upstream.decode_failed"
 	CodeSiteUpstreamCloudflareChallenge = "site.upstream.cloudflare_challenge"
+	CodeSiteOperationCanceled           = "site.operation.canceled"
 )
 
 func newMissingGroupKeyError(groupKey string) *apperror.Error {
@@ -55,7 +59,14 @@ func newSiteLoginFailedError(message string) *apperror.Error {
 	if message == "" {
 		message = "login failed"
 	}
-	return apperror.New(CodeSiteAuthLoginFailed, message).WithStatus(http.StatusBadGateway)
+	return apperror.New(CodeSiteAuthLoginFailed, message).WithStatus(http.StatusBadGateway).
+		WithParam("reason", sanitizeSiteStatusText(message))
+}
+
+func newSiteBusinessError(message string) *apperror.Error {
+	message = firstNonEmptyString(sanitizeSiteStatusText(message), "upstream reported failure without a reason")
+	return apperror.New(CodeSiteUpstreamBusinessError, message).WithStatus(http.StatusBadGateway).
+		WithParam("reason", message)
 }
 
 func newSiteLoginTokenMissingError() *apperror.Error {
@@ -78,6 +89,7 @@ func newSnapshotNilError() *apperror.Error {
 }
 
 func newSiteHTTPError(statusCode int, message string) *apperror.Error {
+	reason := firstNonEmptyString(sanitizeSiteStatusText(message), http.StatusText(statusCode), "upstream request failed")
 	if message == "" {
 		message = fmt.Sprintf("http %d", statusCode)
 	} else {
@@ -85,7 +97,8 @@ func newSiteHTTPError(statusCode int, message string) *apperror.Error {
 	}
 	return apperror.New(CodeSiteUpstreamHTTPError, message).
 		WithStatus(http.StatusBadGateway).
-		WithParam("statusCode", statusCode)
+		WithParam("statusCode", statusCode).
+		WithParam("reason", reason)
 }
 
 func wrapSiteDecodeError(message string, err error) *apperror.Error {
@@ -93,9 +106,11 @@ func wrapSiteDecodeError(message string, err error) *apperror.Error {
 		message = "decode response failed"
 	}
 	if err == nil {
-		return apperror.New(CodeSiteUpstreamDecodeFailed, message).WithStatus(http.StatusBadGateway)
+		return apperror.New(CodeSiteUpstreamDecodeFailed, message).WithStatus(http.StatusBadGateway).
+			WithParam("reason", sanitizeSiteStatusText(message))
 	}
-	return apperror.Wrap(CodeSiteUpstreamDecodeFailed, message, err).WithStatus(http.StatusBadGateway)
+	return apperror.Wrap(CodeSiteUpstreamDecodeFailed, message, err).WithStatus(http.StatusBadGateway).
+		WithParam("reason", sanitizeSiteStatusText(message))
 }
 
 func wrapCloudflareProtectionError(err *CloudflareProtectionError) *apperror.Error {

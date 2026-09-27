@@ -429,6 +429,10 @@ func checkinSiteAccount(c *gin.Context) {
 	}
 	result, err := sitesvc.CheckinAccount(c.Request.Context(), idNum)
 	if err != nil {
+		if result != nil {
+			resp.Success(c, result)
+			return
+		}
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, err)
 		return
 	}

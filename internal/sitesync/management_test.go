@@ -346,7 +346,7 @@ func TestSyncManagementPlatformDoesNotFallbackWithoutExplicitGroupMatch(t *testi
 	}
 }
 
-func TestSyncManagementPlatformPrefersStableGroupErrorOverHTMLSummary(t *testing.T) {
+func TestSyncManagementPlatformKeepsGroupGuidanceAndUpstreamError(t *testing.T) {
 	platformUserID := 7788
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -389,8 +389,8 @@ func TestSyncManagementPlatformPrefersStableGroupErrorOverHTMLSummary(t *testing
 	if err == nil {
 		t.Fatalf("expected syncManagementPlatform to fail when explicit group metadata is missing")
 	}
-	if strings.Contains(err.Error(), `decode response failed: New API`) {
-		t.Fatalf("expected stable group guidance instead of HTML summary, got %v", err)
+	if !strings.Contains(err.Error(), `decode response failed: New API`) || !strings.Contains(err.Error(), "显式分组元数据") {
+		t.Fatalf("expected group guidance and the upstream error, got %v", err)
 	}
 	if !strings.Contains(err.Error(), `站点账号同步失败：所有分组都未能确认模型`) {
 		t.Fatalf("expected unresolved-group failure, got %v", err)

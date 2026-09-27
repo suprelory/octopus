@@ -3,7 +3,6 @@ package sitesync
 import (
 	"context"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -111,16 +110,12 @@ func CheckinAccount(ctx context.Context, accountID int) (*model.SiteCheckinResul
 	result, resolvedAccessToken, err := checkinAccountState(ctx, siteRecord, account)
 	if err != nil {
 		status := model.SiteExecutionStatusFailed
-		lowered := strings.ToLower(err.Error())
-		if strings.Contains(lowered, "not supported") || strings.Contains(lowered, "not found") {
-			status = model.SiteExecutionStatusSkipped
-		}
 		message := sanitizeSiteStatusMessage(err)
 		updateErr := updateAccountCheckinState(ctx, siteRecord, account, status, message, resolvedAccessToken)
 		if updateErr != nil {
 			return nil, sanitizeSiteError(updateErr)
 		}
-		return &model.SiteCheckinResult{AccountID: account.ID, SiteID: siteRecord.ID, Status: status, Message: message}, nil
+		return &model.SiteCheckinResult{AccountID: account.ID, SiteID: siteRecord.ID, Status: status, Message: message}, sanitizeSiteError(err)
 	}
 
 	result.AccountID = account.ID
@@ -128,6 +123,9 @@ func CheckinAccount(ctx context.Context, accountID int) (*model.SiteCheckinResul
 	result.Message = sanitizeSiteStatusText(result.Message)
 	if err := updateAccountCheckinState(ctx, siteRecord, account, result.Status, result.Message, resolvedAccessToken); err != nil {
 		return nil, sanitizeSiteError(err)
+	}
+	if result.Status == model.SiteExecutionStatusFailed {
+		return result, newSiteBusinessError(result.Message)
 	}
 	return result, nil
 }

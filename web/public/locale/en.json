@@ -1268,13 +1268,19 @@
             "auth": {
                 "access_token_required": "The site access token is required.",
                 "direct_token_required": "The site direct token is required.",
-                "login_failed": "Site login failed. Check the account, password, or site status.",
+                "login_failed": "Site login failed: {reason}",
                 "login_token_missing": "Site login succeeded but no access token was returned. Check site compatibility."
             },
             "upstream": {
-                "http_error": "The upstream site request failed (HTTP {statusCode}). Check the site status or try again later.",
-                "decode_failed": "Failed to parse the site response. Check site compatibility or try again later.",
+                "http_error": "The upstream site request failed (HTTP {statusCode}): {reason}",
+                "business_error": "The site rejected the request: {reason}",
+                "network_error": "Could not connect to the site: {reason}",
+                "timeout": "The site request timed out: {reason}",
+                "decode_failed": "Failed to parse the site response: {reason}",
                 "cloudflare_challenge": "The site triggered Cloudflare protection. Try again later or manually complete verification on the site."
+            },
+            "operation": {
+                "canceled": "The site operation was canceled."
             },
             "import": {
                 "invalid_json": "The import content is not valid JSON. Check the file format or pasted content.",

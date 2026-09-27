@@ -82,6 +82,12 @@ func syncSiteModelsByGroup(
 			GroupName: model.NormalizeSiteGroupName(token.GroupKey, token.GroupName),
 			HasKey:    true,
 		}
+		if err != nil {
+			groupResult.Status = siteGroupSyncStatusFailed
+			groupResult.Message = sanitizeSiteStatusMessage(err)
+			results = append(results, groupResult)
+			continue
+		}
 		if result.authoritative && len(result.names) == 0 {
 			groupResult.Status = siteGroupSyncStatusEmpty
 			groupResult.Authoritative = true
@@ -90,13 +96,8 @@ func syncSiteModelsByGroup(
 			continue
 		}
 		if len(result.names) == 0 {
-			if err != nil {
-				groupResult.Status = siteGroupSyncStatusFailed
-				groupResult.Message = firstNonEmptyString(strings.TrimSpace(result.message), err.Error())
-			} else {
-				groupResult.Status = siteGroupSyncStatusUnresolved
-				groupResult.Message = firstNonEmptyString(strings.TrimSpace(result.message), "本次未能确认该分组模型，已沿用历史投影")
-			}
+			groupResult.Status = siteGroupSyncStatusUnresolved
+			groupResult.Message = firstNonEmptyString(strings.TrimSpace(result.message), "本次未能确认该分组模型，已沿用历史投影")
 			results = append(results, groupResult)
 			continue
 		}

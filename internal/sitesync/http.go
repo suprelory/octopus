@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/bestruirui/octopus/internal/client"
+	"github.com/bestruirui/octopus/internal/helper"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 )
@@ -126,8 +127,15 @@ func requestJSON(ctx context.Context, siteRecord *model.Site, method string, req
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, formatSiteHTTPError(resp.StatusCode, resp.Header, bodyBytes)
+	return decodeSiteResponse(resp.StatusCode, resp.Header, bodyBytes)
+}
+
+func decodeSiteResponse(statusCode int, header http.Header, bodyBytes []byte) (map[string]any, error) {
+	if statusCode < 200 || statusCode >= 300 {
+		return nil, formatSiteHTTPError(statusCode, header, bodyBytes)
+	}
+	if IsCloudflareProtectionResponse(statusCode, header, bodyBytes) {
+		return nil, wrapCloudflareProtectionError(newCloudflareProtectionError(statusCode, header))
 	}
 	if len(bodyBytes) == 0 {
 		return map[string]any{}, nil
@@ -135,9 +143,19 @@ func requestJSON(ctx context.Context, siteRecord *model.Site, method string, req
 
 	var payload map[string]any
 	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
-		return nil, formatSiteDecodeError(resp.Header.Get("Content-Type"), bodyBytes, err)
+		return nil, formatSiteDecodeError(header.Get("Content-Type"), bodyBytes, err)
+	}
+	if payload == nil {
+		return nil, wrapSiteDecodeError("decode response failed: expected a JSON object, got null", nil)
 	}
 	return payload, nil
+}
+
+func validateSiteBusinessResponse(payload map[string]any) error {
+	if success, ok := payload["success"]; ok && !jsonBool(success) {
+		return newSiteBusinessError(extractSiteResponseMessage(payload))
+	}
+	return nil
 }
 
 func applyDefaultSiteRequestHeaders(req *http.Request, hasJSONBody bool) {
@@ -170,24 +188,19 @@ func formatSiteHTTPError(statusCode int, header http.Header, bodyBytes []byte) e
 	if summary := extractSiteHTMLResponseSummary(header.Get("Content-Type"), bodyBytes); summary != "" {
 		return newSiteHTTPError(statusCode, summary)
 	}
-	return newSiteHTTPError(statusCode, "上游返回非 JSON 响应，无法解析为接口响应")
+	return newSiteHTTPError(statusCode, firstNonEmptyString(http.StatusText(statusCode), "上游返回非 JSON 响应，无法解析为接口响应"))
 }
 
-// IsCloudflareProtectionResponse 判断一次上游响应是否为 Cloudflare 防护拦截（403 + CF 指纹）。
+// IsCloudflareProtectionResponse requires an explicit challenge header or page
+// marker; Server and CF-Ray headers alone only identify the CDN.
 func IsCloudflareProtectionResponse(statusCode int, header http.Header, bodyBytes []byte) bool {
-	if statusCode != http.StatusForbidden {
-		return false
-	}
-	body := strings.ToLower(string(bodyBytes))
-	if strings.Contains(body, "attention required") ||
-		strings.Contains(body, "just a moment") ||
-		strings.Contains(body, "cf-error-code") ||
-		strings.Contains(body, "cloudflare ray id") ||
-		strings.Contains(body, "cloudflare") {
+	if strings.EqualFold(strings.TrimSpace(header.Get("Cf-Mitigated")), "challenge") {
 		return true
 	}
-	server := strings.ToLower(header.Get("Server"))
-	return header.Get("CF-Ray") != "" || strings.Contains(server, "cloudflare")
+	if statusCode < http.StatusOK || json.Valid(bodyBytes) || !helper.IsHTMLResponse(header.Get("Content-Type"), string(bodyBytes)) {
+		return false
+	}
+	return helper.IsCloudflareProtectionMessage(string(bodyBytes))
 }
 
 func formatSiteDecodeError(contentType string, bodyBytes []byte, err error) error {
@@ -227,11 +240,14 @@ func extractSiteHTMLResponseSummary(contentType string, bodyBytes []byte) string
 	if summary := anyRouterExtractHTMLErrorSummary(body); summary != "" {
 		return summary
 	}
-	lowered := strings.ToLower(contentType + "\n" + body)
-	if strings.Contains(lowered, "just a moment") {
-		return "Just a moment..."
+	lowered := strings.ToLower(body)
+	if !helper.IsHTMLResponse(contentType, body) {
+		return ""
 	}
-	if strings.Contains(lowered, "cloudflare") {
+	if helper.IsCloudflareProtectionMessage(body) {
+		if strings.Contains(lowered, "just a moment") {
+			return "Just a moment..."
+		}
 		return "Cloudflare challenge"
 	}
 	return ""
