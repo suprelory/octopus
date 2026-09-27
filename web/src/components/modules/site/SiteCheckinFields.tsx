@@ -1,6 +1,10 @@
 'use client';
 
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
+import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Plus, X } from 'lucide-react';
 import type { SiteFormFieldsProps } from './site-form';
 
 export function SiteCheckinFields({ siteForm, setSiteForm }: SiteFormFieldsProps) {
@@ -23,6 +27,77 @@ export function SiteCheckinFields({ siteForm, setSiteForm }: SiteFormFieldsProps
                     配置后可在站点总览中一键打开此页面进行手动签到。
                 </span>
             </label>
+
+            <section className="space-y-4 rounded-xl border border-border/60 p-4">
+                <div className="flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                        <div className="text-sm font-medium">自定义 HTTP 签到</div>
+                        <p className="text-xs text-muted-foreground">使用账号凭据向站点发送签到请求，启用后覆盖平台内置签到端点。</p>
+                    </div>
+                    <Switch
+                        aria-label="启用自定义 HTTP 签到"
+                        checked={siteForm.checkin_http_enabled}
+                        onCheckedChange={(checked) => setSiteForm((current) => ({ ...current, checkin_http_enabled: checked }))}
+                    />
+                </div>
+                {siteForm.checkin_http_enabled ? (
+                    <div className="grid gap-4">
+                        <div className="grid gap-4 sm:grid-cols-[8rem_minmax(0,1fr)]">
+                            <label className="grid gap-2 text-sm">
+                                <span className="font-medium">请求方法</span>
+                                <Select
+                                    value={siteForm.checkin_http_method}
+                                    onValueChange={(value: 'GET' | 'POST') => setSiteForm((current) => ({ ...current, checkin_http_method: value, checkin_http_body: value === 'GET' ? '' : current.checkin_http_body }))}
+                                >
+                                    <SelectTrigger aria-label="签到请求方法" className="w-full rounded-xl"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="POST">POST</SelectItem>
+                                        <SelectItem value="GET">GET</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </label>
+                            <label className="grid min-w-0 gap-2 text-sm">
+                                <span className="font-medium">请求路径</span>
+                                <Input
+                                    value={siteForm.checkin_http_path}
+                                    onChange={(event) => setSiteForm((current) => ({ ...current, checkin_http_path: event.target.value }))}
+                                    placeholder="/api/checkin/spin"
+                                    className="rounded-xl"
+                                />
+                            </label>
+                        </div>
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-3">
+                                <span className="text-sm font-medium">签到专属 Header</span>
+                                <Button type="button" variant="outline" size="sm" onClick={() => setSiteForm((current) => ({ ...current, checkin_http_headers: [...current.checkin_http_headers, { header_key: '', header_value: '' }] }))}>
+                                    <Plus className="size-4" />添加
+                                </Button>
+                            </div>
+                            {siteForm.checkin_http_headers.map((header, index) => (
+                                <div key={`checkin-hdr-${index}`} className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2rem] gap-2">
+                                    <Input aria-label={`签到 Header ${index + 1} 名称`} value={header.header_key} onChange={(event) => setSiteForm((current) => ({ ...current, checkin_http_headers: current.checkin_http_headers.map((item, itemIndex) => itemIndex === index ? { ...item, header_key: event.target.value } : item) }))} placeholder="Header 名称" className="min-w-0 rounded-xl" />
+                                    <Input aria-label={`签到 Header ${index + 1} 值`} value={header.header_value} onChange={(event) => setSiteForm((current) => ({ ...current, checkin_http_headers: current.checkin_http_headers.map((item, itemIndex) => itemIndex === index ? { ...item, header_value: event.target.value } : item) }))} placeholder="Header 值" className="min-w-0 rounded-xl" />
+                                    <Button type="button" variant="ghost" size="icon" aria-label={`删除签到 Header ${index + 1}`} onClick={() => setSiteForm((current) => ({ ...current, checkin_http_headers: current.checkin_http_headers.filter((_, itemIndex) => itemIndex !== index) }))}>
+                                        <X className="size-4" />
+                                    </Button>
+                                </div>
+                            ))}
+                        </div>
+                        {siteForm.checkin_http_method === 'POST' ? (
+                            <label className="grid gap-2 text-sm">
+                                <span className="font-medium">JSON 请求体</span>
+                                <textarea
+                                    value={siteForm.checkin_http_body}
+                                    onChange={(event) => setSiteForm((current) => ({ ...current, checkin_http_body: event.target.value }))}
+                                    placeholder={'可选，例如：{"token":"{{access_token}}"}\n支持 {{access_token}}、{{api_key}}、{{username}}、{{password}}、{{refresh_token}}、{{platform_user_id}} 占位符'}
+                                    rows={4}
+                                    className="w-full min-w-0 resize-y rounded-xl border border-input bg-background px-3 py-2 font-mono text-xs"
+                                />
+                            </label>
+                        ) : null}
+                    </div>
+                ) : null}
+            </section>
 
             <div className="grid gap-4 rounded-xl border border-border/60 bg-muted/20 p-4 md:grid-cols-2">
                 <label className="grid gap-2 text-sm md:col-span-2">

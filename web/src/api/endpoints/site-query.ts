@@ -5,6 +5,7 @@ export function normalizeSiteServerList(data: SiteServer[]): Site[] {
   return data.map((site) => ({
     ...site,
     custom_header: site.custom_header ?? [],
+    checkin_http_headers: site.checkin_http_headers ?? [],
     route_base_urls: site.route_base_urls ?? [],
     tags: site.tags ?? [],
     default_route_type: site.default_route_type ?? undefined,

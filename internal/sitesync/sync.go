@@ -60,6 +60,9 @@ func checkinAccountState(ctx context.Context, siteRecord *model.Site, account *m
 	if siteRecord == nil || account == nil {
 		return nil, "", fmt.Errorf("site or account is nil")
 	}
+	if siteRecord.CheckinHTTPEnabled {
+		return checkinConfiguredHTTP(ctx, siteRecord, account)
+	}
 
 	switch siteRecord.Platform {
 	case model.SitePlatformDoneHub, model.SitePlatformSub2API, model.SitePlatformAPI:

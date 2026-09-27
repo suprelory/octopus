@@ -121,6 +121,11 @@ export type Site = {
   proxy_mode: Exclude<ProxyMode, "inherit">;
   proxy_config_id?: number | null;
   external_checkin_url?: string | null;
+  checkin_http_enabled?: boolean;
+  checkin_http_method?: "GET" | "POST";
+  checkin_http_path?: string;
+  checkin_http_body?: string;
+  checkin_http_headers?: CustomHeader[] | null;
   checkin_timezone: string;
   checkin_window_start: string;
   checkin_window_end: string;
@@ -138,7 +143,7 @@ export type Site = {
 
 export type SiteServer = Omit<
   Site,
-  "accounts" | "custom_header" | "route_base_urls" | "tags"
+  "accounts" | "custom_header" | "route_base_urls" | "tags" | "checkin_http_headers"
 > & {
   accounts: Array<
     Omit<
@@ -152,6 +157,7 @@ export type SiteServer = Omit<
     }
   > | null;
   custom_header: CustomHeader[] | null;
+  checkin_http_headers?: CustomHeader[] | null;
   route_base_urls: SiteRouteBaseURL[] | null;
   tags: string[] | null;
   default_route_type?: string | null;

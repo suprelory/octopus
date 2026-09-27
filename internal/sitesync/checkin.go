@@ -2,6 +2,7 @@ package sitesync
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -125,8 +126,8 @@ func checkinRewardString(value any) string {
 func persistCheckinOutcome(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, trigger SiteBatchTrigger, started time.Time, result *model.SiteCheckinResult, accessToken string, updateAccount bool) (*model.SiteCheckinResult, error) {
 	finished := time.Now()
 	result.SiteID, result.AccountID = siteRecord.ID, account.ID
-	result.Message = sanitizeCheckinText(result.Message, account, accessToken)
-	result.Reward = sanitizeCheckinText(result.Reward, account, accessToken)
+	result.Message = sanitizeCheckinText(result.Message, account, accessToken, siteRecord)
+	result.Reward = sanitizeCheckinText(result.Reward, account, accessToken, siteRecord)
 	if result.Status != model.SiteExecutionStatusSuccess || result.Reason == model.SiteCheckinReasonAlreadyCheckedIn {
 		result.Reward = ""
 	}
@@ -157,8 +158,22 @@ func persistCheckinOutcome(ctx context.Context, siteRecord *model.Site, account 
 	return result, nil
 }
 
-func sanitizeCheckinText(value string, account *model.SiteAccount, resolvedToken string) string {
-	secrets := []string{account.Password, account.AccessToken, account.APIKey, account.RefreshToken, resolvedToken}
+func sanitizeCheckinText(value string, account *model.SiteAccount, resolvedToken string, sites ...*model.Site) string {
+	secrets := []string{account.Username, account.Password, account.AccessToken, account.APIKey, account.RefreshToken, resolvedToken}
+	for _, site := range sites {
+		if site == nil {
+			continue
+		}
+		for _, header := range append(append([]model.CustomHeader(nil), site.CustomHeader...), site.CheckinHTTPHeaders...) {
+			if isSensitiveCheckinField(header.HeaderKey) {
+				secrets = append(secrets, header.HeaderValue, expandCheckinHTTPTemplate(header.HeaderValue, account, resolvedToken))
+			}
+		}
+		var requestBody any
+		if json.Unmarshal([]byte(expandCheckinHTTPBodyTemplate(site.CheckinHTTPBody, account, resolvedToken)), &requestBody) == nil {
+			secrets = appendSensitiveCheckinJSONValues(secrets, requestBody, false)
+		}
+	}
 	for _, secret := range secrets {
 		if secret == "" {
 			continue
@@ -174,4 +189,32 @@ func sanitizeCheckinText(value string, account *model.SiteAccount, resolvedToken
 		}
 	}
 	return sanitizeSiteStatusText(value)
+}
+
+func isSensitiveCheckinField(name string) bool {
+	lowered := strings.ToLower(strings.TrimSpace(name))
+	for _, marker := range []string{"authorization", "cookie", "token", "secret", "password", "api-key", "api_key", "apikey", "credential"} {
+		if strings.Contains(lowered, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func appendSensitiveCheckinJSONValues(secrets []string, value any, sensitive bool) []string {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			secrets = appendSensitiveCheckinJSONValues(secrets, child, sensitive || isSensitiveCheckinField(key))
+		}
+	case []any:
+		for _, child := range typed {
+			secrets = appendSensitiveCheckinJSONValues(secrets, child, sensitive)
+		}
+	case string:
+		if sensitive {
+			secrets = append(secrets, typed)
+		}
+	}
+	return secrets
 }

@@ -124,6 +124,33 @@ export function useSiteForm({ site, onOpenChange, onCreated }: {
                 return;
             }
 
+            if (siteForm.checkin_http_enabled) {
+                const checkinPath = siteForm.checkin_http_path.trim();
+                if (!checkinPath.startsWith('/') || checkinPath.startsWith('//') || /[\\\r\n\0#]/.test(checkinPath)) {
+                    toast.error('自定义签到路径必须是以 / 开头的站内路径');
+                    return;
+                }
+                let decodedPath: string;
+                try {
+                    decodedPath = decodeURIComponent(checkinPath.split('?', 1)[0]);
+                } catch {
+                    toast.error('自定义签到路径编码无效');
+                    return;
+                }
+                if (decodedPath.split('/').some(segment => segment === '.' || segment === '..' || segment.includes('\\'))) {
+                    toast.error('自定义签到路径不能包含路径跳转片段');
+                    return;
+                }
+                if (siteForm.checkin_http_method === 'POST' && siteForm.checkin_http_body.trim()) {
+                    try {
+                        JSON.parse(siteForm.checkin_http_body);
+                    } catch {
+                        toast.error('自定义签到请求体必须是有效 JSON');
+                        return;
+                    }
+                }
+            }
+
             const payload = {
                 name: siteForm.name.trim(),
                 platform: platform as SitePlatform,
@@ -133,6 +160,11 @@ export function useSiteForm({ site, onOpenChange, onCreated }: {
                 proxy_config_id:
                     siteForm.proxy_mode === 'pool' ? siteForm.proxy_config_id : null,
                 external_checkin_url: siteForm.external_checkin_url.trim() || null,
+                checkin_http_enabled: siteForm.checkin_http_enabled,
+                checkin_http_method: siteForm.checkin_http_method,
+                checkin_http_path: siteForm.checkin_http_path.trim(),
+                checkin_http_body: siteForm.checkin_http_body,
+                checkin_http_headers: trimHeaders(siteForm.checkin_http_headers),
                 checkin_timezone: siteForm.checkin_timezone.trim(),
                 checkin_window_start: siteForm.checkin_window_start,
                 checkin_window_end: siteForm.checkin_window_end,

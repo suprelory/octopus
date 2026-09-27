@@ -27,6 +27,12 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
             expect(state.mutations).toEqual([]);
 
             await dialog.getByLabel('结束时间', { exact: true }).fill('18:00');
+            await dialog.getByRole('switch', { name: '启用自定义 HTTP 签到', exact: true }).check();
+            await dialog.getByLabel('请求路径', { exact: true }).fill('/api/checkin/spin?day=today');
+            await dialog.getByRole('button', { name: '添加', exact: true }).click();
+            await dialog.getByLabel('签到 Header 1 名称', { exact: true }).fill('X-Checkin-Mode');
+            await dialog.getByLabel('签到 Header 1 值', { exact: true }).fill('daily');
+            await dialog.getByLabel('JSON 请求体', { exact: true }).fill('{"source":"{{username}}"}');
             await dialog.getByRole('button', { name: '高级设置', exact: true }).click();
             await dialog.getByPlaceholder('Header Key', { exact: true }).fill(' X-Project ');
             await dialog.getByPlaceholder('Header Value', { exact: true }).fill(' split-check ');
@@ -39,7 +45,10 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
                 method: 'POST', path: '/api/v1/site/update', body: {
                     id: 1, name: 'Updated site', platform: 'new-api', base_url: 'https://site-1.example',
                     enabled: true, proxy_mode: 'direct', proxy_config_id: null,
-                    external_checkin_url: null, checkin_timezone: 'UTC', checkin_window_start: '09:00',
+                    external_checkin_url: null, checkin_http_enabled: true, checkin_http_method: 'POST',
+                    checkin_http_path: '/api/checkin/spin?day=today', checkin_http_body: '{"source":"{{username}}"}',
+                    checkin_http_headers: [{ header_key: 'X-Checkin-Mode', header_value: 'daily' }],
+                    checkin_timezone: 'UTC', checkin_window_start: '09:00',
                     checkin_window_end: '18:00', is_pinned: false, sort_order: 0, global_weight: 1,
                     custom_header: [{ header_key: 'X-Project', header_value: 'split-check' }],
                     route_base_urls: [], tags: [],

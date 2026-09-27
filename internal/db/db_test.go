@@ -106,3 +106,33 @@ func TestInitializeSchemaCreatesCurrentTablesAndPreservesExistingData(t *testing
 		t.Fatalf("existing setting changed: %+v, error=%v", savedSetting, err)
 	}
 }
+
+func TestInitializeSchemaAddsCustomHTTPCheckinColumnsToExistingSites(t *testing.T) {
+	gormDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	if err := gormDB.Exec("CREATE TABLE sites (id integer PRIMARY KEY, name text NOT NULL)").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := gormDB.Exec("INSERT INTO sites (id, name) VALUES (7, 'legacy')").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := initializeSchema(gormDB); err != nil {
+		t.Fatalf("upgrade existing schema: %v", err)
+	}
+	for _, column := range []string{"checkin_http_enabled", "checkin_http_method", "checkin_http_path", "checkin_http_body", "checkin_http_headers"} {
+		if !gormDB.Migrator().HasColumn(&model.Site{}, column) {
+			t.Errorf("missing migrated site column %s", column)
+		}
+	}
+	var name string
+	if err := gormDB.Raw("SELECT name FROM sites WHERE id = 7").Scan(&name).Error; err != nil || name != "legacy" {
+		t.Fatalf("legacy site data changed: name=%q error=%v", name, err)
+	}
+}

@@ -70,6 +70,11 @@ type Site struct {
 	ProxyMode          ProxyUsageMode     `json:"proxy_mode" gorm:"type:varchar(16);not null;default:'direct'"`
 	ProxyConfigID      *int               `json:"proxy_config_id"`
 	ExternalCheckinURL *string            `json:"external_checkin_url"`
+	CheckinHTTPEnabled bool               `json:"checkin_http_enabled" gorm:"default:false"`
+	CheckinHTTPMethod  string             `json:"checkin_http_method" gorm:"size:8;not null;default:'POST'"`
+	CheckinHTTPPath    string             `json:"checkin_http_path" gorm:"type:text"`
+	CheckinHTTPBody    string             `json:"checkin_http_body" gorm:"type:text"`
+	CheckinHTTPHeaders []CustomHeader     `json:"checkin_http_headers" gorm:"type:text;serializer:json"`
 	CheckinTimezone    string             `json:"checkin_timezone" gorm:"size:64;not null;default:'Asia/Shanghai'"`
 	CheckinWindowStart string             `json:"checkin_window_start" gorm:"size:5;not null;default:'00:00'"`
 	CheckinWindowEnd   string             `json:"checkin_window_end" gorm:"size:5;not null;default:'23:59'"`

@@ -15,6 +15,11 @@ type SiteUpdateRequest struct {
 	ProxyConfigIDSet   bool                `json:"-"`
 	ExternalCheckinURL *string             `json:"external_checkin_url,omitempty"`
 	ExternalCheckinSet bool                `json:"-"`
+	CheckinHTTPEnabled *bool               `json:"checkin_http_enabled,omitempty"`
+	CheckinHTTPMethod  *string             `json:"checkin_http_method,omitempty"`
+	CheckinHTTPPath    *string             `json:"checkin_http_path,omitempty"`
+	CheckinHTTPBody    *string             `json:"checkin_http_body,omitempty"`
+	CheckinHTTPHeaders *[]CustomHeader     `json:"checkin_http_headers,omitempty"`
 	CheckinTimezone    *string             `json:"checkin_timezone,omitempty"`
 	CheckinWindowStart *string             `json:"checkin_window_start,omitempty"`
 	CheckinWindowEnd   *string             `json:"checkin_window_end,omitempty"`

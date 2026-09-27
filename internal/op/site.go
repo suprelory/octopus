@@ -150,6 +150,26 @@ func SiteUpdate(req *model.SiteUpdateRequest, ctx context.Context) (*model.Site,
 		merged.ExternalCheckinURL = req.ExternalCheckinURL
 		selectFields = append(selectFields, "external_checkin_url")
 	}
+	if req.CheckinHTTPEnabled != nil {
+		merged.CheckinHTTPEnabled = *req.CheckinHTTPEnabled
+		selectFields = append(selectFields, "checkin_http_enabled")
+	}
+	if req.CheckinHTTPMethod != nil {
+		merged.CheckinHTTPMethod = *req.CheckinHTTPMethod
+		selectFields = append(selectFields, "checkin_http_method")
+	}
+	if req.CheckinHTTPPath != nil {
+		merged.CheckinHTTPPath = *req.CheckinHTTPPath
+		selectFields = append(selectFields, "checkin_http_path")
+	}
+	if req.CheckinHTTPBody != nil {
+		merged.CheckinHTTPBody = *req.CheckinHTTPBody
+		selectFields = append(selectFields, "checkin_http_body")
+	}
+	if req.CheckinHTTPHeaders != nil {
+		merged.CheckinHTTPHeaders = *req.CheckinHTTPHeaders
+		selectFields = append(selectFields, "checkin_http_headers")
+	}
 	if req.CheckinTimezone != nil {
 		merged.CheckinTimezone = *req.CheckinTimezone
 		selectFields = append(selectFields, "checkin_timezone")
@@ -216,6 +236,21 @@ func SiteUpdate(req *model.SiteUpdateRequest, ctx context.Context) (*model.Site,
 	}
 	if req.ExternalCheckinSet {
 		updates.ExternalCheckinURL = merged.ExternalCheckinURL
+	}
+	if req.CheckinHTTPEnabled != nil {
+		updates.CheckinHTTPEnabled = merged.CheckinHTTPEnabled
+	}
+	if req.CheckinHTTPMethod != nil {
+		updates.CheckinHTTPMethod = merged.CheckinHTTPMethod
+	}
+	if req.CheckinHTTPPath != nil {
+		updates.CheckinHTTPPath = merged.CheckinHTTPPath
+	}
+	if req.CheckinHTTPBody != nil {
+		updates.CheckinHTTPBody = merged.CheckinHTTPBody
+	}
+	if req.CheckinHTTPHeaders != nil {
+		updates.CheckinHTTPHeaders = merged.CheckinHTTPHeaders
 	}
 	if req.CheckinTimezone != nil {
 		updates.CheckinTimezone = merged.CheckinTimezone

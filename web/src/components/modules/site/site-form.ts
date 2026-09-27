@@ -10,6 +10,11 @@ export type SiteFormState = {
     proxy_mode: Exclude<ProxyMode, 'inherit'>;
     proxy_config_id: number | null;
     external_checkin_url: string;
+    checkin_http_enabled: boolean;
+    checkin_http_method: 'GET' | 'POST';
+    checkin_http_path: string;
+    checkin_http_body: string;
+    checkin_http_headers: CustomHeader[];
     checkin_timezone: string;
     checkin_window_start: string;
     checkin_window_end: string;
@@ -57,6 +62,11 @@ export function createEmptySiteForm(): SiteFormState {
         proxy_mode: 'direct',
         proxy_config_id: null,
         external_checkin_url: '',
+        checkin_http_enabled: false,
+        checkin_http_method: 'POST',
+        checkin_http_path: '',
+        checkin_http_body: '',
+        checkin_http_headers: [],
         checkin_timezone: 'Asia/Shanghai',
         checkin_window_start: '00:00',
         checkin_window_end: '23:59',
@@ -79,6 +89,11 @@ export function createSiteForm(site: SiteRecord): SiteFormState {
         proxy_mode: site.proxy_mode ?? 'direct',
         proxy_config_id: site.proxy_config_id ?? null,
         external_checkin_url: site.external_checkin_url ?? '',
+        checkin_http_enabled: site.checkin_http_enabled ?? false,
+        checkin_http_method: site.checkin_http_method ?? 'POST',
+        checkin_http_path: site.checkin_http_path ?? '',
+        checkin_http_body: site.checkin_http_body ?? '',
+        checkin_http_headers: (site.checkin_http_headers ?? []).map((item) => ({ ...item })),
         checkin_timezone: site.checkin_timezone || 'Asia/Shanghai',
         checkin_window_start: site.checkin_window_start || '00:00',
         checkin_window_end: site.checkin_window_end || '23:59',
@@ -103,6 +118,11 @@ export function normalizeSiteRecord(site: SiteRecord): SiteRecord {
         proxy_mode: site.proxy_mode ?? 'direct',
         proxy_config_id: site.proxy_config_id ?? null,
         external_checkin_url: site.external_checkin_url ?? null,
+        checkin_http_enabled: site.checkin_http_enabled ?? false,
+        checkin_http_method: site.checkin_http_method ?? 'POST',
+        checkin_http_path: site.checkin_http_path ?? '',
+        checkin_http_body: site.checkin_http_body ?? '',
+        checkin_http_headers: site.checkin_http_headers ?? [],
         checkin_timezone: site.checkin_timezone || 'Asia/Shanghai',
         checkin_window_start: site.checkin_window_start || '00:00',
         checkin_window_end: site.checkin_window_end || '23:59',

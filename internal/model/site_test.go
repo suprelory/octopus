@@ -232,6 +232,53 @@ func TestSiteValidateRejectsInvalidCheckinSchedule(t *testing.T) {
 	}
 }
 
+func TestSiteValidateCustomHTTPCheckinConfig(t *testing.T) {
+	baseSite := func() *Site {
+		return &Site{
+			Name:               "custom-http-checkin",
+			Platform:           SitePlatformAPI,
+			BaseURL:            "https://example.com/prefix",
+			CheckinHTTPEnabled: true,
+			CheckinHTTPMethod:  "post",
+			CheckinHTTPPath:    "/api/checkin?day=today",
+			CheckinHTTPBody:    `{"token":"{{access_token}}"}`,
+			CheckinHTTPHeaders: []CustomHeader{{HeaderKey: "X-Account", HeaderValue: "{{username}}"}},
+		}
+	}
+	if err := baseSite().Validate(); err != nil {
+		t.Fatalf("valid custom HTTP checkin rejected: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*Site)
+	}{
+		{name: "unsupported method", mutate: func(site *Site) { site.CheckinHTTPMethod = "PUT" }},
+		{name: "absolute path", mutate: func(site *Site) { site.CheckinHTTPPath = "https://evil.example/checkin" }},
+		{name: "path traversal", mutate: func(site *Site) { site.CheckinHTTPPath = "/api/../admin" }},
+		{name: "invalid body", mutate: func(site *Site) { site.CheckinHTTPBody = "{bad" }},
+		{name: "body with GET", mutate: func(site *Site) { site.CheckinHTTPMethod = "GET" }},
+		{name: "reserved header", mutate: func(site *Site) {
+			site.CheckinHTTPHeaders = []CustomHeader{{HeaderKey: "Content-Length", HeaderValue: "1"}}
+		}},
+		{name: "header newline", mutate: func(site *Site) {
+			site.CheckinHTTPHeaders = []CustomHeader{{HeaderKey: "X-Test", HeaderValue: "ok\r\nInjected: yes"}}
+		}},
+		{name: "duplicate header", mutate: func(site *Site) {
+			site.CheckinHTTPHeaders = []CustomHeader{{HeaderKey: "X-Test", HeaderValue: "one"}, {HeaderKey: "x-test", HeaderValue: "two"}}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			site := baseSite()
+			tt.mutate(site)
+			if err := site.Validate(); err == nil {
+				t.Fatal("expected invalid custom HTTP checkin configuration to fail validation")
+			}
+		})
+	}
+}
+
 func TestCompactSiteModelRouteTypeName(t *testing.T) {
 	tests := []struct {
 		name      string

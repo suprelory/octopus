@@ -98,6 +98,21 @@ func initializeSchema(db *gorm.DB) error {
 			}
 		}
 	}
+	if err := ensureSiteCheckinHTTPColumns(db); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureSiteCheckinHTTPColumns(db *gorm.DB) error {
+	for _, column := range []string{"CheckinHTTPEnabled", "CheckinHTTPMethod", "CheckinHTTPPath", "CheckinHTTPBody", "CheckinHTTPHeaders"} {
+		if db.Migrator().HasColumn(&model.Site{}, column) {
+			continue
+		}
+		if err := db.Migrator().AddColumn(&model.Site{}, column); err != nil {
+			return fmt.Errorf("add site column %s: %w", column, err)
+		}
+	}
 	return nil
 }
 

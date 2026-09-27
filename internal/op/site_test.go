@@ -1474,3 +1474,33 @@ func TestSiteUpdatePersistsCheckinSchedule(t *testing.T) {
 		t.Fatalf("unexpected checkin schedule: timezone=%q start=%q end=%q", updated.CheckinTimezone, updated.CheckinWindowStart, updated.CheckinWindowEnd)
 	}
 }
+
+func TestSiteUpdatePersistsCustomHTTPCheckinConfig(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+	site := &model.Site{
+		Name:     "custom-http-checkin-update",
+		Platform: model.SitePlatformOneAPI,
+		BaseURL:  "https://example.com/root",
+		Enabled:  true,
+	}
+	if err := SiteCreate(site, ctx); err != nil {
+		t.Fatalf("SiteCreate failed: %v", err)
+	}
+	enabled, method := true, "GET"
+	path, body := "/daily/checkin?date=today", ""
+	headers := []model.CustomHeader{{HeaderKey: "X-Checkin-Mode", HeaderValue: "custom"}}
+	updated, err := SiteUpdate(&model.SiteUpdateRequest{
+		ID:                 site.ID,
+		CheckinHTTPEnabled: &enabled,
+		CheckinHTTPMethod:  &method,
+		CheckinHTTPPath:    &path,
+		CheckinHTTPBody:    &body,
+		CheckinHTTPHeaders: &headers,
+	}, ctx)
+	if err != nil {
+		t.Fatalf("SiteUpdate failed: %v", err)
+	}
+	if !updated.CheckinHTTPEnabled || updated.CheckinHTTPMethod != "GET" || updated.CheckinHTTPPath != path || updated.CheckinHTTPBody != "" || len(updated.CheckinHTTPHeaders) != 1 || updated.CheckinHTTPHeaders[0] != headers[0] {
+		t.Fatalf("custom HTTP checkin config was not persisted: %+v", updated)
+	}
+}
