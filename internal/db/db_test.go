@@ -236,3 +236,34 @@ func TestInitializeSchemaAddsCheckinCapabilityColumnsToExistingSites(t *testing.
 		t.Fatalf("migrated checkin mode was not writable: value=%q error=%v", mode, err)
 	}
 }
+
+func TestInitializeSchemaMarksExistingSitesAsRelay(t *testing.T) {
+	gormDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Discard})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	if err := gormDB.Exec("CREATE TABLE sites (id integer PRIMARY KEY, name text NOT NULL)").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := gormDB.Exec("INSERT INTO sites (id, name) VALUES (7, 'legacy')").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := initializeSchema(gormDB); err != nil {
+		t.Fatalf("upgrade existing schema: %v", err)
+	}
+	var values struct {
+		Kind         string
+		LinkedSiteID *int
+	}
+	if err := gormDB.Raw("SELECT kind, linked_site_id FROM sites WHERE id = 7").Scan(&values).Error; err != nil {
+		t.Fatalf("read migrated site kind: %v", err)
+	}
+	if values.Kind != string(model.SiteKindRelay) || values.LinkedSiteID != nil {
+		t.Fatalf("expected legacy site to be an unlinked relay site, got kind=%q linked=%v", values.Kind, values.LinkedSiteID)
+	}
+}

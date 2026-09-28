@@ -30,7 +30,6 @@ const FILTERS: Array<{ key: CheckinFilterStatus; label: string }> = [
   { key: "all", label: "全部" },
   { key: "success", label: "成功" },
   { key: "failed", label: "签到失败" },
-  { key: "sync_failed", label: "同步失败" },
   { key: "idle", label: "未执行" },
   { key: "disabled", label: "禁用" },
 ];
@@ -139,7 +138,7 @@ export function CheckinPanel({
   activeTags: string[];
   onTagFilterChange: (tag: string) => void;
 }) {
-  const t = useTranslations('workspace.site');
+  const t = useTranslations('workspace.checkin');
   const historyT = useTranslations('siteCheckinHistory');
   const [historyOpen, setHistoryOpen] = useState(false);
   const summaryNow = useMemo(() => {

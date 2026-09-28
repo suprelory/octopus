@@ -11,7 +11,7 @@ import (
 )
 
 func PreviewManualSync(ctx context.Context, accountID int, req ManualSyncRequest) (*ManualSyncPreview, error) {
-	siteRecord, account, err := loadSiteAccount(ctx, accountID)
+	siteRecord, account, err := loadSyncableSiteAccount(ctx, accountID)
 	if err != nil {
 		return nil, sanitizeSiteError(err)
 	}
@@ -23,7 +23,7 @@ func PreviewManualSync(ctx context.Context, accountID int, req ManualSyncRequest
 }
 
 func ApplyManualSync(ctx context.Context, accountID int, req ManualSyncRequest) (*ManualSyncApplyResult, error) {
-	siteRecord, account, err := loadSiteAccount(ctx, accountID)
+	siteRecord, account, err := loadSyncableSiteAccount(ctx, accountID)
 	if err != nil {
 		return nil, sanitizeSiteError(err)
 	}

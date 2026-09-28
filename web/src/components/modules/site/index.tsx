@@ -3,6 +3,7 @@
 import {
   SiteAccount,
   Site as SiteRecord,
+  type SiteKind,
   useCheckinAllSites,
   useSiteList,
   useSyncAllSites,
@@ -18,6 +19,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AccountEditDialog } from "./AccountEditDialog";
 import { BatchEditDialog } from "./BatchEditDialog";
 import { CheckinPanel } from "./CheckinPanel";
+import { SiteOverviewPanel } from "./SiteOverviewPanel";
 import { ManualSyncDialog } from "./ManualSyncDialog";
 import { SiteEditDialog } from "./SiteEditDialog";
 import { useSiteUIStore } from "./ui-store";
@@ -35,10 +37,13 @@ import { useSiteActions } from "./useSiteActions";
 import { useSiteLayout } from "./useSiteLayout";
 import { useSiteView } from "./useSiteView";
 
-export function Site() {
+export function Site({ kind = 'relay' }: { kind?: SiteKind }) {
   const t = useTranslations();
   const locale = useSettingStore((state) => state.locale);
-  const { data: sites, isLoading, error } = useSiteList();
+  const { data: allSites, isLoading, error } = useSiteList();
+  const isCheckin = kind === 'checkin';
+  const sites = useMemo(() => allSites?.filter((site) => (site.kind ?? 'relay') === kind), [allSites, kind]);
+  const linkedSiteNames = useMemo(() => new Map((allSites ?? []).map((site) => [site.id, site.name])), [allSites]);
   const syncAllSites = useSyncAllSites();
   const checkinAllSites = useCheckinAllSites();
 
@@ -62,7 +67,7 @@ export function Site() {
     pendingJump && isSiteJumpTarget(pendingJump.target) ? (pendingJump as SitePendingJump) : null;
   const forcedSiteId = pendingSiteJump?.target.siteId ?? null;
 
-  const view = useSiteView(sites, forcedSiteId);
+  const view = useSiteView(sites, forcedSiteId, isCheckin ? 'checkin' : 'site');
   const {
     searchTerm,
     checkinFilterStatuses,
@@ -182,7 +187,7 @@ export function Site() {
   return (
     <div className="page-scroll-area">
       <PageWrapper className="space-y-4" animateChildren={false}>
-        <CheckinPanel
+        {isCheckin ? <CheckinPanel
           sites={sites}
           inventory={inventory}
           statusDayKey={statusDayKey}
@@ -196,9 +201,19 @@ export function Site() {
           allTags={allTags}
           activeTags={tagFilters}
           onTagFilterChange={handleTagFilterChange}
-        />
+        /> : <SiteOverviewPanel
+          inventory={inventory}
+          visibleSiteCount={visibleSites.length}
+          visibleAccountCount={visibleAccountCount}
+          allTags={allTags}
+          activeTags={tagFilters}
+          onTagFilterChange={handleTagFilterChange}
+          hasActiveFilters={hasActiveFilters}
+          onClearFilters={clearFilters}
+        />}
 
         <SiteBatchBar
+          isCheckin={isCheckin}
           actions={actions}
           visibleSites={visibleSites}
           onEdit={() => setBatchEditOpen(true)}
@@ -219,13 +234,13 @@ export function Site() {
         {!isLoading && !error && (!sites || sites.length === 0) ? (
           <section className="page-empty-state p-10 text-foreground">
             <CircleAlert className="mx-auto size-8 text-muted-foreground" />
-            <div className="mt-4 text-lg font-semibold">还没有站点</div>
+            <div className="mt-4 text-lg font-semibold">{isCheckin ? '还没有签到站点' : '还没有站点'}</div>
             <p className="mt-2 text-sm text-muted-foreground">
-              先新增一个站点，再为它配置账号，后续即可自动同步分组、模型和托管渠道。
+              {isCheckin ? '新增签到站点并配置独立账号，即可管理自动签到、执行记录和收益。签到地址可以与订阅站不同。' : '先新增一个站点，再为它配置账号，后续即可自动同步分组、模型和托管渠道。'}
             </p>
             <Button onClick={openCreateSiteDialog} className="mt-5 rounded-xl">
               <Plus className="size-4" />
-              新增第一个站点
+              {isCheckin ? '新增第一个签到站点' : '新增第一个站点'}
             </Button>
           </section>
         ) : null}
@@ -256,6 +271,7 @@ export function Site() {
                 <div key={item.site.id} ref={getSiteCardMeasureRef(item.site.id)}>
                   <SiteCard
                     item={item}
+                    linkedSiteName={item.site.linked_site_id ? linkedSiteNames.get(item.site.linked_site_id) : undefined}
                     actions={actions}
                     editors={editors}
                     layout={layout}
@@ -271,6 +287,7 @@ export function Site() {
                   <div key={item.site.id} ref={getSiteCardMeasureRef(item.site.id)}>
                     <SiteCard
                       item={item}
+                      linkedSiteName={item.site.linked_site_id ? linkedSiteNames.get(item.site.linked_site_id) : undefined}
                       actions={actions}
                       editors={editors}
                       layout={layout}
@@ -285,6 +302,7 @@ export function Site() {
                   <div key={item.site.id} ref={getSiteCardMeasureRef(item.site.id)}>
                     <SiteCard
                       item={item}
+                      linkedSiteName={item.site.linked_site_id ? linkedSiteNames.get(item.site.linked_site_id) : undefined}
                       actions={actions}
                       editors={editors}
                       layout={layout}
@@ -300,6 +318,8 @@ export function Site() {
       </PageWrapper>
 
       <SiteEditDialog
+        kind={kind}
+        linkedSites={allSites}
         key={editingSite ? `edit-site-${editingSite.id}` : "create-site"}
         open={siteDialogOpen}
         onOpenChange={closeSiteDialog}
@@ -309,6 +329,7 @@ export function Site() {
       />
 
       <BatchEditDialog
+        isCheckin={isCheckin}
         open={batchEditOpen}
         onOpenChange={setBatchEditOpen}
         selectedSiteIds={selectedSiteIds}
@@ -338,9 +359,9 @@ export function Site() {
         account={manualSyncAccount}
       />
 
-      <SiteImportDialog open={importDialogOpen} onOpenChange={setImportDialogOpen} />
+      {!isCheckin ? <SiteImportDialog open={importDialogOpen} onOpenChange={setImportDialogOpen} /> : null}
 
-      <ArchivedSitesDialog open={archivedDialogOpen} onOpenChange={setArchivedDialogOpen} />
+      <ArchivedSitesDialog kind={kind} open={archivedDialogOpen} onOpenChange={setArchivedDialogOpen} />
 
       <SiteDeleteDialog actions={actions} />
     </div>

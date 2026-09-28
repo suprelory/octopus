@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { SiteCredentialType, type SiteAccount } from '../../src/api/endpoints/site-types';
 import type { SiteCheckinLog } from '../../src/api/endpoints/site-checkin';
-import { makeSite, mockApp } from './fixtures';
+import { makeCheckinSite, mockApp } from './fixtures';
 
 const account: SiteAccount = {
     id: 11, site_id: 1, name: 'Primary account', credential_type: SiteCredentialType.AccessToken,
@@ -27,7 +27,7 @@ const history: SiteCheckinLog[] = Array.from({ length: 21 }, (_, index) => {
 });
 
 test('check-in history shows outcomes and rewards, paginates, and sends filters', async ({ page }) => {
-    const state = await mockApp(page, 'site', { sites: [{ ...makeSite(), accounts: [account] }] });
+    const state = await mockApp(page, 'checkin', { sites: [{ ...makeCheckinSite(), accounts: [account] }] });
     const queries: URL[] = [];
     await page.route('**/api/v1/site/checkin-logs**', async route => {
         const url = new URL(route.request().url());
@@ -80,7 +80,7 @@ test('check-in history shows outcomes and rewards, paginates, and sends filters'
 
 test('check-in history remains usable on mobile and recovers from a query failure', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    const state = await mockApp(page, 'site');
+    const state = await mockApp(page, 'checkin');
     let failing = false;
     await page.route('**/api/v1/site/checkin-logs**', async route => {
         await route.fulfill(failing

@@ -1,7 +1,7 @@
 'use client';
 
 import { XIcon } from 'lucide-react';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { ProxySelector } from '@/components/modules/proxy-pool/ProxySelector';
 import { Site as SiteRecord, SiteAccount } from '@/api/endpoints/site';
@@ -35,7 +35,8 @@ export function AccountEditDialog({ open, onOpenChange, site, account }: Account
         return (
             <Dialog open={open} onOpenChange={onOpenChange}>
                 <DialogContent className="max-w-md rounded-3xl">
-                    <p className="text-sm text-muted-foreground">站点上下文不存在。</p>
+                    <DialogTitle>站点账号</DialogTitle>
+                    <DialogDescription>站点上下文不存在。</DialogDescription>
                 </DialogContent>
             </Dialog>
         );
@@ -44,14 +45,15 @@ export function AccountEditDialog({ open, onOpenChange, site, account }: Account
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent
+                aria-describedby={undefined}
                 showCloseButton={false}
                 className="w-screen max-w-full md:max-w-xl bg-card text-card-foreground px-6 py-4 rounded-3xl flex flex-col gap-0 border-0 sm:max-w-xl max-h-[min(calc(100vh-2rem),52rem)] overflow-hidden"
             >
                 <header className="mb-4 flex items-start justify-between gap-4 shrink-0">
                     <div className="min-w-0 flex-1">
-                        <h2 className="text-2xl font-bold text-card-foreground truncate">
+                        <DialogTitle className="text-2xl font-bold text-card-foreground truncate">
                             {account ? '编辑站点账号' : '新增站点账号'}
-                        </h2>
+                        </DialogTitle>
                     </div>
                     <button
                         type="button"
@@ -75,6 +77,7 @@ export function AccountEditDialog({ open, onOpenChange, site, account }: Account
                         <AccountAutomationFields
                             accountForm={accountForm}
                             setAccountForm={setAccountForm}
+                            isCheckin={site?.kind === 'checkin'}
                         />
 
                         <div className="grid gap-2 text-sm">
@@ -97,7 +100,7 @@ export function AccountEditDialog({ open, onOpenChange, site, account }: Account
                                 }
                             />
                             <span className="text-xs text-muted-foreground">
-                                用于该账号的同步、签到和模型拉取；自动投影的渠道会跟随这里解析后的代理。
+                                {site?.kind === 'checkin' ? '用于该签到账号的请求；继承时使用签到站点的代理配置。' : '用于该账号的同步和模型拉取；自动投影的渠道会跟随这里解析后的代理。'}
                             </span>
                         </div>
                     </div>

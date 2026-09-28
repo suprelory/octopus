@@ -27,7 +27,7 @@ export function makeChannel(id = 1, name = 'OpenAI Primary', overrides: Partial<
 
 export function makeSite(id = 1, name = 'Alpha site'): Site {
     return {
-        id, name, platform: 'new-api' as Site['platform'], base_url: `https://site-${id}.example`,
+        id, name, kind: 'relay', platform: 'new-api' as Site['platform'], base_url: `https://site-${id}.example`,
         enabled: true, proxy_mode: 'direct', checkin_timezone: 'Asia/Shanghai',
         checkin_mode: 'auto',
         checkin_capability: { enabled: true, can_verify: true, default_enabled: true, source: 'platform_default', support: 'unknown' },
@@ -35,6 +35,10 @@ export function makeSite(id = 1, name = 'Alpha site'): Site {
         sort_order: 0, global_weight: 1, custom_header: [], route_base_urls: [], tags: [],
         archived: false, accounts: [],
     };
+}
+
+export function makeCheckinSite(id = 1, name = 'Alpha site'): Site {
+    return { ...makeSite(id, name), kind: 'checkin' };
 }
 
 export function makeSiteChannelCard(): SiteChannelCard {
@@ -94,7 +98,7 @@ export async function mockApp(page: Page, nav: NavItem, options: {
     mutate?: (request: Mutation) => MockResponse | Promise<MockResponse>;
 } = {}) {
     const state = {
-        sites: options.sites ?? [makeSite()],
+        sites: options.sites ?? [nav === 'checkin' ? makeCheckinSite() : makeSite()],
         siteChannels: options.siteChannels ?? [makeSiteChannelCard()],
         groups: options.groups ?? [],
         channels: options.channels ?? [],

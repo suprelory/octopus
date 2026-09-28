@@ -113,6 +113,7 @@ export type {
   SiteChannelBinding,
   SiteAccount,
   Site,
+  SiteKind,
   SiteSyncResult,
   SiteManualSyncMode,
   SiteManualSyncFormat,

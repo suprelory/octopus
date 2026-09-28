@@ -1,6 +1,6 @@
 "use client";
 
-import { useArchivedSiteList, useRestoreSite } from "@/api/endpoints/site";
+import { useArchivedSiteList, useRestoreSite, type SiteKind } from "@/api/endpoints/site";
 import { toast } from "@/components/common/Toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,19 +20,22 @@ import { getSiteErrorMessage } from "./site-display";
 export function ArchivedSitesDialog({
   open: archivedDialogOpen,
   onOpenChange: setArchivedDialogOpen,
+  kind = 'relay',
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  kind?: SiteKind;
 }) {
   const t = useTranslations();
   const locale = useSettingStore((state) => state.locale);
   const restoreSite = useRestoreSite();
 
   const {
-    data: archivedSites,
+    data: allArchivedSites,
     isLoading: archivedLoading,
     error: archivedError,
   } = useArchivedSiteList(archivedDialogOpen);
+  const archivedSites = allArchivedSites?.filter((site) => (site.kind ?? 'relay') === kind);
 
   async function handleRestoreSite(siteId: number, siteName: string) {
     try {
@@ -49,8 +52,7 @@ export function ArchivedSitesDialog({
         <DialogHeader className="shrink-0 border-b border-border/60 px-6 py-4">
           <DialogTitle>归档站点</DialogTitle>
           <DialogDescription>
-            归档的站点仍保留账号、Key
-            和模型配置，托管渠道会被下线。点击恢复会还原到主列表（默认保持禁用状态，启用后会自动重建托管渠道）。
+            {kind === 'checkin' ? '归档后保留签到配置、账号和历史记录，并暂停自动签到。恢复后请手动启用。' : '归档的站点仍保留账号、Key 和模型配置，托管渠道会被下线。点击恢复会还原到主列表（默认保持禁用状态，启用后会自动重建托管渠道）。'}
           </DialogDescription>
         </DialogHeader>
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">

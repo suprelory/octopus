@@ -9,6 +9,7 @@ import (
 
 func checkinTestSite() *model.Site {
 	return &model.Site{
+		Kind:               model.SiteKindCheckin,
 		Platform:           model.SitePlatformOneAPI,
 		Enabled:            true,
 		CheckinTimezone:    "Asia/Shanghai",

@@ -26,7 +26,7 @@ func TestCheckinFailureRemainsAUsableResult(t *testing.T) {
 		_, _ = w.Write([]byte(`{"message":"account not found"}`))
 	}))
 	defer upstream.Close()
-	site := &model.Site{Name: "Checkin failure", Platform: model.SitePlatformOneAPI, BaseURL: upstream.URL, Enabled: true}
+	site := &model.Site{Name: "Checkin failure", Kind: model.SiteKindCheckin, Platform: model.SitePlatformOneAPI, BaseURL: upstream.URL, Enabled: true}
 	if err := op.SiteCreate(site, ctx); err != nil {
 		t.Fatal(err)
 	}

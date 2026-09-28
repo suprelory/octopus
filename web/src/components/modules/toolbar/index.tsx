@@ -7,6 +7,7 @@ import {
     ArrowUpAZ,
     ArrowUpNarrowWide,
     Clock3,
+    CalendarCheck2,
     KeyRound,
     LayoutGrid,
     List,
@@ -91,6 +92,7 @@ function isToolbarPage(item: NavItem): item is ToolbarPage {
 function CreateDialogContent({ activeItem }: { activeItem: ToolbarPage }) {
     switch (activeItem) {
         case 'site':
+        case 'checkin':
             return null;
         case 'channel':
             return <ChannelCreateContent />;
@@ -111,7 +113,7 @@ export function Toolbar({ activeItem }: { activeItem: NavItem }) {
     const setSearchTerm = useSearchStore((s) => s.setSearchTerm);
     const layout = useToolbarViewOptionsStore((s) => (toolbarItem ? s.getLayout(toolbarItem) : 'grid'));
     const sortField = useToolbarViewOptionsStore((s) =>
-        toolbarItem === 'site' || toolbarItem === 'channel' || toolbarItem === 'group' ? s.getSortField(toolbarItem) : 'name'
+        toolbarItem === 'site' || toolbarItem === 'checkin' || toolbarItem === 'channel' || toolbarItem === 'group' ? s.getSortField(toolbarItem) : 'name'
     );
     const sortOrder = useToolbarViewOptionsStore((s) => (toolbarItem ? s.getSortOrder(toolbarItem) : 'asc'));
     const setLayout = useToolbarViewOptionsStore((s) => s.setLayout);
@@ -146,7 +148,7 @@ export function Toolbar({ activeItem }: { activeItem: NavItem }) {
 
     const isLogToolbar = toolbarItem === 'log';
     const showLayoutOptions = toolbarItem === 'channel' || toolbarItem === 'model';
-    const showSiteSortOptions = toolbarItem === 'site';
+    const showSiteSortOptions = toolbarItem === 'site' || toolbarItem === 'checkin';
     const showCombinedSortOptions = toolbarItem === 'channel' || toolbarItem === 'group';
     const showSortOptions = !isLogToolbar;
 
@@ -155,7 +157,7 @@ export function Toolbar({ activeItem }: { activeItem: NavItem }) {
         const result: ToolbarAction[] = [];
 
         // 站点页面按钮
-        if (toolbarItem === 'site') {
+        if (toolbarItem === 'site' || toolbarItem === 'checkin') {
             result.push(
                 {
                     id: 'proxy-pool',
@@ -167,11 +169,20 @@ export function Toolbar({ activeItem }: { activeItem: NavItem }) {
                 {
                     id: 'create-site',
                     icon: <Plus className="size-4" />,
-                    label: '新增站点',
+                    label: toolbarItem === 'checkin' ? '新增签到站点' : '新增站点',
                     onClick: requestOpenCreateSite,
                     priority: 'desktop', // md以上可见
                 }
             );
+            if (toolbarItem === 'checkin') {
+                result.push({
+                    id: 'checkin-all',
+                    icon: <CalendarCheck2 className="size-4" />,
+                    label: '全量签到',
+                    onClick: requestCheckinAll,
+                    priority: 'desktop',
+                });
+            }
         }
 
         // 渠道页面按钮
@@ -248,6 +259,7 @@ export function Toolbar({ activeItem }: { activeItem: NavItem }) {
         isLogRefreshing,
         openProxyPool,
         requestOpenCreateSite,
+        requestCheckinAll,
         openCompletionDialog,
         requestLogRefresh,
         tProxyPool,
@@ -400,7 +412,7 @@ export function Toolbar({ activeItem }: { activeItem: NavItem }) {
                                                                 sortField === option.field &&
                                                                 sortOrder === option.order;
                                                             setSortConfig(
-                                                                'site',
+                                                                toolbarItem === 'checkin' ? 'checkin' : 'site',
                                                                 active ? 'default' : option.field,
                                                                 active ? 'asc' : option.order
                                                             );
@@ -501,11 +513,11 @@ export function Toolbar({ activeItem }: { activeItem: NavItem }) {
                                 )}
 
                                 {/* 站点页面的全局操作 */}
-                                {toolbarItem === 'site' && (
+                                {(toolbarItem === 'site' || toolbarItem === 'checkin') && (
                                     <div className="grid gap-2">
                                         <p className="text-xs font-medium text-muted-foreground">全局操作</p>
                                         <div className="grid gap-2">
-                                            <button
+                                            {toolbarItem === 'site' ? <><button
                                                 type="button"
                                                 onClick={requestOpenImportDialog}
                                                 className="h-8 rounded-lg border px-2 text-xs font-medium text-left transition-colors border-border bg-muted/20 text-foreground hover:bg-muted/30"
@@ -518,14 +530,7 @@ export function Toolbar({ activeItem }: { activeItem: NavItem }) {
                                                 className="h-8 rounded-lg border px-2 text-xs font-medium text-left transition-colors border-border bg-muted/20 text-foreground hover:bg-muted/30"
                                             >
                                                 全量同步
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={requestCheckinAll}
-                                                className="h-8 rounded-lg border px-2 text-xs font-medium text-left transition-colors border-border bg-muted/20 text-foreground hover:bg-muted/30"
-                                            >
-                                                全量签到
-                                            </button>
+                                            </button></> : null}
                                             <button
                                                 type="button"
                                                 onClick={requestOpenArchivedDialog}
@@ -550,7 +555,7 @@ export function Toolbar({ activeItem }: { activeItem: NavItem }) {
                 避免其触发器外层 div 作为 flex 子项在工具栏右侧产生逐页不同的间隔 */}
             <div className="hidden">
                 {/* 创建对话框 (channel/group/model) */}
-                {toolbarItem !== 'site' && toolbarItem !== 'log' && (
+                {toolbarItem !== 'site' && toolbarItem !== 'checkin' && toolbarItem !== 'log' && (
                     <MorphingDialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
                         <MorphingDialogTrigger>
                             <button type="button" className="hidden">

@@ -36,7 +36,7 @@ func TestDoneHubManualVerificationEnablesOnlyThatSite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	other := &model.Site{Name: "Independent DoneHub", Platform: doneHub, BaseURL: server.URL, Enabled: true}
+	other := &model.Site{Name: "Independent DoneHub", Kind: model.SiteKindCheckin, Platform: doneHub, BaseURL: server.URL, Enabled: true}
 	if err := op.SiteCreate(other, ctx); err != nil {
 		t.Fatal(err)
 	}

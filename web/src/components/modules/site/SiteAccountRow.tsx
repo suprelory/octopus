@@ -56,6 +56,7 @@ export function SiteAccountRow({
   layout: SiteLayout;
 }) {
   const t = useTranslations();
+  const isCheckin = site.kind === 'checkin';
   const checkinT = useTranslations('siteCheckinCapability');
   const locale = useSettingStore((state) => state.locale);
   const tProxy = useTranslations("proxyPool");
@@ -115,21 +116,21 @@ export function SiteAccountRow({
             </div>
 
             <div className="flex flex-wrap gap-x-4 gap-y-1">
-              <CompactMetric label="分组" value={account.user_groups.length} />
-              <CompactMetric label="模型" value={account.models.length} />
+              {!isCheckin ? <><CompactMetric label="分组" value={account.user_groups.length} />
+              <CompactMetric label="模型" value={account.models.length} /></> : null}
               <CompactMetric label="余额" value={formatBalance(account.balance)} />
               <CompactMetric label="今日收入" value={formatBalance(account.today_income)} />
             </div>
 
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-              <span>{account.auto_sync ? "自动同步" : "手动同步"}</span>
-              <span>
+              {!isCheckin ? <span>{account.auto_sync ? "自动同步" : "手动同步"}</span> : null}
+              {isCheckin ? <span>
                 {account.auto_checkin
                   ? account.random_checkin
                     ? "随机签到"
                     : "自动签到"
                   : "手动签到"}
-              </span>
+              </span> : null}
               <span>
                 {account.proxy_mode === "inherit"
                   ? tProxy("site.inherit")
@@ -156,7 +157,7 @@ export function SiteAccountRow({
               <TooltipContent>{account.enabled ? "停用账号" : "启用账号"}</TooltipContent>
             </Tooltip>
 
-            <IconActionButton
+            {!isCheckin ? <IconActionButton
               label="同步账号"
               disabled={syncingAccountIds.has(account.id)}
               onClick={() => handleSyncAccount(account)}
@@ -164,7 +165,11 @@ export function SiteAccountRow({
               <RefreshCw
                 className={cn("size-4", syncingAccountIds.has(account.id) && "animate-spin")}
               />
-            </IconActionButton>
+            </IconActionButton> : canShowManualCheckin ? <IconActionButton
+              label={checkinT(checkinSupport === 'supported' ? 'checkinNow' : 'verifyNow')}
+              disabled={!site.enabled || !account.enabled || checkinAccountIds.has(account.id)}
+              onClick={() => handleCheckinAccount(account)}
+            ><CalendarCheck2 className={cn('size-4', checkinAccountIds.has(account.id) && 'animate-pulse')} /></IconActionButton> : null}
 
             <Popover>
               <PopoverTrigger asChild>
@@ -184,27 +189,14 @@ export function SiteAccountRow({
                 className="w-44 rounded-2xl border border-border/60 bg-card p-2"
               >
                 <div className="grid gap-1">
-                  <button
+                  {!isCheckin ? <button
                     type="button"
                     className={MENU_BUTTON_CLASS}
                     onClick={() => jumpToSiteChannelAccount(site.id, account.id)}
                   >
                     <Waypoints className="size-4" />
                     <span>查看站点渠道</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={cn(
-                      MENU_BUTTON_CLASS,
-                      "disabled:cursor-not-allowed disabled:opacity-50",
-                    )}
-                    onClick={() => handleCheckinAccount(account)}
-                    disabled={checkinAccountIds.has(account.id)}
-                    hidden={!canShowManualCheckin}
-                  >
-                    <CalendarCheck2 className="size-4" />
-                    <span>{checkinT(checkinSupport === 'supported' ? 'checkinNow' : 'verifyNow')}</span>
-                  </button>
+                  </button> : null}
                   <button
                     type="button"
                     className={MENU_BUTTON_CLASS}
@@ -213,14 +205,14 @@ export function SiteAccountRow({
                     <Pencil className="size-4" />
                     <span>编辑账号</span>
                   </button>
-                  <button
+                  {!isCheckin ? <button
                     type="button"
                     className={MENU_BUTTON_CLASS}
                     onClick={() => openManualSyncDialog(site, account)}
                   >
                     <FileJson className="size-4" />
                     <span>手动导入同步数据</span>
-                  </button>
+                  </button> : null}
                   <button
                     type="button"
                     className={cn(MENU_BUTTON_CLASS, "text-destructive")}
@@ -236,13 +228,13 @@ export function SiteAccountRow({
         </div>
 
         <div className="space-y-1">
-          <ExecutionSummary
+          {!isCheckin ? <ExecutionSummary
             label="同步"
             status={normalizedStatus(account.last_sync_status)}
             at={account.last_sync_at}
             message={translateSiteMessage(locale, account.last_sync_message, t) || "等待首次同步"}
-          />
-          {checkinEnabled || account.last_checkin_at ? (
+          /> : null}
+          {isCheckin && (checkinEnabled || account.last_checkin_at) ? (
             <ExecutionSummary
               label="签到"
               status={normalizedStatus(account.last_checkin_status)}
@@ -250,12 +242,12 @@ export function SiteAccountRow({
               message={account.last_checkin_message || "等待首次签到"}
             />
           ) : null}
-          <StaticSummary tone={checkinSupport === 'unsupported' ? 'warning' : undefined} text={checkinT(checkinPolicyLabel)} />
+          {isCheckin ? <><StaticSummary tone={checkinSupport === 'unsupported' ? 'warning' : undefined} text={checkinT(checkinPolicyLabel)} />
           <div className="pl-4 text-xs text-muted-foreground">
             {checkinT(checkinSupport)}
             {site.checkin_capability?.verified_at ? ` · ${formatDateTime(site.checkin_capability.verified_at)}` : ''}
-          </div>
-          {accountHasCheckinEnabled(account, site) ? (
+          </div></> : null}
+          {isCheckin && accountHasCheckinEnabled(account, site) ? (
             <div className="pl-4 text-xs text-muted-foreground">
               下次自动签到{" "}
               {account.next_auto_checkin_at

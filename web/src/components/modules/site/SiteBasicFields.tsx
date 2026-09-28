@@ -57,7 +57,7 @@ export function SiteBasicFields({ siteForm, setSiteForm, site }: SiteFormFieldsP
             </div>
 
             <label className="grid gap-2 text-sm">
-                <span className="font-medium">站点地址</span>
+                <span className="font-medium">{siteForm.kind === 'checkin' ? '签到站点地址' : '站点地址'}</span>
                 <Input
                     value={siteForm.base_url}
                     onChange={(event) =>
@@ -71,7 +71,7 @@ export function SiteBasicFields({ siteForm, setSiteForm, site }: SiteFormFieldsP
                 />
             </label>
 
-            {siteForm.platform === SitePlatform.API && (
+            {siteForm.kind !== 'checkin' && siteForm.platform === SitePlatform.API && (
                 <div className="grid gap-2 text-sm">
                     <div className="flex items-center gap-1.5">
                         <span className="font-medium">默认协议</span>

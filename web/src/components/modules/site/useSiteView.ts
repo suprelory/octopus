@@ -3,34 +3,36 @@
 import { SiteAccount, Site as SiteRecord } from "@/api/endpoints/site";
 import { useSearchStore, useToolbarViewOptionsStore } from "@/components/modules/toolbar";
 import { useEffect, useMemo, useState } from "react";
-import { accountMatchesCheckinFilters, type CheckinFilterStatus } from "./checkin-status";
+import { accountMatchesCheckinFilters, type CheckinFilterStatus, type CheckinActiveFilterStatus } from "./checkin-status";
 import { useSiteUIStore } from "./ui-store";
 
 import { PLATFORM_LABELS, matchesSearch, normalizeSearchTerm } from "./site-display";
 import { buildSiteSummary } from "./site-summary";
 import { VisibleSite } from "./types";
 
-export function useSiteView(sites: SiteRecord[] | undefined, forcedSiteId: number | null) {
+const EMPTY_CHECKIN_FILTERS: CheckinActiveFilterStatus[] = [];
+
+export function useSiteView(sites: SiteRecord[] | undefined, forcedSiteId: number | null, page: 'site' | 'checkin' = 'site') {
   const [statusDayKey, setStatusDayKey] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
   });
 
-  const searchTerm = useSearchStore((state) => state.getSearchTerm("site"));
+  const searchTerm = useSearchStore((state) => state.getSearchTerm(page));
 
   const setSearchTerm = useSearchStore((state) => state.setSearchTerm);
 
-  const siteSortField = useToolbarViewOptionsStore((state) => state.getSortField("site"));
+  const siteSortField = useToolbarViewOptionsStore((state) => state.getSortField(page));
 
-  const siteSortOrder = useToolbarViewOptionsStore((state) => state.getSortOrder("site"));
+  const siteSortOrder = useToolbarViewOptionsStore((state) => state.getSortOrder(page));
 
-  const checkinFilterStatuses = useSiteUIStore((state) => state.checkinFilterStatuses);
+  const checkinFilterStatuses = useSiteUIStore((state) => page === 'checkin' ? state.checkinFilterStatuses : EMPTY_CHECKIN_FILTERS);
 
   const setCheckinFilterStatuses = useSiteUIStore((state) => state.setCheckinFilterStatuses);
 
-  const tagFilters = useSiteUIStore((state) => state.tagFilters);
+  const tagFilters = useSiteUIStore((state) => page === 'checkin' ? state.checkinTagFilters : state.tagFilters);
 
-  const setTagFilters = useSiteUIStore((state) => state.setTagFilters);
+  const setTagFilters = useSiteUIStore((state) => page === 'checkin' ? state.setCheckinTagFilters : state.setTagFilters);
 
   const inventory = useMemo(() => {
     let totalBalance = 0;
@@ -200,8 +202,8 @@ export function useSiteView(sites: SiteRecord[] | undefined, forcedSiteId: numbe
   }
 
   function clearFilters() {
-    setSearchTerm("site", "");
-    setCheckinFilterStatuses([]);
+    setSearchTerm(page, "");
+    if (page === 'checkin') setCheckinFilterStatuses([]);
     setTagFilters([]);
   }
 

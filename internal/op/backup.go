@@ -58,7 +58,7 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 				return err
 			}
 		}
-		return nil
+		return db.SeparateLegacySiteCheckins(tx)
 	})
 	if err != nil {
 		return nil, err

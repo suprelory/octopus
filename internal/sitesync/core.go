@@ -50,7 +50,7 @@ func markAccountSyncFailure(ctx context.Context, accountID int, syncErr error, a
 }
 
 func SyncAccount(ctx context.Context, accountID int) (*model.SiteSyncResult, error) {
-	siteRecord, account, err := loadSiteAccount(ctx, accountID)
+	siteRecord, account, err := loadSyncableSiteAccount(ctx, accountID)
 	if err != nil {
 		return nil, sanitizeSiteError(err)
 	}
@@ -155,7 +155,7 @@ func SyncAccountsWithOptions(ctx context.Context, accountIDs []int, opts SiteBat
 			log.Debugf("site import sync account load failed (account=%d): %v", accountID, sanitizeSiteStatusMessage(err))
 			continue
 		}
-		if siteRecord == nil || account == nil || !siteRecord.Enabled || !account.Enabled {
+		if siteRecord == nil || account == nil || !siteRecord.Enabled || !account.Enabled || siteRecord.IsCheckinOnly() {
 			continue
 		}
 		items = append(items, siteBatchAccount{site: siteRecord, account: account})
@@ -260,7 +260,7 @@ func eligibleSyncAccounts(sites []model.Site) []siteBatchAccount {
 	items := make([]siteBatchAccount, 0)
 	for siteIndex := range sites {
 		siteRecord := &sites[siteIndex]
-		if !siteRecord.Enabled {
+		if !siteRecord.Enabled || siteRecord.IsCheckinOnly() {
 			continue
 		}
 		for accountIndex := range siteRecord.Accounts {
@@ -278,7 +278,7 @@ func eligibleCheckinAccounts(sites []model.Site) []siteBatchAccount {
 	items := make([]siteBatchAccount, 0)
 	for siteIndex := range sites {
 		siteRecord := &sites[siteIndex]
-		if !siteRecord.Enabled || !siteRecord.ResolveCheckinCapability().Enabled {
+		if !siteRecord.Enabled || !siteRecord.IsCheckinOnly() || !siteRecord.ResolveCheckinCapability().Enabled {
 			continue
 		}
 		for accountIndex := range siteRecord.Accounts {

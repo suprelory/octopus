@@ -46,7 +46,7 @@ export function SiteCheckinFields({ siteForm, setSiteForm }: SiteFormFieldsProps
                     className="rounded-xl"
                 />
                 <span className="text-xs text-muted-foreground">
-                    配置后可在站点总览中一键打开此页面进行手动签到。
+                    配置后可在签到页面中一键打开此网址进行手动签到。
                 </span>
             </label>
 

@@ -35,12 +35,30 @@ func SiteAccountGet(id int, ctx context.Context) (*model.SiteAccount, error) {
 	return &account, nil
 }
 
+func siteIsCheckinOnly(siteID int, ctx context.Context) (bool, error) {
+	var site model.Site
+	if err := db.GetDB().WithContext(ctx).Select("kind").First(&site, siteID).Error; err != nil {
+		return false, fmt.Errorf("load account site: %w", err)
+	}
+	return site.IsCheckinOnly(), nil
+}
+
 func SiteAccountCreate(account *model.SiteAccount, ctx context.Context) error {
 	if account == nil {
 		return fmt.Errorf("site account is nil")
 	}
 	if err := account.Validate(); err != nil {
 		return err
+	}
+	account.CheckinSourceAccountID = nil
+	isCheckin, err := siteIsCheckinOnly(account.SiteID, ctx)
+	if err != nil {
+		return err
+	}
+	if isCheckin {
+		account.AutoSync, account.AutoSyncSet = false, true
+	} else {
+		account.AutoCheckin, account.AutoCheckinSet = false, true
 	}
 	if account.ProxyMode == model.ProxyUsageModePool && account.ProxyConfigID != nil {
 		if _, err := ProxyURLForConfig(*account.ProxyConfigID, ctx); err != nil {
@@ -94,6 +112,14 @@ func SiteAccountUpdate(req *model.SiteAccountUpdateRequest, ctx context.Context)
 	merged := account
 	var selectFields []string
 	updates := model.SiteAccount{ID: req.ID}
+	var isCheckin bool
+	if req.AutoSync != nil || req.AutoCheckin != nil {
+		var err error
+		isCheckin, err = siteIsCheckinOnly(account.SiteID, ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	if req.Name != nil {
 		merged.Name = *req.Name
@@ -148,11 +174,11 @@ func SiteAccountUpdate(req *model.SiteAccountUpdateRequest, ctx context.Context)
 		selectFields = append(selectFields, "enabled")
 	}
 	if req.AutoSync != nil {
-		merged.AutoSync = *req.AutoSync
+		merged.AutoSync = *req.AutoSync && !isCheckin
 		selectFields = append(selectFields, "auto_sync")
 	}
 	if req.AutoCheckin != nil {
-		merged.AutoCheckin = *req.AutoCheckin
+		merged.AutoCheckin = *req.AutoCheckin && isCheckin
 		selectFields = append(selectFields, "auto_checkin")
 	}
 	if req.RandomCheckin != nil {
@@ -248,6 +274,9 @@ func SiteAccountEnabled(id int, enabled bool, ctx context.Context) error {
 
 func SiteAccountDel(id int, ctx context.Context) error {
 	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&model.SiteAccount{}).Where("checkin_source_account_id = ?", id).Update("checkin_source_account_id", nil).Error; err != nil {
+			return err
+		}
 		// Delete bindings before groups/accounts so FK-constrained databases do not
 		// reject removing rows that bindings may still reference.
 		if err := tx.Where("site_account_id = ?", id).Delete(&model.SiteChannelBinding{}).Error; err != nil {

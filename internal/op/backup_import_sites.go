@@ -16,12 +16,22 @@ func (s *dbImportState) importSites() error {
 	res := s.result
 	proxyConfigIDMap := s.proxyIDs
 	siteIDMap := s.siteIDs
-	// 4. Sites (dedup by platform+base_url)
+	// Links may point at sites later in the dump, so remap them after all inserts.
+	pendingLinks := make(map[int]int)
+	// 4. Sites (dedup by kind+platform+base_url)
 	for i := range dump.Sites {
 		site := dump.Sites[i]
 		oldID := site.ID
 		site.ID = 0
 		site.Accounts = nil
+		if site.Kind == "" {
+			site.Kind = model.SiteKindRelay
+		}
+		if err := site.Kind.Validate(); err != nil {
+			return fmt.Errorf("import sites: %w", err)
+		}
+		linkedOldID := site.LinkedSiteID
+		site.LinkedSiteID = nil
 		remapProxyConfigID(&site.ProxyMode, &site.ProxyConfigID, proxyConfigIDMap)
 		site.RouteBaseURLs = model.NormalizeSiteRouteBaseURLs(site.RouteBaseURLs)
 
@@ -33,18 +43,41 @@ func (s *dbImportState) importSites() error {
 		site.BaseURL = strings.TrimRight(strings.TrimSpace(site.BaseURL), "/")
 
 		var existing model.Site
-		if err := tx.Where("platform = ? AND base_url = ?", site.Platform, site.BaseURL).First(&existing).Error; err == nil {
+		if err := tx.Where("platform = ? AND base_url = ? AND kind = ?", site.Platform, site.BaseURL, site.Kind).First(&existing).Error; err == nil {
 			siteIDMap[oldID] = existing.ID
 			continue
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return fmt.Errorf("import sites: %w", err)
 		}
 		site.Name = uniqueSiteName(tx, site.Name)
+		enabled := site.Enabled
 		if err := tx.Omit("Accounts").Create(&site).Error; err != nil {
 			return fmt.Errorf("import sites: %w", err)
 		}
+		if err := tx.Model(&site).Update("enabled", enabled).Error; err != nil {
+			return fmt.Errorf("import site state: %w", err)
+		}
 		siteIDMap[oldID] = site.ID
+		if site.Kind == model.SiteKindCheckin && linkedOldID != nil {
+			pendingLinks[site.ID] = *linkedOldID
+		}
 		res.RowsAffected["sites"]++
+	}
+	for siteID, linkedOldID := range pendingLinks {
+		linkedID, ok := siteIDMap[linkedOldID]
+		if !ok || linkedID == siteID {
+			continue
+		}
+		var linked model.Site
+		if err := tx.Select("kind").First(&linked, linkedID).Error; err != nil {
+			return fmt.Errorf("import site links: %w", err)
+		}
+		if linked.Kind != model.SiteKindRelay {
+			continue
+		}
+		if err := tx.Model(&model.Site{}).Where("id = ?", siteID).Update("linked_site_id", linkedID).Error; err != nil {
+			return fmt.Errorf("import site links: %w", err)
+		}
 	}
 	return nil
 }
@@ -56,11 +89,14 @@ func (s *dbImportState) importAccounts() error {
 	proxyConfigIDMap := s.proxyIDs
 	siteIDMap := s.siteIDs
 	accountIDMap := s.accountIDs
+	pendingSources := make(map[int]int)
 	// 5. SiteAccounts (remap site_id, dedup by site_id+name)
 	for i := range dump.SiteAccounts {
 		account := dump.SiteAccounts[i]
 		oldID := account.ID
 		account.ID = 0
+		sourceAccountID := account.CheckinSourceAccountID
+		account.CheckinSourceAccountID = nil
 		account.Tokens = nil
 		account.UserGroups = nil
 		account.Models = nil
@@ -78,11 +114,33 @@ func (s *dbImportState) importAccounts() error {
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return fmt.Errorf("import site_accounts: %w", err)
 		}
+		var site model.Site
+		if err := tx.Select("kind").First(&site, account.SiteID).Error; err != nil {
+			return fmt.Errorf("import account site: %w", err)
+		}
+		states := map[string]any{
+			"enabled": account.Enabled, "auto_sync": account.AutoSync && !site.IsCheckinOnly(),
+			"auto_checkin":                  account.AutoCheckin,
+			"checkin_random_window_minutes": account.CheckinRandomWindowMinutes,
+		}
 		if err := tx.Omit("Tokens", "UserGroups", "Models", "ChannelBindings").Create(&account).Error; err != nil {
 			return fmt.Errorf("import site_accounts: %w", err)
 		}
+		if err := tx.Model(&account).Updates(states).Error; err != nil {
+			return fmt.Errorf("import account state: %w", err)
+		}
 		accountIDMap[oldID] = account.ID
+		if site.IsCheckinOnly() && sourceAccountID != nil {
+			pendingSources[account.ID] = *sourceAccountID
+		}
 		res.RowsAffected["site_accounts"]++
+	}
+	for accountID, oldSourceID := range pendingSources {
+		if sourceID, ok := accountIDMap[oldSourceID]; ok && sourceID != accountID {
+			if err := tx.Model(&model.SiteAccount{}).Where("id = ?", accountID).Update("checkin_source_account_id", sourceID).Error; err != nil {
+				return fmt.Errorf("import check-in account references: %w", err)
+			}
+		}
 	}
 	return nil
 }

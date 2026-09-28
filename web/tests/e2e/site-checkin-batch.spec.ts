@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { makeSite, mockApp } from './fixtures';
+import { makeSite, makeCheckinSite, mockApp } from './fixtures';
 
 const activeBatch = {
     id: '900001', status: 'running', trigger: 'manual', total: 2, attempted: 1,
@@ -9,9 +9,9 @@ const activeBatch = {
     duration_ms: 1200, started_at: '2026-09-27T01:00:00Z', updated_at: '2026-09-27T01:00:01Z',
 };
 
-test('site page polls the active batch and opens logs scoped to that batch on mobile', async ({ page }) => {
+test('checkin page polls the active batch and opens logs scoped to that batch on mobile', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    const state = await mockApp(page, 'site', { sites: [makeSite()] });
+    const state = await mockApp(page, 'checkin', { sites: [makeCheckinSite(), makeSite(2, 'Subscription')] });
     const logQueries: URL[] = [];
     await page.route('**/api/v1/site/checkin-batches/latest', route =>
         route.fulfill({ json: { code: 200, data: activeBatch } }));
@@ -34,6 +34,10 @@ test('site page polls the active batch and opens logs scoped to that batch on mo
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText('没有符合条件的签到记录。')).toBeVisible();
     await expect.poll(() => logQueries.at(-1)?.searchParams.get('batch_id')).toBe(activeBatch.id);
+    await dialog.getByRole('combobox', { name: '站点', exact: true }).click();
+    await expect(page.getByRole('option', { name: 'Alpha site', exact: true })).toBeVisible();
+    await expect(page.getByRole('option', { name: 'Subscription', exact: true })).toHaveCount(0);
+    await page.keyboard.press('Escape');
     await dialog.getByRole('button', { name: '关闭', exact: true }).click();
 
     expect(state.unexpectedRequests).toEqual([]);

@@ -2,6 +2,7 @@ package op
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"strings"
 
@@ -17,6 +18,8 @@ func SiteChannelListWithOptions(ctx context.Context, opts SiteChannelListOptions
 	if err != nil {
 		return nil, err
 	}
+	// Check-in sites are never synced, so they have no channels to show.
+	sites = slices.DeleteFunc(sites, func(site model.Site) bool { return site.IsCheckinOnly() })
 	histories := map[int]map[string]*model.SiteModelHistorySummary{}
 	if opts.IncludeHistory {
 		accountIDs := make([]int, 0)

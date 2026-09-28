@@ -82,8 +82,23 @@ func (t SiteCredentialType) Validate() error {
 	}
 }
 
+func (k SiteKind) Validate() error {
+	switch k {
+	case SiteKindRelay, SiteKindCheckin:
+		return nil
+	default:
+		return fmt.Errorf("site kind must be relay or checkin")
+	}
+}
+
 func (s *Site) Normalize() {
 	s.Name = strings.TrimSpace(s.Name)
+	if s.Kind == "" {
+		s.Kind = SiteKindRelay
+	}
+	if s.Kind != SiteKindCheckin || (s.LinkedSiteID != nil && *s.LinkedSiteID <= 0) {
+		s.LinkedSiteID = nil
+	}
 	s.BaseURL = strings.TrimRight(strings.TrimSpace(s.BaseURL), "/")
 	if s.ExternalCheckinURL != nil {
 		trimmed := strings.TrimRight(strings.TrimSpace(*s.ExternalCheckinURL), "/")
@@ -143,6 +158,12 @@ func (s *Site) Validate() error {
 	s.Normalize()
 	if s.Name == "" {
 		return fmt.Errorf("site name is required")
+	}
+	if err := s.Kind.Validate(); err != nil {
+		return err
+	}
+	if s.LinkedSiteID != nil && s.ID != 0 && *s.LinkedSiteID == s.ID {
+		return fmt.Errorf("a check-in site cannot be linked to itself")
 	}
 	if err := s.Platform.Validate(); err != nil {
 		return err

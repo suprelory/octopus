@@ -1,12 +1,13 @@
 'use client';
 
 import { XIcon } from 'lucide-react';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ProxySelector } from '@/components/modules/proxy-pool/ProxySelector';
 import { TagInput } from './TagInput';
-import { Site as SiteRecord } from '@/api/endpoints/site';
+import { Site as SiteRecord, type SiteKind } from '@/api/endpoints/site';
 import type { ProxyMode } from '@/api/endpoints/proxy-pool';
 import { useSiteForm } from './useSiteForm';
 import { SiteBasicFields } from './SiteBasicFields';
@@ -19,6 +20,8 @@ interface SiteEditDialogProps {
     site: SiteRecord | null;
     onCreated?: (site: SiteRecord) => void;
     allTags?: string[];
+    kind?: SiteKind;
+    linkedSites?: SiteRecord[];
 }
 
 /**
@@ -26,20 +29,22 @@ interface SiteEditDialogProps {
  * bg-card / rounded-3xl / text-2xl 标题 / 自定义 close 按钮 / 整体 flex 布局并对长表单
  * 提供独立滚动区域，避免视口高度较小时底部按钮被裁切。
  */
-export function SiteEditDialog({ open, onOpenChange, site, onCreated, allTags }: SiteEditDialogProps) {
-    const { siteForm, setSiteForm, handleSubmit, isPending } = useSiteForm({ site, onOpenChange, onCreated });
+export function SiteEditDialog({ open, onOpenChange, site, onCreated, allTags, kind = 'relay', linkedSites = [] }: SiteEditDialogProps) {
+    const { siteForm, setSiteForm, handleSubmit, isPending } = useSiteForm({ site, onOpenChange, onCreated, kind });
+    const isCheckin = siteForm.kind === 'checkin';
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent
+                aria-describedby={undefined}
                 showCloseButton={false}
                 className="w-screen max-w-full md:max-w-xl bg-card text-card-foreground px-6 py-4 rounded-3xl flex flex-col gap-0 border-0 sm:max-w-xl h-[min(90dvh,52rem)] overflow-hidden"
             >
                 <header className="mb-4 flex items-start justify-between gap-4 shrink-0">
                     <div className="min-w-0 flex-1">
-                        <h2 className="text-2xl font-bold text-card-foreground truncate">
-                            {site ? '编辑站点' : '新增站点'}
-                        </h2>
+                        <DialogTitle className="text-2xl font-bold text-card-foreground truncate">
+                            {isCheckin ? (site ? '编辑签到站点' : '新增签到站点') : (site ? '编辑站点' : '新增站点')}
+                        </DialogTitle>
                     </div>
                     <button
                         type="button"
@@ -55,7 +60,24 @@ export function SiteEditDialog({ open, onOpenChange, site, onCreated, allTags }:
                     <div className="flex-1 min-h-0 space-y-5 overflow-y-auto px-1">
                         <SiteBasicFields siteForm={siteForm} setSiteForm={setSiteForm} site={site} />
 
-                        <SiteCheckinFields siteForm={siteForm} setSiteForm={setSiteForm} />
+                        {isCheckin ? <>
+                            <div className="grid gap-2 text-sm">
+                                <span className="font-medium">关联订阅站（可选）</span>
+                                <Select
+                                    value={siteForm.linked_site_id?.toString() ?? 'none'}
+                                    onValueChange={(value) => setSiteForm((current) => ({ ...current, linked_site_id: value === 'none' ? null : Number(value) }))}
+                                >
+                                    <SelectTrigger className="w-full rounded-xl" aria-label="关联订阅站"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="none">不关联</SelectItem>
+                                        {linkedSites.filter((item) => item.kind !== 'checkin').map((item) => <SelectItem key={item.id} value={String(item.id)}>{item.name}</SelectItem>)}
+                                        {siteForm.linked_site_id && !linkedSites.some((item) => item.id === siteForm.linked_site_id) ? <SelectItem value={String(siteForm.linked_site_id)}>订阅站 #{siteForm.linked_site_id}（已归档）</SelectItem> : null}
+                                    </SelectContent>
+                                </Select>
+                                <p className="text-xs text-muted-foreground">仅用于标记奖励对应的订阅站。签到使用本站的地址和账号凭据。</p>
+                            </div>
+                            <SiteCheckinFields siteForm={siteForm} setSiteForm={setSiteForm} />
+                        </> : null}
 
                         <label className="grid gap-2 text-sm">
                             <span className="font-medium">标签</span>
@@ -84,7 +106,7 @@ export function SiteEditDialog({ open, onOpenChange, site, onCreated, allTags }:
                             <div>
                                 <div className="text-sm font-medium">启用站点</div>
                                 <div className="text-xs text-muted-foreground">
-                                    停用后不再投影托管渠道
+                                    {isCheckin ? '停用后暂停自动签到' : '停用后不再投影托管渠道'}
                                 </div>
                             </div>
                             <Switch
@@ -95,7 +117,7 @@ export function SiteEditDialog({ open, onOpenChange, site, onCreated, allTags }:
                             />
                         </div>
 
-                        <SiteAdvancedFields siteForm={siteForm} setSiteForm={setSiteForm} />
+                        {!isCheckin ? <SiteAdvancedFields siteForm={siteForm} setSiteForm={setSiteForm} /> : null}
                     </div>
 
                     <footer className="mt-5 flex shrink-0 flex-col gap-3 px-1 pt-2 sm:flex-row">

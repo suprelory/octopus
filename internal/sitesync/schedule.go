@@ -103,7 +103,7 @@ func checkinIntervalDays(account *model.SiteAccount) int {
 }
 
 func buildNextAutoCheckinAt(siteRecord *model.Site, account *model.SiteAccount, now time.Time) *time.Time {
-	if siteRecord == nil || account == nil || !siteRecord.Enabled || !account.Enabled || !account.AutoCheckin || !siteRecord.ResolveCheckinCapability().Enabled {
+	if siteRecord == nil || !siteRecord.IsCheckinOnly() || account == nil || !siteRecord.Enabled || !account.Enabled || !account.AutoCheckin || !siteRecord.ResolveCheckinCapability().Enabled {
 		return nil
 	}
 
@@ -154,7 +154,7 @@ func checkinTimeWithinWindow(siteRecord *model.Site, value time.Time) bool {
 }
 
 func ensureAccountCheckinSchedule(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, now time.Time) (*time.Time, error) {
-	if siteRecord == nil || account == nil || !siteRecord.Enabled || !account.Enabled || !account.AutoCheckin || !siteRecord.ResolveCheckinCapability().Enabled {
+	if siteRecord == nil || !siteRecord.IsCheckinOnly() || account == nil || !siteRecord.Enabled || !account.Enabled || !account.AutoCheckin || !siteRecord.ResolveCheckinCapability().Enabled {
 		if account != nil && account.NextAutoCheckinAt != nil {
 			if err := persistNextAutoCheckinAt(ctx, account.ID, nil); err != nil {
 				return nil, err
@@ -240,7 +240,7 @@ func alignCheckinRetryToWindow(siteRecord *model.Site, target time.Time) time.Ti
 }
 
 func buildNextCheckinRetryAt(siteRecord *model.Site, now time.Time, status model.SiteExecutionStatus, message string, failureCount int) *time.Time {
-	if siteRecord == nil || !siteRecord.ResolveCheckinCapability().Enabled {
+	if siteRecord == nil || !siteRecord.IsCheckinOnly() || !siteRecord.ResolveCheckinCapability().Enabled {
 		return nil
 	}
 	target := now.Add(checkinRetryDelay(status, message, failureCount))

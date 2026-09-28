@@ -157,9 +157,13 @@
             "empty": "還沒有模型價格",
             "emptyHint": "使用上方的新增或同步按鈕，新增模型價格。"
         },
+        "checkin": {
+            "title": "簽到概覽",
+            "description": "使用獨立的簽到位址和帳號，管理每日簽到、執行紀錄與收益。"
+        },
         "site": {
             "title": "站點概覽",
-            "description": "集中查看餘額、帳號與每日簽到情況。"
+            "description": "管理訂閱站帳號、同步與託管渠道。"
         },
         "log": {
             "title": "請求記錄",
@@ -317,6 +321,7 @@
     "navbar": {
         "home": "主頁",
         "site": "站點",
+        "checkin": "簽到",
         "channel": "供應源",
         "group": "分組",
         "key": "金鑰",
@@ -1415,7 +1420,11 @@
                 "no_group_result": "站點帳號同步失敗：沒有可用的分組同步結果。",
                 "all_groups_unresolved": "站點帳號同步失敗：所有分組都未能確認模型，已保留歷史模型。",
                 "unsupported_platform": "不支援的站點平台：{platform}。",
-                "snapshot_nil": "同步結果為空，請稍後重試。"
+                "snapshot_nil": "同步結果為空，請稍後重試。",
+                "checkin_only": "簽到站點不執行群組、Key 和模型同步。"
+            },
+            "checkin": {
+                "checkin_site_required": "請在簽到頁面使用獨立簽到站點執行簽到。"
             },
             "auth": {
                 "access_token_required": "站點 Access Token 不能為空。",

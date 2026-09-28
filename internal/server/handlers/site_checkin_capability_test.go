@@ -42,7 +42,7 @@ func TestSiteCheckinAPIExposesDefaultsAndVerifiesDoneHub(t *testing.T) {
 		_, _ = w.Write([]byte(`{"success":true,"message":"checkin success"}`))
 	}))
 	defer upstream.Close()
-	site := &model.Site{Name: "DoneHub API test", Platform: model.SitePlatformDoneHub, BaseURL: upstream.URL, Enabled: true}
+	site := &model.Site{Name: "DoneHub API test", Kind: model.SiteKindCheckin, Platform: model.SitePlatformDoneHub, BaseURL: upstream.URL, Enabled: true}
 	if err := op.SiteCreate(site, ctx); err != nil {
 		t.Fatal(err)
 	}

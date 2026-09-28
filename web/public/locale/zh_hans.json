@@ -157,9 +157,13 @@
             "empty": "还没有模型价格",
             "emptyHint": "使用上方的新增或同步按钮，添加模型价格。"
         },
+        "checkin": {
+            "title": "签到概览",
+            "description": "使用独立的签到地址和账号，管理每日签到、执行记录与收益。"
+        },
         "site": {
             "title": "站点概览",
-            "description": "集中查看余额、账号与每日签到情况。"
+            "description": "管理订阅站账号、同步与托管渠道。"
         },
         "log": {
             "title": "请求记录",
@@ -317,6 +321,7 @@
     "navbar": {
         "home": "主页",
         "site": "站点",
+        "checkin": "签到",
         "channel": "渠道",
         "group": "分组",
         "key": "密钥",
@@ -1415,7 +1420,11 @@
                 "no_group_result": "站点账号同步失败：没有可用的分组同步结果。",
                 "all_groups_unresolved": "站点账号同步失败：所有分组都未能确认模型，已保留历史模型。",
                 "unsupported_platform": "不支持的站点平台：{platform}。",
-                "snapshot_nil": "同步结果为空，请稍后重试。"
+                "snapshot_nil": "同步结果为空，请稍后重试。",
+                "checkin_only": "签到站点不执行分组、Key 和模型同步。"
+            },
+            "checkin": {
+                "checkin_site_required": "请在签到页面使用独立签到站点执行签到。"
             },
             "auth": {
                 "access_token_required": "站点 Access Token 不能为空。",

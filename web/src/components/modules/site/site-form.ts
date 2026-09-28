@@ -1,9 +1,11 @@
-import { Site as SiteRecord, SitePlatform, type CustomHeader, type SiteRouteBaseURL, type SiteCheckinMode } from '@/api/endpoints/site';
+import { Site as SiteRecord, SitePlatform, type CustomHeader, type SiteRouteBaseURL, type SiteCheckinMode, type SiteKind } from '@/api/endpoints/site';
 import type { ProxyMode } from '@/api/endpoints/proxy-pool';
 import type { Dispatch, SetStateAction } from 'react';
 
 export type SiteFormState = {
     name: string;
+    kind: SiteKind;
+    linked_site_id: number | null;
     platform: SitePlatform | '';
     base_url: string;
     enabled: boolean;
@@ -54,16 +56,18 @@ export const PLATFORM_LABELS: Record<SitePlatform, string> = {
     [SitePlatform.Sub2API]: 'Sub2API',
 };
 
-export function createEmptySiteForm(): SiteFormState {
+export function createEmptySiteForm(kind: SiteKind = 'relay'): SiteFormState {
     return {
         name: '',
+        kind,
+        linked_site_id: null,
         platform: '',
         base_url: '',
         enabled: true,
         proxy_mode: 'direct',
         proxy_config_id: null,
         external_checkin_url: '',
-        checkin_mode: 'auto',
+        checkin_mode: kind === 'checkin' ? 'auto' : 'disabled',
         checkin_http_enabled: false,
         checkin_http_method: 'POST',
         checkin_http_path: '',
@@ -85,6 +89,8 @@ export function createEmptySiteForm(): SiteFormState {
 export function createSiteForm(site: SiteRecord): SiteFormState {
     return {
         name: site.name,
+        kind: site.kind ?? 'relay',
+        linked_site_id: site.linked_site_id ?? null,
         platform: site.platform,
         base_url: site.base_url,
         enabled: site.enabled,
@@ -115,6 +121,8 @@ export function createSiteForm(site: SiteRecord): SiteFormState {
 export function normalizeSiteRecord(site: SiteRecord): SiteRecord {
     return {
         ...site,
+        kind: site.kind ?? 'relay',
+        linked_site_id: site.linked_site_id ?? null,
         custom_header: site.custom_header ?? [],
         route_base_urls: site.route_base_urls ?? [],
         tags: site.tags ?? [],

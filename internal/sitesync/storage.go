@@ -25,6 +25,18 @@ func loadSiteAccount(ctx context.Context, accountID int) (*model.Site, *model.Si
 	return siteRecord, account, nil
 }
 
+// Sync, manual import and key creation only apply to subscription sites.
+func loadSyncableSiteAccount(ctx context.Context, accountID int) (*model.Site, *model.SiteAccount, error) {
+	siteRecord, account, err := loadSiteAccount(ctx, accountID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if siteRecord.IsCheckinOnly() {
+		return nil, nil, newCheckinOnlySiteError()
+	}
+	return siteRecord, account, nil
+}
+
 func listChannelBindingsByAccount(ctx context.Context, accountID int) ([]model.SiteChannelBinding, error) {
 	var bindings []model.SiteChannelBinding
 	if err := db.GetDB().WithContext(ctx).Where("site_account_id = ?", accountID).Order("id ASC").Find(&bindings).Error; err != nil {

@@ -20,6 +20,15 @@ const (
 
 type SiteCredentialType string
 
+// SiteKind separates subscription sites, which are synced and projected into
+// channels, from check-in sites, which only run check-ins against their own URL.
+type SiteKind string
+
+const (
+	SiteKindRelay   SiteKind = "relay"
+	SiteKindCheckin SiteKind = "checkin"
+)
+
 const (
 	DefaultSiteCheckinTimezone    = "Asia/Shanghai"
 	DefaultSiteCheckinWindowStart = "00:00"
@@ -63,6 +72,8 @@ const (
 type Site struct {
 	ID                             int                `json:"id" gorm:"primaryKey"`
 	Name                           string             `json:"name" gorm:"unique;not null"`
+	Kind                           SiteKind           `json:"kind" gorm:"size:16;not null;default:'relay'"`
+	LinkedSiteID                   *int               `json:"linked_site_id"`
 	Platform                       SitePlatform       `json:"platform" gorm:"type:varchar(32);not null"`
 	BaseURL                        string             `json:"base_url" gorm:"not null"`
 	Enabled                        bool               `json:"enabled" gorm:"default:true"`
@@ -94,6 +105,10 @@ type Site struct {
 	Accounts                       []SiteAccount      `json:"accounts,omitempty" gorm:"foreignKey:SiteID"`
 }
 
+func (s *Site) IsCheckinOnly() bool {
+	return s.Kind == SiteKindCheckin
+}
+
 func (s *Site) UnmarshalJSON(data []byte) error {
 	type alias Site
 	aux := (*alias)(s)
@@ -109,8 +124,11 @@ func (s *Site) UnmarshalJSON(data []byte) error {
 }
 
 type SiteAccount struct {
-	ID                         int                  `json:"id" gorm:"primaryKey"`
-	SiteID                     int                  `json:"site_id" gorm:"index;not null"`
+	ID     int `json:"id" gorm:"primaryKey"`
+	SiteID int `json:"site_id" gorm:"index;not null"`
+	// Migration provenance keeps incremental legacy imports from duplicating
+	// independently renamed or edited check-in accounts.
+	CheckinSourceAccountID     *int                 `json:"checkin_source_account_id,omitempty" gorm:"index"`
 	Name                       string               `json:"name" gorm:"not null"`
 	CredentialType             SiteCredentialType   `json:"credential_type" gorm:"type:varchar(32);not null"`
 	Username                   string               `json:"username"`

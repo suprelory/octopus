@@ -159,8 +159,8 @@ export function useAccountForm({ site, account, onOpenChange }: {
                 proxy_config_id:
                     accountForm.proxy_mode === 'pool' ? accountForm.proxy_config_id : null,
                 enabled: accountForm.enabled,
-                auto_sync: accountForm.auto_sync,
-                auto_checkin: accountForm.auto_checkin,
+                auto_sync: site.kind !== 'checkin' && accountForm.auto_sync,
+                auto_checkin: site.kind === 'checkin' && accountForm.auto_checkin,
                 random_checkin: accountForm.random_checkin,
                 checkin_interval_hours: Math.max(
                     1,

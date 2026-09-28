@@ -105,10 +105,13 @@ func initializeSchema(db *gorm.DB) error {
 	if err := ensureSiteCheckinCapabilityColumns(db); err != nil {
 		return err
 	}
+	if err := ensureSiteKindColumns(db); err != nil {
+		return err
+	}
 	if err := ensureSiteCheckinBatchJobSchema(db); err != nil {
 		return err
 	}
-	return nil
+	return SeparateLegacySiteCheckins(db)
 }
 
 func ensureSiteCheckinBatchJobSchema(db *gorm.DB) error {
@@ -165,6 +168,29 @@ func ensureSiteCheckinCapabilityColumns(db *gorm.DB) error {
 		}
 		if err := db.Migrator().AddColumn(&model.Site{}, column); err != nil {
 			return fmt.Errorf("add site column %s: %w", column, err)
+		}
+	}
+	return nil
+}
+
+// Existing sites become subscription (relay) sites through the column default.
+func ensureSiteKindColumns(db *gorm.DB) error {
+	for _, column := range []string{"Kind", "LinkedSiteID"} {
+		if db.Migrator().HasColumn(&model.Site{}, column) {
+			continue
+		}
+		if err := db.Migrator().AddColumn(&model.Site{}, column); err != nil {
+			return fmt.Errorf("add site column %s: %w", column, err)
+		}
+	}
+	if !db.Migrator().HasColumn(&model.SiteAccount{}, "CheckinSourceAccountID") {
+		if err := db.Migrator().AddColumn(&model.SiteAccount{}, "CheckinSourceAccountID"); err != nil {
+			return fmt.Errorf("add check-in account migration reference: %w", err)
+		}
+	}
+	if !db.Migrator().HasIndex(&model.SiteAccount{}, "CheckinSourceAccountID") {
+		if err := db.Migrator().CreateIndex(&model.SiteAccount{}, "CheckinSourceAccountID"); err != nil {
+			return fmt.Errorf("index check-in account migration reference: %w", err)
 		}
 	}
 	return nil

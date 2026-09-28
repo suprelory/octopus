@@ -189,7 +189,7 @@ func TestCheckinBatchRetainsCloudflareReason(t *testing.T) {
 		_, _ = w.Write([]byte(`<html><title>Just a moment...</title></html>`))
 	}))
 	defer server.Close()
-	site := &model.Site{Name: "Checkin errors", BaseURL: server.URL, Platform: model.SitePlatformOneAPI, Enabled: true}
+	site := &model.Site{Name: "Checkin errors", Kind: model.SiteKindCheckin, BaseURL: server.URL, Platform: model.SitePlatformOneAPI, Enabled: true}
 	if err := op.SiteCreate(site, ctx); err != nil {
 		t.Fatal(err)
 	}

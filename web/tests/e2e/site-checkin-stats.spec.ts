@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { SiteCredentialType, type SiteAccount } from '../../src/api/endpoints/site-types';
 import type { SiteCheckinStats } from '../../src/api/endpoints/site-checkin';
-import { makeSite, mockApp } from './fixtures';
+import { makeCheckinSite, mockApp } from './fixtures';
 
 const account: SiteAccount = {
     id: 11, site_id: 1, name: 'Primary account', credential_type: SiteCredentialType.AccessToken,
@@ -21,7 +21,7 @@ const stats: SiteCheckinStats = {
 for (const width of [1440, 390]) {
     test(`check-in earnings display rewards and send site/account filters at ${width}px`, async ({ page }, testInfo) => {
         await page.setViewportSize({ width, height: 1000 });
-        const state = await mockApp(page, 'site', { sites: [{ ...makeSite(), accounts: [account] }, makeSite(2, 'Beta site')] });
+        const state = await mockApp(page, 'checkin', { sites: [{ ...makeCheckinSite(), accounts: [account] }, makeCheckinSite(2, 'Beta site')] });
         const queries: URL[] = [];
         await page.route('**/api/v1/site/checkin-stats**', async route => {
             queries.push(new URL(route.request().url()));
@@ -58,7 +58,7 @@ for (const width of [1440, 390]) {
 }
 
 test('earnings refresh after batch completion and recover from request errors', async ({ page }) => {
-    const state = await mockApp(page, 'site');
+    const state = await mockApp(page, 'checkin');
     let finished = false;
     let failing = false;
     await page.route('**/api/v1/site/checkin-batches/latest', route => route.fulfill({ json: { code: 200, data: {

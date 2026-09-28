@@ -7,7 +7,7 @@ import { Switch } from '@/components/ui/switch';
 import type { AccountFormFieldsProps } from './account-form';
 import { FORM_SECTION_TRANSITION } from './form-motion';
 
-export function AccountAutomationFields({ accountForm, setAccountForm }: AccountFormFieldsProps) {
+export function AccountAutomationFields({ accountForm, setAccountForm, isCheckin = false }: AccountFormFieldsProps & { isCheckin?: boolean }) {
     return (
         <div className="rounded-xl border border-border/50 bg-muted/20 p-4">
             <div className="grid gap-x-6 gap-y-3 md:grid-cols-2">
@@ -25,7 +25,7 @@ export function AccountAutomationFields({ accountForm, setAccountForm }: Account
                         }
                     />
                 </label>
-                <label className="flex cursor-pointer items-center justify-between gap-3">
+                {!isCheckin ? <label className="flex cursor-pointer items-center justify-between gap-3">
                     <span className="flex items-center gap-2 text-sm text-card-foreground">
                         <RefreshCw className="size-4 text-muted-foreground" />
                         自动同步
@@ -38,8 +38,8 @@ export function AccountAutomationFields({ accountForm, setAccountForm }: Account
                             )
                         }
                     />
-                </label>
-                <label className="flex cursor-pointer items-center justify-between gap-3">
+                </label> : null}
+                {isCheckin ? <><label className="flex cursor-pointer items-center justify-between gap-3">
                     <span className="flex items-center gap-2 text-sm text-card-foreground">
                         <CalendarCheck2 className="size-4 text-muted-foreground" />
                         自动签到
@@ -70,11 +70,11 @@ export function AccountAutomationFields({ accountForm, setAccountForm }: Account
                             )
                         }
                     />
-                </label>
+                </label></> : null}
             </div>
 
             <AnimatePresence initial={false}>
-                {accountForm.auto_checkin ? (
+                {isCheckin && accountForm.auto_checkin ? (
                     <motion.div
                         key="auto-checkin-options"
                         initial={{ height: 0, opacity: 0 }}

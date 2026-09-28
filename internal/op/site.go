@@ -2,6 +2,7 @@ package op
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -68,6 +69,9 @@ func normalizeSiteProxyFields(site *model.Site) {
 	if site == nil {
 		return
 	}
+	if site.Kind == "" {
+		site.Kind = model.SiteKindRelay
+	}
 	if site.ProxyMode == "" {
 		site.ProxyMode = model.ProxyUsageModeDirect
 	}
@@ -79,11 +83,33 @@ func normalizeSiteProxyFields(site *model.Site) {
 	}
 }
 
+// A check-in site may point at the subscription site it rewards. The link is
+// informational, so it must reference a relay site and never another check-in site.
+func validateLinkedSite(site *model.Site, ctx context.Context) error {
+	if site.LinkedSiteID == nil {
+		return nil
+	}
+	var linked model.Site
+	if err := db.GetDB().WithContext(ctx).Select("id", "kind").First(&linked, *site.LinkedSiteID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("linked site not found")
+		}
+		return err
+	}
+	if linked.Kind == model.SiteKindCheckin {
+		return fmt.Errorf("a check-in site can only be linked to a subscription site")
+	}
+	return nil
+}
+
 func SiteCreate(site *model.Site, ctx context.Context) error {
 	if site == nil {
 		return fmt.Errorf("site is nil")
 	}
 	if err := site.Validate(); err != nil {
+		return err
+	}
+	if err := validateLinkedSite(site, ctx); err != nil {
 		return err
 	}
 	// Capability evidence can only originate from an actual upstream execution.
@@ -154,6 +180,10 @@ func SiteUpdate(req *model.SiteUpdateRequest, ctx context.Context) (*model.Site,
 		merged.ExternalCheckinURL = req.ExternalCheckinURL
 		selectFields = append(selectFields, "external_checkin_url")
 	}
+	if req.LinkedSiteIDSet {
+		merged.LinkedSiteID = req.LinkedSiteID
+		selectFields = append(selectFields, "linked_site_id")
+	}
 	if req.CheckinHTTPEnabled != nil {
 		merged.CheckinHTTPEnabled = *req.CheckinHTTPEnabled
 		selectFields = append(selectFields, "checkin_http_enabled")
@@ -218,6 +248,11 @@ func SiteUpdate(req *model.SiteUpdateRequest, ctx context.Context) (*model.Site,
 		if err := merged.Validate(); err != nil {
 			return nil, err
 		}
+		if req.LinkedSiteIDSet {
+			if err := validateLinkedSite(&merged, ctx); err != nil {
+				return nil, err
+			}
+		}
 		if merged.ProxyMode == model.ProxyUsageModePool && merged.ProxyConfigID != nil {
 			if _, err := ProxyURLForConfig(*merged.ProxyConfigID, ctx); err != nil {
 				return nil, err
@@ -244,6 +279,9 @@ func SiteUpdate(req *model.SiteUpdateRequest, ctx context.Context) (*model.Site,
 	}
 	if req.ExternalCheckinSet {
 		updates.ExternalCheckinURL = merged.ExternalCheckinURL
+	}
+	if req.LinkedSiteIDSet {
+		updates.LinkedSiteID = merged.LinkedSiteID
 	}
 	if req.CheckinHTTPEnabled != nil {
 		updates.CheckinHTTPEnabled = merged.CheckinHTTPEnabled
@@ -369,6 +407,9 @@ func SiteDel(id int, ctx context.Context) error {
 		}
 		affectedAccountIDs = accountIDs
 		if len(accountIDs) > 0 {
+			if err := tx.Model(&model.SiteAccount{}).Where("checkin_source_account_id IN ?", accountIDs).Update("checkin_source_account_id", nil).Error; err != nil {
+				return err
+			}
 			// Delete bindings before groups/accounts so FK-constrained databases do not
 			// reject removing rows that bindings may still reference.
 			if err := tx.Where("site_account_id IN ?", accountIDs).Delete(&model.SiteChannelBinding{}).Error; err != nil {
@@ -389,6 +430,9 @@ func SiteDel(id int, ctx context.Context) error {
 			if err := tx.Where("id IN ?", accountIDs).Delete(&model.SiteAccount{}).Error; err != nil {
 				return err
 			}
+		}
+		if err := tx.Model(&model.Site{}).Where("linked_site_id = ?", id).Update("linked_site_id", nil).Error; err != nil {
+			return err
 		}
 		return tx.Delete(&model.Site{}, id).Error
 	}); err != nil {

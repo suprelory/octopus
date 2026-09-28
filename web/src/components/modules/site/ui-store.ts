@@ -23,6 +23,8 @@ interface SiteUIState {
     setCheckinFilterStatuses: (value: CheckinFilterStatusesUpdate) => void;
     tagFilters: string[];
     setTagFilters: (value: TagFiltersUpdate) => void;
+    checkinTagFilters: string[];
+    setCheckinTagFilters: (value: TagFiltersUpdate) => void;
     setHandlers: (handlers: Partial<SiteUIHandlers>) => void;
     resetHandlers: () => void;
     requestOpenCreateDialog: () => void;
@@ -51,6 +53,11 @@ export const useSiteUIStore = create<SiteUIState>((set, get) => ({
                 typeof value === 'function' ? value(state.checkinFilterStatuses) : value,
         })),
     tagFilters: [],
+    checkinTagFilters: [],
+    setCheckinTagFilters: (value) =>
+        set((state) => ({
+            checkinTagFilters: typeof value === 'function' ? value(state.checkinTagFilters) : value,
+        })),
     setTagFilters: (value) =>
         set((state) => ({
             tagFilters: typeof value === 'function' ? value(state.tagFilters) : value,

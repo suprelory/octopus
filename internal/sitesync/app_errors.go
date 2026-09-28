@@ -15,6 +15,8 @@ const (
 	CodeSiteSyncAllGroupsUnresolved   = "site.sync.all_groups_unresolved"
 	CodeSiteSyncUnsupportedPlatform   = "site.sync.unsupported_platform"
 	CodeSiteSyncSnapshotNil           = "site.sync.snapshot_nil"
+	CodeSiteSyncCheckinOnly           = "site.sync.checkin_only"
+	CodeSiteCheckinSiteRequired       = "site.checkin.checkin_site_required"
 
 	CodeSiteAuthAccessTokenRequired = "site.auth.access_token_required"
 	CodeSiteAuthDirectTokenRequired = "site.auth.direct_token_required"
@@ -86,6 +88,14 @@ func newAllGroupsUnresolvedError(message string) *apperror.Error {
 
 func newSnapshotNilError() *apperror.Error {
 	return apperror.New(CodeSiteSyncSnapshotNil, "sync snapshot is nil").WithStatus(http.StatusInternalServerError)
+}
+
+func newCheckinOnlySiteError() *apperror.Error {
+	return apperror.New(CodeSiteSyncCheckinOnly, "check-in sites do not sync groups, keys or models").WithStatus(http.StatusBadRequest)
+}
+
+func newCheckinSiteRequiredError() *apperror.Error {
+	return apperror.New(CodeSiteCheckinSiteRequired, "manage check-ins on the check-in page using an independent check-in site").WithStatus(http.StatusBadRequest)
 }
 
 func newSiteHTTPError(statusCode int, message string) *apperror.Error {

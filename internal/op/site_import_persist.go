@@ -13,7 +13,7 @@ import (
 func upsertImportedSite(tx *gorm.DB, input importedSiteInput) (*model.Site, bool, error) {
 	normalizedBaseURL := normalizeImportBaseURL(input.BaseURL)
 	var siteRecord model.Site
-	err := tx.Where("platform = ? AND base_url = ?", input.Platform, normalizedBaseURL).First(&siteRecord).Error
+	err := tx.Where("platform = ? AND base_url = ? AND kind = ?", input.Platform, normalizedBaseURL, model.SiteKindRelay).First(&siteRecord).Error
 	if err == nil {
 		return &siteRecord, false, nil
 	}

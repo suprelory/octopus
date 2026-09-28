@@ -61,6 +61,9 @@ func runAccountCheckin(ctx context.Context, accountID int, trigger SiteBatchTrig
 	if err != nil {
 		return nil, sanitizeSiteError(err)
 	}
+	if !siteRecord.IsCheckinOnly() {
+		return nil, newCheckinSiteRequiredError()
+	}
 	if !acquired {
 		return persistCheckinOutcome(ctx, siteRecord, account, trigger, started, &model.SiteCheckinResult{
 			Status: model.SiteExecutionStatusSkipped, Reason: model.SiteCheckinReasonAlreadyRunning,

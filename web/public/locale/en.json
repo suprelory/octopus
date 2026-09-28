@@ -157,9 +157,13 @@
             "empty": "No model prices yet",
             "emptyHint": "Use the add or sync button above to populate model prices."
         },
+        "checkin": {
+            "title": "Check-in overview",
+            "description": "Manage daily check-ins, history and earnings with independent URLs and accounts."
+        },
         "site": {
             "title": "Site overview",
-            "description": "Track balances, accounts and daily check-ins in one place."
+            "description": "Manage subscription accounts, synchronization and managed channels."
         },
         "log": {
             "title": "Request history",
@@ -317,6 +321,7 @@
     "navbar": {
         "home": "Home",
         "site": "Site",
+        "checkin": "Check-in",
         "channel": "Channel",
         "group": "Group",
         "key": "Key",
@@ -1415,7 +1420,11 @@
                 "no_group_result": "Site account sync failed: no group sync result is available.",
                 "all_groups_unresolved": "Site account sync failed: all groups could not confirm models. Historical models were kept.",
                 "unsupported_platform": "Unsupported site platform: {platform}.",
-                "snapshot_nil": "The sync result is empty. Try again later."
+                "snapshot_nil": "The sync result is empty. Try again later.",
+                "checkin_only": "Check-in sites do not sync groups, keys or models."
+            },
+            "checkin": {
+                "checkin_site_required": "Use an independent check-in site on the Check-in page."
             },
             "auth": {
                 "access_token_required": "The site access token is required.",

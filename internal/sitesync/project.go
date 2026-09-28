@@ -17,6 +17,9 @@ func ProjectAccount(ctx context.Context, accountID int) ([]int, error) {
 	if err != nil {
 		return nil, err
 	}
+	if siteRecord.IsCheckinOnly() {
+		return nil, nil
+	}
 
 	if !siteRecord.Enabled || !account.Enabled {
 		bindings, err := listChannelBindingsByAccount(ctx, account.ID)

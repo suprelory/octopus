@@ -19,7 +19,7 @@ import (
 
 func createCheckinFixture(t *testing.T, ctx context.Context, baseURL string) (*model.Site, *model.SiteAccount) {
 	t.Helper()
-	site := &model.Site{Name: "Checkin site", BaseURL: baseURL, Platform: model.SitePlatformOneAPI, Enabled: true}
+	site := &model.Site{Name: "Checkin site", Kind: model.SiteKindCheckin, BaseURL: baseURL, Platform: model.SitePlatformOneAPI, Enabled: true}
 	if err := op.SiteCreate(site, ctx); err != nil {
 		t.Fatal(err)
 	}

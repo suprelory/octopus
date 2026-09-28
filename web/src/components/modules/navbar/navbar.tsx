@@ -44,7 +44,7 @@ export function NavBar() {
                                 setActiveItem(route.id as NavItem)
                             }}
                             className={cn(
-                                "relative p-2 md:p-3 rounded-2xl z-20 outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                "relative shrink-0 p-1.5 sm:p-2 md:p-3 rounded-2xl z-20 outline-none focus-visible:ring-2 focus-visible:ring-ring",
                                 isActive ? "text-sidebar-primary-foreground" : "text-sidebar-foreground/60 hover:bg-sidebar-accent"
                             )}
                             initial={{ opacity: 0, scale: 0.8 }}
@@ -67,7 +67,7 @@ export function NavBar() {
                                 />
                             )}
                             <span className="relative z-10">
-                                <route.icon strokeWidth={2} />
+                                <route.icon strokeWidth={2} className="size-5 sm:size-6" />
                             </span>
                         </motion.button>
                     )

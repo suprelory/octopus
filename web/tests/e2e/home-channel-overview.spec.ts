@@ -120,7 +120,7 @@ test('empty usage and site channels show useful empty states', async ({ page }) 
     await page.goto('/');
     await expect(page.getByText('还没有用量数据', { exact: true })).toBeVisible();
     await expect(page.getByText('暂无排行数据', { exact: true })).toBeVisible();
-    await page.locator('nav button').nth(2).click();
+    await page.getByRole('navigation').getByRole('button', { name: '渠道', exact: true }).click();
     await expect(page.getByText('还没有站点渠道', { exact: true })).toBeVisible();
     expect(state.pageErrors).toEqual([]);
     expect(state.unexpectedRequests).toEqual([]);

@@ -113,6 +113,7 @@ export type SiteAccount = {
 };
 
 export type SiteCheckinMode = "auto" | "enabled" | "disabled";
+export type SiteKind = "relay" | "checkin";
 
 export type SiteCheckinCapability = {
   enabled: boolean;
@@ -128,6 +129,8 @@ export type SiteCheckinDefaults = { enabled: boolean; has_builtin: boolean };
 export type Site = {
   id: number;
   name: string;
+  kind?: SiteKind;
+  linked_site_id?: number | null;
   platform: SitePlatform;
   base_url: string;
   enabled: boolean;

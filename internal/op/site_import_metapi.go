@@ -77,7 +77,7 @@ func SiteImportMetAPI(ctx context.Context, body []byte) (*model.MetAPIImportResu
 			result.ImportedModels += models
 			result.DisabledModels += disabledModels
 		}
-		return nil
+		return db.SeparateLegacySiteCheckins(tx)
 	}); err != nil {
 		return nil, wrapSiteImportPersistFailedError(err)
 	}

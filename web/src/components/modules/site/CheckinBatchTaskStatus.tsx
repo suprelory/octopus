@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Activity, History, RefreshCw } from 'lucide-react';
 import { useLatestSiteCheckinBatch, useSiteList } from '@/api/endpoints/site';
 import { Badge } from '@/components/ui/badge';
@@ -19,7 +19,8 @@ function statusTone(status: string): 'secondary' | 'outline' | 'destructive' {
 export function CheckinBatchTaskStatus({ compact = false }: { compact?: boolean }) {
   const t = useTranslations('siteCheckinBatch');
   const { data: task, refetch, isFetching } = useLatestSiteCheckinBatch();
-  const { data: sites = [] } = useSiteList();
+  const { data: allSites } = useSiteList();
+  const sites = useMemo(() => (allSites ?? []).filter((site) => site.kind === 'checkin'), [allSites]);
   const [historyOpen, setHistoryOpen] = useState(false);
 
   if (!task) return null;

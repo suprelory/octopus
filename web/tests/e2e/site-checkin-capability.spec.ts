@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { SiteCredentialType, SitePlatform, type SiteAccount, type SiteCheckinCapability } from '../../src/api/endpoints/site-types';
-import { makeSite, mockApp } from './fixtures';
+import { makeCheckinSite, mockApp } from './fixtures';
 
 function account(id: number, siteID: number, auto = true): SiteAccount {
     return {
@@ -23,10 +23,10 @@ test('DoneHub can verify through the account endpoint even with automatic check-
     const verified: SiteCheckinCapability = {
         ...doneHubDefault, enabled: true, source: 'verified', support: 'supported', verified_at: new Date().toISOString(),
     };
-    const state = await mockApp(page, 'site', {
+    const state = await mockApp(page, 'checkin', {
         sites: [
-            { ...makeSite(1, 'DoneHub first'), platform: SitePlatform.DoneHub, checkin_capability: doneHubDefault, accounts: [account(11, 1, false)] },
-            { ...makeSite(2, 'DoneHub second'), platform: SitePlatform.DoneHub, checkin_capability: doneHubDefault, accounts: [account(22, 2)] },
+            { ...makeCheckinSite(1, 'DoneHub first'), platform: SitePlatform.DoneHub, checkin_capability: doneHubDefault, accounts: [account(11, 1, false)] },
+            { ...makeCheckinSite(2, 'DoneHub second'), platform: SitePlatform.DoneHub, checkin_capability: doneHubDefault, accounts: [account(22, 2)] },
         ],
         mutate: request => {
             expect(request).toEqual({ method: 'POST', path: '/api/v1/site/account/checkin/11', body: {} });
@@ -42,8 +42,7 @@ test('DoneHub can verify through the account endpoint even with automatic check-
     await first.getByRole('button', { name: '展开账号', exact: true }).click();
     await second.getByRole('button', { name: '展开账号', exact: true }).click();
     await expect(first.getByText('签到能力尚未验证', { exact: true })).toBeVisible();
-    await first.getByRole('button', { name: '更多账号操作', exact: true }).click();
-    await page.getByRole('button', { name: '签到并验证', exact: true }).click();
+    await first.getByRole('button', { name: '签到并验证', exact: true }).click();
     await expect(first.getByText(/^已通过接口确认支持签到/)).toBeVisible();
     await expect(second.getByText('签到能力尚未验证', { exact: true })).toBeVisible();
     await expect(first.getByText(/下次自动签到/)).toHaveCount(0);
@@ -54,13 +53,13 @@ test('DoneHub can verify through the account endpoint even with automatic check-
 });
 
 test('summary and filters use site capability for custom HTTP and disabled sites', async ({ page }) => {
-    const state = await mockApp(page, 'site', {
+    const state = await mockApp(page, 'checkin', {
         sites: [
-            { ...makeSite(1, 'Custom API'), platform: SitePlatform.API, checkin_http_enabled: true,
+            { ...makeCheckinSite(1, 'Custom API'), platform: SitePlatform.API, checkin_http_enabled: true,
                 checkin_capability: { ...doneHubDefault, enabled: true, source: 'custom_http' }, accounts: [account(11, 1)] },
-            { ...makeSite(2, 'Disabled custom API'), platform: SitePlatform.API, checkin_mode: 'disabled', checkin_http_enabled: true,
+            { ...makeCheckinSite(2, 'Disabled custom API'), platform: SitePlatform.API, checkin_mode: 'disabled', checkin_http_enabled: true,
                 checkin_capability: { ...doneHubDefault, can_verify: false, source: 'disabled' }, accounts: [account(22, 2)] },
-            { ...makeSite(3, 'Unverified DoneHub'), platform: SitePlatform.DoneHub,
+            { ...makeCheckinSite(3, 'Unverified DoneHub'), platform: SitePlatform.DoneHub,
                 checkin_capability: doneHubDefault, accounts: [account(33, 3)] },
         ],
     });
@@ -68,9 +67,7 @@ test('summary and filters use site capability for custom HTTP and disabled sites
     const disabled = page.locator('section.page-card:visible').filter({ hasText: 'Disabled custom API' });
     await disabled.getByRole('button', { name: '展开账号', exact: true }).click();
     await expect(disabled.getByText('本站已禁用签到', { exact: true })).toBeVisible();
-    await disabled.getByRole('button', { name: '更多账号操作', exact: true }).click();
-    await expect(page.getByRole('button', { name: /^(签到并验证|立即签到)$/ })).toHaveCount(0);
-    await page.keyboard.press('Escape');
+    await expect(disabled.getByRole('button', { name: /^(签到并验证|立即签到)$/ })).toHaveCount(0);
     await page.getByRole('button', { name: '1 未执行', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Custom API', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Disabled custom API', exact: true })).toHaveCount(0);

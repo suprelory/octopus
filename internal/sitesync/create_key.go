@@ -12,7 +12,7 @@ import (
 )
 
 func CreateAccountToken(ctx context.Context, accountID int, req model.SiteChannelKeyCreateRequest) (*model.SiteSyncResult, error) {
-	siteRecord, account, err := loadSiteAccount(ctx, accountID)
+	siteRecord, account, err := loadSyncableSiteAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}

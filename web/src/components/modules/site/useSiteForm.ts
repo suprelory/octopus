@@ -7,6 +7,7 @@ import { useSettingStore } from '@/stores/setting';
 import {
     Site as SiteRecord,
     SitePlatform,
+    type SiteKind,
     useCreateSite,
     useDetectSitePlatform,
     useUpdateSite,
@@ -23,8 +24,9 @@ import {
     PLATFORM_LABELS,
 } from './site-form';
 
-export function useSiteForm({ site, onOpenChange, onCreated }: {
+export function useSiteForm({ site, onOpenChange, onCreated, kind = 'relay' }: {
     site: SiteRecord | null;
+    kind?: SiteKind;
     onOpenChange: (open: boolean) => void;
     onCreated?: (site: SiteRecord) => void;
 }) {
@@ -35,7 +37,7 @@ export function useSiteForm({ site, onOpenChange, onCreated }: {
     const updateSite = useUpdateSite();
     const detectPlatform = useDetectSitePlatform();
     const [siteForm, setSiteForm] = useState<SiteFormState>(() =>
-        site ? createSiteForm(site) : createEmptySiteForm(),
+        site ? createSiteForm(site) : createEmptySiteForm(kind),
     );
 
     const handleSubmit = useCallback(
@@ -153,6 +155,8 @@ export function useSiteForm({ site, onOpenChange, onCreated }: {
 
             const payload = {
                 name: siteForm.name.trim(),
+                kind: siteForm.kind,
+                linked_site_id: siteForm.kind === 'checkin' ? siteForm.linked_site_id : null,
                 platform: platform as SitePlatform,
                 base_url: siteForm.base_url.trim(),
                 enabled: siteForm.enabled,
@@ -160,7 +164,7 @@ export function useSiteForm({ site, onOpenChange, onCreated }: {
                 proxy_config_id:
                     siteForm.proxy_mode === 'pool' ? siteForm.proxy_config_id : null,
                 external_checkin_url: siteForm.external_checkin_url.trim() || null,
-                checkin_mode: siteForm.checkin_mode,
+                checkin_mode: siteForm.kind === 'checkin' ? siteForm.checkin_mode : 'disabled',
                 checkin_http_enabled: siteForm.checkin_http_enabled,
                 checkin_http_method: siteForm.checkin_http_method,
                 checkin_http_path: siteForm.checkin_http_path.trim(),

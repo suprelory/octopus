@@ -4,6 +4,8 @@ import { Site, SiteServer } from './site-types';
 export function normalizeSiteServerList(data: SiteServer[]): Site[] {
   return data.map((site) => ({
     ...site,
+    kind: site.kind ?? 'relay',
+    linked_site_id: site.linked_site_id ?? null,
     custom_header: site.custom_header ?? [],
     checkin_http_headers: site.checkin_http_headers ?? [],
     route_base_urls: site.route_base_urls ?? [],

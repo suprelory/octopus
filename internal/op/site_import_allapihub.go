@@ -63,7 +63,7 @@ func SiteImportAllAPIHub(ctx context.Context, body []byte) (*model.AllAPIHubImpo
 				syncAccountIDs[accountRecord.ID] = struct{}{}
 			}
 		}
-		return nil
+		return db.SeparateLegacySiteCheckins(tx)
 	}); err != nil {
 		return nil, nil, wrapSiteImportPersistFailedError(err)
 	}

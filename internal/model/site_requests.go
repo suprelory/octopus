@@ -15,6 +15,8 @@ type SiteUpdateRequest struct {
 	ProxyConfigIDSet   bool                `json:"-"`
 	ExternalCheckinURL *string             `json:"external_checkin_url,omitempty"`
 	ExternalCheckinSet bool                `json:"-"`
+	LinkedSiteID       *int                `json:"linked_site_id,omitempty"`
+	LinkedSiteIDSet    bool                `json:"-"`
 	CheckinMode        *SiteCheckinMode    `json:"checkin_mode,omitempty"`
 	CheckinHTTPEnabled *bool               `json:"checkin_http_enabled,omitempty"`
 	CheckinHTTPMethod  *string             `json:"checkin_http_method,omitempty"`
@@ -46,6 +48,7 @@ func (r *SiteUpdateRequest) UnmarshalJSON(data []byte) error {
 	}
 	_, r.ProxyConfigIDSet = raw["proxy_config_id"]
 	_, r.ExternalCheckinSet = raw["external_checkin_url"]
+	_, r.LinkedSiteIDSet = raw["linked_site_id"]
 	return nil
 }
 

@@ -30,6 +30,7 @@ interface BatchEditDialogProps {
     selectedSiteIds: number[];
     allTagNames: string[];
     selectedSiteTags: string[];
+    isCheckin?: boolean;
 }
 
 function createEmptyRow(): HeaderRow {
@@ -57,6 +58,7 @@ export function BatchEditDialog({
     selectedSiteIds,
     allTagNames,
     selectedSiteTags,
+    isCheckin = false,
 }: BatchEditDialogProps) {
     const batchEdit = useSiteBatchEdit();
     const [addTags, setAddTags] = useState<string[]>([]);
@@ -191,7 +193,7 @@ export function BatchEditDialog({
                             />
                         </div>
 
-                        <div className="border-t border-border/60" />
+                        {!isCheckin ? <><div className="border-t border-border/60" />
 
                         <div className="flex items-center justify-between">
                             <label className="text-sm font-medium text-card-foreground">
@@ -284,7 +286,7 @@ export function BatchEditDialog({
                         </div>
                         <p className="text-xs text-muted-foreground">
                             「设置」按 Key 新增或更新（大小写不敏感）；「删除」按 Key 移除。各站点其余 Header 保持不变。
-                        </p>
+                        </p></> : null}
                     </div>
 
                     <footer className="mt-5 flex shrink-0 flex-col gap-3 px-1 pt-2 sm:flex-row">

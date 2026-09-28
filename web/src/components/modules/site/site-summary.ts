@@ -8,10 +8,10 @@ export function accountHasCheckinFailure(site: SiteRecord, account: SiteAccount)
   return deriveCheckinStatus(site, account) === "failed";
 }
 
-// Shares siteAccountHasActiveSyncFailure's gate so the card badge and the
-// "同步失败" filter describe the same set of accounts.
 export function accountHasHealthFailure(site: SiteRecord, account: SiteAccount) {
-  return siteAccountHasActiveSyncFailure(site, account) || accountHasCheckinFailure(site, account);
+  return site.kind === 'checkin'
+    ? accountHasCheckinFailure(site, account)
+    : siteAccountHasActiveSyncFailure(site, account);
 }
 
 export function buildSiteSummary(site: SiteRecord): SiteSummary {
@@ -37,7 +37,7 @@ export function buildSiteSummary(site: SiteRecord): SiteSummary {
 
     if (accountHasHealthFailure(site, account)) {
       failedAccountCount += 1;
-    } else if (siteAccountHasActivePartialSync(site, account)) {
+    } else if (site.kind !== 'checkin' && siteAccountHasActivePartialSync(site, account)) {
       partialAccountCount += 1;
     }
   }
@@ -133,9 +133,9 @@ export function buildSiteSummary(site: SiteRecord): SiteSummary {
   const allIdle = site.accounts.every(
     (account) =>
       account.enabled &&
-      normalizedStatus(account.last_sync_status) === "idle" &&
-      (!accountHasCheckinEnabled(account, site) ||
-        deriveCheckinStatus(site, account) === "idle"),
+      (site.kind === 'checkin'
+        ? (!accountHasCheckinEnabled(account, site) || deriveCheckinStatus(site, account) === "idle")
+        : normalizedStatus(account.last_sync_status) === "idle"),
   );
 
   return {

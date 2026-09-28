@@ -630,7 +630,7 @@ func TestSiteImportAllAPIHubImportsAndUpdatesAccounts(t *testing.T) {
 	}
 
 	var siteCount int64
-	if err := dbpkg.GetDB().Model(&model.Site{}).Count(&siteCount).Error; err != nil {
+	if err := dbpkg.GetDB().Model(&model.Site{}).Where("kind = ?", model.SiteKindRelay).Count(&siteCount).Error; err != nil {
 		t.Fatalf("count sites failed: %v", err)
 	}
 	if siteCount != 7 {
@@ -638,7 +638,8 @@ func TestSiteImportAllAPIHubImportsAndUpdatesAccounts(t *testing.T) {
 	}
 
 	var accountCount int64
-	if err := dbpkg.GetDB().Model(&model.SiteAccount{}).Count(&accountCount).Error; err != nil {
+	relaySites := dbpkg.GetDB().Model(&model.Site{}).Select("id").Where("kind = ?", model.SiteKindRelay)
+	if err := dbpkg.GetDB().Model(&model.SiteAccount{}).Where("site_id IN (?)", relaySites).Count(&accountCount).Error; err != nil {
 		t.Fatalf("count site accounts failed: %v", err)
 	}
 	if accountCount != 8 {
@@ -655,8 +656,12 @@ func TestSiteImportAllAPIHubImportsAndUpdatesAccounts(t *testing.T) {
 		if account.PlatformUserID == nil || *account.PlatformUserID != 7788 {
 			t.Fatalf("expected managed platform user id 7788, got %#v", account.PlatformUserID)
 		}
-		if !account.AutoCheckin {
-			t.Fatalf("expected managed account auto checkin to be enabled")
+		if account.AutoCheckin {
+			t.Fatalf("subscription account must not check in")
+		}
+		var checkin model.SiteAccount
+		if err := dbpkg.GetDB().Where("checkin_source_account_id = ?", account.ID).First(&checkin).Error; err != nil || !checkin.AutoCheckin || checkin.AutoSync {
+			t.Fatalf("imported checkin preference was not moved to an independent account: %+v, %v", checkin, err)
 		}
 	})
 
@@ -724,7 +729,7 @@ func TestSiteImportAllAPIHubImportsAndUpdatesAccounts(t *testing.T) {
 		t.Fatalf("expected 8 sync account IDs on second import, got %d", len(syncAccountIDs))
 	}
 
-	if err := dbpkg.GetDB().Model(&model.SiteAccount{}).Count(&accountCount).Error; err != nil {
+	if err := dbpkg.GetDB().Model(&model.SiteAccount{}).Where("site_id IN (?)", relaySites).Count(&accountCount).Error; err != nil {
 		t.Fatalf("count site accounts after second import failed: %v", err)
 	}
 	if accountCount != 8 {
@@ -734,6 +739,10 @@ func TestSiteImportAllAPIHubImportsAndUpdatesAccounts(t *testing.T) {
 	assertImportedAccount(t, "managed-user-renamed", func(account model.SiteAccount) {
 		if account.AccessToken != "managed-session-token" {
 			t.Fatalf("expected managed token to remain stable after reimport, got %q", account.AccessToken)
+		}
+		var copies int64
+		if err := dbpkg.GetDB().Model(&model.SiteAccount{}).Where("checkin_source_account_id = ?", account.ID).Count(&copies).Error; err != nil || copies != 1 {
+			t.Fatalf("renaming the imported subscription account duplicated its checkin account: %d, %v", copies, err)
 		}
 	})
 }
@@ -825,8 +834,12 @@ func TestSiteImportMetAPIImportsSiteBasics(t *testing.T) {
 	if direct.APIKey != "sk-direct-token" {
 		t.Fatalf("expected direct account API key, got %q", direct.APIKey)
 	}
-	if !direct.AutoCheckin {
-		t.Fatalf("expected explicit imported auto checkin preference to be retained")
+	if direct.AutoCheckin {
+		t.Fatalf("subscription account must not check in")
+	}
+	var checkin model.SiteAccount
+	if err := dbpkg.GetDB().Where("checkin_source_account_id = ?", direct.ID).First(&checkin).Error; err != nil || !checkin.AutoCheckin || checkin.AutoSync {
+		t.Fatalf("explicit imported checkin preference was not retained independently: %+v, %v", checkin, err)
 	}
 
 	result, err = SiteImportMetAPI(ctx, mustJSONMarshal(t, buildMetAPIImportPayload("metapi-user-renamed")))
@@ -847,7 +860,8 @@ func TestSiteImportMetAPIImportsSiteBasics(t *testing.T) {
 	}
 
 	var accountCount int64
-	if err := dbpkg.GetDB().Model(&model.SiteAccount{}).Count(&accountCount).Error; err != nil {
+	relaySites := dbpkg.GetDB().Model(&model.Site{}).Select("id").Where("kind = ?", model.SiteKindRelay)
+	if err := dbpkg.GetDB().Model(&model.SiteAccount{}).Where("site_id IN (?)", relaySites).Count(&accountCount).Error; err != nil {
 		t.Fatalf("count accounts after second import failed: %v", err)
 	}
 	if accountCount != 2 {

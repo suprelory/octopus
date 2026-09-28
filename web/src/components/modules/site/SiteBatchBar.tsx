@@ -9,10 +9,12 @@ export function SiteBatchBar({
   actions,
   visibleSites,
   onEdit,
+  isCheckin = false,
 }: {
   actions: SiteActions;
   visibleSites: VisibleSite[];
   onEdit: () => void;
+  isCheckin?: boolean;
 }) {
   const { selectedSiteIds, setSelectedSiteIds, batchAction, handleBatchAction, setDeleteConfirm } =
     actions;
@@ -47,6 +49,7 @@ export function SiteBatchBar({
           );
         })()}
         <span className="text-sm font-medium">已选 {selectedSiteIds.length} 个站点</span>
+        {isCheckin ? <Button variant="outline" size="sm" className="rounded-xl" onClick={() => handleBatchAction('checkin')} disabled={batchAction.isPending}>批量签到</Button> : null}
         <Button
           variant="outline"
           size="sm"

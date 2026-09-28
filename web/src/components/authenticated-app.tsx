@@ -63,7 +63,8 @@ export function AuthenticatedApp() {
                 );
                 break;
             }
-            case 'site': {
+            case 'site':
+            case 'checkin': {
                 prefetches.push(
                     queryClient.prefetchQuery({
                         queryKey: ['sites', 'list'],

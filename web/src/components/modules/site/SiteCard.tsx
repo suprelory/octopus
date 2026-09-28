@@ -41,6 +41,7 @@ export function SiteCard({
   layout,
   tagFilters,
   handleTagFilterChange,
+  linkedSiteName,
 }: {
   item: VisibleSite;
   actions: SiteActions;
@@ -48,9 +49,11 @@ export function SiteCard({
   layout: SiteLayout;
   tagFilters: string[];
   handleTagFilterChange: (tag: string) => void;
+  linkedSiteName?: string;
 }) {
   const tProxy = useTranslations("proxyPool");
   const { site, summary, visibleAccounts, forceExpanded, hasFilteredAccounts } = item;
+  const isCheckin = site.kind === 'checkin';
   const { expandedSiteIds, highlightedSiteId, toggleSiteExpanded } = layout;
   const {
     selectedSiteIds,
@@ -134,8 +137,8 @@ export function SiteCard({
 
               <div className="mt-4 flex flex-wrap gap-x-4 gap-y-3 rounded-xl bg-muted/35 p-3">
                 <CompactMetric label="账号" value={summary.accountCount} />
-                <CompactMetric label="Key" value={summary.keyCount} />
-                <CompactMetric label="模型" value={summary.modelCount} />
+                {!isCheckin ? <><CompactMetric label="Key" value={summary.keyCount} />
+                <CompactMetric label="模型" value={summary.modelCount} /></> : null}
                 <CompactMetric label="余额" value={formatBalance(summary.balance)} />
                 <CompactMetric label="今日收入" value={formatBalance(summary.todayIncome)} />
               </div>
@@ -183,7 +186,8 @@ export function SiteCard({
                 {site.custom_header.length > 0 ? (
                   <span>{site.custom_header.length} 个 Header</span>
                 ) : null}
-                {site.external_checkin_url ? <span>手动签到</span> : null}
+                {isCheckin && site.linked_site_id ? <span>关联订阅站：{linkedSiteName ?? `#${site.linked_site_id}`}</span> : null}
+                {isCheckin && site.external_checkin_url ? <a href={site.external_checkin_url} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="text-primary hover:underline">打开签到页面</a> : null}
               </div>
             </div>
 
@@ -212,14 +216,14 @@ export function SiteCard({
                   className="w-52 rounded-2xl border border-border/60 bg-card p-2"
                 >
                   <div className="grid gap-1">
-                    <button
+                    {!isCheckin ? <button
                       type="button"
                       className={MENU_BUTTON_CLASS}
                       onClick={() => jumpToSiteChannel(site.id)}
                     >
                       <Waypoints className="size-4" />
                       <span>查看站点渠道</span>
-                    </button>
+                    </button> : null}
                     {site.accounts.length > 0 ? (
                       <button
                         type="button"
@@ -306,7 +310,7 @@ export function SiteCard({
 
                   {visibleAccounts.length === 0 ? (
                     <div className="rounded-2xl border border-dashed border-border/70 bg-muted/10 px-4 py-6 text-sm text-muted-foreground">
-                      暂无账号。添加账号后即可自动同步分组、模型和渠道绑定。
+                      {isCheckin ? '暂无账号。添加签到站点的账号凭据后即可执行签到。' : '暂无账号。添加账号后即可自动同步分组、模型和渠道绑定。'}
                     </div>
                   ) : (
                     <div className="space-y-2">

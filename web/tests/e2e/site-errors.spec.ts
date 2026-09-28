@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { SiteCredentialType, type SiteAccount } from '../../src/api/endpoints/site-types';
-import { makeSite, mockApp } from './fixtures';
+import { makeSite, makeCheckinSite, mockApp } from './fixtures';
 
 function makeAccount(): SiteAccount {
     return {
@@ -54,8 +54,8 @@ for (const status of ['failed', 'skipped'] as const) {
     test(`manual checkin displays a ${status} outcome`, async ({ page }) => {
         const account = makeAccount();
         const message = status === 'failed' ? 'checkin failed' : 'checkin is not supported by this platform';
-        const state = await mockApp(page, 'site', {
-            sites: [{ ...makeSite(), accounts: [account] }],
+        const state = await mockApp(page, 'checkin', {
+            sites: [{ ...makeCheckinSite(), accounts: [account] }],
             mutate: request => {
                 expect(request.path).toBe('/api/v1/site/account/checkin/11');
                 account.last_checkin_status = status;
@@ -65,7 +65,6 @@ for (const status of ['failed', 'skipped'] as const) {
         });
         await page.goto('/');
         await page.getByRole('button', { name: '展开账号', exact: true }).click();
-        await page.getByRole('button', { name: '更多账号操作', exact: true }).click();
         await page.getByRole('button', { name: '签到并验证', exact: true }).click();
         const expected = `${status === 'failed' ? '失败' : '跳过'}：${message}`;
         await expect(page.getByText(expected, { exact: true })).toBeVisible();

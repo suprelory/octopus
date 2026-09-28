@@ -4,8 +4,8 @@ import { persist } from 'zustand/middleware';
 export type ToolbarLayout = 'grid' | 'list';
 export type ToolbarSortOrder = 'asc' | 'desc';
 export type ToolbarSortField = 'default' | 'name' | 'created' | 'balance';
-export type ToolbarSortablePage = 'site' | 'channel' | 'group';
-export const TOOLBAR_PAGES = ['site', 'channel', 'group', 'model', 'log'] as const;
+export type ToolbarSortablePage = 'site' | 'checkin' | 'channel' | 'group';
+export const TOOLBAR_PAGES = ['site', 'checkin', 'channel', 'group', 'model', 'log'] as const;
 export type ToolbarPage = (typeof TOOLBAR_PAGES)[number];
 export type LogDateRange = { start?: number; end?: number };
 export type LogKeywordMode = 'default' | 'prefix' | 'exact' | 'contains';
@@ -61,7 +61,7 @@ export const useToolbarViewOptionsStore = create<ToolbarViewOptionsState>()(
 
             getSortField: (item) => {
                 const field = get().sortFields[item];
-                if (item === 'site') {
+                if (item === 'site' || item === 'checkin') {
                     return field === 'balance' || field === 'name' ? field : 'default';
                 }
                 return field === 'created' ? 'created' : 'name';
@@ -74,7 +74,7 @@ export const useToolbarViewOptionsStore = create<ToolbarViewOptionsState>()(
             },
 
             getSortOrder: (item) => {
-                if (item === 'site' && get().getSortField('site') === 'default') {
+                if ((item === 'site' || item === 'checkin') && get().getSortField(item) === 'default') {
                     return 'asc';
                 }
                 return get().sortOrders[item] === 'desc' ? 'desc' : 'asc';
