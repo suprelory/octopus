@@ -129,10 +129,10 @@ func SiteCreate(site *model.Site, ctx context.Context) error {
 			return tx.Model(&model.Site{}).Where("id = ?", site.ID).Update("enabled", false).Error
 		})
 		site.Enabled = false
-		return siteNameConflictError(err, site.Name, 0, ctx)
+		return siteNameConflictError(err, site.Name, site.Kind, 0, ctx)
 	}
 	err := db.GetDB().WithContext(ctx).Create(site).Error
-	return siteNameConflictError(err, site.Name, 0, ctx)
+	return siteNameConflictError(err, site.Name, site.Kind, 0, ctx)
 }
 
 func SiteUpdate(req *model.SiteUpdateRequest, ctx context.Context) (*model.Site, error) {
@@ -338,7 +338,7 @@ func SiteUpdate(req *model.SiteUpdateRequest, ctx context.Context) (*model.Site,
 			Where("id = ?", req.ID).
 			Select(selectFields).
 			Updates(&updates).Error; err != nil {
-			return nil, fmt.Errorf("failed to update site: %w", siteNameConflictError(err, merged.Name, req.ID, ctx))
+			return nil, fmt.Errorf("failed to update site: %w", siteNameConflictError(err, merged.Name, merged.Kind, req.ID, ctx))
 		}
 	}
 	return SiteGet(req.ID, ctx)

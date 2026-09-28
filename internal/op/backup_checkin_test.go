@@ -15,7 +15,7 @@ func TestBackupKeepsCheckinSitesIndependentAndRemapsLinks(t *testing.T) {
 	dump := &model.DBDump{
 		Version: 1, IncludeLogs: true,
 		Sites: []model.Site{
-			{ID: 90, Kind: model.SiteKindCheckin, LinkedSiteID: &linkedID, Name: "Checkin", Platform: model.SitePlatformOneAPI,
+			{ID: 90, Kind: model.SiteKindCheckin, LinkedSiteID: &linkedID, Name: "Subscription", Platform: model.SitePlatformOneAPI,
 				BaseURL: "https://shared.example", CheckinMode: model.SiteCheckinModeEnabled},
 			{ID: 80, Kind: model.SiteKindRelay, Name: "Subscription", Platform: model.SitePlatformOneAPI, BaseURL: "https://shared.example", Enabled: true},
 		},
@@ -23,7 +23,7 @@ func TestBackupKeepsCheckinSitesIndependentAndRemapsLinks(t *testing.T) {
 			{ID: 91, SiteID: 90, CheckinSourceAccountID: &sourceAccountID, Name: "Manual", CredentialType: model.SiteCredentialTypeAPIKey, APIKey: "test-key", AutoSync: true},
 			{ID: 81, SiteID: 80, Name: "Relay account", CredentialType: model.SiteCredentialTypeAPIKey, APIKey: "relay-key", Enabled: true, AutoSync: true},
 		},
-		SiteCheckinLogs: []model.SiteCheckinLog{{ID: 901, SiteID: 90, AccountID: 91, SiteName: "Checkin", AccountName: "Manual"}},
+		SiteCheckinLogs: []model.SiteCheckinLog{{ID: 901, SiteID: 90, AccountID: 91, SiteName: "Subscription", AccountName: "Manual"}},
 	}
 	for i := 0; i < 2; i++ {
 		if _, err := DBImportIncremental(ctx, dump); err != nil {
@@ -35,6 +35,7 @@ func TestBackupKeepsCheckinSitesIndependentAndRemapsLinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(sites) != 2 || sites[0].Kind != model.SiteKindCheckin || sites[1].Kind != model.SiteKindRelay ||
+		sites[0].Name != "Subscription" || sites[1].Name != "Subscription" ||
 		sites[0].LinkedSiteID == nil || *sites[0].LinkedSiteID != sites[1].ID || sites[0].Enabled || !sites[1].Enabled {
 		t.Fatalf("backup merged kinds, lost state or failed to remap forward link: %+v", sites)
 	}
@@ -73,14 +74,14 @@ func TestLegacyBackupCheckinsMigrateAndIncrementalHistoryReusesTarget(t *testing
 	if err := dbpkg.GetDB().Preload("Accounts").Where("kind = ?", model.SiteKindRelay).First(&source).Error; err != nil {
 		t.Fatal(err)
 	}
-	if len(target.Accounts) != 1 || len(source.Accounts) != 1 || target.LinkedSiteID == nil || *target.LinkedSiteID != source.ID ||
+	if target.Name != source.Name || len(target.Accounts) != 1 || len(source.Accounts) != 1 || target.LinkedSiteID == nil || *target.LinkedSiteID != source.ID ||
 		!target.Accounts[0].AutoCheckin || target.Accounts[0].AutoSync || source.Accounts[0].AutoCheckin ||
 		source.CheckinMode != model.SiteCheckinModeDisabled || source.Accounts[0].NextAutoCheckinAt != nil ||
 		target.Accounts[0].NextAutoCheckinAt == nil || !target.Accounts[0].NextAutoCheckinAt.Equal(now) {
 		t.Fatalf("legacy automation was not separated: source=%+v target=%+v", source, target)
 	}
 	// Edits to the new independent account must survive subsequent old backups.
-	if err := dbpkg.GetDB().Model(&target).Update("base_url", "https://independent-checkin.example").Error; err != nil {
+	if err := dbpkg.GetDB().Model(&target).Updates(map[string]any{"name": "Independent rewards", "base_url": "https://independent-checkin.example"}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := dbpkg.GetDB().Model(&target.Accounts[0]).Updates(map[string]any{
@@ -101,6 +102,10 @@ func TestLegacyBackupCheckinsMigrateAndIncrementalHistoryReusesTarget(t *testing
 	dbpkg.GetDB().Model(&model.SiteAccount{}).Count(&accountCount)
 	if siteCount != 2 || accountCount != 2 {
 		t.Fatalf("incremental import duplicated migrated data: %d sites, %d accounts", siteCount, accountCount)
+	}
+	var savedSite model.Site
+	if err := dbpkg.GetDB().First(&savedSite, target.ID).Error; err != nil || savedSite.Name != "Independent rewards" {
+		t.Fatalf("incremental import overwrote the custom site name: %+v, %v", savedSite, err)
 	}
 	saved, err := SiteAccountGet(target.Accounts[0].ID, ctx)
 	if err != nil || saved.AutoCheckin || saved.AccessToken != "independent-token" || saved.NextAutoCheckinAt != nil {

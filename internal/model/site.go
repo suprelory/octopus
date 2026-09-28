@@ -71,8 +71,8 @@ const (
 
 type Site struct {
 	ID                             int                `json:"id" gorm:"primaryKey"`
-	Name                           string             `json:"name" gorm:"unique;not null"`
-	Kind                           SiteKind           `json:"kind" gorm:"size:16;not null;default:'relay'"`
+	Name                           string             `json:"name" gorm:"not null;uniqueIndex:idx_sites_kind_name,priority:2"`
+	Kind                           SiteKind           `json:"kind" gorm:"size:16;not null;default:'relay';uniqueIndex:idx_sites_kind_name,priority:1"`
 	LinkedSiteID                   *int               `json:"linked_site_id"`
 	Platform                       SitePlatform       `json:"platform" gorm:"type:varchar(32);not null"`
 	BaseURL                        string             `json:"base_url" gorm:"not null"`

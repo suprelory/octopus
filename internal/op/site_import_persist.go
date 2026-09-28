@@ -22,7 +22,7 @@ func upsertImportedSite(tx *gorm.DB, input importedSiteInput) (*model.Site, bool
 	}
 
 	siteRecord = model.Site{
-		Name:     uniqueSiteName(tx, firstNonEmptyString(input.Name, normalizedBaseURL)),
+		Name:     uniqueSiteName(tx, firstNonEmptyString(input.Name, normalizedBaseURL), model.SiteKindRelay),
 		Platform: input.Platform,
 		BaseURL:  normalizedBaseURL,
 		Enabled:  true,
@@ -178,7 +178,7 @@ func prepareMetAPIImportedModels(accountID int, models []model.SiteModel) []mode
 	return result
 }
 
-func uniqueSiteName(tx *gorm.DB, baseName string) string {
+func uniqueSiteName(tx *gorm.DB, baseName string, kind model.SiteKind) string {
 	baseName = strings.TrimSpace(baseName)
 	if baseName == "" {
 		baseName = "imported-site"
@@ -187,7 +187,7 @@ func uniqueSiteName(tx *gorm.DB, baseName string) string {
 	index := 2
 	for {
 		var count int64
-		if err := tx.Model(&model.Site{}).Where("name = ?", candidate).Count(&count).Error; err != nil {
+		if err := tx.Model(&model.Site{}).Where("name = ? AND kind = ?", candidate, kind).Count(&count).Error; err != nil {
 			return candidate
 		}
 		if count == 0 {

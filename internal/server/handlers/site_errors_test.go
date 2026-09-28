@@ -80,6 +80,7 @@ func requestSiteMutation(t *testing.T, path string, handler gin.HandlerFunc, pay
 func TestSiteNameConflictResponse(t *testing.T) {
 	tests := []struct {
 		name     string
+		kind     model.SiteKind
 		archived bool
 		disabled bool
 		update   bool
@@ -90,11 +91,31 @@ func TestSiteNameConflictResponse(t *testing.T) {
 		{name: "create_disabled/archived", archived: true, disabled: true},
 		{name: "rename/active", update: true},
 		{name: "rename/archived", archived: true, update: true},
+		{name: "create_checkin/active", kind: model.SiteKindCheckin},
+		{name: "create_checkin/archived", kind: model.SiteKindCheckin, archived: true},
+		{name: "create_disabled_checkin/active", kind: model.SiteKindCheckin, disabled: true},
+		{name: "create_disabled_checkin/archived", kind: model.SiteKindCheckin, archived: true, disabled: true},
+		{name: "rename_checkin/active", kind: model.SiteKindCheckin, update: true},
+		{name: "rename_checkin/archived", kind: model.SiteKindCheckin, archived: true, update: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := setupSiteHandlerTestDB(t)
-			existing := model.Site{Name: "方舟", Platform: model.SitePlatformNewAPI, BaseURL: "https://existing.example", Enabled: true}
+			kind := tt.kind
+			if kind == "" {
+				kind = model.SiteKindRelay
+			}
+			otherKind := model.SiteKindCheckin
+			if kind == model.SiteKindCheckin {
+				otherKind = model.SiteKindRelay
+			}
+			// Both kinds may share a name. A conflict must identify the site in
+			// the requested kind, even when the other kind has a lower ID.
+			other := model.Site{Name: "方舟", Kind: otherKind, Platform: model.SitePlatformNewAPI, BaseURL: "https://other-kind.example"}
+			if err := op.SiteCreate(&other, ctx); err != nil {
+				t.Fatal(err)
+			}
+			existing := model.Site{Name: "方舟", Kind: kind, Platform: model.SitePlatformNewAPI, BaseURL: "https://existing.example", Enabled: true}
 			if err := op.SiteCreate(&existing, ctx); err != nil {
 				t.Fatal(err)
 			}
@@ -106,11 +127,11 @@ func TestSiteNameConflictResponse(t *testing.T) {
 
 			path, handler := "/api/v1/site/create", gin.HandlerFunc(createSite)
 			payload := map[string]any{
-				"name": "  方舟  ", "platform": "new-api", "base_url": "https://new.example", "enabled": !tt.disabled,
+				"name": "  方舟  ", "kind": kind, "platform": "new-api", "base_url": "https://new.example", "enabled": !tt.disabled,
 			}
 			var subject model.Site
 			if tt.update {
-				subject = model.Site{Name: "另一个站点", Platform: model.SitePlatformNewAPI, BaseURL: "https://new.example", Enabled: true}
+				subject = model.Site{Name: "另一个站点", Kind: kind, Platform: model.SitePlatformNewAPI, BaseURL: "https://new.example", Enabled: true}
 				if err := op.SiteCreate(&subject, ctx); err != nil {
 					t.Fatal(err)
 				}

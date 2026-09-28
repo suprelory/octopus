@@ -92,7 +92,7 @@ func TestSeparateLegacyCheckinsPreservesStateAndHistory(t *testing.T) {
 				Where("kind = ? AND linked_site_id = ?", model.SiteKindCheckin, source.ID).First(&target).Error; err != nil {
 				t.Fatal(err)
 			}
-			if target.BaseURL != source.BaseURL || target.ExternalCheckinURL == nil || *target.ExternalCheckinURL != external ||
+			if target.Name != source.Name || target.BaseURL != source.BaseURL || target.ExternalCheckinURL == nil || *target.ExternalCheckinURL != external ||
 				target.Enabled == archived || target.Archived != archived || (archived && target.ArchivedAt == nil) ||
 				!target.CheckinHTTPEnabled || target.CheckinHTTPPath != "/daily" || target.CheckinHTTPBody != source.CheckinHTTPBody ||
 				len(target.CheckinHTTPHeaders) != 1 || target.CheckinTimezone != "UTC" || target.CheckinWindowStart != "10:00" ||

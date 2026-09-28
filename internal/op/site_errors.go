@@ -19,7 +19,7 @@ const (
 
 // Resolve name conflicts after the write has rolled back, including concurrent
 // creates. Other unique constraints and database errors keep their original error.
-func siteNameConflictError(err error, name string, excludeID int, ctx context.Context) error {
+func siteNameConflictError(err error, name string, kind model.SiteKind, excludeID int, ctx context.Context) error {
 	if err == nil {
 		return nil
 	}
@@ -33,7 +33,7 @@ func siteNameConflictError(err error, name string, excludeID int, ctx context.Co
 	}
 
 	var existing model.Site
-	query := gormDB.WithContext(ctx).Select("id", "name", "archived").Where("name = ?", name)
+	query := gormDB.WithContext(ctx).Select("id", "name", "archived").Where("name = ? AND kind = ?", name, kind)
 	if excludeID > 0 {
 		query = query.Where("id <> ?", excludeID)
 	}

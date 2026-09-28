@@ -49,7 +49,7 @@ func (s *dbImportState) importSites() error {
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return fmt.Errorf("import sites: %w", err)
 		}
-		site.Name = uniqueSiteName(tx, site.Name)
+		site.Name = uniqueSiteName(tx, site.Name, site.Kind)
 		enabled := site.Enabled
 		if err := tx.Omit("Accounts").Create(&site).Error; err != nil {
 			return fmt.Errorf("import sites: %w", err)

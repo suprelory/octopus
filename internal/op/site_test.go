@@ -595,6 +595,11 @@ func TestSiteUpdateMergesRouteBaseURLs(t *testing.T) {
 
 func TestSiteImportAllAPIHubImportsAndUpdatesAccounts(t *testing.T) {
 	ctx := setupSiteOpTestDB(t)
+	existingCheckin := &model.Site{Name: "Cookie Site", Kind: model.SiteKindCheckin,
+		Platform: model.SitePlatformOneHub, BaseURL: "https://checkin-cookie.example"}
+	if err := SiteCreate(existingCheckin, ctx); err != nil {
+		t.Fatal(err)
+	}
 
 	result, syncAccountIDs, err := SiteImportAllAPIHub(ctx, mustJSONMarshal(t, buildAllAPIHubImportPayload("managed-user")))
 	if err != nil {
@@ -636,6 +641,10 @@ func TestSiteImportAllAPIHubImportsAndUpdatesAccounts(t *testing.T) {
 	if siteCount != 7 {
 		t.Fatalf("expected 7 sites in database, got %d", siteCount)
 	}
+	var cookieSite model.Site
+	if err := dbpkg.GetDB().Where("kind = ? AND base_url = ?", model.SiteKindRelay, "https://onehub.example.com").First(&cookieSite).Error; err != nil || cookieSite.Name != existingCheckin.Name {
+		t.Fatalf("an existing check-in site changed the imported subscription name: %+v, %v", cookieSite, err)
+	}
 
 	var accountCount int64
 	relaySites := dbpkg.GetDB().Model(&model.Site{}).Select("id").Where("kind = ?", model.SiteKindRelay)
@@ -662,6 +671,10 @@ func TestSiteImportAllAPIHubImportsAndUpdatesAccounts(t *testing.T) {
 		var checkin model.SiteAccount
 		if err := dbpkg.GetDB().Where("checkin_source_account_id = ?", account.ID).First(&checkin).Error; err != nil || !checkin.AutoCheckin || checkin.AutoSync {
 			t.Fatalf("imported checkin preference was not moved to an independent account: %+v, %v", checkin, err)
+		}
+		var checkinSite model.Site
+		if err := dbpkg.GetDB().First(&checkinSite, checkin.SiteID).Error; err != nil || checkinSite.Name != "Managed Site" {
+			t.Fatalf("generated check-in site did not retain the subscription name: %+v, %v", checkinSite, err)
 		}
 	})
 

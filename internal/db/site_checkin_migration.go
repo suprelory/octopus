@@ -3,6 +3,7 @@ package db
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/bestruirui/octopus/internal/model"
@@ -34,6 +35,9 @@ func SeparateLegacySiteCheckins(database *gorm.DB) error {
 			hasHistory[id] = true
 		}
 		for _, source := range sources {
+			if err := renameLegacyCheckinSites(tx, source); err != nil {
+				return fmt.Errorf("migrate check-in names for site %d: %w", source.ID, err)
+			}
 			if !hasLegacyCheckinConfig(source, hasHistory[source.ID]) {
 				continue
 			}
@@ -146,17 +150,10 @@ func createLegacyCheckinSite(tx *gorm.DB, source model.Site) (model.Site, error)
 	target.GlobalWeight = 1
 	// The external URL was only a browser link. Preserve the old automatic
 	// request destination; never send copied credentials to that other host.
-	baseName := source.Name + " · 签到"
-	target.Name = baseName
-	for suffix := 2; ; suffix++ {
-		var count int64
-		if err := tx.Model(&model.Site{}).Where("name = ?", target.Name).Count(&count).Error; err != nil {
-			return target, err
-		}
-		if count == 0 {
-			break
-		}
-		target.Name = fmt.Sprintf("%s (%d)", baseName, suffix)
+	var err error
+	target.Name, err = availableCheckinSiteName(tx, source.Name, 0)
+	if err != nil {
+		return target, err
 	}
 	if err := tx.Omit(clause.Associations).Create(&target).Error; err != nil {
 		return target, err
@@ -166,4 +163,51 @@ func createLegacyCheckinSite(tx *gorm.DB, source model.Site) (model.Site, error)
 		return target, err
 	}
 	return target, nil
+}
+
+func availableCheckinSiteName(tx *gorm.DB, baseName string, excludeID int) (string, error) {
+	candidate := baseName
+	for suffix := 2; ; suffix++ {
+		var count int64
+		if err := tx.Model(&model.Site{}).
+			Where("kind = ? AND name = ? AND id <> ?", model.SiteKindCheckin, candidate, excludeID).
+			Count(&count).Error; err != nil {
+			return "", err
+		}
+		if count == 0 {
+			return candidate, nil
+		}
+		candidate = fmt.Sprintf("%s (%d)", baseName, suffix)
+	}
+}
+
+func renameLegacyCheckinSites(tx *gorm.DB, source model.Site) error {
+	var targets []model.Site
+	if err := tx.Select("id", "name").Where("kind = ? AND linked_site_id = ?", model.SiteKindCheckin, source.ID).
+		Order("id ASC").Find(&targets).Error; err != nil {
+		return err
+	}
+	legacyName := source.Name + " · 签到"
+	for _, target := range targets {
+		if target.Name != legacyName {
+			// Also recognize the numeric suffix used for old name collisions.
+			suffix, ok := strings.CutPrefix(target.Name, legacyName+" (")
+			if !ok {
+				continue
+			}
+			suffix, ok = strings.CutSuffix(suffix, ")")
+			number, err := strconv.Atoi(suffix)
+			if !ok || err != nil || number < 2 || strconv.Itoa(number) != suffix {
+				continue
+			}
+		}
+		name, err := availableCheckinSiteName(tx, source.Name, target.ID)
+		if err != nil {
+			return err
+		}
+		if err := tx.Model(&model.Site{}).Where("id = ? AND name = ?", target.ID, target.Name).Update("name", name).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
