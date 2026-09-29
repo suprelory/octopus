@@ -92,14 +92,20 @@ func checkinConfiguredHTTP(ctx context.Context, siteRecord *model.Site, account 
 	if len(responseBody) > siteCheckinResponseLimit {
 		return nil, token, fmt.Errorf("checkin response exceeds 1 MiB")
 	}
-	if IsCloudflareProtectionResponse(resp.StatusCode, resp.Header, responseBody) {
-		return nil, token, wrapCloudflareProtectionError(newCloudflareProtectionError(resp.StatusCode, resp.Header))
-	}
-
 	payload, isJSON := parseSiteJSONMap(responseBody)
 	message := ""
 	if isJSON {
 		message = extractSiteResponseMessage(payload)
+	}
+	// An explicit already-checked-in hint takes precedence over HTTP status and
+	// success=false. Keep non-JSON response bodies out of the persisted message.
+	if strings.Contains(message, "今日已签到") || (!isJSON && strings.Contains(string(responseBody), "今日已签到")) {
+		result := newSuccessfulCheckinResult(firstNonEmptyString(message, "今日已签到"), "")
+		result.Reason = model.SiteCheckinReasonAlreadyCheckedIn
+		return result, token, nil
+	}
+	if IsCloudflareProtectionResponse(resp.StatusCode, resp.Header, responseBody) {
+		return nil, token, wrapCloudflareProtectionError(newCloudflareProtectionError(resp.StatusCode, resp.Header))
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		if isJSON && (resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusConflict) && isAlreadyCheckedInMessage(message) {

@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/op"
 )
 
 func TestConfiguredHTTPCheckinUsesAccountAuthPathHeadersAndBody(t *testing.T) {
@@ -108,6 +111,102 @@ func TestConfiguredHTTPCheckinInterpretsAlreadyCheckedInAndFailures(t *testing.T
 		if result.Status != test.wantStatus || result.Reason != test.wantReason || (test.wantMessage != "" && result.Message != test.wantMessage) {
 			t.Errorf("checkin %s result = %+v", test.path, result)
 		}
+	}
+}
+
+func TestConfiguredHTTPCheckinAlreadyCheckedInHintOverridesStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		status      int
+		body        string
+		message     string
+		cfChallenge bool
+	}{
+		{"success flag false", http.StatusOK, `{"success":false,"message":"今日已签到","data":{"reward":99}}`, "今日已签到", false},
+		{"redirect status", http.StatusFound, `{"message":"提示：今日已签到（请明日再来）"}`, "提示：今日已签到（请明日再来）", false},
+		{"bad request", http.StatusBadRequest, `{"message":"今日已签到"}`, "今日已签到", false},
+		{"unauthorized msg", http.StatusUnauthorized, `{"success":false,"msg":"今日已签到：请勿重复提交"}`, "今日已签到：请勿重复提交", false},
+		{"forbidden challenge header", http.StatusForbidden, `{"message":"今日已签到"}`, "今日已签到", true},
+		{"not found", http.StatusNotFound, `{"message":"今日已签到"}`, "今日已签到", false},
+		{"conflict", http.StatusConflict, `{"message":"今日已签到"}`, "今日已签到", false},
+		{"rate limited error message", http.StatusTooManyRequests, `{"error":{"message":"今日已签到，请明日再来"}}`, "今日已签到，请明日再来", false},
+		{"server error escaped JSON", http.StatusInternalServerError, `{"message":"\u4eca\u65e5\u5df2\u7b7e\u5230"}`, "今日已签到", false},
+		{"plain text", http.StatusBadGateway, "提示：今日已签到，请明日再来", "今日已签到", false},
+		{"HTML hint", http.StatusServiceUnavailable, "<html><body><p>今日已签到</p></body></html>", "今日已签到", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tc.cfChallenge {
+					w.Header().Set("Cf-Mitigated", "challenge")
+				}
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer server.Close()
+			site := &model.Site{Platform: model.SitePlatformAPI, BaseURL: server.URL, CheckinHTTPEnabled: true, CheckinHTTPMethod: "GET", CheckinHTTPPath: "/checkin"}
+			account := &model.SiteAccount{CredentialType: model.SiteCredentialTypeCookie, Cookie: "session=test-cookie"}
+			result, token, err := checkinAccountState(context.Background(), site, account)
+			if err != nil || result == nil {
+				t.Fatalf("already-checked-in hint was rejected: %+v, %v", result, err)
+			}
+			if result.Status != model.SiteExecutionStatusSuccess || result.Reason != model.SiteCheckinReasonAlreadyCheckedIn || result.Reward != "" || result.Message != tc.message || result.CapabilityEvidence != model.SiteCheckinSupportSupported || token != "" {
+				t.Fatalf("incorrect already-checked-in result: %+v", result)
+			}
+		})
+	}
+}
+
+func TestConfiguredHTTPCheckinDoesNotOverrideFailuresWithoutAnAlreadyCheckedInHint(t *testing.T) {
+	for _, body := range []string{
+		`{"success":false,"message":"今日未签到"}`,
+		`{"success":false,"message":"签到失败","example":"今日已签到"}`,
+		"今日尚未签到",
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(body))
+		}))
+		site := &model.Site{Platform: model.SitePlatformAPI, BaseURL: server.URL, CheckinHTTPEnabled: true, CheckinHTTPMethod: "GET", CheckinHTTPPath: "/checkin"}
+		account := &model.SiteAccount{CredentialType: model.SiteCredentialTypeCookie, Cookie: "session=test-cookie"}
+		result, _, err := checkinAccountState(context.Background(), site, account)
+		server.Close()
+		if err == nil || result != nil {
+			t.Fatalf("failure without a matching hint was overridden: %+v, %v", result, err)
+		}
+	}
+}
+
+func TestConfiguredHTTPCheckinPersistsAlreadyCheckedInDespiteServerError(t *testing.T) {
+	ctx := setupProjectTestDB(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"success":false,"message":"今日已签到：session=test-cookie","data":{"reward":99}}`))
+	}))
+	defer server.Close()
+	site := &model.Site{Name: "Custom checkin", Kind: model.SiteKindCheckin, Platform: model.SitePlatformAPI,
+		BaseURL: server.URL, Enabled: true, CheckinHTTPEnabled: true, CheckinHTTPMethod: "POST", CheckinHTTPPath: "/checkin"}
+	if err := op.SiteCreate(site, ctx); err != nil {
+		t.Fatal(err)
+	}
+	account := &model.SiteAccount{SiteID: site.ID, Name: "Cookie account", CredentialType: model.SiteCredentialTypeCookie,
+		Cookie: "session=test-cookie", Enabled: true, CheckinFailureCount: 3}
+	if err := op.SiteAccountCreate(account, ctx); err != nil {
+		t.Fatal(err)
+	}
+	result, err := CheckinAccount(ctx, account.ID)
+	if err != nil || result == nil || result.LogID == 0 {
+		t.Fatalf("check-in result was not persisted: %+v, %v", result, err)
+	}
+	var entry model.SiteCheckinLog
+	if err := db.GetDB().First(&entry, result.LogID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if entry.Status != model.SiteExecutionStatusSuccess || entry.Reason != model.SiteCheckinReasonAlreadyCheckedIn || entry.Reward != "" || strings.Contains(entry.Message, account.Cookie) || !strings.Contains(entry.Message, "今日已签到") {
+		t.Fatalf("incorrect or unsanitized persisted result: %+v", entry)
+	}
+	saved, err := op.SiteAccountGet(account.ID, ctx)
+	if err != nil || saved.LastCheckinStatus != model.SiteExecutionStatusSuccess || saved.CheckinFailureCount != 0 || saved.LastCheckinSuccessAt == nil {
+		t.Fatalf("account still records a failure: %+v, %v", saved, err)
 	}
 }
 
