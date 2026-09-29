@@ -52,6 +52,30 @@ test('DoneHub can verify through the account endpoint even with automatic check-
     expect(state.pageErrors).toEqual([]);
 });
 
+test('disabled check-in capability preserves site, account and empty-site status priority', async ({ page }) => {
+    const disabledSite = {
+        ...makeCheckinSite(1, 'Stopped site'), checkin_mode: 'disabled' as const,
+        checkin_capability: { ...doneHubDefault, can_verify: false, source: 'disabled' as const },
+    };
+    const state = await mockApp(page, 'checkin', {
+        sites: [
+            { ...disabledSite, enabled: false, accounts: [account(11, 1)] },
+            { ...disabledSite, id: 2, name: 'Stopped account', accounts: [{ ...account(22, 2), enabled: false }] },
+            { ...disabledSite, id: 3, name: 'Empty site', accounts: [] },
+        ],
+    });
+    await page.goto('/');
+    for (const [name, label] of [['Stopped site', '站点停用'], ['Stopped account', '1 已停用'], ['Empty site', '待配置']]) {
+        const card = page.locator('section.page-card:visible').filter({ hasText: name });
+        await expect(card.getByText(label, { exact: true })).toBeVisible();
+        await expect(card.getByText('签到已禁用', { exact: true })).toHaveCount(0);
+        await expect(card.getByText('未执行', { exact: true })).toHaveCount(0);
+    }
+    expect(state.mutations).toEqual([]);
+    expect(state.unexpectedRequests).toEqual([]);
+    expect(state.pageErrors).toEqual([]);
+});
+
 test('summary and filters use site capability for custom HTTP and disabled sites', async ({ page }) => {
     const state = await mockApp(page, 'checkin', {
         sites: [
@@ -65,6 +89,13 @@ test('summary and filters use site capability for custom HTTP and disabled sites
     });
     await page.goto('/');
     const disabled = page.locator('section.page-card:visible').filter({ hasText: 'Disabled custom API' });
+    const custom = page.locator('section.page-card:visible').filter({ hasText: 'Custom API' });
+    const unverified = page.locator('section.page-card:visible').filter({ hasText: 'Unverified DoneHub' });
+    await expect(disabled.getByText('签到已禁用', { exact: true })).toBeVisible();
+    await expect(disabled.getByText('未执行', { exact: true })).toHaveCount(0);
+    await expect(unverified.getByText('签到未启用', { exact: true })).toBeVisible();
+    await expect(unverified.getByText('未执行', { exact: true })).toHaveCount(0);
+    await expect(custom.getByText('未执行', { exact: true })).toBeVisible();
     await disabled.getByRole('button', { name: '展开账号', exact: true }).click();
     await expect(disabled.getByText('本站已禁用签到', { exact: true })).toBeVisible();
     await expect(disabled.getByRole('button', { name: /^(签到并验证|立即签到)$/ })).toHaveCount(0);

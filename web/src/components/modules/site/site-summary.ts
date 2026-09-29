@@ -1,5 +1,5 @@
 import { SiteAccount, Site as SiteRecord } from "@/api/endpoints/site";
-import { accountHasCheckinEnabled, deriveCheckinStatus } from "./checkin-status";
+import { accountHasCheckinEnabled, deriveCheckinStatus, siteHasCheckinEnabled } from "./checkin-status";
 import { normalizedStatus } from "./site-display";
 import { siteAccountHasActivePartialSync, siteAccountHasActiveSyncFailure } from "./sync-health";
 import { SiteSummary, VisibleSite } from "./types";
@@ -130,6 +130,7 @@ export function buildSiteSummary(site: SiteRecord): SiteSummary {
     };
   }
 
+  const checkinInactive = site.kind === 'checkin' && !siteHasCheckinEnabled(site);
   const allIdle = site.accounts.every(
     (account) =>
       account.enabled &&
@@ -149,8 +150,10 @@ export function buildSiteSummary(site: SiteRecord): SiteSummary {
     partialAccountCount,
     disabledAccountCount,
     enabledAccountCount,
-    healthLabel: allIdle ? "未执行" : "正常",
-    healthTone: allIdle ? "warning" : "default",
+    healthLabel: checkinInactive
+      ? (site.checkin_mode === 'disabled' ? "签到已禁用" : "签到未启用")
+      : allIdle ? "未执行" : "正常",
+    healthTone: checkinInactive ? "muted" : allIdle ? "warning" : "default",
   };
 }
 
