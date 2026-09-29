@@ -65,6 +65,54 @@ func TestCheckinStatsRewardsWindowsAndFilters(t *testing.T) {
 	}
 }
 
+func TestCheckinStatsUsesCurrentSiteNamesAndPreservesDeletedSiteHistory(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+	now := time.Now()
+	sites := []model.Site{
+		{ID: 1, Kind: model.SiteKindCheckin, Name: "方舟", Platform: model.SitePlatformOneAPI, BaseURL: "https://current.example"},
+		{ID: 2, Kind: model.SiteKindCheckin, Name: "已归档的新名称", Platform: model.SitePlatformOneAPI, BaseURL: "https://archived.example", Archived: true},
+		{ID: 3, Kind: model.SiteKindCheckin, Name: "自定义 · 签到", Platform: model.SitePlatformOneAPI, BaseURL: "https://custom.example"},
+		{ID: 4, Kind: model.SiteKindCheckin, Name: "没有签到记录", Platform: model.SitePlatformOneAPI, BaseURL: "https://empty.example"},
+	}
+	if err := db.GetDB().Create(&sites).Error; err != nil {
+		t.Fatal(err)
+	}
+	rows := []model.SiteCheckinLog{
+		{ID: 1, SiteID: 1, SiteName: "方舟 · 签到", Status: model.SiteExecutionStatusSuccess, Reward: "1", FinishedAt: now.Add(-time.Hour).UTC()},
+		{ID: 2, SiteID: 2, SiteName: "归档前旧名称 · 签到", Status: model.SiteExecutionStatusSuccess, Reward: "2", FinishedAt: now.Add(-time.Hour).UTC()},
+		{ID: 3, SiteID: 3, SiteName: "自定义旧名称", Status: model.SiteExecutionStatusSuccess, Reward: "3", FinishedAt: now.Add(-time.Hour).UTC()},
+		{ID: 4, SiteID: 99, SiteName: "已删除站点 · 签到", Status: model.SiteExecutionStatusSuccess, Reward: "4", FinishedAt: now.Add(-time.Hour).UTC()},
+	}
+	if err := db.GetDB().Create(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, siteID := range []int{0, 1} {
+		stats, err := siteCheckinStatsAt(ctx, SiteCheckinLogFilter{SiteID: siteID}, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if siteID == 0 && (len(stats.BySite) != 4 || stats.TotalCount != 4 || stats.TotalReward != 10) {
+			t.Fatalf("name resolution changed aggregation: %+v", stats)
+		}
+		if siteID == 1 && len(stats.BySite) != 1 {
+			t.Fatalf("name resolution ignored the site filter: %+v", stats)
+		}
+		wantNames := map[int]string{1: "方舟", 2: "已归档的新名称", 3: "自定义 · 签到", 99: "已删除站点 · 签到"}
+		for _, item := range stats.BySite {
+			if item.SiteName != wantNames[item.SiteID] {
+				t.Errorf("site %d name = %q, want %q", item.SiteID, item.SiteName, wantNames[item.SiteID])
+			}
+		}
+	}
+	var saved model.SiteCheckinLog
+	if err := db.GetDB().First(&saved, rows[0].ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if saved.SiteName != rows[0].SiteName {
+		t.Fatal("statistics rewrote the historical log name")
+	}
+}
+
 func TestCheckinStatsPaginationAndCanceledQuery(t *testing.T) {
 	ctx := setupSiteOpTestDB(t)
 	now := time.Now()

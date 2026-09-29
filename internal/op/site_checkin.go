@@ -190,6 +190,23 @@ func siteCheckinStatsAt(ctx context.Context, filter SiteCheckinLogFilter, now ti
 		}
 	}
 
+	// Log names are historical snapshots. Use the current name for existing
+	// sites (including archived sites), retaining snapshots for deleted sites.
+	siteIDs := make([]int, 0, len(bySite))
+	for siteID := range bySite {
+		siteIDs = append(siteIDs, siteID)
+	}
+	for start := 0; start < len(siteIDs); start += siteCheckinStatsBatchSize {
+		var sites []model.Site
+		end := min(start+siteCheckinStatsBatchSize, len(siteIDs))
+		if err := db.GetDB().WithContext(ctx).Select("id", "name").
+			Where("id IN ?", siteIDs[start:end]).Find(&sites).Error; err != nil {
+			return nil, fmt.Errorf("load site names for checkin stats: %w", err)
+		}
+		for _, site := range sites {
+			bySite[site.ID].SiteName = site.Name
+		}
+	}
 	for _, item := range bySite {
 		item.Reward = roundCheckinStat(item.Reward)
 		stats.BySite = append(stats.BySite, *item)
