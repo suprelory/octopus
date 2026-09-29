@@ -93,16 +93,19 @@ export function deriveCheckinStatus(
     return "disabled";
   }
 
-  if (!accountHasCheckinEnabled(account, site)) {
+  if (!siteHasCheckinEnabled(site)) {
     return null;
   }
+
+  // Manual results count too; auto_checkin only controls pending membership.
+  const pendingStatus = account.auto_checkin ? "idle" : null;
 
   if (happenedToday(account.last_checkin_success_at, now, site.checkin_timezone)) {
     return "success";
   }
 
   if (!happenedToday(account.last_checkin_at, now, site.checkin_timezone)) {
-    return "idle";
+    return pendingStatus;
   }
 
   switch (normalizeExecutionStatus(account.last_checkin_status)) {
@@ -112,7 +115,7 @@ export function deriveCheckinStatus(
     case "skipped":
       return "failed";
     default:
-      return "idle";
+      return pendingStatus;
   }
 }
 

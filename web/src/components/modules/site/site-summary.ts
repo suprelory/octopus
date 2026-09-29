@@ -1,5 +1,5 @@
 import { SiteAccount, Site as SiteRecord } from "@/api/endpoints/site";
-import { accountHasCheckinEnabled, deriveCheckinStatus, siteHasCheckinEnabled } from "./checkin-status";
+import { deriveCheckinStatus, siteHasCheckinEnabled } from "./checkin-status";
 import { normalizedStatus } from "./site-display";
 import { siteAccountHasActiveSyncFailure } from "./sync-health";
 import { SiteSummary, VisibleSite } from "./types";
@@ -105,11 +105,14 @@ export function buildSiteSummary(site: SiteRecord): SiteSummary {
 
   const checkinInactive = site.kind === 'checkin' && !siteHasCheckinEnabled(site);
   const allIdle = site.accounts.every(
-    (account) =>
-      account.enabled &&
-      (site.kind === 'checkin'
-        ? (!accountHasCheckinEnabled(account, site) || deriveCheckinStatus(site, account) === "idle")
-        : normalizedStatus(account.last_sync_status) === "idle"),
+    (account) => {
+      if (!account.enabled) return false;
+      if (site.kind === 'checkin') {
+        const status = deriveCheckinStatus(site, account);
+        return status === null || status === "idle";
+      }
+      return normalizedStatus(account.last_sync_status) === "idle";
+    },
   );
 
   return {

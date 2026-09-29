@@ -44,6 +44,9 @@ test('DoneHub can verify through the account endpoint even with automatic check-
     await expect(first.getByText('签到能力尚未验证', { exact: true })).toBeVisible();
     await first.getByRole('button', { name: '签到并验证', exact: true }).click();
     await expect(first.getByText(/^已通过接口确认支持签到/)).toBeVisible();
+    await expect(first.getByText('正常', { exact: true })).toBeVisible();
+    await expect(first.getByText('未执行', { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '1 成功', exact: true })).toBeVisible();
     await expect(second.getByText('签到能力尚未验证', { exact: true })).toBeVisible();
     await expect(first.getByText(/下次自动签到/)).toHaveCount(0);
     expect(state.sites[0].accounts[0].auto_checkin).toBe(false);
@@ -51,6 +54,46 @@ test('DoneHub can verify through the account endpoint even with automatic check-
     expect(state.unexpectedRequests).toEqual([]);
     expect(state.pageErrors).toEqual([]);
 });
+
+for (const status of ['success', 'failed', 'skipped'] as const) {
+    test(`manual check-in ${status} updates the site badge, summary and filters with automatic check-in off`, async ({ page }) => {
+        const now = new Date('2026-09-29T04:00:00Z');
+        await page.clock.setFixedTime(now);
+        const state = await mockApp(page, 'checkin', {
+            sites: [{ ...makeCheckinSite(1, 'Manual rewards'), accounts: [{
+                ...account(11, 1, false), last_checkin_at: '2026-09-28T04:00:00Z',
+                last_checkin_success_at: '2026-09-28T04:00:00Z', last_checkin_status: 'success',
+            }] }],
+            mutate: request => {
+                expect(request).toEqual({ method: 'POST', path: '/api/v1/site/account/checkin/11', body: {} });
+                Object.assign(state.sites[0].accounts[0], {
+                    last_checkin_at: now.toISOString(), last_checkin_status: status,
+                    last_checkin_message: `Manual result: ${status}`,
+                    ...(status === 'success' ? { last_checkin_success_at: now.toISOString() } : {}),
+                });
+                return { data: { site_id: 1, account_id: 11, status, message: `Manual result: ${status}` } };
+            },
+        });
+        await page.goto('/');
+        const card = page.locator('section.page-card:visible').filter({ hasText: 'Manual rewards' });
+        await expect(card.getByText('未执行', { exact: true })).toBeVisible();
+        await expect(page.getByRole('button', { name: '0 成功', exact: true })).toBeVisible();
+        await card.getByRole('button', { name: '展开账号', exact: true }).click();
+        await card.getByRole('button', { name: '签到并验证', exact: true }).click();
+        await expect(card.getByText(status === 'success' ? '正常' : '1 异常', { exact: true })).toBeVisible();
+        await expect(card.getByText('未执行', { exact: true })).toHaveCount(0);
+        await expect(card.getByText(/下次自动签到/)).toHaveCount(0);
+        await page.getByRole('button', { name: status === 'success' ? '1 成功' : '1 签到失败', exact: true }).click();
+        await expect(page.getByRole('heading', { name: 'Manual rewards', exact: true })).toBeVisible();
+        await page.getByRole('button', { name: '0 未执行', exact: true }).click();
+        await page.getByRole('button', { name: status === 'success' ? '1 成功' : '1 签到失败', exact: true }).click();
+        await expect(page.getByRole('heading', { name: 'Manual rewards', exact: true })).toHaveCount(0);
+        expect(state.sites[0].accounts[0].auto_checkin).toBe(false);
+        expect(state.mutations).toHaveLength(1);
+        expect(state.unexpectedRequests).toEqual([]);
+        expect(state.pageErrors).toEqual([]);
+    });
+}
 
 test('disabled check-in capability preserves site, account and empty-site status priority', async ({ page }) => {
     const disabledSite = {
