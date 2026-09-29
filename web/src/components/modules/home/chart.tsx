@@ -5,10 +5,11 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/
 import { useId, useMemo, type ReactNode } from 'react';
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { useTranslations } from 'next-intl';
-import { cn, formatCount, formatMoney, formatTime } from '@/lib/utils';
-import { ChartNoAxesCombined, Clock3, Coins, Layers3, MessagesSquare, type LucideIcon } from 'lucide-react';
+import { formatCount, formatMoney, formatTime } from '@/lib/utils';
+import { ChartNoAxesCombined } from 'lucide-react';
 import dayjs from 'dayjs';
 import { AnimatedNumber } from '@/components/common/AnimatedNumber';
+import { PageOverview } from '@/components/common/PageOverview';
 import { Tabs, TabsList, TabsTrigger } from '@/components/animate-ui/components/animate/tabs';
 import { useHomeViewStore, type ChartPeriod } from '@/components/modules/home/store';
 import { useReducedMotion } from 'motion/react';
@@ -170,31 +171,28 @@ export function StatsChart({ children }: { children: ReactNode }) {
     const hasError = period === '1' ? hourlyError : period === 'all' ? totalError && dailyError : dailyError;
 
     return (
-        <section className="space-y-5" aria-label={t('title')}>
-            <header className="flex flex-col gap-4 px-1 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                    <h2 className="text-lg font-semibold tracking-tight">{t('title')}</h2>
-                    <p className="mt-1 text-sm text-muted-foreground">{t('description')}</p>
-                </div>
-                <Tabs value={period} onValueChange={(v) => setChartPeriod(v as ChartPeriod)}>
-                    <TabsList aria-label={t('periodLabel')} className="h-10 w-full border border-border/60 bg-card/70 p-1 sm:w-auto">
+        <div className="space-y-4">
+            <PageOverview title={t('title')} description={t('description')} metrics={[
+                {
+                    label: t(`headline.${PERIOD_KEY[period]}`),
+                    value: <MetricValue monetary loading={isLoading} value={hasError ? undefined : { value: hero.value ?? '0.00', unit: hero.unit || '$' }} />,
+                    accent: true,
+                },
+                { label: t('metrics.requests'), value: <MetricValue value={hasError ? undefined : metrics.requests} loading={isLoading} /> },
+                { label: t('metrics.tokens'), value: <MetricValue value={hasError ? undefined : metrics.tokens} loading={isLoading} /> },
+                { label: t('totalDuration'), value: <MetricValue value={hasError ? undefined : metrics.waitTime} loading={isLoading} /> },
+            ]}>
+                <Tabs value={period} onValueChange={(v) => setChartPeriod(v as ChartPeriod)} className="w-full border-t border-border/60 pt-3">
+                    <TabsList aria-label={t('periodLabel')} className="h-9 w-full border border-border/60 bg-background/70 p-1 sm:w-auto">
                         <TabsTrigger value="1">{t('periods.today')}</TabsTrigger>
                         <TabsTrigger value="7">{t('periods.last7Days')}</TabsTrigger>
                         <TabsTrigger value="30">{t('periods.last30Days')}</TabsTrigger>
                         <TabsTrigger value="all">{t('periods.allTime')}</TabsTrigger>
                     </TabsList>
                 </Tabs>
-            </header>
+            </PageOverview>
 
             {hasError && <p role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">{t('loadFailed')}</p>}
-
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-busy={isLoading}>
-                <StatItem label={t(`headline.${PERIOD_KEY[period]}`)} icon={Coins} accent monetary loading={isLoading}
-                    value={hasError ? undefined : { value: hero.value ?? '0.00', unit: hero.unit || '$' }} />
-                <StatItem label={t('metrics.requests')} value={hasError ? undefined : metrics.requests} icon={MessagesSquare} loading={isLoading} />
-                <StatItem label={t('metrics.tokens')} value={hasError ? undefined : metrics.tokens} icon={Layers3} loading={isLoading} />
-                <StatItem label={t('totalDuration')} value={hasError ? undefined : metrics.waitTime} icon={Clock3} loading={isLoading} />
-            </div>
 
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
                 <div className="min-w-0 overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
@@ -240,38 +238,29 @@ export function StatsChart({ children }: { children: ReactNode }) {
                 </div>
                 {children}
             </div>
-        </section>
+        </div>
     );
 }
 
-function StatItem({ label, value, icon: Icon, accent, monetary, loading }: {
-    label: string;
+function MetricValue({ value, monetary, loading }: {
     value: Formatted | undefined;
-    icon: LucideIcon;
-    accent?: boolean;
     monetary?: boolean;
     loading: boolean;
 }) {
     const reducedMotion = useReducedMotion();
     return (
-        <div className={cn('min-w-0 rounded-2xl border p-4 shadow-sm sm:p-5', accent ? 'border-primary/20 bg-primary/8' : 'border-border/70 bg-card')}>
-            <div className="mb-4 flex items-center justify-between gap-2">
-                <span className="text-xs font-medium text-muted-foreground">{label}</span>
-                <Icon aria-hidden className={cn('size-4 shrink-0', accent ? 'text-primary' : 'text-muted-foreground/70')} />
-            </div>
-            <div className="text-2xl font-semibold tracking-tight tabular-nums sm:text-3xl">
-                {loading ? <span className="block h-8 w-20 animate-pulse rounded bg-muted" /> : value ? (
-                    <>
-                        {monetary && <span className="mr-0.5 text-lg font-normal text-muted-foreground">$</span>}
-                        <AnimatedNumber value={value.value} duration={reducedMotion ? 0 : 500} />
-                        {value.unit && (
-                            <span className="ml-1 text-sm font-normal text-muted-foreground">{monetary ? value.unit.replace('$', '') : value.unit}</span>
-                        )}
-                    </>
-                ) : (
-                    <span className="text-muted-foreground">—</span>
-                )}
-            </div>
-        </div>
+        <span className="inline-flex items-baseline whitespace-nowrap" aria-busy={loading}>
+            {loading ? <span className="inline-block h-5 w-16 animate-pulse rounded bg-muted" /> : value ? (
+                <>
+                    {monetary && <span>$</span>}
+                    <AnimatedNumber value={value.value} duration={reducedMotion ? 0 : 500} />
+                    {value.unit && (
+                        <span className="ml-0.5 text-xs font-normal text-muted-foreground">{monetary ? value.unit.replace('$', '') : value.unit}</span>
+                    )}
+                </>
+            ) : (
+                <span className="text-muted-foreground">—</span>
+            )}
+        </span>
     );
 }

@@ -1,18 +1,14 @@
 "use client";
 
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
-  AlertTriangle,
-  CalendarCheck2,
   ExternalLink,
   FilterX,
   History,
-  Layers3,
   Tag,
-  TrendingUp,
-  Wallet,
 } from "lucide-react";
 import { type Site } from "@/api/endpoints/site";
+import { PageOverview } from "@/components/common/PageOverview";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -71,37 +67,6 @@ function filterTone(status: CheckinFilterStatus, active: boolean) {
 function formatCurrency(value: number) {
   const safe = Number.isFinite(value) ? value : 0;
   return `$${safe.toFixed(2)}`;
-}
-
-function OverviewMetric({
-  icon,
-  label,
-  value,
-  tone,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-  tone?: "default" | "warning";
-}) {
-  return (
-    <div className="page-card relative min-w-0 p-4 sm:p-5">
-      <span
-        className={cn(
-          "absolute right-4 top-4 flex size-5 items-center justify-center sm:right-5 sm:top-5",
-          tone === "warning"
-            ? "text-amber-600 dark:text-amber-400"
-            : "text-muted-foreground",
-        )}
-      >
-        {icon}
-      </span>
-      <div className="min-w-0">
-        <div className="pr-6 text-xs text-muted-foreground">{label}</div>
-        <div className="mt-4 truncate text-2xl font-semibold tracking-tight tabular-nums" title={value}>{value}</div>
-      </div>
-    </div>
-  );
 }
 
 export function CheckinPanel({
@@ -168,52 +133,25 @@ export function CheckinPanel({
   }, [manualCheckinUrls]);
 
   return (
-    <section aria-label={t('title')} className="space-y-4">
-      <div>
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight"><CalendarCheck2 aria-hidden className="size-4 text-primary" />{t('title')}</h2>
-            <p className="mt-1 text-sm text-muted-foreground">{t('description')}</p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span>当前结果</span>
-            <span className="font-medium text-foreground">
+    <div className="space-y-4">
+      <PageOverview title={t('title')} description={t('description')} metrics={[
+        { label: "当前余额", value: formatCurrency(inventory.totalBalance), accent: true },
+        { label: "累计消耗", value: formatCurrency(inventory.totalBalanceUsed) },
+        { label: "启用账号", value: `${inventory.enabledAccounts} / ${inventory.totalAccounts}` },
+        {
+          label: "今日签到异常",
+          value: <span className={cn(summary.failed > 0 && "text-amber-600 dark:text-amber-400")}>{summary.failed}</span>,
+        },
+      ]}>
+        <div className="flex w-full flex-wrap items-center gap-2 border-t border-border/60 pt-3">
+          <span className="mr-auto text-xs text-muted-foreground">
+            当前结果 <span className="font-medium tabular-nums text-foreground">
               {visibleSiteCount} 站点 / {visibleAccountCount} 账号
             </span>
-          </div>
+          </span>
+          {hasActiveFilters && hasContextBadges ? <Badge variant="outline">搜索：{searchTerm}</Badge> : null}
         </div>
-
-        <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <OverviewMetric
-            icon={<Wallet className="size-4" />}
-            label="当前余额"
-            value={formatCurrency(inventory.totalBalance)}
-          />
-          <OverviewMetric
-            icon={<TrendingUp className="size-4" />}
-            label="累计消耗"
-            value={formatCurrency(inventory.totalBalanceUsed)}
-          />
-          <OverviewMetric
-            icon={<Layers3 className="size-4" />}
-            label="启用账号"
-            value={`${inventory.enabledAccounts} / ${inventory.totalAccounts}`}
-          />
-          <OverviewMetric
-            icon={<AlertTriangle className="size-4" />}
-            label="今日签到异常"
-            value={`${summary.failed}`}
-            tone={summary.failed > 0 ? "warning" : "default"}
-          />
-        </div>
-
-        {hasActiveFilters && hasContextBadges ? (
-          <div className="mt-4 flex flex-wrap gap-2">
-            {searchTerm ? <Badge variant="outline">搜索：{searchTerm}</Badge> : null}
-          </div>
-        ) : null}
-      </div>
+      </PageOverview>
 
       <CheckinBatchTaskStatus />
       <CheckinStatsPanel sites={sites ?? []} />
@@ -305,6 +243,6 @@ export function CheckinPanel({
         ) : null}
       </div>
       {historyOpen ? <CheckinHistoryDialog sites={sites ?? []} onOpenChange={setHistoryOpen} /> : null}
-    </section>
+    </div>
   );
 }
