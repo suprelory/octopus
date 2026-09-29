@@ -127,6 +127,7 @@ func writeInboundProtocolError(c *gin.Context, heartbeat *earlyHeartbeat, inboun
 		return
 	}
 	normalized := model.NormalizeResponseError(responseError, http.StatusBadGateway, "api_error")
+	resp.RecordProtocolError(c, normalized.Detail.Code, normalized.Detail.Message)
 	transformed, err := inbound.TransformError(c.Request.Context(), normalized)
 	if err != nil || transformed == nil || len(transformed.Body) == 0 {
 		if heartbeat != nil && heartbeat.Handoff() {

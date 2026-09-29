@@ -194,10 +194,13 @@ func (n *checkinNotifier) enqueueTarget(target notify.Target, cooldown time.Dura
 		}()
 		n.workers <- struct{}{}
 		defer func() { <-n.workers }()
+		started := time.Now()
 		if err := n.deliver(target, event); err != nil {
-			// HTTP errors may embed a URL containing a webhook secret. Only log
-			// the stable event identity, never the URL, body or transport error.
-			log.Warnf("checkin notification delivery failed for account %d, event %s, channel %s", event.AccountID, event.Event, target.Kind)
+			// Deliver returns sanitized errors; keep a second redaction boundary
+			// for alternate HTTP transports.
+			log.Warnw("checkin.notification.failed", "account_id", event.AccountID,
+				"event", event.Event, "channel", string(target.Kind), "error", log.SafeError(err),
+				"duration_ms", time.Since(started).Milliseconds())
 			return
 		}
 		delivered = true

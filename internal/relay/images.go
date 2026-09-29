@@ -26,6 +26,8 @@ import (
 // ImagesHandler 是 OpenAI Images API 的统一 relay 入口。
 // endpoint 形如：/images/generations、/images/edits、/images/variations（不含 /v1 前缀）。
 func ImagesHandler(endpoint string, c *gin.Context) {
+	requestModel, ready := "", false
+	defer recordEarlyHTTPFailure(c, &requestModel, "images", &ready, time.Now())
 	ctx := c.Request.Context()
 
 	apiKeyID := c.GetInt("api_key_id")
@@ -52,10 +54,9 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 
 	// 解析 requestModel 与 stream（严格模式：model 必填）
 	var (
-		requestModel string
-		stream       bool
-		boundary     string
-		jsonPayload  map[string]any
+		stream      bool
+		boundary    string
+		jsonPayload map[string]any
 	)
 	if isMultipart {
 		_, params, perr := mime.ParseMediaType(contentType)
@@ -114,6 +115,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 	defer iter.Close()
 
 	// 初始化 Metrics（Images 独立，避免 b64_json 内存膨胀）
+	ready = true
 	metrics := newImagesRelayMetrics(apiKeyID, requestModel, middleware.ClientIP(c))
 	metrics.RequestContent = buildImagesRequestContentForLog(isMultipart, bc, jsonPayload)
 

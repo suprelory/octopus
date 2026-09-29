@@ -23,7 +23,21 @@ func PreviewManualSync(ctx context.Context, accountID int, req ManualSyncRequest
 }
 
 func ApplyManualSync(ctx context.Context, accountID int, req ManualSyncRequest) (*ManualSyncApplyResult, error) {
+	started := time.Now()
+	diagnostic := &syncLogContext{}
+	result, err := applyManualSync(ctx, accountID, req, diagnostic)
+	err = diagnostic.safeError(err)
+	var outcome *model.SiteSyncResult
+	if result != nil {
+		outcome = &result.SyncResult
+	}
+	logSyncResult(accountID, "manual_data", outcome, err, started, diagnostic)
+	return result, err
+}
+
+func applyManualSync(ctx context.Context, accountID int, req ManualSyncRequest, diagnostic *syncLogContext) (*ManualSyncApplyResult, error) {
 	siteRecord, account, err := loadSyncableSiteAccount(ctx, accountID)
+	diagnostic.site, diagnostic.account = siteRecord, account
 	if err != nil {
 		return nil, sanitizeSiteError(err)
 	}
@@ -31,6 +45,7 @@ func ApplyManualSync(ctx context.Context, accountID int, req ManualSyncRequest) 
 	if err != nil {
 		return nil, err
 	}
+	diagnostic.snapshot = plan.snapshot
 	if !plan.preview.CanApply {
 		return nil, manualSyncInvalid("预览中没有可应用的数据，请补充响应内容后重试")
 	}

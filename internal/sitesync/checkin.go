@@ -180,7 +180,9 @@ func runAccountCheckin(ctx context.Context, accountID int, trigger SiteBatchTrig
 			if balance.incomeKnown {
 				updates["today_income"] = balance.todayIncome
 			}
-			_ = db.GetDB().WithContext(ctx).Model(&model.SiteAccount{}).Where("id = ?", account.ID).Updates(updates).Error
+			if saveErr := db.GetDB().WithContext(ctx).Model(&model.SiteAccount{}).Where("id = ?", account.ID).Updates(updates).Error; saveErr != nil {
+				logSiteDataWarning(siteRecord, account, accessToken, "linked_balance", "save_failed", saveErr)
+			}
 		}
 	}
 	checkinNotifications.notify(siteRecord, account, result, balance, trigger)

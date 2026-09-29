@@ -115,6 +115,7 @@ func createChannel(c *gin.Context) {
 	if channel.ProxyMode != model.ProxyUsageModePool {
 		channel.ProxyConfigID = nil
 	}
+	middleware.AuditChanges(c, 0, &channel)
 	if err := op.ChannelCreate(&channel, c.Request.Context()); err != nil {
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, channelError(codeChannelCreateFailed, "channel create failed", err))
 		return
@@ -140,6 +141,7 @@ func updateChannel(c *gin.Context) {
 		resp.InvalidJSON(c)
 		return
 	}
+	middleware.AuditChanges(c, req.ID, &req)
 	channel, err := op.ChannelUpdate(&req, c.Request.Context())
 	if err != nil {
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, channelError(codeChannelUpdateFailed, "channel update failed", err))
@@ -169,6 +171,7 @@ func enableChannel(c *gin.Context) {
 		resp.InvalidJSON(c)
 		return
 	}
+	middleware.AuditFields(c, "resource_id", request.ID, "enabled", request.Enabled)
 	if err := op.ChannelEnabled(request.ID, request.Enabled, c.Request.Context()); err != nil {
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, channelError(codeChannelUpdateFailed, "channel update failed", err))
 		return

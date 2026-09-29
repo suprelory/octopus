@@ -157,6 +157,7 @@ func updateGroupPreset(c *gin.Context) {
 			return
 		}
 	}
+	middleware.AuditChanges(c, id, &req)
 	preset, err := op.GroupPresetUpdate(id, &req, c.Request.Context())
 	if err != nil {
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, groupError(codeGroupPresetUpdateFailed, "group preset update failed", err))

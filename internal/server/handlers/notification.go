@@ -36,6 +36,7 @@ func testNotificationChannel(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	middleware.AuditFields(c, "notification_channel", string(request.Channel))
 	for _, target := range request.Config.Targets() {
 		if target.Kind != request.Channel {
 			continue

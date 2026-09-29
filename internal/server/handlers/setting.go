@@ -64,6 +64,7 @@ func setSetting(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	middleware.AuditFields(c, "setting_key", string(setting.Key))
 	if err := op.SettingSetString(setting.Key, setting.Value); err != nil {
 		resp.InternalErrorWithLog(c, err)
 		return
@@ -128,6 +129,7 @@ func exportDB(c *gin.Context) {
 	includeLogs, _ := strconv.ParseBool(c.DefaultQuery("include_logs", "false"))
 	includeStats, _ := strconv.ParseBool(c.DefaultQuery("include_stats", "false"))
 	format := strings.ToLower(strings.TrimSpace(c.DefaultQuery("format", "json")))
+	middleware.AuditFields(c, "format", format, "include_logs", includeLogs, "include_stats", includeStats)
 	if format != "json" && format != "zip" {
 		resp.Error(c, http.StatusBadRequest, "invalid format")
 		return
@@ -142,12 +144,12 @@ func exportDB(c *gin.Context) {
 			if wrapper.bytesWritten == 0 {
 				c.Header("Content-Type", "application/json")
 				c.Header("Content-Disposition", "")
-				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"code": http.StatusInternalServerError, "message": err.Error()})
+				resp.InternalErrorWithLog(c, err)
 				return
 			}
 			// Headers already sent; we can't switch to a JSON error. Log it and
 			// let the client surface the truncated download.
-			log.Warnf("zip export failed mid-stream: %v", err)
+			middleware.AuditResult(c, false, "error", log.SafeError(err), "bytes_written", wrapper.bytesWritten)
 		}
 		return
 	}
@@ -205,6 +207,7 @@ func importDB(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	middleware.AuditFields(c, "rows_affected", result.RowsAffected)
 
 	if err := op.InitCache(); err != nil {
 		log.Warnf("cache refresh after import failed: %v", err)

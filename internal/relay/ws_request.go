@@ -26,15 +26,21 @@ func processWSResponseCreate(
 	downstreamSessionID string,
 	conversationState *wsConversationState,
 ) *wsConversationState {
+	started := time.Now()
+	requestModel := ""
+	reject := func(status int, code, message string) {
+		recordRelayRejection(ctx, apiKeyID, requestModel, "responses", clientIP, status, code, message, started, true)
+		writeWSError(ctx, conn, status, code, message)
+	}
 	var reqBody map[string]json.RawMessage
 	if err := json.Unmarshal(data, &reqBody); err != nil {
-		writeWSError(ctx, conn, 400, "invalid_request", "Failed to parse request body")
+		reject(400, "invalid_request", "Failed to parse request body")
 		return conversationState
 	}
 
 	// Remove WS-only fields
 	delete(reqBody, "type")
-	requestModel := strings.TrimSpace(extractWSRequestModel(reqBody))
+	requestModel = strings.TrimSpace(extractWSRequestModel(reqBody))
 	allowStoredRestore := wsRequestExplicitlyRequestsContinuation(reqBody)
 	requestedPreviousResponseID := ""
 	if raw, ok := reqBody["previous_response_id"]; ok && len(raw) > 0 {
@@ -88,7 +94,7 @@ func processWSResponseCreate(
 
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
-		writeWSError(ctx, conn, 500, "server_error", "Failed to build request")
+		reject(500, "server_error", "Failed to build request")
 		return conversationState
 	}
 
@@ -96,7 +102,7 @@ func processWSResponseCreate(
 	inAdapter := inbound.Get(inbound.InboundTypeOpenAIResponse)
 	internalRequest, err := inAdapter.TransformRequest(ctx, bodyBytes)
 	if err != nil {
-		writeWSError(ctx, conn, 400, "invalid_request", err.Error())
+		reject(400, "invalid_request", err.Error())
 		return conversationState
 	}
 	originalRequest := cloneInternalRequest(internalRequest)
@@ -129,7 +135,7 @@ func processWSResponseCreate(
 			}
 		}
 		if !found {
-			writeWSError(ctx, conn, 400, "invalid_request", "model not supported")
+			reject(400, "invalid_request", "model not supported")
 			return conversationState
 		}
 	}
@@ -143,7 +149,7 @@ func processWSResponseCreate(
 			status = 503
 			code = "no_available_channel"
 		}
-		writeWSError(ctx, conn, status, code, err.Error())
+		reject(status, code, err.Error())
 		return conversationState
 	}
 

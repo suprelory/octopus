@@ -92,6 +92,8 @@ func importAllAPIHub(c *gin.Context) {
 		resp.ErrorWithAppError(c, http.StatusBadRequest, err)
 		return
 	}
+	middleware.AuditFields(c, "created_sites", result.CreatedSites, "created_accounts", result.CreatedAccounts,
+		"updated_accounts", result.UpdatedAccounts, "skipped_accounts", result.SkippedAccounts, "warnings", len(result.Warnings))
 
 	if len(syncAccountIDs) > 0 {
 		ids := append([]int(nil), syncAccountIDs...)
@@ -117,6 +119,9 @@ func importMetAPI(c *gin.Context) {
 		resp.ErrorWithAppError(c, http.StatusBadRequest, err)
 		return
 	}
+	middleware.AuditFields(c, "created_sites", result.CreatedSites, "created_accounts", result.CreatedAccounts,
+		"updated_accounts", result.UpdatedAccounts, "skipped_accounts", result.SkippedAccounts,
+		"imported_models", result.ImportedModels, "imported_tokens", result.ImportedTokens, "warnings", len(result.Warnings))
 
 	resp.Success(c, result)
 }
@@ -148,6 +153,7 @@ func createSite(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	middleware.AuditChanges(c, 0, &site)
 	if err := op.SiteCreate(&site, c.Request.Context()); err != nil {
 		resp.InternalErrorWithLog(c, err)
 		return
@@ -161,6 +167,7 @@ func updateSite(c *gin.Context) {
 		resp.InvalidJSON(c)
 		return
 	}
+	middleware.AuditChanges(c, req.ID, &req)
 	site, err := op.SiteUpdate(&req, c.Request.Context())
 	if err != nil {
 		resp.InternalErrorWithLog(c, err)
@@ -189,6 +196,7 @@ func enableSite(c *gin.Context) {
 		resp.InvalidJSON(c)
 		return
 	}
+	middleware.AuditFields(c, "resource_id", request.ID, "enabled", request.Enabled)
 	if err := op.SiteEnabled(request.ID, request.Enabled, c.Request.Context()); err != nil {
 		resp.InternalErrorWithLog(c, err)
 		return
@@ -268,6 +276,8 @@ func createSiteAccount(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	middleware.AuditChanges(c, 0, &account)
+	middleware.AuditFields(c, "site_id", account.SiteID)
 	if err := op.SiteAccountCreate(&account, c.Request.Context()); err != nil {
 		resp.InternalErrorWithLog(c, err)
 		return
@@ -283,9 +293,7 @@ func createSiteAccount(c *gin.Context) {
 		safe.Go("site-account-create-sync", func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer cancel()
-			if _, err := sitesvc.SyncAccount(ctx, accountID); err != nil {
-				log.Debugf("background SyncAccount failed (account=%d): %v", accountID, err)
-			}
+			sitesvc.SyncAccountWithTrigger(ctx, accountID, "account_create")
 		})
 	}
 	resp.Success(c, createdAccount)
@@ -297,6 +305,7 @@ func updateSiteAccount(c *gin.Context) {
 		resp.InvalidJSON(c)
 		return
 	}
+	middleware.AuditChanges(c, req.ID, &req)
 	account, err := op.SiteAccountUpdate(&req, c.Request.Context())
 	if err != nil {
 		resp.InternalErrorWithLog(c, err)
@@ -317,9 +326,7 @@ func updateSiteAccount(c *gin.Context) {
 			log.Warnf("background ProjectAccount failed (account=%d): %v", accountID, err)
 		}
 		if autoSync {
-			if _, err := sitesvc.SyncAccount(ctx, accountID); err != nil {
-				log.Debugf("background SyncAccount failed (account=%d): %v", accountID, err)
-			}
+			sitesvc.SyncAccountWithTrigger(ctx, accountID, "account_update")
 		}
 	})
 	resp.Success(c, account)
@@ -334,6 +341,7 @@ func enableSiteAccount(c *gin.Context) {
 		resp.InvalidJSON(c)
 		return
 	}
+	middleware.AuditFields(c, "resource_id", request.ID, "enabled", request.Enabled)
 	if err := op.SiteAccountEnabled(request.ID, request.Enabled, c.Request.Context()); err != nil {
 		resp.InternalErrorWithLog(c, err)
 		return
@@ -370,6 +378,10 @@ func syncSiteAccount(c *gin.Context) {
 		return
 	}
 	result, err := sitesvc.SyncAccount(c.Request.Context(), idNum)
+	if result != nil {
+		middleware.AuditResult(c, result.Status == model.SiteExecutionStatusSuccess,
+			"execution_status", string(result.Status), "site_id", result.SiteID)
+	}
 	if err != nil {
 		if result != nil {
 			resp.Success(c, result)
@@ -434,6 +446,10 @@ func checkinSiteAccount(c *gin.Context) {
 		return
 	}
 	result, err := sitesvc.CheckinAccount(c.Request.Context(), idNum)
+	if result != nil {
+		middleware.AuditResult(c, result.Status != model.SiteExecutionStatusFailed,
+			"execution_status", string(result.Status), "site_id", result.SiteID)
+	}
 	if err != nil {
 		if result != nil {
 			resp.Success(c, result)
@@ -563,12 +579,14 @@ func batchSite(c *gin.Context) {
 		return
 	}
 
+	middleware.AuditFields(c, "action", req.Action, "requested_count", len(req.IDs))
 	result, affected, err := op.SiteBatchApply(&req, sitesvc.DeleteSite, c.Request.Context())
 	if err != nil {
 		resp.InternalErrorWithLog(c, err)
 		return
 	}
 	projectSitesAsync(affected)
+	auditSiteBatchResult(c, result)
 	resp.Success(c, result)
 }
 
@@ -608,13 +626,24 @@ func batchEditSite(c *gin.Context) {
 		return
 	}
 
+	middleware.AuditChanges(c, 0, &req)
+	middleware.AuditFields(c, "requested_count", len(req.IDs))
 	result, affected, err := op.SiteBatchEdit(&req, c.Request.Context())
 	if err != nil {
 		resp.InternalErrorWithLog(c, err)
 		return
 	}
 	projectSitesAsync(affected)
+	auditSiteBatchResult(c, result)
 	resp.Success(c, result)
+}
+
+func auditSiteBatchResult(c *gin.Context, result *model.SiteBatchResult) {
+	middleware.AuditResult(c, len(result.FailedItems) == 0,
+		"succeeded", len(result.SuccessIDs), "failed", len(result.FailedItems))
+	if len(result.FailedItems) > 0 {
+		middleware.AuditFields(c, "failed_resource_id", result.FailedItems[0].ID, "reason", result.FailedItems[0].Message)
+	}
 }
 
 func getSiteAvailableModels(c *gin.Context) {

@@ -40,7 +40,7 @@ func CreateAccountToken(ctx context.Context, accountID int, req model.SiteChanne
 		return nil, fmt.Errorf("site platform %s does not support quick key creation", siteRecord.Platform)
 	}
 
-	return SyncAccount(ctx, accountID)
+	return SyncAccountWithTrigger(ctx, accountID, "key_create")
 }
 
 func createManagementPlatformToken(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, groupKey string, name string) error {

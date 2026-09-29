@@ -44,6 +44,8 @@ type responsesCompactResponse struct {
 
 // HandleResponsesCompact proxies OpenAI-compatible /responses/compact requests upstream.
 func HandleResponsesCompact(c *gin.Context) {
+	requestModel, ready := "", false
+	defer recordEarlyHTTPFailure(c, &requestModel, "responses", &ready, time.Now())
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		// middleware.MaxBodySize 命中时要回 413，别把限流当成内部错误。
@@ -61,6 +63,7 @@ func HandleResponsesCompact(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, fmt.Sprintf("failed to decode responses compact request: %v", err))
 		return
 	}
+	requestModel = compactReq.Model
 	if strings.TrimSpace(compactReq.Model) == "" {
 		resp.Error(c, http.StatusBadRequest, "model is required")
 		return
@@ -79,7 +82,6 @@ func HandleResponsesCompact(c *gin.Context) {
 		}
 	}
 
-	requestModel := compactReq.Model
 	apiKeyID := c.GetInt("api_key_id")
 
 	group, err := op.GroupGetEnabledMap(requestModel, c.Request.Context())
@@ -97,6 +99,7 @@ func HandleResponsesCompact(c *gin.Context) {
 	defer iter.Close()
 
 	metricsReq := &transformerModel.InternalLLMRequest{Model: requestModel, RawRequest: body}
+	ready = true
 	metrics := NewRelayMetrics(apiKeyID, requestModel, "responses", middleware.ClientIP(c), body, metricsReq)
 
 	var lastErr error

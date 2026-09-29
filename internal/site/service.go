@@ -13,6 +13,10 @@ func SyncAccount(ctx context.Context, accountID int) (*model.SiteSyncResult, err
 	return sitesync.SyncAccount(ctx, accountID)
 }
 
+func SyncAccountWithTrigger(ctx context.Context, accountID int, trigger string) (*model.SiteSyncResult, error) {
+	return sitesync.SyncAccountWithTrigger(ctx, accountID, trigger)
+}
+
 func PreviewManualSync(ctx context.Context, accountID int, req sitesync.ManualSyncRequest) (*sitesync.ManualSyncPreview, error) {
 	return sitesync.PreviewManualSync(ctx, accountID, req)
 }

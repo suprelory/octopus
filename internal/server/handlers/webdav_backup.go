@@ -75,11 +75,13 @@ func restoreWebDAVBackup(c *gin.Context) {
 		return
 	}
 
+	middleware.AuditFields(c, "filename", req.Filename)
 	result, err := webdav.RestoreFromBackup(c.Request.Context(), req.Filename)
 	if err != nil {
 		resp.InternalErrorWithLog(c, err)
 		return
 	}
 
+	middleware.AuditFields(c, "rows_affected", result.RowsAffected)
 	resp.Success(c, result)
 }

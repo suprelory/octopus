@@ -40,11 +40,12 @@ const (
 // Error carries a stable machine-readable code plus a default human-readable message.
 // The default message is intended as a fallback; UI clients should translate by Code.
 type Error struct {
-	Code    string
-	Message string
-	Status  int
-	Params  map[string]any
-	Err     error
+	Code       string
+	Message    string
+	Status     int
+	Params     map[string]any
+	Err        error
+	logMessage *string
 }
 
 func New(code string, message string) *Error {
@@ -77,6 +78,23 @@ func (e *Error) Unwrap() error {
 		return nil
 	}
 	return e.Err
+}
+
+// WithLogMessage marks a diagnostic that has already been sanitized with
+// domain-specific knowledge (for example, the account's actual credentials).
+// Loggers must not unwrap past this boundary and expose the original error.
+func (e *Error) WithLogMessage(message string) *Error {
+	if e != nil {
+		e.logMessage = &message
+	}
+	return e
+}
+
+func (e *Error) SafeLogMessage() (string, bool) {
+	if e == nil || e.logMessage == nil {
+		return "", false
+	}
+	return *e.logMessage, true
 }
 
 func (e *Error) WithStatus(status int) *Error {

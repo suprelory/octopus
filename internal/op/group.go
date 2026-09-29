@@ -107,7 +107,7 @@ func GroupCreate(group *model.Group, ctx context.Context) error {
 	return nil
 }
 
-func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (*model.Group, error) {
+func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (updatedGroup *model.Group, operationErr error) {
 	if req == nil {
 		return nil, fmt.Errorf("group update request is nil")
 	}
@@ -121,11 +121,7 @@ func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (*model.Gro
 	oldName := oldGroup.Name
 
 	tx := db.GetDB().WithContext(ctx).Begin()
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
+	defer rollbackOnPanic(tx, "group.update", req.ID, &operationErr)
 
 	var selectFields []string
 	updates := model.Group{ID: req.ID}
@@ -248,18 +244,14 @@ func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (*model.Gro
 	return &group, nil
 }
 
-func GroupDel(id int, ctx context.Context) error {
+func GroupDel(id int, ctx context.Context) (operationErr error) {
 	group, ok := groupCache.Get(id)
 	if !ok {
 		return fmt.Errorf("group not found")
 	}
 
 	tx := db.GetDB().WithContext(ctx).Begin()
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
+	defer rollbackOnPanic(tx, "group.delete", id, &operationErr)
 
 	if err := tx.Where("group_id = ?", id).Delete(&model.GroupItem{}).Error; err != nil {
 		tx.Rollback()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path"
 	"sort"
 	"strings"
@@ -12,7 +13,6 @@ import (
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/utils/log"
-	"github.com/studio-b12/gowebdav"
 )
 
 const backupPrefix = "octopus-backup-"
@@ -130,9 +130,17 @@ func RestoreFromBackup(ctx context.Context, filename string) (*model.DBImportRes
 	return result, nil
 }
 
-func enforceRetention(c *gowebdav.Client, backupPath string, count int) {
+type retentionClient interface {
+	ReadDir(string) ([]os.FileInfo, error)
+	Remove(string) error
+}
+
+func enforceRetention(c retentionClient, backupPath string, count int) {
+	started := time.Now()
 	files, err := c.ReadDir(backupPath)
 	if err != nil {
+		log.Warnw("webdav.retention.failed", "path", log.SafeText(backupPath), "error", log.SafeError(err),
+			"duration_ms", time.Since(started).Milliseconds())
 		return
 	}
 
@@ -150,11 +158,26 @@ func enforceRetention(c *gowebdav.Client, backupPath string, count int) {
 	}
 
 	toDelete := backupNames[:len(backupNames)-count]
+	deleted, failed := 0, 0
+	var firstErr error
 	for _, name := range toDelete {
 		remotePath := path.Join(backupPath, name)
 		if err := c.Remove(remotePath); err != nil {
-			log.Warnf("failed to delete old backup %s: %v", name, err)
+			failed++
+			if firstErr == nil {
+				firstErr = fmt.Errorf("delete %s: %w", name, err)
+			}
+		} else {
+			deleted++
 		}
+	}
+	fields := []any{"path", log.SafeText(backupPath), "retain", count, "deleted", deleted,
+		"failed", failed, "remaining", len(backupNames) - deleted, "duration_ms", time.Since(started).Milliseconds()}
+	if firstErr != nil {
+		fields = append(fields, "error", log.SafeError(firstErr))
+		log.Warnw("webdav.retention.complete", fields...)
+	} else {
+		log.Infow("webdav.retention.complete", fields...)
 	}
 }
 

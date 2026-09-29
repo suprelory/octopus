@@ -203,6 +203,8 @@ OCTOPUS_DATABASE_PATH=data/data.db
 OCTOPUS_LOG_LEVEL=info
 ```
 
+管理操作、认证、转发拒绝、站点同步和备份清理的日志事件与级别见[诊断日志](LOGGING.md)。
+
 数据库类型支持 `sqlite`、`mysql` 和 `postgres`。SQLite 是默认选项；使用 MySQL 或 PostgreSQL 时，把 `OCTOPUS_DATABASE_PATH` 设置为对应驱动所需的 DSN，并确保数据库已创建且应用用户拥有读写权限。
 
 ### 可信代理

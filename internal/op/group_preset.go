@@ -371,7 +371,7 @@ func GroupPresetDelete(presetID int, ctx context.Context) error {
 
 // GroupPresetActivate 用预设覆盖 Group 的实时 Mode + Items + 路由参数；写 ActivePresetID
 // 校验预设引用的渠道全部存在，否则拒绝
-func GroupPresetActivate(presetID int, ctx context.Context) error {
+func GroupPresetActivate(presetID int, ctx context.Context) (operationErr error) {
 	var preset model.GroupPreset
 	if err := db.GetDB().WithContext(ctx).First(&preset, presetID).Error; err != nil {
 		return fmt.Errorf("preset not found")
@@ -400,11 +400,7 @@ func GroupPresetActivate(presetID int, ctx context.Context) error {
 	}
 
 	tx := db.GetDB().WithContext(ctx).Begin()
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
+	defer rollbackOnPanic(tx, "group_preset.activate", presetID, &operationErr)
 
 	// 清空旧 items
 	if err := tx.Where("group_id = ?", preset.GroupID).Delete(&model.GroupItem{}).Error; err != nil {

@@ -34,6 +34,8 @@ type siteBalanceFetchResult struct {
 	usedKnown   bool
 	incomeKnown bool
 	ok          bool
+	reason      string
+	err         error
 }
 
 // refreshAccountBalanceAfterCheckin performs a bounded, best-effort refresh
@@ -79,7 +81,12 @@ func fetchSiteAccountBalance(ctx context.Context, siteRecord *model.Site, accoun
 	return result.balance, result.balanceUsed, result.todayIncome
 }
 
-func fetchSiteAccountBalanceResult(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int) siteBalanceFetchResult {
+func fetchSiteAccountBalanceResult(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int) (result siteBalanceFetchResult) {
+	defer func() {
+		if !result.ok && result.reason != "" {
+			logSiteDataWarning(siteRecord, account, accessToken, "balance", result.reason, result.err)
+		}
+	}()
 	if siteRecord == nil || account == nil {
 		return siteBalanceFetchResult{}
 	}
@@ -92,8 +99,7 @@ func fetchSiteAccountBalanceResult(ctx context.Context, siteRecord *model.Site, 
 		model.SitePlatformDoneHub:
 		return fetchManagementQuotaBalanceResult(ctx, siteRecord, account, accessToken, userID, true)
 	case model.SitePlatformSub2API:
-		balance, used, ok := fetchSub2APIBalanceResult(ctx, siteRecord, account, accessToken)
-		return siteBalanceFetchResult{balance: balance, balanceUsed: used, ok: ok}
+		return fetchSub2APIBalanceDetails(ctx, siteRecord, account, accessToken)
 	default:
 		return siteBalanceFetchResult{}
 	}
@@ -106,7 +112,7 @@ func fetchManagementQuotaBalance(ctx context.Context, siteRecord *model.Site, ac
 
 func fetchManagementQuotaBalanceResult(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int, quotaIsRemaining bool) siteBalanceFetchResult {
 	if strings.TrimSpace(accessToken) == "" {
-		return siteBalanceFetchResult{}
+		return siteBalanceFetchResult{reason: "access_token_missing"}
 	}
 	knownUserID := userID > 0
 	if !knownUserID {
@@ -155,7 +161,7 @@ func fetchManagementQuotaBalanceResult(ctx context.Context, siteRecord *model.Si
 	}
 
 	if !isValidUserSelfPayload(payload, err) {
-		return siteBalanceFetchResult{}
+		return siteBalanceFetchResult{reason: "upstream_profile_unavailable", err: err}
 	}
 
 	data, ok := payload["data"].(map[string]any)
@@ -165,7 +171,7 @@ func fetchManagementQuotaBalanceResult(ctx context.Context, siteRecord *model.Si
 	quota, quotaKnown := balanceJSONNumber(data["quota"])
 	used, usedKnown := balanceJSONNumber(data["used_quota"])
 	if !quotaKnown || (!quotaIsRemaining && !usedKnown) {
-		return siteBalanceFetchResult{}
+		return siteBalanceFetchResult{reason: "invalid_balance_fields"}
 	}
 
 	var balance, balanceUsed float64
@@ -194,7 +200,7 @@ func fetchManagementQuotaBalanceResult(ctx context.Context, siteRecord *model.Si
 	}
 
 	if math.IsInf(balance, 0) || math.IsNaN(balance) {
-		return siteBalanceFetchResult{}
+		return siteBalanceFetchResult{reason: "invalid_balance_number"}
 	}
 	return siteBalanceFetchResult{balance: balance, balanceUsed: balanceUsed, todayIncome: todayIncome, usedKnown: usedKnown, incomeKnown: todayIncomeKnown, ok: true}
 }
@@ -380,24 +386,32 @@ func fetchSub2APIBalance(ctx context.Context, siteRecord *model.Site, account *m
 }
 
 func fetchSub2APIBalanceResult(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string) (float64, float64, bool) {
+	result := fetchSub2APIBalanceDetails(ctx, siteRecord, account, accessToken)
+	return result.balance, result.balanceUsed, result.ok
+}
+
+func fetchSub2APIBalanceDetails(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string) siteBalanceFetchResult {
 	token := stripBearerPrefix(accessToken)
 	if token == "" {
-		return 0, 0, false
+		return siteBalanceFetchResult{reason: "access_token_missing"}
 	}
 	payload, err := requestJSON(ctx, siteRecord, "GET", buildSiteURL(siteRecord.BaseURL, "/api/v1/auth/me"), nil, map[string]string{"Authorization": ensureBearer(token)}, account)
 	if err != nil {
-		return 0, 0, false
+		return siteBalanceFetchResult{reason: "upstream_profile_unavailable", err: err}
 	}
 	unwrapped, err := unwrapSub2APIData(payload, "/api/v1/auth/me")
 	if err != nil {
-		return 0, 0, false
+		return siteBalanceFetchResult{reason: "upstream_profile_unavailable", err: err}
 	}
 	data, ok := unwrapped.(map[string]any)
 	if !ok {
-		return 0, 0, false
+		return siteBalanceFetchResult{reason: "invalid_profile_response"}
 	}
 	balance, known := balanceJSONNumber(data["balance"])
-	return balance, 0, known
+	if !known {
+		return siteBalanceFetchResult{reason: "invalid_balance_fields"}
+	}
+	return siteBalanceFetchResult{balance: balance, ok: true}
 }
 
 // A missing, null or malformed field is different from a valid zero balance.

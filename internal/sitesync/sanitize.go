@@ -79,7 +79,7 @@ func sanitizeSiteError(err error) error {
 		}
 		params = map[string]any{"reason": message}
 	}
-	return apperror.Wrap(code, message, err).WithStatus(status).WithParams(params)
+	return apperror.Wrap(code, message, err).WithStatus(status).WithParams(params).WithLogMessage(message)
 }
 
 func siteBatchReason(err error) SiteBatchReason {

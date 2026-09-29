@@ -50,12 +50,22 @@ func markAccountSyncFailure(ctx context.Context, accountID int, syncErr error, a
 }
 
 func SyncAccount(ctx context.Context, accountID int) (*model.SiteSyncResult, error) {
+	return SyncAccountWithTrigger(ctx, accountID, "manual")
+}
+
+func runAccountSync(ctx context.Context, accountID int, diagnostic *syncLogContext) (*model.SiteSyncResult, error) {
 	siteRecord, account, err := loadSyncableSiteAccount(ctx, accountID)
+	if diagnostic != nil {
+		diagnostic.site, diagnostic.account = siteRecord, account
+	}
 	if err != nil {
 		return nil, sanitizeSiteError(err)
 	}
 
 	snapshot, syncErr := syncAccountState(ctx, siteRecord, account)
+	if diagnostic != nil {
+		diagnostic.snapshot = snapshot
+	}
 	if snapshot == nil && syncErr != nil {
 		message := sanitizeSiteStatusMessage(syncErr)
 		markAccountSyncFailure(ctx, account.ID, syncErr, "")
@@ -152,7 +162,7 @@ func SyncAccountsWithOptions(ctx context.Context, accountIDs []int, opts SiteBat
 	for _, accountID := range accountIDs {
 		siteRecord, account, err := loadSiteAccount(ctx, accountID)
 		if err != nil {
-			log.Debugf("site import sync account load failed (account=%d): %v", accountID, sanitizeSiteStatusMessage(err))
+			log.Warnw("sitesync.sync.account_load_failed", "account_id", accountID, "trigger", string(opts.Trigger), "error", log.SafeError(sanitizeSiteError(err)))
 			continue
 		}
 		if siteRecord == nil || account == nil || !siteRecord.Enabled || !account.Enabled || siteRecord.IsCheckinOnly() {
@@ -178,7 +188,7 @@ func syncBatchAccounts(ctx context.Context, items []siteBatchAccount, opts SiteB
 			recordBatchCanceledSkips(summary, items[i:])
 			return *summary
 		}
-		result, err := SyncAccount(ctx, item.account.ID)
+		result, err := runAccountSync(ctx, item.account.ID, nil)
 		summary.clearCurrent()
 		if err != nil {
 			summary.recordFailure(item.site.ID, item.site.Platform, item.account.ID, err)

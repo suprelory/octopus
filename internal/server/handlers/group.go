@@ -77,6 +77,7 @@ func createGroup(c *gin.Context) {
 			return
 		}
 	}
+	middleware.AuditChanges(c, 0, &group)
 	if err := op.GroupCreate(&group, c.Request.Context()); err != nil {
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, groupError(codeGroupCreateFailed, "group create failed", err))
 		return
@@ -97,6 +98,7 @@ func updateGroup(c *gin.Context) {
 			return
 		}
 	}
+	middleware.AuditChanges(c, req.ID, &req)
 	group, err := op.GroupUpdate(&req, c.Request.Context())
 	if err != nil {
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, groupError(codeGroupUpdateFailed, "group update failed", err))

@@ -61,6 +61,7 @@ func login(c *gin.Context) {
 
 	source := middleware.ClientIP(c)
 	if allowed, retryAfter := op.LoginAttemptAllow(source); !allowed {
+		middleware.RecordAuthEvent(c, "login.rejected", apperror.CodeAuthLoginRateLimited, 0)
 		c.Header("Retry-After", strconv.Itoa(retryAfter))
 		resp.ErrorWithAppError(c, http.StatusTooManyRequests,
 			apperror.New(apperror.CodeAuthLoginRateLimited, "too many login attempts").
@@ -70,10 +71,12 @@ func login(c *gin.Context) {
 
 	if err := op.UserVerify(user.Username, user.Password); err != nil {
 		if apperror.IsCode(err, apperror.CodeAuthBootstrapRequired) {
+			middleware.RecordAuthEvent(c, "login.rejected", apperror.CodeAuthBootstrapRequired, 0)
 			resp.ErrorWithAppError(c, http.StatusServiceUnavailable, err)
 			return
 		}
 		op.LoginAttemptFailed(source)
+		middleware.RecordAuthEvent(c, "login.rejected", apperror.CodeAuthInvalidCredentials, 0)
 		resp.InvalidCredentials(c)
 		return
 	}
@@ -81,9 +84,10 @@ func login(c *gin.Context) {
 
 	token, expire, err := auth.GenerateJWTToken(user.Expire)
 	if err != nil {
-		resp.InternalError(c)
+		resp.InternalErrorWithLog(c, err)
 		return
 	}
+	middleware.RecordAuthEvent(c, "login.succeeded", "", 0)
 	resp.Success(c, model.UserLoginResponse{Token: token, ExpireAt: expire})
 }
 
@@ -103,6 +107,7 @@ func bootstrap(c *gin.Context) {
 		return
 	}
 	if err := op.UserBootstrap(input.Username, input.Password, input.Token); err != nil {
+		middleware.RecordAuthEvent(c, "bootstrap.rejected", apperror.Code(err), 0)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, err)
 		return
 	}

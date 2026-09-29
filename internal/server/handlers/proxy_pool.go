@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"github.com/bestruirui/octopus/internal/client"
@@ -74,6 +75,7 @@ func createProxyConfiguration(c *gin.Context) {
 		Enabled: enabled,
 		Remark:  req.Remark,
 	}
+	middleware.AuditChanges(c, 0, &req)
 	if err := op.ProxyConfigurationCreate(&item, c.Request.Context()); err != nil {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
@@ -87,6 +89,7 @@ func updateProxyConfiguration(c *gin.Context) {
 		resp.InvalidJSON(c)
 		return
 	}
+	middleware.AuditChanges(c, req.ID, &req)
 	existing, err := op.ProxyConfigurationGet(req.ID, c.Request.Context())
 	if err != nil {
 		resp.Error(c, http.StatusBadRequest, err.Error())
@@ -130,10 +133,20 @@ func testProxyConfiguration(c *gin.Context) {
 		resp.InvalidJSON(c)
 		return
 	}
+	if req.ProxyConfigID != nil {
+		middleware.AuditFields(c, "proxy_config_id", *req.ProxyConfigID)
+	}
+	if target, err := url.Parse(req.URL); err == nil && target.Hostname() != "" {
+		middleware.AuditFields(c, "target_host", target.Hostname())
+	}
+	if proxy, err := url.Parse(req.ProxyURL); err == nil && proxy.Hostname() != "" {
+		middleware.AuditFields(c, "proxy_host", proxy.Hostname())
+	}
 	result, err := op.ProxyConfigurationTest(req, c.Request.Context())
 	if err != nil {
 		resp.InternalErrorWithLog(c, err)
 		return
 	}
+	middleware.AuditResult(c, result.Success, "reason", result.Message, "test_duration_ms", result.DurationMS, "upstream_status", result.StatusCode)
 	resp.Success(c, result)
 }

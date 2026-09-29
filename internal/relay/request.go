@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
@@ -25,10 +26,13 @@ import (
 // prepareHTTPRelay validates the inbound request and fixes request-scoped routing
 // policy before any retries. A nil result means the protocol error was written.
 func prepareHTTPRelay(inboundType inbound.InboundType, c *gin.Context) *httpRelay {
+	requestModel, ready := "", false
+	defer recordEarlyHTTPFailure(c, &requestModel, relayEndpointType(inboundType), &ready, time.Now())
 	rawBody, internalRequest, inAdapter, err := parseRequest(inboundType, c)
 	if err != nil {
 		return nil
 	}
+	requestModel = internalRequest.Model
 	if supportedModels := c.GetString("supported_models"); supportedModels != "" {
 		if !slices.Contains(strings.Split(supportedModels, ","), internalRequest.Model) {
 			writeInboundProtocolError(c, nil, inAdapter, relayProtocolError(http.StatusBadRequest, CodeRelayModelNotSupported, "model not supported"))
@@ -36,7 +40,6 @@ func prepareHTTPRelay(inboundType inbound.InboundType, c *gin.Context) *httpRela
 		}
 	}
 
-	requestModel := internalRequest.Model
 	apiKeyID := c.GetInt("api_key_id")
 	emptyResponseDetection := emptyResponseDetectionEnabled()
 	group, err := op.GroupGetEnabledMap(requestModel, c.Request.Context())
@@ -69,6 +72,7 @@ func prepareHTTPRelay(inboundType inbound.InboundType, c *gin.Context) *httpRela
 	// Non-streaming requests are bounded by the failover budget instead.
 	isStream := internalRequest.Stream != nil && *internalRequest.Stream
 	heartbeat := startEarlyHeartbeat(c, isStream)
+	ready = true
 	metrics := NewRelayMetrics(apiKeyID, requestModel, relayEndpointType(inboundType), middleware.ClientIP(c), rawBody, internalRequest)
 	if replayState != nil {
 		metrics.SetWSMode(dbmodel.RelayLogWSModeReplay)

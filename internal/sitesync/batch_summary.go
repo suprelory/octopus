@@ -3,6 +3,7 @@ package sitesync
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"time"
@@ -188,7 +189,13 @@ func (s *SiteBatchSummary) emitProgress() {
 	}
 	progress := s.progress()
 	func() {
-		defer func() { _ = recover() }()
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				s.onProgress = nil
+				log.Errorw("sitesync.progress.panic", "task_id", s.taskID, "phase", string(s.Phase),
+					"panic", log.SafeText(fmt.Sprint(recovered)), "stack", string(debug.Stack()))
+			}
+		}()
 		s.onProgress(progress)
 	}()
 }
@@ -282,11 +289,15 @@ func (s *SiteBatchSummary) emitLog() {
 	failureGroups := sortedSiteBatchGroups(s.failureGroups)
 	warningGroups := sortedSiteBatchGroups(s.warningGroups)
 	skipGroups := sortedSiteBatchGroups(s.skipGroups)
-	if s.Failed == 0 && s.Warnings == 0 && !hasExceptionalSkips(skipGroups) && !s.Canceled {
-		log.Debugw(siteBatchEventName(s, false), s.logFields(failureGroups, warningGroups, skipGroups)...)
+	if s.Failed == 0 && s.Partial == 0 && s.Warnings == 0 && !hasExceptionalSkips(skipGroups) && !s.Canceled {
+		if s.Trigger == SiteBatchTriggerScheduled {
+			log.Debugw(siteBatchEventName(s, false), s.logFields(failureGroups, warningGroups, skipGroups)...)
+		} else {
+			log.Infow(siteBatchEventName(s, false), s.logFields(failureGroups, warningGroups, skipGroups)...)
+		}
 		return
 	}
-	log.Warnw(siteBatchEventName(s, s.Failed == 0 && s.Warnings > 0 && !s.Canceled), s.logFields(failureGroups, warningGroups, skipGroups)...)
+	log.Warnw(siteBatchEventName(s, s.Failed == 0 && (s.Partial > 0 || s.Warnings > 0) && !s.Canceled), s.logFields(failureGroups, warningGroups, skipGroups)...)
 	if len(s.Samples) > 0 {
 		log.Debugw(string("sitesync."+string(s.Phase)+".failure_samples"), "trigger", string(s.Trigger), "samples", formatSiteBatchSamples(s.Samples))
 	}
@@ -320,7 +331,7 @@ func siteBatchEventName(s *SiteBatchSummary, warningOnly bool) string {
 	if warningOnly {
 		return "sitesync." + string(s.Phase) + ".warning_summary"
 	}
-	if s.Failed == 0 && s.Warnings == 0 && !s.Canceled {
+	if s.Failed == 0 && s.Partial == 0 && s.Warnings == 0 && !s.Canceled {
 		return "sitesync." + string(s.Phase) + ".done"
 	}
 	return "sitesync." + string(s.Phase) + ".summary"

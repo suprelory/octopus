@@ -208,7 +208,7 @@ func ChannelKeySaveDB(ctx context.Context) error {
 	return nil
 }
 
-func ChannelUpdate(req *model.ChannelUpdateRequest, ctx context.Context) (*model.Channel, error) {
+func ChannelUpdate(req *model.ChannelUpdateRequest, ctx context.Context) (updatedChannel *model.Channel, operationErr error) {
 	existingChannel, ok := channelCache.Get(req.ID)
 	if !ok {
 		return nil, fmt.Errorf("channel not found")
@@ -223,11 +223,7 @@ func ChannelUpdate(req *model.ChannelUpdateRequest, ctx context.Context) (*model
 	}
 
 	tx := db.GetDB().WithContext(ctx).Begin()
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
+	defer rollbackOnPanic(tx, "channel.update", req.ID, &operationErr)
 
 	var selectFields []string
 	updates := model.Channel{ID: req.ID}
@@ -473,7 +469,7 @@ func ChannelDelManaged(id int, ctx context.Context) error {
 	return channelDel(id, ctx, true)
 }
 
-func channelDel(id int, ctx context.Context, bypassManagedCheck bool) error {
+func channelDel(id int, ctx context.Context, bypassManagedCheck bool) (operationErr error) {
 	ch, ok := channelCache.Get(id)
 	if !ok {
 		return fmt.Errorf("channel not found")
@@ -488,11 +484,7 @@ func channelDel(id int, ctx context.Context, bypassManagedCheck bool) error {
 
 	// 开启事务
 	tx := db.GetDB().WithContext(ctx).Begin()
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
+	defer rollbackOnPanic(tx, "channel.delete", id, &operationErr)
 
 	// 获取所有受影响的 GroupID，用于刷新缓存
 	var affectedGroupIDs []int

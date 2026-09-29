@@ -47,12 +47,18 @@ func fetchManagementTokens(ctx context.Context, siteRecord *model.Site, account 
 func fetchManagementGroups(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string) ([]model.SiteUserGroup, error) {
 	endpoints := []string{"/api/user/self/groups", "/api/user_group_map"}
 	seen := make(map[string]model.SiteUserGroup)
+	var lastErr error
+	failedEndpoints := 0
 	for _, endpoint := range endpoints {
 		payload, err := requestJSONWithManagedAccessToken(ctx, siteRecord, "GET", buildSiteURL(siteRecord.BaseURL, endpoint), nil, accessToken, account)
 		if err != nil {
+			lastErr = err
+			failedEndpoints++
 			continue
 		}
 		if err := validateSiteBusinessResponse(payload); err != nil {
+			lastErr = err
+			failedEndpoints++
 			continue
 		}
 		for _, group := range parseGroupItems(payload) {
@@ -64,6 +70,9 @@ func fetchManagementGroups(ctx context.Context, siteRecord *model.Site, account 
 		}
 	}
 	if len(seen) == 0 {
+		if failedEndpoints == len(endpoints) {
+			logSiteDataWarning(siteRecord, account, accessToken, "groups", "default_group_fallback", lastErr)
+		}
 		return []model.SiteUserGroup{{GroupKey: model.SiteDefaultGroupKey, Name: model.SiteDefaultGroupName}}, nil
 	}
 	groups := make([]model.SiteUserGroup, 0, len(seen))

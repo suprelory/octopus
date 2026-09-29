@@ -58,6 +58,7 @@ func createAPIKey(c *gin.Context) {
 		resp.ErrorWithAppError(c, http.StatusBadRequest, apperror.New(apperror.CodeCommonInvalidParam, "max_rpm must be non-negative").WithStatus(http.StatusBadRequest))
 		return
 	}
+	middleware.AuditChanges(c, 0, &req)
 	req.APIKey = auth.GenerateAPIKey()
 	if err := op.APIKeyCreate(&req, c.Request.Context()); err != nil {
 		resp.InternalErrorWithLog(c, err)
@@ -85,6 +86,7 @@ func updateAPIKey(c *gin.Context) {
 		resp.ErrorWithAppError(c, http.StatusBadRequest, apperror.New(apperror.CodeCommonInvalidParam, "max_rpm must be non-negative").WithStatus(http.StatusBadRequest))
 		return
 	}
+	middleware.AuditChanges(c, req.ID, &req)
 	if err := op.APIKeyUpdate(&req, c.Request.Context()); err != nil {
 		resp.InternalErrorWithLog(c, err)
 		return

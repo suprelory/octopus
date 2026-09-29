@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	"github.com/bestruirui/octopus/internal/apperror"
-	"github.com/bestruirui/octopus/internal/utils/log"
 	"github.com/gin-gonic/gin"
 )
 
@@ -17,6 +16,7 @@ type ResponseStruct struct {
 }
 
 func Success(c *gin.Context, data any) {
+	recordResourceID(c, data)
 	c.JSON(http.StatusOK, ResponseStruct{
 		Code:    http.StatusOK,
 		Message: "success",
@@ -33,6 +33,7 @@ func ErrorWithAppError(c *gin.Context, fallbackStatus int, err error) {
 	if appStatus := apperror.Status(err); appStatus != 0 {
 		status = appStatus
 	}
+	recordError(c, apperror.Code(err), apperror.Message(err), err)
 	ErrorWithCodeAndParams(c, status, apperror.Code(err), apperror.Message(err), apperror.Params(err))
 }
 
@@ -41,6 +42,7 @@ func ErrorWithCode(c *gin.Context, status int, errorCode string, message string)
 }
 
 func ErrorWithCodeAndParams(c *gin.Context, status int, errorCode string, message string, params map[string]any) {
+	recordError(c, errorCode, message, nil)
 	c.AbortWithStatusJSON(status, ResponseStruct{
 		Code:      status,
 		ErrorCode: errorCode,
@@ -61,7 +63,7 @@ func InternalError(c *gin.Context) {
 	ErrorWithAppError(c, http.StatusInternalServerError, apperror.New(apperror.CodeCommonInternalError, ErrInternalServer).WithStatus(http.StatusInternalServerError))
 }
 
-// InternalErrorWithLog 给客户端返回通用文案，把真实错误写进日志。
+// InternalErrorWithLog 给客户端返回通用文案，把真实错误交给请求日志统一记录。
 //
 // 直接 resp.Error(c, 500, err.Error()) 会把 SQL 文本、文件路径、上游 URL 泄给
 // 客户端，同时绕过 apperror 的错误码体系。带 apperror 码的错误按原样返回
@@ -76,17 +78,8 @@ func InternalErrorWithLog(c *gin.Context, err error) {
 		return
 	}
 
-	method, path := "", ""
-	if c != nil && c.Request != nil {
-		method = c.Request.Method
-		path = c.Request.URL.Path
-	}
-	log.Errorw("handler.internal_error",
-		"method", method,
-		"path", path,
-		"error", err.Error(),
-	)
-	InternalError(c)
+	ErrorWithAppError(c, http.StatusInternalServerError,
+		apperror.Wrap(apperror.CodeCommonInternalError, ErrInternalServer, err).WithStatus(http.StatusInternalServerError))
 }
 
 func NotFound(c *gin.Context) {
