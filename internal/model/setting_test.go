@@ -9,6 +9,12 @@ func TestCheckinNotificationSettings(t *testing.T) {
 		valid bool
 	}{
 		{SettingKeyCheckinNotifyEnabled, "true", true}, {SettingKeyCheckinNotifyEnabled, "yes", false},
+		{SettingKeyCheckinNotifySuccessEnabled, "true", true}, {SettingKeyCheckinNotifySuccessEnabled, "yes", false},
+		{SettingKeyCheckinNotifyManualEnabled, "false", true}, {SettingKeyCheckinNotifyManualEnabled, "1", false},
+		{SettingKeyNotificationChannels, `{}`, true},
+		{SettingKeyNotificationChannels, `{"bark_url":"https://api.day.app/key"}`, true},
+		{SettingKeyNotificationChannels, `{"telegram_chat_id":"123"}`, false},
+		{SettingKeyNotificationChannels, `{"webhook_url":"file:///tmp/test"}`, false},
 		{SettingKeyCheckinNotifyCooldownSeconds, "0", true}, {SettingKeyCheckinNotifyCooldownSeconds, "604800", true},
 		{SettingKeyCheckinNotifyCooldownSeconds, "-1", false}, {SettingKeyCheckinNotifyCooldownSeconds, "604801", false},
 		{SettingKeyCheckinLowBalanceThreshold, "0.5", true}, {SettingKeyCheckinLowBalanceThreshold, "-1", false},
@@ -21,6 +27,21 @@ func TestCheckinNotificationSettings(t *testing.T) {
 		if err := setting.Validate(); (err == nil) != tc.valid {
 			t.Errorf("%s = %q: %v", tc.key, tc.value, err)
 		}
+	}
+}
+
+func TestNotificationDefaultsPreserveExistingBehavior(t *testing.T) {
+	defaults := make(map[SettingKey]string)
+	for _, setting := range DefaultSettings() {
+		defaults[setting.Key] = setting.Value
+	}
+	for _, key := range []SettingKey{SettingKeyCheckinNotifyEnabled, SettingKeyCheckinNotifySuccessEnabled, SettingKeyCheckinNotifyManualEnabled} {
+		if defaults[key] != "false" {
+			t.Fatalf("%s is not disabled by default", key)
+		}
+	}
+	if value, exists := defaults[SettingKeyNotificationChannels]; !exists || value != "" {
+		t.Fatal("new channel configuration must start unset to preserve the legacy webhook")
 	}
 }
 

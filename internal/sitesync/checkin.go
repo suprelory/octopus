@@ -183,9 +183,7 @@ func runAccountCheckin(ctx context.Context, accountID int, trigger SiteBatchTrig
 			_ = db.GetDB().WithContext(ctx).Model(&model.SiteAccount{}).Where("id = ?", account.ID).Updates(updates).Error
 		}
 	}
-	if trigger == SiteBatchTriggerScheduled {
-		checkinNotifications.notify(siteRecord, account, result, balance)
-	}
+	checkinNotifications.notify(siteRecord, account, result, balance, trigger)
 	if runErr != nil {
 		safeErr := sanitizeSiteError(runErr)
 		params := apperror.Params(safeErr)

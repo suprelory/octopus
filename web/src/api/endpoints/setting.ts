@@ -43,7 +43,10 @@ export const SettingKey = {
     WebDAVBackupInterval: 'webdav_backup_interval',
     WebDAVRetentionCount: 'webdav_retention_count',
     WebDAVIncludeStats: 'webdav_include_stats',
+    NotificationChannels: 'notification_channels',
     CheckinNotifyEnabled: 'checkin_notify_enabled',
+    CheckinNotifySuccessEnabled: 'checkin_notify_success_enabled',
+    CheckinNotifyManualEnabled: 'checkin_notify_manual_enabled',
     CheckinNotifyWebhookURL: 'checkin_notify_webhook_url',
     CheckinNotifyCooldownSeconds: 'checkin_notify_cooldown_seconds',
     CheckinLowBalanceThreshold: 'checkin_low_balance_threshold',
@@ -97,12 +100,36 @@ export function useSetSetting() {
             return apiClient.post<Setting>('/api/v1/setting/set', data);
         },
         onSuccess: (data) => {
-            logger.log('Setting 设置成功:', data);
+            logger.log('Setting 设置成功:', data.key);
             queryClient.invalidateQueries({ queryKey: ['settings', 'list'] });
         },
         onError: (error) => {
             logger.error('Setting 设置失败:', error);
         },
+    });
+}
+
+export type NotificationChannel = 'webhook' | 'bark' | 'serverchan' | 'telegram' | 'smtp';
+
+export interface NotificationConfig {
+    webhook_url?: string;
+    bark_url?: string;
+    serverchan_key?: string;
+    telegram_bot_token?: string;
+    telegram_chat_id?: string;
+    smtp_host?: string;
+    smtp_port?: number;
+    smtp_user?: string;
+    smtp_password?: string;
+    smtp_from?: string;
+    smtp_to?: string;
+    smtp_tls?: '' | 'starttls' | 'tls' | 'none';
+}
+
+export function useTestNotificationChannel() {
+    return useMutation({
+        mutationFn: (data: { channel: NotificationChannel; config: NotificationConfig }) =>
+            apiClient.post<{ channel: NotificationChannel; success: boolean }>('/api/v1/setting/notification/test', data),
     });
 }
 

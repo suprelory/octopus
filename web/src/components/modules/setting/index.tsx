@@ -13,6 +13,7 @@ import { SettingNetwork } from './Network';
 import { SettingReliability } from './Reliability';
 import { SettingSyncTasks } from './SyncTasks';
 import { SettingCheckinNotifications } from './CheckinNotifications';
+import { SettingNotificationChannels } from './NotificationChannels';
 import { SettingData } from './Data';
 import { SettingWebDAVBackup } from './WebDAVBackup';
 
@@ -23,7 +24,7 @@ export function Setting() {
     const sections = [
         { id: 'general', icon: Settings2, content: <><div className="space-y-4"><SettingAppearance /><SettingInfo /></div><SettingAccount /></> },
         { id: 'access', icon: KeyRound, content: <SettingAPIKey /> },
-        { id: 'connection', icon: Network, content: <><div className="space-y-4"><SettingNetwork /><SettingSyncTasks /><SettingCheckinNotifications /></div><SettingReliability /></> },
+        { id: 'connection', icon: Network, content: <><div className="space-y-4"><SettingNetwork /><SettingSyncTasks /><SettingCheckinNotifications /></div><div className="space-y-4"><SettingNotificationChannels /><SettingReliability /></div></> },
         { id: 'data', icon: Database, content: <><SettingData /><SettingWebDAVBackup /></> },
     ];
     return (

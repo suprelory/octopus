@@ -10,7 +10,8 @@ import { SettingCard, SettingRow, useSettingField, useSettingToggle } from './sh
 export function SettingCheckinNotifications() {
     const t = useTranslations('checkinNotifications');
     const enabled = useSettingToggle(SettingKey.CheckinNotifyEnabled);
-    const webhook = useSettingField(SettingKey.CheckinNotifyWebhookURL);
+    const success = useSettingToggle(SettingKey.CheckinNotifySuccessEnabled);
+    const manual = useSettingToggle(SettingKey.CheckinNotifyManualEnabled);
     const cooldown = useSettingField(SettingKey.CheckinNotifyCooldownSeconds);
     const threshold = useSettingField(SettingKey.CheckinLowBalanceThreshold);
 
@@ -20,11 +21,12 @@ export function SettingCheckinNotifications() {
             <SettingRow label={t('enabled')}>
                 <Switch aria-label={t('enabled')} checked={enabled.enabled} onCheckedChange={enabled.toggle} />
             </SettingRow>
-            <label className="grid gap-2 text-sm font-medium">
-                {t('webhook')}
-                <Input type="url" autoComplete="off" spellCheck={false} value={webhook.value}
-                    placeholder="https://example.com/webhook" onChange={event => webhook.setValue(event.target.value)} onBlur={webhook.save} />
-            </label>
+            <SettingRow label={t('success')} tooltip={t('successHint')}>
+                <Switch aria-label={t('success')} checked={success.enabled} onCheckedChange={success.toggle} />
+            </SettingRow>
+            <SettingRow label={t('manual')} tooltip={t('manualHint')}>
+                <Switch aria-label={t('manual')} checked={manual.enabled} onCheckedChange={manual.toggle} />
+            </SettingRow>
             <SettingRow label={t('cooldown')} tooltip={t('cooldownHint')}>
                 <Input aria-label={t('cooldown')} type="number" min="0" max="604800" step="1" className="w-32"
                     value={cooldown.value} onChange={event => cooldown.setValue(event.target.value)} onBlur={cooldown.save} />

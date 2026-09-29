@@ -1,35 +1,38 @@
 package sitesync
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/json"
 	"fmt"
-	"io"
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/notify"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/utils/log"
 	"github.com/bestruirui/octopus/internal/utils/safe"
 )
 
 type checkinNotificationConfig struct {
-	enabled   bool
-	webhook   string
-	cooldown  time.Duration
-	threshold float64
+	enabled        bool
+	successEnabled bool
+	manualEnabled  bool
+	channels       notify.Config
+	cooldown       time.Duration
+	threshold      float64
 }
 
 // Payloads contain only the persisted outcome and display names. Credentials,
 // site URLs, configured HTTP headers and raw upstream responses are excluded.
 type checkinNotification struct {
 	Event        string                    `json:"event"`
+	Level        string                    `json:"level"`
+	Title        string                    `json:"title"`
+	Source       SiteBatchTrigger          `json:"source"`
 	LogID        int64                     `json:"log_id,string"`
 	SiteID       int                       `json:"site_id"`
 	AccountID    int                       `json:"account_id"`
@@ -38,6 +41,7 @@ type checkinNotification struct {
 	Status       model.SiteExecutionStatus `json:"status"`
 	Reason       string                    `json:"reason"`
 	Message      string                    `json:"message"`
+	Reward       string                    `json:"reward,omitempty"`
 	FailureCount int                       `json:"failure_count"`
 	Balance      *float64                  `json:"balance,omitempty"`
 	Threshold    *float64                  `json:"threshold,omitempty"`
@@ -71,10 +75,7 @@ var checkinNotifications = newCheckinNotifier(loadCheckinNotificationConfig)
 func newCheckinNotifier(config func() checkinNotificationConfig) *checkinNotifier {
 	return &checkinNotifier{
 		config: config,
-		client: &http.Client{
-			Timeout:       10 * time.Second,
-			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-		},
+		client: notify.NewHTTPClient(),
 		recent: make(map[checkinNotificationKey]checkinNotificationReservation),
 		slots:  make(chan struct{}, 128), workers: make(chan struct{}, 4),
 	}
@@ -82,9 +83,12 @@ func newCheckinNotifier(config func() checkinNotificationConfig) *checkinNotifie
 
 func loadCheckinNotificationConfig() checkinNotificationConfig {
 	enabled, _ := op.SettingGetBool(model.SettingKeyCheckinNotifyEnabled)
+	successEnabled, _ := op.SettingGetBool(model.SettingKeyCheckinNotifySuccessEnabled)
+	manualEnabled, _ := op.SettingGetBool(model.SettingKeyCheckinNotifyManualEnabled)
+	rawChannels, _ := op.SettingGetString(model.SettingKeyNotificationChannels)
 	webhook, _ := op.SettingGetString(model.SettingKeyCheckinNotifyWebhookURL)
-	urlSetting := model.Setting{Key: model.SettingKeyCheckinNotifyWebhookURL, Value: webhook}
-	if urlSetting.Validate() != nil || urlSetting.Value == "" {
+	channels, err := notify.ResolveConfig(rawChannels, webhook)
+	if err != nil {
 		enabled = false
 	}
 	seconds, err := op.SettingGetInt(model.SettingKeyCheckinNotifyCooldownSeconds)
@@ -96,27 +100,40 @@ func loadCheckinNotificationConfig() checkinNotificationConfig {
 	if err != nil || math.IsNaN(threshold) || math.IsInf(threshold, 0) || threshold < 0 {
 		threshold = 0
 	}
-	return checkinNotificationConfig{enabled: enabled, webhook: urlSetting.Value, cooldown: time.Duration(seconds) * time.Second, threshold: threshold}
+	return checkinNotificationConfig{
+		enabled: enabled, successEnabled: successEnabled, manualEnabled: manualEnabled,
+		channels: channels, cooldown: time.Duration(seconds) * time.Second, threshold: threshold,
+	}
 }
 
-// Called only after a scheduled execution has committed. Delivery is bounded
-// and asynchronous, so webhook latency or failure never changes its outcome.
-func (n *checkinNotifier) notify(site *model.Site, account *model.SiteAccount, result *model.SiteCheckinResult, balance siteBalanceFetchResult) {
+// Called only after an execution has committed. Delivery is bounded and
+// asynchronous, so notification latency or failure never changes its outcome.
+func (n *checkinNotifier) notify(site *model.Site, account *model.SiteAccount, result *model.SiteCheckinResult, balance siteBalanceFetchResult, trigger SiteBatchTrigger) {
 	config := n.config()
-	if !config.enabled || config.webhook == "" || result == nil || result.LogID == 0 {
+	if !config.enabled || (trigger != SiteBatchTriggerScheduled && !config.manualEnabled) || site == nil || account == nil || result == nil || result.LogID == 0 {
 		return
 	}
 	event := checkinNotification{
 		LogID: result.LogID, SiteID: site.ID, AccountID: account.ID,
 		SiteName: site.Name, AccountName: account.Name, Status: result.Status,
-		Reason: result.Reason, Message: result.Message, FailureCount: account.CheckinFailureCount,
-		OccurredAt: time.Now().UTC(),
+		Reason: result.Reason, Message: result.Message, Reward: result.Reward, Source: trigger,
+		FailureCount: account.CheckinFailureCount,
+		OccurredAt:   time.Now().UTC(),
 	}
 	if result.Status == model.SiteExecutionStatusFailed {
-		event.Event = "site_checkin_failed"
+		event.Event, event.Level, event.Title = "site_checkin_failed", "error", "签到失败"
 	} else if result.Status == model.SiteExecutionStatusSuccess && balance.ok && config.threshold > 0 && balance.balance < config.threshold {
 		event.Event, event.Reason = "site_checkin_low_balance", "low_balance"
+		event.Level, event.Title = "warning", "签到后余额不足"
 		event.Balance, event.Threshold = &balance.balance, &config.threshold
+	} else if result.Status == model.SiteExecutionStatusSuccess && config.successEnabled {
+		event.Event, event.Level, event.Title = "site_checkin_success", "info", "签到成功"
+		if result.Reason == model.SiteCheckinReasonAlreadyCheckedIn {
+			event.Title = "今日已签到"
+		}
+		if balance.ok {
+			event.Balance = &balance.balance
+		}
 	} else {
 		return
 	}
@@ -124,7 +141,17 @@ func (n *checkinNotifier) notify(site *model.Site, account *model.SiteAccount, r
 }
 
 func (n *checkinNotifier) enqueue(config checkinNotificationConfig, event checkinNotification) bool {
-	key := checkinNotificationKey{sha256.Sum256([]byte(config.webhook)), event.AccountID, event.Event, event.Reason}
+	queued := false
+	for _, target := range config.channels.Targets() {
+		if n.enqueueTarget(target, config.cooldown, event) {
+			queued = true
+		}
+	}
+	return queued
+}
+
+func (n *checkinNotifier) enqueueTarget(target notify.Target, cooldown time.Duration, event checkinNotification) bool {
+	key := checkinNotificationKey{target.Fingerprint(), event.AccountID, event.Event, event.Reason}
 	now := time.Now()
 	n.mu.Lock()
 	for key, item := range n.recent {
@@ -157,8 +184,8 @@ func (n *checkinNotifier) enqueue(config checkinNotificationConfig, event checki
 		delivered := false
 		defer func() {
 			n.mu.Lock()
-			if delivered && config.cooldown > 0 {
-				n.recent[key] = checkinNotificationReservation{until: time.Now().Add(config.cooldown)}
+			if delivered && cooldown > 0 {
+				n.recent[key] = checkinNotificationReservation{until: time.Now().Add(cooldown)}
 			} else {
 				delete(n.recent, key)
 			}
@@ -167,10 +194,10 @@ func (n *checkinNotifier) enqueue(config checkinNotificationConfig, event checki
 		}()
 		n.workers <- struct{}{}
 		defer func() { <-n.workers }()
-		if err := n.deliver(config.webhook, event); err != nil {
+		if err := n.deliver(target, event); err != nil {
 			// HTTP errors may embed a URL containing a webhook secret. Only log
 			// the stable event identity, never the URL, body or transport error.
-			log.Warnf("checkin notification delivery failed for account %d, event %s", event.AccountID, event.Event)
+			log.Warnf("checkin notification delivery failed for account %d, event %s, channel %s", event.AccountID, event.Event, target.Kind)
 			return
 		}
 		delivered = true
@@ -178,26 +205,32 @@ func (n *checkinNotifier) enqueue(config checkinNotificationConfig, event checki
 	return true
 }
 
-func (n *checkinNotifier) deliver(webhook string, event checkinNotification) error {
-	body, err := json.Marshal(event)
-	if err != nil {
-		return err
+func (n *checkinNotifier) deliver(target notify.Target, event checkinNotification) error {
+	source := "定时签到"
+	if event.Source == SiteBatchTriggerManual {
+		source = "手动签到"
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhook, bytes.NewReader(body))
-	if err != nil {
-		return err
+	lines := []string{
+		fmt.Sprintf("站点：%s\n账号：%s", event.SiteName, event.AccountName),
+		"触发：" + source,
+		"结果：" + event.Title,
+		"详情：" + event.Message,
 	}
-	req.Header.Set("Content-Type", "application/json")
-	response, err := n.client.Do(req)
-	if err != nil {
-		return err
+	if event.Reward != "" {
+		lines = append(lines, "签到奖励："+event.Reward)
 	}
-	defer response.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("notification HTTP status %d", response.StatusCode)
+	if event.Balance != nil {
+		lines = append(lines, fmt.Sprintf("余额：%.4f USD", *event.Balance))
 	}
-	return nil
+	if event.Threshold != nil {
+		lines = append(lines, fmt.Sprintf("低余额阈值：%.4f USD", *event.Threshold))
+	}
+	if event.FailureCount > 0 {
+		lines = append(lines, fmt.Sprintf("连续失败：%d 次", event.FailureCount))
+	}
+	lines = append(lines, "时间："+event.OccurredAt.Format(time.RFC3339))
+	return notify.Deliver(context.Background(), n.client, target, notify.Message{
+		Level: event.Level, Title: event.Title, Text: strings.Join(lines, "\n"),
+		Timestamp: event.OccurredAt, Payload: event,
+	})
 }

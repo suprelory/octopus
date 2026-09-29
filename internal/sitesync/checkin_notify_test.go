@@ -13,6 +13,7 @@ import (
 
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/notify"
 )
 
 func TestScheduledCheckinNotificationsUsePersistedSanitizedOutcome(t *testing.T) {
@@ -31,7 +32,7 @@ func TestScheduledCheckinNotificationsUsePersistedSanitizedOutcome(t *testing.T)
 	}))
 	defer sink.Close()
 	n := newCheckinNotifier(func() checkinNotificationConfig {
-		return checkinNotificationConfig{enabled: true, webhook: sink.URL, cooldown: time.Hour}
+		return checkinNotificationConfig{enabled: true, channels: notify.Config{WebhookURL: sink.URL}, cooldown: time.Hour}
 	})
 	previous := checkinNotifications
 	checkinNotifications = n
@@ -85,18 +86,18 @@ func TestLowBalanceNotificationRequiresFreshBalance(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer sink.Close()
-	config := checkinNotificationConfig{enabled: true, webhook: sink.URL, threshold: 1}
+	config := checkinNotificationConfig{enabled: true, channels: notify.Config{WebhookURL: sink.URL}, threshold: 1}
 	n := newCheckinNotifier(func() checkinNotificationConfig { return config })
 	site := &model.Site{ID: 1, Name: "Site"}
 	account := &model.SiteAccount{ID: 2, Name: "Account", Balance: 0}
 	result := &model.SiteCheckinResult{LogID: 3, Status: model.SiteExecutionStatusSuccess}
-	n.notify(site, account, result, siteBalanceFetchResult{})
-	n.notify(site, account, result, siteBalanceFetchResult{ok: true, balance: 1})
+	n.notify(site, account, result, siteBalanceFetchResult{}, SiteBatchTriggerScheduled)
+	n.notify(site, account, result, siteBalanceFetchResult{ok: true, balance: 1}, SiteBatchTriggerScheduled)
 	n.wg.Wait()
 	if len(events) != 0 {
 		t.Fatal("stale balance or threshold equality triggered an alert")
 	}
-	n.notify(site, account, result, siteBalanceFetchResult{ok: true, balance: 0})
+	n.notify(site, account, result, siteBalanceFetchResult{ok: true, balance: 0}, SiteBatchTriggerScheduled)
 	n.wg.Wait()
 	if len(events) != 1 {
 		t.Fatal("a real zero balance was not reported")
@@ -106,11 +107,11 @@ func TestLowBalanceNotificationRequiresFreshBalance(t *testing.T) {
 		t.Fatalf("incorrect balance notification: %+v", event)
 	}
 	config.threshold = 0
-	n.notify(site, account, result, siteBalanceFetchResult{ok: true, balance: -1})
+	n.notify(site, account, result, siteBalanceFetchResult{ok: true, balance: -1}, SiteBatchTriggerScheduled)
 	n.wg.Wait()
 	config.enabled = false
 	result.Status = model.SiteExecutionStatusFailed
-	n.notify(site, account, result, siteBalanceFetchResult{})
+	n.notify(site, account, result, siteBalanceFetchResult{}, SiteBatchTriggerScheduled)
 	n.wg.Wait()
 	if len(events) != 0 {
 		t.Fatal("disabled notifications were sent")
@@ -138,7 +139,7 @@ func TestCheckinNotificationDeliveryIsAsyncCoalescedAndRetriable(t *testing.T) {
 	defer sink.Close()
 	defer unblock()
 	n := newCheckinNotifier(nil)
-	config := checkinNotificationConfig{enabled: true, webhook: sink.URL, cooldown: time.Hour}
+	config := checkinNotificationConfig{enabled: true, channels: notify.Config{WebhookURL: sink.URL}, cooldown: time.Hour}
 	event := checkinNotification{AccountID: 1, Event: "site_checkin_failed", Reason: "upstream_http_error"}
 	if !n.enqueue(config, event) {
 		t.Fatal("first event was not queued")
@@ -193,7 +194,7 @@ func TestCheckinNotificationDoesNotFollowRedirectsAndTimesOut(t *testing.T) {
 	}))
 	defer redirect.Close()
 	n := newCheckinNotifier(nil)
-	if err := n.deliver(redirect.URL, checkinNotification{}); err == nil || redirected.Load() != 0 {
+	if err := n.deliver((notify.Config{WebhookURL: redirect.URL}).Targets()[0], checkinNotification{}); err == nil || redirected.Load() != 0 {
 		t.Fatal("webhook followed a redirect")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -206,7 +207,155 @@ func TestCheckinNotificationDoesNotFollowRedirectsAndTimesOut(t *testing.T) {
 	defer slow.Close()
 	defer cancel()
 	n.client.Timeout = 20 * time.Millisecond
-	if err := n.deliver(slow.URL, checkinNotification{}); err == nil {
+	if err := n.deliver((notify.Config{WebhookURL: slow.URL}).Targets()[0], checkinNotification{}); err == nil {
 		t.Fatal("slow webhook did not time out")
+	}
+}
+
+func TestCheckinNotificationChannelsHaveIndependentCooldowns(t *testing.T) {
+	var webhookCalls, barkCalls, replacementCalls atomic.Int32
+	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/webhook":
+			webhookCalls.Add(1)
+			w.WriteHeader(http.StatusNoContent)
+		case "/bark":
+			if barkCalls.Add(1) == 1 {
+				_, _ = w.Write([]byte(`{"code":500,"message":"rejected"}`))
+			} else {
+				_, _ = w.Write([]byte(`{"code":200}`))
+			}
+		case "/replacement":
+			replacementCalls.Add(1)
+			_, _ = w.Write([]byte(`{"code":200}`))
+		default:
+			t.Error("unexpected destination")
+		}
+	}))
+	defer sink.Close()
+	n := newCheckinNotifier(nil)
+	config := checkinNotificationConfig{channels: notify.Config{WebhookURL: sink.URL + "/webhook", BarkURL: sink.URL + "/bark"}, cooldown: time.Hour}
+	event := checkinNotification{AccountID: 1, Event: "site_checkin_failed", Reason: "upstream_http_error"}
+	if !n.enqueue(config, event) {
+		t.Fatal("initial notification was not queued")
+	}
+	n.wg.Wait()
+	if !n.enqueue(config, event) {
+		t.Fatal("failed channel could not retry")
+	}
+	n.wg.Wait()
+	if webhookCalls.Load() != 1 || barkCalls.Load() != 2 || n.enqueue(config, event) {
+		t.Fatal("partial failure resent a successful channel or failed to start cooldown")
+	}
+	config.channels.BarkURL = sink.URL + "/replacement"
+	if !n.enqueue(config, event) {
+		t.Fatal("changed destination inherited the old cooldown")
+	}
+	n.wg.Wait()
+	if webhookCalls.Load() != 1 || replacementCalls.Load() != 1 {
+		t.Fatal("changing one channel affected another channel")
+	}
+}
+
+func TestCheckinNotificationResultPolicy(t *testing.T) {
+	events := make(chan checkinNotification, 4)
+	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var event checkinNotification
+		if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+			t.Error(err)
+		}
+		events <- event
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer sink.Close()
+	for _, tc := range []struct {
+		name                     string
+		enabled, success, manual bool
+		trigger                  SiteBatchTrigger
+		status                   model.SiteExecutionStatus
+		reason                   string
+		logID                    int64
+		balance                  siteBalanceFetchResult
+		want                     string
+	}{
+		{"disabled", false, true, true, SiteBatchTriggerScheduled, model.SiteExecutionStatusFailed, "", 1, siteBalanceFetchResult{}, ""},
+		{"manual defaults off", true, false, false, SiteBatchTriggerManual, model.SiteExecutionStatusFailed, "", 1, siteBalanceFetchResult{}, ""},
+		{"manual failure enabled", true, false, true, SiteBatchTriggerManual, model.SiteExecutionStatusFailed, "", 1, siteBalanceFetchResult{}, "site_checkin_failed"},
+		{"success defaults off", true, false, false, SiteBatchTriggerScheduled, model.SiteExecutionStatusSuccess, model.SiteCheckinReasonCheckedIn, 1, siteBalanceFetchResult{}, ""},
+		{"scheduled success", true, true, false, SiteBatchTriggerScheduled, model.SiteExecutionStatusSuccess, model.SiteCheckinReasonCheckedIn, 1, siteBalanceFetchResult{}, "site_checkin_success"},
+		{"manual success", true, true, true, SiteBatchTriggerManual, model.SiteExecutionStatusSuccess, model.SiteCheckinReasonCheckedIn, 1, siteBalanceFetchResult{}, "site_checkin_success"},
+		{"already checked in", true, true, false, SiteBatchTriggerScheduled, model.SiteExecutionStatusSuccess, model.SiteCheckinReasonAlreadyCheckedIn, 1, siteBalanceFetchResult{}, "site_checkin_success"},
+		{"low balance takes priority", true, true, true, SiteBatchTriggerManual, model.SiteExecutionStatusSuccess, model.SiteCheckinReasonCheckedIn, 1, siteBalanceFetchResult{ok: true, balance: 0}, "site_checkin_low_balance"},
+		{"skipped", true, true, true, SiteBatchTriggerManual, model.SiteExecutionStatusSkipped, model.SiteCheckinReasonAlreadyRunning, 1, siteBalanceFetchResult{}, ""},
+		{"not persisted", true, true, true, SiteBatchTriggerManual, model.SiteExecutionStatusFailed, "", 0, siteBalanceFetchResult{}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			n := newCheckinNotifier(func() checkinNotificationConfig {
+				return checkinNotificationConfig{
+					enabled: tc.enabled, successEnabled: tc.success, manualEnabled: tc.manual,
+					channels: notify.Config{WebhookURL: sink.URL}, threshold: 1,
+				}
+			})
+			result := &model.SiteCheckinResult{LogID: tc.logID, Status: tc.status, Reason: tc.reason, Message: "persisted result", Reward: "2.5"}
+			n.notify(&model.Site{ID: 1, Name: "Site"}, &model.SiteAccount{ID: 2, Name: "Account"}, result, tc.balance, tc.trigger)
+			n.wg.Wait()
+			if tc.want == "" {
+				if len(events) != 0 {
+					t.Fatal("unexpected notification")
+				}
+				return
+			}
+			if len(events) != 1 {
+				t.Fatalf("expected one notification, got %d", len(events))
+			}
+			event := <-events
+			if event.Event != tc.want || event.Source != tc.trigger || event.Message != result.Message || event.Reward != result.Reward || event.Level == "" || event.Title == "" {
+				t.Fatalf("incorrect result notification: %+v", event)
+			}
+		})
+	}
+}
+
+func TestManualCheckinNotificationOptInUsesPersistedResult(t *testing.T) {
+	ctx := setupProjectTestDB(t)
+	events := make(chan checkinNotification, 1)
+	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var event checkinNotification
+		if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+			t.Error(err)
+		}
+		events <- event
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer sink.Close()
+	n := newCheckinNotifier(func() checkinNotificationConfig {
+		return checkinNotificationConfig{enabled: true, manualEnabled: true, successEnabled: true, channels: notify.Config{WebhookURL: sink.URL}}
+	})
+	previous := checkinNotifications
+	checkinNotifications = n
+	t.Cleanup(func() { n.wg.Wait(); checkinNotifications = previous })
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/user/checkin" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"message":"signed checkin-secret-value","data":{"reward":2.5}}`))
+	}))
+	defer upstream.Close()
+	_, account := createCheckinFixture(t, ctx, upstream.URL)
+	result, err := CheckinAccount(ctx, account.ID)
+	if err != nil || result == nil || result.LogID == 0 {
+		t.Fatalf("manual check-in failed: %+v, %v", result, err)
+	}
+	n.wg.Wait()
+	if len(events) != 1 {
+		t.Fatal("manual result was not delivered")
+	}
+	event := <-events
+	var entry model.SiteCheckinLog
+	if err := db.GetDB().First(&entry, event.LogID).Error; err != nil || event.Source != SiteBatchTriggerManual || event.Message != entry.Message || event.Reward != entry.Reward || strings.Contains(event.Message, account.AccessToken) {
+		t.Fatalf("manual notification did not use the sanitized persisted result: %+v, %v", event, err)
 	}
 }

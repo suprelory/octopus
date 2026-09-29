@@ -1,4 +1,4 @@
-# 站点签到能力、收益与异常通知
+# 站点签到能力、收益与多渠道通知
 
 ## 独立签到页面
 
@@ -31,22 +31,42 @@
 
 ## 通知设置
 
-在“设置 → 连接与任务 → 签到异常通知”填写 Webhook 地址并启用，设置自动保存。通知默认关闭。
+在“设置 → 连接与任务 → 统一通知渠道”选择并配置通知渠道，点击“保存通知渠道”。多个渠道可以同时接收同一条结果；切换渠道不会丢失当前填写的内容。每个渠道的“测试此渠道”使用当前填写的配置，只发送一条测试通知，不保存配置，也不占用签到通知的冷却时间。清空渠道后保存即可停用。
+
+支持与 meta-gateway 相同的五种渠道：
+
+| 渠道 | 配置 | 发送方式 |
+| --- | --- | --- |
+| Webhook | HTTP / HTTPS 地址 | POST JSON，保留原有签到事件字段 |
+| Bark | 含设备密钥的完整推送 URL，支持自建服务 | POST 标题、正文及 Octopus 分组 |
+| Server酱 | SendKey | Server酱 Turbo 接口，发送标题和正文 |
+| Telegram | Bot Token、Chat ID | `sendMessage` 纯文本，支持用户、群组和频道 |
+| SMTP 邮件 | 服务器、端口、发件人、收件人，可选用户名和密码 | 支持 STARTTLS、隐式 TLS；无需认证的邮件中继可显式选择不加密 |
+
+SMTP 未填写端口时默认使用 587，显式选择 TLS 时默认使用 465；自动安全模式在 465 端口使用 TLS，其他端口要求 STARTTLS。多个收件人使用逗号分隔，最多 20 个。所有网络请求使用服务端网络连接。
+
+然后在“签到结果通知”开启通知，并选择需要的结果。此处开关、冷却时间和阈值自动保存，默认仍只通知定时签到异常。
 
 | 设置 | 默认值 | 行为 |
 | --- | --- | --- |
-| `checkin_notify_enabled` | `false` | 开启定时签到异常通知 |
-| `checkin_notify_webhook_url` | 空 | 接收 JSON POST 的 HTTP / HTTPS 地址 |
-| `checkin_notify_cooldown_seconds` | `3600` | 同一账号、事件和异常原因的通知冷却时间，范围 0–604800 秒；0 不冷却 |
+| `notification_channels` | 空 | 统一渠道 JSON 配置；未配置时沿用旧签到 Webhook，显式保存 `{}` 表示全部停用 |
+| `checkin_notify_enabled` | `false` | 开启签到结果通知 |
+| `checkin_notify_success_enabled` | `false` | 包含成功及“今日已签到”的结果 |
+| `checkin_notify_manual_enabled` | `false` | 包含单账号、批量和全量手动签到 |
+| `checkin_notify_webhook_url` | 空 | 兼容旧版本的 Webhook；保存统一渠道配置后由新配置决定发送目标 |
+| `checkin_notify_cooldown_seconds` | `3600` | 每个渠道分别按账号、事件和原因冷却，范围 0–604800 秒；0 不冷却 |
 | `checkin_low_balance_threshold` | `0` | 签到成功后，刷新所得余额低于该 USD 阈值时提醒；0 关闭低余额提醒 |
 
-仅定时签到触发通知。单账号手动签到和手动全量签到的结果仍通过页面与执行日志查看。失败通知在日志保存后发送；低余额通知只使用本次成功刷新并保存的余额，不使用过期余额。
+通知只在签到结果写入日志后发送，跳过的任务不通知。成功结果可包含奖励和本次刷新所得的余额。低余额提醒只使用本次成功刷新并保存的余额，不使用过期余额；触发低余额提醒时只发送这一条提醒，不再重复发送成功通知。自定义 HTTP 签到同样支持结果通知，但不读取旧余额触发提醒。
 
-接收端支持两个事件：`site_checkin_failed` 和 `site_checkin_low_balance`。例如：
+Webhook 接收端支持 `site_checkin_failed`、`site_checkin_low_balance` 和 `site_checkin_success` 三个事件。原有字段保持兼容，并新增标题、等级、触发来源和可选奖励。例如：
 
 ```json
 {
   "event": "site_checkin_failed",
+  "level": "error",
+  "title": "签到失败",
+  "source": "scheduled",
   "log_id": "1790507233018",
   "site_id": 1,
   "account_id": 11,
@@ -60,9 +80,32 @@
 }
 ```
 
-低余额事件额外包含 `balance` 和 `threshold`，`reason` 为 `low_balance`。消息复用执行日志中的脱敏文本，不发送凭据、站点 URL、自定义请求头或上游原始响应。接收端应返回 2xx；发送端不跟随重定向。
+低余额事件额外包含 `balance` 和 `threshold`，`reason` 为 `low_balance`、`level` 为 `warning`。成功事件的 `level` 为 `info`，`reason` 为 `checked_in` 或 `already_checked_in`，有奖励时包含 `reward`。所有渠道复用执行日志中的脱敏文本，不发送签到凭据、站点 URL、自定义请求头或上游原始响应。
 
-通知异步发送，每次最多等待 10 秒，最多同时发送 4 条，总待发送数量上限为 128。队列已满时丢弃新通知并记录服务日志。发送失败不会改变签到结果，也不会占用冷却期；后续定时执行仍出现异常时可以再次发送。冷却状态保存在当前进程内，重启会清空，多个服务实例独立计时，最多保留 10000 个未过期的通知键。
+Webhook 接收端应返回 2xx；Bark、Server酱和 Telegram 还会检查业务响应是否成功。所有 HTTP 渠道均不跟随重定向，发送失败日志和测试接口不会返回通知渠道的凭据或原始响应。
+
+统一渠道配置示例（按需保留字段，空字段不启用对应渠道）：
+
+```json
+{
+  "webhook_url": "https://example.com/notify",
+  "bark_url": "https://api.day.app/device-key",
+  "serverchan_key": "SCT...",
+  "telegram_bot_token": "123456:bot-token",
+  "telegram_chat_id": "-1001234567890",
+  "smtp_host": "smtp.example.com",
+  "smtp_port": 587,
+  "smtp_tls": "starttls",
+  "smtp_user": "sender@example.com",
+  "smtp_password": "app-password",
+  "smtp_from": "Octopus <sender@example.com>",
+  "smtp_to": "admin@example.com"
+}
+```
+
+通知按渠道异步发送，每次最多等待 10 秒（包括 SMTP 会话），最多同时发送 4 条，总待发送数量上限为 128。队列已满时丢弃新通知并记录服务日志。发送失败不会改变签到结果，也不会占用该渠道的冷却期；后续符合通知条件的签到可以再次发送，已成功的其他渠道仍保持冷却。更换渠道地址或凭据只重置该渠道的冷却。冷却状态保存在当前进程内，重启会清空，多个服务实例独立计时，最多保留 10000 个未过期的通知键。
+
+渠道配置和通知开关沿用现有设置接口与备份，无需新增数据库表。`POST /api/v1/setting/notification/test` 需要管理员认证，请求为 `{"channel":"webhook","config":{"webhook_url":"https://example.com/notify"}}`；每次只测试指定渠道。
 
 ## 统计接口
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/bestruirui/octopus/internal/clientip"
+	"github.com/bestruirui/octopus/internal/notify"
 )
 
 type SettingKey string
@@ -55,7 +56,10 @@ const (
 	SettingKeyWebDAVBackupInterval             SettingKey = "webdav_backup_interval"               // WebDAV 自动备份间隔(小时)，0=禁用
 	SettingKeyWebDAVRetentionCount             SettingKey = "webdav_retention_count"               // WebDAV 保留备份份数
 	SettingKeyWebDAVIncludeStats               SettingKey = "webdav_include_stats"                 // WebDAV 备份是否包含统计数据
-	SettingKeyCheckinNotifyEnabled             SettingKey = "checkin_notify_enabled"               // 是否发送定时签到异常通知
+	SettingKeyNotificationChannels             SettingKey = "notification_channels"                // 统一通知渠道配置，JSON
+	SettingKeyCheckinNotifyEnabled             SettingKey = "checkin_notify_enabled"               // 是否发送签到结果通知
+	SettingKeyCheckinNotifySuccessEnabled      SettingKey = "checkin_notify_success_enabled"       // 是否包含成功和已签到结果
+	SettingKeyCheckinNotifyManualEnabled       SettingKey = "checkin_notify_manual_enabled"        // 是否包含手动签到结果
 	SettingKeyCheckinNotifyWebhookURL          SettingKey = "checkin_notify_webhook_url"           // 签到异常通知 Webhook
 	SettingKeyCheckinNotifyCooldownSeconds     SettingKey = "checkin_notify_cooldown_seconds"      // 同一账号/原因通知冷却时间（秒）
 	SettingKeyCheckinLowBalanceThreshold       SettingKey = "checkin_low_balance_threshold"        // 低余额通知阈值，0 表示关闭
@@ -110,7 +114,10 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyWebDAVBackupInterval, Value: "0"},             // 默认禁用自动备份
 		{Key: SettingKeyWebDAVRetentionCount, Value: "10"},            // 默认保留10份
 		{Key: SettingKeyWebDAVIncludeStats, Value: "true"},            // 默认包含统计数据
-		{Key: SettingKeyCheckinNotifyEnabled, Value: "false"},         // 默认关闭签到异常通知
+		{Key: SettingKeyNotificationChannels, Value: ""},              // 未配置时兼容旧签到 Webhook
+		{Key: SettingKeyCheckinNotifyEnabled, Value: "false"},         // 默认关闭签到结果通知
+		{Key: SettingKeyCheckinNotifySuccessEnabled, Value: "false"},  // 默认仅通知异常
+		{Key: SettingKeyCheckinNotifyManualEnabled, Value: "false"},   // 默认仅通知定时签到
 		{Key: SettingKeyCheckinNotifyWebhookURL, Value: ""},           // 默认不发送通知
 		{Key: SettingKeyCheckinNotifyCooldownSeconds, Value: "3600"},  // 默认同一账号/原因冷却1小时
 		{Key: SettingKeyCheckinLowBalanceThreshold, Value: "0"},       // 默认关闭低余额通知
@@ -179,7 +186,7 @@ func (s *Setting) Validate() error {
 			return fmt.Errorf("setting value must be non-negative")
 		}
 		return nil
-	case SettingKeyRelayLogKeepEnabled, SettingKeyResponsesWSEnabled, SettingKeyWebDAVIncludeStats, SettingKeyChannelAffinityEnabled, SettingKeyEmptyResponseDetectionEnabled, SettingKeyCheckinNotifyEnabled:
+	case SettingKeyRelayLogKeepEnabled, SettingKeyResponsesWSEnabled, SettingKeyWebDAVIncludeStats, SettingKeyChannelAffinityEnabled, SettingKeyEmptyResponseDetectionEnabled, SettingKeyCheckinNotifyEnabled, SettingKeyCheckinNotifySuccessEnabled, SettingKeyCheckinNotifyManualEnabled:
 		if s.Value != "true" && s.Value != "false" {
 			return fmt.Errorf("setting value must be true or false")
 		}
@@ -260,6 +267,9 @@ func (s *Setting) Validate() error {
 			return fmt.Errorf("WebDAV URL must have a host")
 		}
 		return nil
+	case SettingKeyNotificationChannels:
+		_, err := notify.ParseConfig(s.Value)
+		return err
 	case SettingKeyCheckinNotifyWebhookURL:
 		s.Value = strings.TrimSpace(s.Value)
 		if s.Value == "" {
