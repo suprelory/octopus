@@ -65,7 +65,13 @@ export function SiteEditDialog({ open, onOpenChange, site, onCreated, allTags, k
                                 <span className="font-medium">关联订阅站（可选）</span>
                                 <Select
                                     value={siteForm.linked_site_id?.toString() ?? 'none'}
-                                    onValueChange={(value) => setSiteForm((current) => ({ ...current, linked_site_id: value === 'none' ? null : Number(value) }))}
+                                    onValueChange={(value) => setSiteForm((current) => {
+                                        const linked = linkedSites.find((item) => item.id === Number(value));
+                                        const previous = linkedSites.find((item) => item.id === current.linked_site_id);
+                                        const canFillAddress = !current.base_url.trim() || current.base_url === previous?.base_url || current.base_url === site?.base_url;
+                                        return { ...current, linked_site_id: linked?.id ?? null,
+                                            ...(!current.checkin_http_enabled && linked && canFillAddress ? { platform: linked.platform, base_url: linked.base_url } : {}) };
+                                    })}
                                 >
                                     <SelectTrigger className="w-full rounded-xl" aria-label="关联订阅站"><SelectValue /></SelectTrigger>
                                     <SelectContent>
@@ -74,7 +80,7 @@ export function SiteEditDialog({ open, onOpenChange, site, onCreated, allTags, k
                                         {siteForm.linked_site_id && !linkedSites.some((item) => item.id === siteForm.linked_site_id) ? <SelectItem value={String(siteForm.linked_site_id)}>订阅站 #{siteForm.linked_site_id}（已归档）</SelectItem> : null}
                                     </SelectContent>
                                 </Select>
-                                <p className="text-xs text-muted-foreground">仅用于标记奖励对应的订阅站。签到使用本站的地址和账号凭据。</p>
+                                <p className="text-xs text-muted-foreground">平台签到从关联订阅站选择账号，并使用相同的平台和地址。自定义 HTTP 签到使用签到站 Cookie，关联仅标记奖励对应的订阅站。</p>
                             </div>
                             <SiteCheckinFields siteForm={siteForm} setSiteForm={setSiteForm} />
                         </> : null}

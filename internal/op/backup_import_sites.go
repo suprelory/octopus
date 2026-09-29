@@ -90,6 +90,7 @@ func (s *dbImportState) importAccounts() error {
 	siteIDMap := s.siteIDs
 	accountIDMap := s.accountIDs
 	pendingSources := make(map[int]int)
+	pendingLinkedAccounts := make(map[int]int)
 	// 5. SiteAccounts (remap site_id, dedup by site_id+name)
 	for i := range dump.SiteAccounts {
 		account := dump.SiteAccounts[i]
@@ -97,6 +98,8 @@ func (s *dbImportState) importAccounts() error {
 		account.ID = 0
 		sourceAccountID := account.CheckinSourceAccountID
 		account.CheckinSourceAccountID = nil
+		linkedAccountID := account.LinkedAccountID
+		account.LinkedAccountID = nil
 		account.Tokens = nil
 		account.UserGroups = nil
 		account.Models = nil
@@ -133,12 +136,22 @@ func (s *dbImportState) importAccounts() error {
 		if site.IsCheckinOnly() && sourceAccountID != nil {
 			pendingSources[account.ID] = *sourceAccountID
 		}
+		if site.IsCheckinOnly() && linkedAccountID != nil {
+			pendingLinkedAccounts[account.ID] = *linkedAccountID
+		}
 		res.RowsAffected["site_accounts"]++
 	}
 	for accountID, oldSourceID := range pendingSources {
 		if sourceID, ok := accountIDMap[oldSourceID]; ok && sourceID != accountID {
 			if err := tx.Model(&model.SiteAccount{}).Where("id = ?", accountID).Update("checkin_source_account_id", sourceID).Error; err != nil {
 				return fmt.Errorf("import check-in account references: %w", err)
+			}
+		}
+	}
+	for accountID, oldLinkedID := range pendingLinkedAccounts {
+		if linkedID, ok := accountIDMap[oldLinkedID]; ok && linkedID != accountID {
+			if err := tx.Model(&model.SiteAccount{}).Where("id = ?", accountID).Update("linked_account_id", linkedID).Error; err != nil {
+				return fmt.Errorf("import linked checkin accounts: %w", err)
 			}
 		}
 	}

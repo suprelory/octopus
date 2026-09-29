@@ -83,8 +83,8 @@ func normalizeSiteProxyFields(site *model.Site) {
 	}
 }
 
-// A check-in site may point at the subscription site it rewards. The link is
-// informational, so it must reference a relay site and never another check-in site.
+// Platform check-ins can use accounts from the linked subscription site;
+// custom HTTP check-ins only use the link to identify the reward destination.
 func validateLinkedSite(site *model.Site, ctx context.Context) error {
 	if site.LinkedSiteID == nil {
 		return nil
@@ -407,6 +407,9 @@ func SiteDel(id int, ctx context.Context) error {
 		}
 		affectedAccountIDs = accountIDs
 		if len(accountIDs) > 0 {
+			if err := unlinkCheckinAccounts(tx, accountIDs); err != nil {
+				return err
+			}
 			if err := tx.Model(&model.SiteAccount{}).Where("checkin_source_account_id IN ?", accountIDs).Update("checkin_source_account_id", nil).Error; err != nil {
 				return err
 			}

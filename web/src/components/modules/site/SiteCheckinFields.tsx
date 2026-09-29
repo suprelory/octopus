@@ -54,7 +54,7 @@ export function SiteCheckinFields({ siteForm, setSiteForm }: SiteFormFieldsProps
                 <div className="flex items-center justify-between gap-4">
                     <div className="min-w-0">
                         <div className="text-sm font-medium">自定义 HTTP 签到</div>
-                        <p className="text-xs text-muted-foreground">使用账号凭据向站点发送签到请求，启用后覆盖平台内置签到端点。</p>
+                        <p className="text-xs text-muted-foreground">使用签到账号中单独填写的 Cookie 发送请求，启用后覆盖平台内置签到端点。</p>
                     </div>
                     <Switch
                         aria-label="启用自定义 HTTP 签到"
@@ -111,7 +111,7 @@ export function SiteCheckinFields({ siteForm, setSiteForm }: SiteFormFieldsProps
                                 <textarea
                                     value={siteForm.checkin_http_body}
                                     onChange={(event) => setSiteForm((current) => ({ ...current, checkin_http_body: event.target.value }))}
-                                    placeholder={'可选，例如：{"token":"{{access_token}}"}\n支持 {{access_token}}、{{api_key}}、{{username}}、{{password}}、{{refresh_token}}、{{platform_user_id}} 占位符'}
+                                    placeholder={'可选，例如：{"action":"checkin"}\n支持 {{cookie}}、{{username}} 占位符；Cookie 请求头会自动发送'}
                                     rows={4}
                                     className="w-full min-w-0 resize-y rounded-xl border border-input bg-background px-3 py-2 font-mono text-xs"
                                 />

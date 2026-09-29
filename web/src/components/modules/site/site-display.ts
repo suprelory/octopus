@@ -17,6 +17,8 @@ export const PLATFORM_LABELS: Record<SitePlatform, string> = {
 };
 
 export const CREDENTIAL_LABELS: Record<SiteCredentialType, string> = {
+  [SiteCredentialType.Cookie]: "签到站 Cookie",
+  [SiteCredentialType.LinkedAccount]: "订阅站账号",
   [SiteCredentialType.UsernamePassword]: "用户名 / 密码",
   [SiteCredentialType.AccessToken]: "Access Token",
   [SiteCredentialType.APIKey]: "API Key",

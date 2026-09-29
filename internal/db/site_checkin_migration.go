@@ -24,7 +24,7 @@ func SeparateLegacySiteCheckins(database *gorm.DB) error {
 			return fmt.Errorf("load legacy check-in sites: %w", err)
 		}
 		if len(sources) == 0 {
-			return nil
+			return migrateSiteCheckinCredentials(tx)
 		}
 		var historySiteIDs []int
 		if err := tx.Model(&model.SiteCheckinLog{}).Distinct("site_id").Pluck("site_id", &historySiteIDs).Error; err != nil {
@@ -45,7 +45,7 @@ func SeparateLegacySiteCheckins(database *gorm.DB) error {
 				return fmt.Errorf("migrate check-in config for site %d: %w", source.ID, err)
 			}
 		}
-		return nil
+		return migrateSiteCheckinCredentials(tx)
 	})
 }
 

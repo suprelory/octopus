@@ -13,6 +13,7 @@ import (
 	"github.com/bestruirui/octopus/internal/apperror"
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/utils/snowflake"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -88,7 +89,32 @@ func runAccountCheckin(ctx context.Context, accountID int, trigger SiteBatchTrig
 		}
 	}
 
-	result, accessToken, runErr := checkinAccountState(ctx, siteRecord, account)
+	executionAccount := account
+	var runErr error
+	if !siteRecord.CheckinHTTPEnabled && (siteRecord.LinkedSiteID != nil || account.LinkedAccountID != nil || account.CredentialType == model.SiteCredentialTypeLinkedAccount) {
+		executionAccount, runErr = op.SiteCheckinLinkedAccount(siteRecord, account, ctx)
+		if runErr == nil {
+			// Keep the subscription account ID for credential/user-ID updates,
+			// while using the check-in account's independently selected proxy.
+			executionAccount.ProxyMode, executionAccount.ProxyConfigID = account.ProxyMode, account.ProxyConfigID
+		}
+	}
+	var result *model.SiteCheckinResult
+	var accessToken string
+	if runErr == nil {
+		originalToken := executionAccount.AccessToken
+		result, accessToken, runErr = checkinAccountState(ctx, siteRecord, executionAccount)
+		if executionAccount != account && accessToken != "" && accessToken != originalToken {
+			persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			saveErr := db.GetDB().WithContext(persistCtx).Model(&model.SiteAccount{}).
+				Where("id = ? AND access_token = ?", executionAccount.ID, originalToken).
+				Update("access_token", accessToken).Error
+			cancel()
+			if runErr == nil && saveErr != nil {
+				runErr = fmt.Errorf("save linked account token: %w", saveErr)
+			}
+		}
+	}
 	if runErr != nil {
 		result = &model.SiteCheckinResult{
 			Status:  model.SiteExecutionStatusFailed,
@@ -104,21 +130,48 @@ func runAccountCheckin(ctx context.Context, accountID int, trigger SiteBatchTrig
 	} else if result.Status == model.SiteExecutionStatusSkipped && result.Reason == "" {
 		result.Reason = model.SiteCheckinReasonUnsupported
 	}
+	if executionAccount != nil && executionAccount != account {
+		result.Message = sanitizeCheckinText(result.Message, executionAccount, accessToken, siteRecord)
+		result.Reward = sanitizeCheckinText(result.Reward, executionAccount, accessToken, siteRecord)
+	}
 	result, err = persistCheckinOutcome(ctx, siteRecord, account, trigger, started, result, accessToken, true)
 	if err != nil {
 		return nil, sanitizeSiteError(err)
 	}
 	var balance siteBalanceFetchResult
-	if result.Status == model.SiteExecutionStatusSuccess {
-		balance = refreshAccountBalanceAfterCheckin(ctx, siteRecord, account, accessToken)
+	if result.Status == model.SiteExecutionStatusSuccess && !siteRecord.CheckinHTTPEnabled {
+		balanceSite := *siteRecord
+		balanceSite.ID = executionAccount.SiteID
+		balance = refreshAccountBalanceAfterCheckin(ctx, &balanceSite, executionAccount, accessToken)
+		if executionAccount != account && balance.ok {
+			// Display the refreshed subscription balance on the check-in account too.
+			updates := map[string]any{"balance": balance.balance}
+			if balance.usedKnown {
+				updates["balance_used"] = balance.balanceUsed
+			}
+			if balance.incomeKnown {
+				updates["today_income"] = balance.todayIncome
+			}
+			_ = db.GetDB().WithContext(ctx).Model(&model.SiteAccount{}).Where("id = ?", account.ID).Updates(updates).Error
+		}
 	}
 	if trigger == SiteBatchTriggerScheduled {
 		checkinNotifications.notify(siteRecord, account, result, balance)
 	}
 	if runErr != nil {
 		safeErr := sanitizeSiteError(runErr)
+		params := apperror.Params(safeErr)
+		for key, value := range params {
+			if text, ok := value.(string); ok {
+				text = sanitizeCheckinText(text, account, accessToken, siteRecord)
+				if executionAccount != nil {
+					text = sanitizeCheckinText(text, executionAccount, accessToken, siteRecord)
+				}
+				params[key] = text
+			}
+		}
 		return result, apperror.Wrap(apperror.Code(safeErr), result.Message, safeErr).
-			WithStatus(apperror.Status(safeErr)).WithParams(apperror.Params(safeErr))
+			WithStatus(apperror.Status(safeErr)).WithParams(params)
 	}
 	return result, nil
 }
@@ -239,7 +292,7 @@ func persistCheckinOutcome(ctx context.Context, siteRecord *model.Site, account 
 }
 
 func sanitizeCheckinText(value string, account *model.SiteAccount, resolvedToken string, sites ...*model.Site) string {
-	secrets := []string{account.Username, account.Password, account.AccessToken, account.APIKey, account.RefreshToken, resolvedToken}
+	secrets := []string{account.Username, account.Password, account.AccessToken, account.APIKey, account.RefreshToken, account.Cookie, resolvedToken}
 	for _, site := range sites {
 		if site == nil {
 			continue

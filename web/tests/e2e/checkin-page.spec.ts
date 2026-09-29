@@ -70,6 +70,8 @@ test('creating a checkin site submits an independent URL and opens its account f
     await dialog.getByLabel('签到站点地址', { exact: true }).fill('https://rewards.example');
     await dialog.getByRole('combobox').first().click();
     await page.getByRole('option', { name: 'New API', exact: true }).click();
+    await dialog.getByRole('switch', { name: '启用自定义 HTTP 签到', exact: true }).check();
+    await dialog.getByLabel('请求路径', { exact: true }).fill('/daily');
     await dialog.getByRole('combobox', { name: '关联订阅站', exact: true }).click();
     await page.getByRole('option', { name: 'Subscription', exact: true }).click();
     await dialog.getByRole('button', { name: '创建站点', exact: true }).click();

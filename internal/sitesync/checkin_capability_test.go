@@ -115,6 +115,9 @@ func TestInstanceCheckinPolicyAndCustomHTTPAdapters(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if tc.custom {
+				setCheckinTestCookie(t, ctx, account.ID)
+			}
 			result, err := checkinAccountWithTrigger(ctx, account.ID, SiteBatchTriggerManual)
 			if err != nil || result == nil {
 				t.Fatalf("unexpected error: %+v, %v", result, err)
@@ -187,6 +190,9 @@ func TestCheckinCapabilityEvidenceRequiresConclusiveResponse(t *testing.T) {
 			_, err := op.SiteUpdate(&model.SiteUpdateRequest{ID: site.ID, Platform: &platform, CheckinHTTPEnabled: &tc.custom, CheckinHTTPPath: &path}, ctx)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if tc.custom {
+				setCheckinTestCookie(t, ctx, account.ID)
 			}
 			result, _ := CheckinAccount(ctx, account.ID)
 			if result == nil || result.Capability == nil || result.Capability.Support != tc.want {

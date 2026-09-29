@@ -14,6 +14,8 @@ export enum SiteCredentialType {
   UsernamePassword = "username_password",
   AccessToken = "access_token",
   APIKey = "api_key",
+  Cookie = "cookie",
+  LinkedAccount = "linked_account",
 }
 
 export type CustomHeader = {
@@ -84,6 +86,8 @@ export type SiteAccount = {
   access_token: string;
   api_key: string;
   refresh_token: string;
+  cookie?: string;
+  linked_account_id?: number | null;
   token_expires_at: number;
   platform_user_id?: number | null;
   proxy_mode: ProxyMode;

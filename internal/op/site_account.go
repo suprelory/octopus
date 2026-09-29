@@ -51,11 +51,14 @@ func SiteAccountCreate(account *model.SiteAccount, ctx context.Context) error {
 		return err
 	}
 	account.CheckinSourceAccountID = nil
-	isCheckin, err := siteIsCheckinOnly(account.SiteID, ctx)
-	if err != nil {
+	var site model.Site
+	if err := db.GetDB().WithContext(ctx).First(&site, account.SiteID).Error; err != nil {
+		return fmt.Errorf("load account site: %w", err)
+	}
+	if err := validateSiteAccountCredentials(&site, account, ctx); err != nil {
 		return err
 	}
-	if isCheckin {
+	if site.IsCheckinOnly() {
 		account.AutoSync, account.AutoSyncSet = false, true
 	} else {
 		account.AutoCheckin, account.AutoCheckinSet = false, true
@@ -112,14 +115,11 @@ func SiteAccountUpdate(req *model.SiteAccountUpdateRequest, ctx context.Context)
 	merged := account
 	var selectFields []string
 	updates := model.SiteAccount{ID: req.ID}
-	var isCheckin bool
-	if req.AutoSync != nil || req.AutoCheckin != nil {
-		var err error
-		isCheckin, err = siteIsCheckinOnly(account.SiteID, ctx)
-		if err != nil {
-			return nil, err
-		}
+	var site model.Site
+	if err := db.GetDB().WithContext(ctx).First(&site, account.SiteID).Error; err != nil {
+		return nil, fmt.Errorf("load account site: %w", err)
 	}
+	isCheckin := site.IsCheckinOnly()
 
 	if req.Name != nil {
 		merged.Name = *req.Name
@@ -148,6 +148,14 @@ func SiteAccountUpdate(req *model.SiteAccountUpdateRequest, ctx context.Context)
 	if req.RefreshToken != nil {
 		merged.RefreshToken = *req.RefreshToken
 		selectFields = append(selectFields, "refresh_token")
+	}
+	if req.Cookie != nil {
+		merged.Cookie = *req.Cookie
+		selectFields = append(selectFields, "cookie")
+	}
+	if req.LinkedAccountIDSet {
+		merged.LinkedAccountID = req.LinkedAccountID
+		selectFields = append(selectFields, "linked_account_id")
 	}
 	if req.TokenExpiresAt != nil {
 		merged.TokenExpiresAt = *req.TokenExpiresAt
@@ -198,6 +206,9 @@ func SiteAccountUpdate(req *model.SiteAccountUpdateRequest, ctx context.Context)
 		if err := merged.Validate(); err != nil {
 			return nil, err
 		}
+		if err := validateSiteAccountCredentials(&site, &merged, ctx); err != nil {
+			return nil, err
+		}
 		if merged.ProxyMode == model.ProxyUsageModePool && merged.ProxyConfigID != nil {
 			if _, err := ProxyURLForConfig(*merged.ProxyConfigID, ctx); err != nil {
 				return nil, err
@@ -224,6 +235,12 @@ func SiteAccountUpdate(req *model.SiteAccountUpdateRequest, ctx context.Context)
 	}
 	if req.RefreshToken != nil {
 		updates.RefreshToken = merged.RefreshToken
+	}
+	if req.Cookie != nil {
+		updates.Cookie = merged.Cookie
+	}
+	if req.LinkedAccountIDSet {
+		updates.LinkedAccountID = merged.LinkedAccountID
 	}
 	if req.TokenExpiresAt != nil {
 		updates.TokenExpiresAt = merged.TokenExpiresAt
@@ -274,6 +291,9 @@ func SiteAccountEnabled(id int, enabled bool, ctx context.Context) error {
 
 func SiteAccountDel(id int, ctx context.Context) error {
 	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := unlinkCheckinAccounts(tx, []int{id}); err != nil {
+			return err
+		}
 		if err := tx.Model(&model.SiteAccount{}).Where("checkin_source_account_id = ?", id).Update("checkin_source_account_id", nil).Error; err != nil {
 			return err
 		}

@@ -108,6 +108,9 @@ func initializeSchema(db *gorm.DB) error {
 	if err := ensureSiteKindColumns(db); err != nil {
 		return err
 	}
+	if err := ensureSiteCheckinCredentialColumns(db); err != nil {
+		return err
+	}
 	if err := ensureSiteNameScope(db); err != nil {
 		return err
 	}

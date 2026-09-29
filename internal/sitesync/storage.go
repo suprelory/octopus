@@ -216,7 +216,7 @@ func updateAccountCheckinState(tx *gorm.DB, siteRecord *model.Site, account *mod
 		account.NextAutoCheckinAt = nextAt
 		updatePayload["next_auto_checkin_at"] = nextAt
 	}
-	if strings.TrimSpace(accessToken) != "" {
+	if !siteRecord.CheckinHTTPEnabled && account.LinkedAccountID == nil && account.CredentialType != model.SiteCredentialTypeLinkedAccount && strings.TrimSpace(accessToken) != "" {
 		updatePayload["access_token"] = strings.TrimSpace(accessToken)
 	}
 	return tx.Model(&model.SiteAccount{}).Where("id = ?", account.ID).Updates(updatePayload).Error

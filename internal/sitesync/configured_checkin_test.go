@@ -19,6 +19,9 @@ func TestConfiguredHTTPCheckinUsesAccountAuthPathHeadersAndBody(t *testing.T) {
 		if got := r.Header.Get("Cookie"); got != `session=token"slash\` {
 			t.Errorf("cookie = %q", got)
 		}
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Errorf("external checkin sent platform authorization: %q", got)
+		}
 		if got := r.Header.Get("X-Checkin-User"); got != `Alice "A"` {
 			t.Errorf("custom header = %q", got)
 		}
@@ -46,19 +49,20 @@ func TestConfiguredHTTPCheckinUsesAccountAuthPathHeadersAndBody(t *testing.T) {
 		CheckinHTTPEnabled: true,
 		CheckinHTTPMethod:  "POST",
 		CheckinHTTPPath:    "/api/checkin?day=today",
-		CheckinHTTPBody:    `{"token":"{{access_token}}","username":"{{username}}"}`,
-		CheckinHTTPHeaders: []model.CustomHeader{{HeaderKey: "X-Checkin-User", HeaderValue: "{{username}}"}},
+		CheckinHTTPBody:    `{"token":"{{cookie}}","username":"{{username}}"}`,
+		CheckinHTTPHeaders: []model.CustomHeader{{HeaderKey: "X-Checkin-User", HeaderValue: "{{username}}"}, {HeaderKey: "Cookie", HeaderValue: "obsolete=shared-cookie"}},
 	}
 	account := &model.SiteAccount{
-		CredentialType: model.SiteCredentialTypeAccessToken,
-		AccessToken:    `session=token"slash\`,
+		CredentialType: model.SiteCredentialTypeCookie,
+		Cookie:         `session=token"slash\`,
+		AccessToken:    "stale-platform-token",
 		Username:       `Alice "A"`,
 	}
 	result, token, err := checkinAccountState(context.Background(), site, account)
 	if err != nil {
 		t.Fatalf("configured checkin failed: %v", err)
 	}
-	if token != account.AccessToken || result.Status != model.SiteExecutionStatusSuccess || result.Reward != "8 points" {
+	if token != "" || result.Status != model.SiteExecutionStatusSuccess || result.Reward != "8 points" {
 		t.Fatalf("unexpected result/token: result=%+v token=%q", result, token)
 	}
 }
@@ -79,7 +83,7 @@ func TestConfiguredHTTPCheckinInterpretsAlreadyCheckedInAndFailures(t *testing.T
 	}))
 	defer server.Close()
 
-	account := &model.SiteAccount{CredentialType: model.SiteCredentialTypeAccessToken, AccessToken: "bearer-token"}
+	account := &model.SiteAccount{CredentialType: model.SiteCredentialTypeCookie, Cookie: "session=cookie-value"}
 	for _, test := range []struct {
 		path        string
 		wantStatus  model.SiteExecutionStatus

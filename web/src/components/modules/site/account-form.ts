@@ -11,6 +11,8 @@ export type SiteAccountFormState = {
     access_token: string;
     api_key: string;
     refresh_token: string;
+    cookie: string;
+    linked_account_id: number | null;
     token_expires_at: string;
     platform_user_id: string;
     proxy_mode: ProxyMode;
@@ -46,12 +48,16 @@ export function createEmptyAccountForm(site: SiteRecord): SiteAccountFormState {
     return {
         site_id: site.id,
         name: '',
-        credential_type: defaultCredentialType(),
+        credential_type: site.kind === 'checkin'
+            ? (site.checkin_http_enabled ? SiteCredentialType.Cookie : SiteCredentialType.LinkedAccount)
+            : defaultCredentialType(),
         username: '',
         password: '',
         access_token: '',
         api_key: '',
         refresh_token: '',
+        cookie: '',
+        linked_account_id: null,
         token_expires_at: '',
         platform_user_id: '',
         proxy_mode: 'inherit',
@@ -75,6 +81,8 @@ export function createAccountForm(account: SiteAccount): SiteAccountFormState {
         access_token: account.access_token,
         api_key: account.api_key,
         refresh_token: account.refresh_token ?? '',
+        cookie: account.cookie ?? '',
+        linked_account_id: account.linked_account_id ?? null,
         token_expires_at:
             account.token_expires_at > 0 ? String(account.token_expires_at) : '',
         platform_user_id: account.platform_user_id

@@ -11,6 +11,7 @@ import {
     SitePlatform,
     useCreateSiteAccount,
     useUpdateSiteAccount,
+    useSiteList,
 } from '@/api/endpoints/site';
 import { translateSiteMessage } from './site-message';
 import {
@@ -32,17 +33,32 @@ export function useAccountForm({ site, account, onOpenChange }: {
     const locale = useSettingStore((state) => state.locale);
     const createSiteAccount = useCreateSiteAccount();
     const updateSiteAccount = useUpdateSiteAccount();
+    const { data: sites } = useSiteList();
     const [accountForm, setAccountForm] = useState<SiteAccountFormState | null>(() => {
-        if (account) return createAccountForm(account);
+        if (account) {
+            const form = createAccountForm(account);
+            if (site?.kind === 'checkin') {
+                if (site.checkin_http_enabled) form.credential_type = SiteCredentialType.Cookie;
+                else if (site.linked_site_id || account.linked_account_id || account.credential_type === SiteCredentialType.LinkedAccount) form.credential_type = SiteCredentialType.LinkedAccount;
+            }
+            return form;
+        }
         if (site) return createEmptyAccountForm(site);
         return null;
     });
 
     const currentPlatform = site?.platform ?? SitePlatform.NewAPI;
     const currentCredentialOptions = useMemo(
-        () => credentialOptions(currentPlatform),
-        [currentPlatform],
+        () => site?.kind === 'checkin'
+            ? site.checkin_http_enabled ? [SiteCredentialType.Cookie]
+                : site.linked_site_id || !account || account.credential_type === SiteCredentialType.LinkedAccount
+                    ? [SiteCredentialType.LinkedAccount]
+                    : credentialOptions(currentPlatform).filter((type) => type !== SiteCredentialType.APIKey)
+            : credentialOptions(currentPlatform),
+        [currentPlatform, site, account],
     );
+    const linkedAccounts = useMemo(() => (sites?.find((item) => item.id === site?.linked_site_id)?.accounts ?? [])
+        .filter((item) => item.credential_type === SiteCredentialType.AccessToken || item.credential_type === SiteCredentialType.UsernamePassword), [sites, site?.linked_site_id]);
 
     const handleSubmit = useCallback(
         async (event: FormEvent<HTMLFormElement>) => {
@@ -53,6 +69,19 @@ export function useAccountForm({ site, account, onOpenChange }: {
             }
             if (!accountForm.name.trim()) {
                 toast.error('请输入账号名称');
+                return;
+            }
+
+            if (accountForm.credential_type === SiteCredentialType.Cookie) {
+                const cookie = accountForm.cookie.trim();
+                if (!cookie || /[\r\n\0]/.test(cookie) || new TextEncoder().encode(cookie).length > 16 * 1024) {
+                    toast.error('请输入签到站的 Cookie，须为不超过 16 KiB 的单行内容');
+                    return;
+                }
+            }
+            if (accountForm.credential_type === SiteCredentialType.LinkedAccount &&
+                (!site.linked_site_id || !linkedAccounts.some((item) => item.id === accountForm.linked_account_id))) {
+                toast.error('请先关联订阅站，再选择用于平台签到的订阅账号');
                 return;
             }
 
@@ -153,6 +182,8 @@ export function useAccountForm({ site, account, onOpenChange }: {
                 access_token: trimmedAccessToken,
                 api_key: trimmedAPIKey,
                 refresh_token: isAccessToken ? accountForm.refresh_token.trim() : '',
+                cookie: accountForm.credential_type === SiteCredentialType.Cookie ? accountForm.cookie.trim() : '',
+                linked_account_id: accountForm.credential_type === SiteCredentialType.LinkedAccount ? accountForm.linked_account_id : null,
                 token_expires_at: isAccessToken ? parsedTokenExpiresAt : 0,
                 platform_user_id: shouldIncludePlatformUserID ? parsedPlatformUserID : null,
                 proxy_mode: accountForm.proxy_mode,
@@ -190,6 +221,7 @@ export function useAccountForm({ site, account, onOpenChange }: {
             account,
             accountForm,
             currentPlatform,
+            linkedAccounts,
             tProxy,
             updateSiteAccount,
             createSiteAccount,
@@ -200,5 +232,5 @@ export function useAccountForm({ site, account, onOpenChange }: {
     );
 
     const isPending = createSiteAccount.isPending || updateSiteAccount.isPending;
-    return { accountForm, setAccountForm, currentPlatform, currentCredentialOptions, handleSubmit, isPending };
+    return { accountForm, setAccountForm, currentPlatform, currentCredentialOptions, linkedAccounts, handleSubmit, isPending };
 }

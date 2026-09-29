@@ -106,11 +106,11 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
             expect(state.pageErrors).toEqual([]);
         });
 
-        test('account credential changes and scheduling fields produce one consistent payload', async ({ page }, testInfo) => {
+        test('cookie credentials and scheduling fields produce one consistent payload', async ({ page }, testInfo) => {
             let finishSave!: () => void;
             const pendingSave = new Promise<void>(resolve => { finishSave = resolve; });
             const state = await mockApp(page, 'checkin', {
-                sites: [makeCheckinSite()],
+                sites: [{ ...makeCheckinSite(), checkin_http_enabled: true, checkin_http_path: '/daily' }],
                 mutate: async request => {
                     expect(request.method).toBe('POST');
                     expect(request.path).toBe('/api/v1/site/account/create');
@@ -122,11 +122,7 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
             await page.getByRole('button', { name: '新增账号', exact: true }).click();
             const dialog = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: '新增站点账号' }) });
             await dialog.getByLabel('账号名称', { exact: true }).fill('  Primary account  ');
-            await dialog.getByPlaceholder('请输入 Access Token', { exact: true }).fill('old-token');
-            await dialog.getByPlaceholder('例如 11494', { exact: true }).fill('42');
-            await dialog.getByRole('combobox').first().click();
-            await page.getByRole('option', { name: 'API Key', exact: true }).click();
-            await dialog.getByPlaceholder('请输入 API Key', { exact: true }).fill('  new-api-key  ');
+            await dialog.getByLabel('签到站 Cookie', { exact: true }).fill('  session=checkin-cookie  ');
             await expect(dialog.getByPlaceholder('请输入 Access Token', { exact: true })).not.toBeVisible();
             await expect(dialog.getByRole('switch', { name: '自动同步', exact: true })).toHaveCount(0);
             await dialog.getByRole('switch', { name: '随机签到', exact: true }).check();
@@ -145,8 +141,8 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
             await expect(dialog).not.toBeVisible();
             expect(state.mutations).toEqual([{
                 method: 'POST', path: '/api/v1/site/account/create', body: {
-                    site_id: 1, name: 'Primary account', credential_type: 'api_key',
-                    username: '', password: '', access_token: '', api_key: 'new-api-key',
+                    site_id: 1, name: 'Primary account', credential_type: 'cookie',
+                    username: '', password: '', access_token: '', api_key: '', cookie: 'session=checkin-cookie', linked_account_id: null,
                     refresh_token: '', token_expires_at: 0, platform_user_id: null,
                     proxy_mode: 'inherit', proxy_config_id: null, enabled: true,
                     auto_sync: false, auto_checkin: true, random_checkin: true,

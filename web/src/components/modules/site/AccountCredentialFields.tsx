@@ -4,7 +4,7 @@ import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from '
 import { AnimatePresence, motion } from 'motion/react';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { SiteCredentialType, SitePlatform } from '@/api/endpoints/site';
+import { SiteCredentialType, SitePlatform, type SiteAccount } from '@/api/endpoints/site';
 import type { AccountFormFieldsProps } from './account-form';
 import { FORM_SECTION_TRANSITION } from './form-motion';
 
@@ -12,6 +12,8 @@ const CREDENTIAL_LABELS: Record<SiteCredentialType, string> = {
     [SiteCredentialType.UsernamePassword]: '用户名 / 密码',
     [SiteCredentialType.AccessToken]: 'Access Token',
     [SiteCredentialType.APIKey]: 'API Key',
+    [SiteCredentialType.Cookie]: '签到站 Cookie',
+    [SiteCredentialType.LinkedAccount]: '订阅站账号',
 };
 
 function AnimatedFormSection({ children }: { children: ReactNode }) {
@@ -51,9 +53,10 @@ function AnimatedFormSection({ children }: { children: ReactNode }) {
     );
 }
 
-export function AccountCredentialFields({ accountForm, setAccountForm, currentPlatform, currentCredentialOptions }: AccountFormFieldsProps & {
+export function AccountCredentialFields({ accountForm, setAccountForm, currentPlatform, currentCredentialOptions, linkedAccounts = [] }: AccountFormFieldsProps & {
     currentPlatform: SitePlatform;
     currentCredentialOptions: SiteCredentialType[];
+    linkedAccounts?: SiteAccount[];
 }) {
     return (
         <>
@@ -118,7 +121,28 @@ export function AccountCredentialFields({ accountForm, setAccountForm, currentPl
 
             <AnimatedFormSection>
                 <AnimatePresence initial={false} mode="popLayout">
-                    {accountForm.credential_type === SiteCredentialType.UsernamePassword ? (
+                    {accountForm.credential_type === SiteCredentialType.Cookie ? (
+                        <div key="cookie" className="grid gap-2 text-sm">
+                            <label htmlFor="checkin-cookie" className="font-medium">签到站 Cookie</label>
+                            <Input id="checkin-cookie" type="password" autoComplete="off" value={accountForm.cookie}
+                                onChange={(event) => setAccountForm((current) => current ? { ...current, cookie: event.target.value } : current)}
+                                placeholder="session=...; token=..." className="rounded-xl" required />
+                            <p className="text-xs text-muted-foreground">从签到站登录后的浏览器请求中复制完整 Cookie。自定义 HTTP 签到仅使用此 Cookie，无需订阅站 Access Token。</p>
+                        </div>
+                    ) : accountForm.credential_type === SiteCredentialType.LinkedAccount ? (
+                        <div key="linked-account" className="grid gap-2 text-sm">
+                            <label htmlFor="checkin-linked-account" className="font-medium">订阅站账号</label>
+                            <Select value={accountForm.linked_account_id?.toString() ?? ''}
+                                onValueChange={(value) => setAccountForm((current) => current ? { ...current, linked_account_id: Number(value) } : current)}>
+                                <SelectTrigger id="checkin-linked-account" className="w-full rounded-xl"><SelectValue placeholder="选择订阅站账号" /></SelectTrigger>
+                                <SelectContent>
+                                    {linkedAccounts.map((item) => <SelectItem key={item.id} value={String(item.id)}>{item.name}</SelectItem>)}
+                                </SelectContent>
+                            </Select>
+                            <p className="text-xs text-muted-foreground">平台签到使用此订阅账号的最新 Access Token、用户 ID 或登录凭据。</p>
+                            {linkedAccounts.length === 0 ? <p className="text-xs text-amber-600">请先在签到站点设置中关联订阅站，并为订阅站添加 Access Token 或用户名 / 密码账号。</p> : null}
+                        </div>
+                    ) : accountForm.credential_type === SiteCredentialType.UsernamePassword ? (
                         <motion.div
                             key={SiteCredentialType.UsernamePassword}
                             initial={{ opacity: 0, y: -6 }}

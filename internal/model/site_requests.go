@@ -61,6 +61,9 @@ type SiteAccountUpdateRequest struct {
 	AccessToken                *string             `json:"access_token,omitempty"`
 	APIKey                     *string             `json:"api_key,omitempty"`
 	RefreshToken               *string             `json:"refresh_token,omitempty"`
+	Cookie                     *string             `json:"cookie,omitempty"`
+	LinkedAccountID            *int                `json:"linked_account_id,omitempty"`
+	LinkedAccountIDSet         bool                `json:"-"`
 	TokenExpiresAt             *int64              `json:"token_expires_at,omitempty"`
 	PlatformUserID             *int                `json:"platform_user_id,omitempty"`
 	PlatformUserIDSet          bool                `json:"-"`
@@ -88,6 +91,7 @@ func (r *SiteAccountUpdateRequest) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	_, r.PlatformUserIDSet = raw["platform_user_id"]
+	_, r.LinkedAccountIDSet = raw["linked_account_id"]
 	_, r.ProxyConfigIDSet = raw["proxy_config_id"]
 	return nil
 }

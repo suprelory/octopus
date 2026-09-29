@@ -106,7 +106,8 @@ func (s *Site) CheckinConfigFingerprint() string {
 		Headers, CustomHeaders []CustomHeader
 		ProxyMode              ProxyUsageMode
 		ProxyID                *int
-	}{s.Platform, s.BaseURL, s.CheckinHTTPEnabled, s.CheckinHTTPMethod, s.CheckinHTTPPath, s.CheckinHTTPBody, s.CheckinHTTPHeaders, s.CustomHeader, s.ProxyMode, s.ProxyConfigID}
+		LinkedSiteID           *int `json:",omitempty"`
+	}{s.Platform, s.BaseURL, s.CheckinHTTPEnabled, s.CheckinHTTPMethod, s.CheckinHTTPPath, s.CheckinHTTPBody, s.CheckinHTTPHeaders, s.CustomHeader, s.ProxyMode, s.ProxyConfigID, s.LinkedSiteID}
 	payload, _ := json.Marshal(config)
 	digest := sha256.Sum256(payload)
 	return hex.EncodeToString(digest[:])

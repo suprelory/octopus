@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 
 	"github.com/bestruirui/octopus/internal/model"
@@ -18,9 +17,11 @@ import (
 const siteCheckinResponseLimit = 1 << 20
 
 func checkinConfiguredHTTP(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount) (*model.SiteCheckinResult, string, error) {
-	token, err := resolveCheckinHTTPAccessToken(ctx, siteRecord, account)
-	if err != nil {
-		return nil, token, err
+	// External check-ins have their own browser session. Never resolve a
+	// platform token (or log in) for this request.
+	const token = ""
+	if err := model.ValidateSiteCheckinCookie(account.Cookie); err != nil {
+		return nil, "", err
 	}
 
 	method := strings.ToUpper(strings.TrimSpace(siteRecord.CheckinHTTPMethod))
@@ -67,10 +68,9 @@ func checkinConfiguredHTTP(ctx context.Context, siteRecord *model.Site, account 
 			req.Header.Set(key, header.HeaderValue)
 		}
 	}
-	applyCheckinHTTPAuth(req, siteRecord, account, token)
 	for _, header := range siteRecord.CheckinHTTPHeaders {
 		key := strings.TrimSpace(header.HeaderKey)
-		if key != "" {
+		if key != "" && !strings.EqualFold(key, "Cookie") {
 			value := expandCheckinHTTPTemplate(header.HeaderValue, account, token)
 			if len(value) > 8192 || strings.ContainsAny(value, "\r\n\x00") {
 				return nil, token, fmt.Errorf("configured checkin header %q is invalid after credential substitution", key)
@@ -78,6 +78,8 @@ func checkinConfiguredHTTP(ctx context.Context, siteRecord *model.Site, account 
 			req.Header.Set(key, value)
 		}
 	}
+	// The account cookie takes precedence over legacy shared Cookie headers.
+	req.Header.Set("Cookie", strings.TrimSpace(account.Cookie))
 	resp, err := checkinHTTPClient(httpClient).Do(req)
 	if err != nil {
 		return nil, token, err
@@ -135,43 +137,6 @@ func checkinConfiguredHTTP(ctx context.Context, siteRecord *model.Site, account 
 	return result, token, nil
 }
 
-func resolveCheckinHTTPAccessToken(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount) (string, error) {
-	if account.CredentialType == model.SiteCredentialTypeAPIKey {
-		token := resolveDirectToken(account)
-		if token == "" {
-			return "", newDirectTokenRequiredError()
-		}
-		return token, nil
-	}
-	if siteRecord.Platform == model.SitePlatformAnyRouter {
-		return resolveAnyRouterManagedAccessToken(ctx, siteRecord, account)
-	}
-	if account.CredentialType == model.SiteCredentialTypeUsernamePassword {
-		return resolveManagedAccessToken(ctx, siteRecord, account)
-	}
-	token := resolveDirectToken(account)
-	if strings.TrimSpace(token) == "" {
-		return "", newAccessTokenRequiredError()
-	}
-	return token, nil
-}
-
-func applyCheckinHTTPAuth(req *http.Request, siteRecord *model.Site, account *model.SiteAccount, token string) {
-	if req == nil || strings.TrimSpace(token) == "" {
-		return
-	}
-	if account.CredentialType != model.SiteCredentialTypeAPIKey && looksLikeCookieToken(token) {
-		req.Header.Set("Cookie", token)
-	} else {
-		req.Header.Set("Authorization", ensureBearer(token))
-	}
-	if siteRecord.Platform == model.SitePlatformAnyRouter {
-		for key, value := range managedUserIDHeaders(firstManagedPlatformUserID(account)) {
-			req.Header.Set(key, value)
-		}
-	}
-}
-
 func expandCheckinHTTPTemplate(value string, account *model.SiteAccount, resolvedToken string) string {
 	return strings.NewReplacer(checkinHTTPTemplateReplacements(account, resolvedToken)...).Replace(value)
 }
@@ -185,18 +150,17 @@ func expandCheckinHTTPBodyTemplate(value string, account *model.SiteAccount, res
 	return strings.NewReplacer(replacements...).Replace(value)
 }
 
-func checkinHTTPTemplateReplacements(account *model.SiteAccount, resolvedToken string) []string {
-	platformUserID := ""
-	if account.PlatformUserID != nil {
-		platformUserID = strconv.Itoa(*account.PlatformUserID)
-	}
+func checkinHTTPTemplateReplacements(account *model.SiteAccount, _ string) []string {
 	return []string{
-		"{{access_token}}", firstNonEmptyString(resolvedToken, account.AccessToken),
-		"{{api_key}}", account.APIKey,
+		"{{cookie}}", account.Cookie,
+		// Retired platform credential placeholders must not disclose stale
+		// credentials retained in a migrated external check-in account.
+		"{{access_token}}", "",
+		"{{api_key}}", "",
 		"{{username}}", account.Username,
-		"{{password}}", account.Password,
-		"{{refresh_token}}", account.RefreshToken,
-		"{{platform_user_id}}", platformUserID,
+		"{{password}}", "",
+		"{{refresh_token}}", "",
+		"{{platform_user_id}}", "",
 	}
 }
 

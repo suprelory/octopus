@@ -22,7 +22,7 @@ func TestIndependentCheckinUsesOwnCredentialsAndURL(t *testing.T) {
 	defer relayServer.Close()
 	checkinServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/user/checkin" {
-			if r.Header.Get("Authorization") != "Bearer checkin-secret-value" {
+			if r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != "session=checkin-cookie-value" {
 				t.Errorf("checkin used another account's credential")
 			}
 			checkinRequests.Add(1)
@@ -46,9 +46,11 @@ func TestIndependentCheckinUsesOwnCredentialsAndURL(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkin, account := createCheckinFixture(t, ctx, checkinServer.URL)
-	if _, err := op.SiteUpdate(&model.SiteUpdateRequest{ID: checkin.ID, LinkedSiteID: &relay.ID, LinkedSiteIDSet: true}, ctx); err != nil {
+	custom, path := true, "/api/user/checkin"
+	if _, err := op.SiteUpdate(&model.SiteUpdateRequest{ID: checkin.ID, LinkedSiteID: &relay.ID, LinkedSiteIDSet: true, CheckinHTTPEnabled: &custom, CheckinHTTPPath: &path}, ctx); err != nil {
 		t.Fatal(err)
 	}
+	setCheckinTestCookie(t, ctx, account.ID)
 	if relayAccount.AutoCheckin || account.AutoSync {
 		t.Fatal("account creation enabled automation for the other site kind")
 	}

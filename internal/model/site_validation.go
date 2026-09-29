@@ -75,7 +75,7 @@ func (p SitePlatform) Validate() error {
 
 func (t SiteCredentialType) Validate() error {
 	switch t {
-	case SiteCredentialTypeUsernamePassword, SiteCredentialTypeAccessToken, SiteCredentialTypeAPIKey:
+	case SiteCredentialTypeUsernamePassword, SiteCredentialTypeAccessToken, SiteCredentialTypeAPIKey, SiteCredentialTypeCookie, SiteCredentialTypeLinkedAccount:
 		return nil
 	default:
 		return fmt.Errorf("unsupported site credential type: %s", t)
@@ -305,6 +305,7 @@ func (a *SiteAccount) Normalize() {
 	a.AccessToken = strings.TrimSpace(a.AccessToken)
 	a.APIKey = strings.TrimSpace(a.APIKey)
 	a.RefreshToken = strings.TrimSpace(a.RefreshToken)
+	a.Cookie = strings.TrimSpace(a.Cookie)
 	if a.TokenExpiresAt < 0 {
 		a.TokenExpiresAt = 0
 	}
@@ -379,6 +380,24 @@ func (a *SiteAccount) Validate() error {
 		if a.APIKey == "" {
 			return fmt.Errorf("api key is required")
 		}
+	case SiteCredentialTypeCookie:
+		if err := ValidateSiteCheckinCookie(a.Cookie); err != nil {
+			return err
+		}
+	case SiteCredentialTypeLinkedAccount:
+		if a.LinkedAccountID == nil || *a.LinkedAccountID <= 0 {
+			return fmt.Errorf("select a subscription account for platform checkin")
+		}
+	}
+	return nil
+}
+
+func ValidateSiteCheckinCookie(cookie string) error {
+	if strings.TrimSpace(cookie) == "" {
+		return fmt.Errorf("checkin site cookie is required")
+	}
+	if len(cookie) > 16<<10 || strings.ContainsAny(cookie, "\r\n\x00") {
+		return fmt.Errorf("checkin site cookie must be a single header value of at most 16 KiB")
 	}
 	return nil
 }
