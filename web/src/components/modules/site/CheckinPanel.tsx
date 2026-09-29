@@ -156,7 +156,7 @@ export function CheckinPanel({
   const manualCheckinUrls = useMemo(
     () =>
       (sites ?? [])
-        .filter((s) => s.external_checkin_url?.trim())
+        .filter((s) => !s.checkin_http_enabled && s.external_checkin_url?.trim())
         .map((s) => s.external_checkin_url!.trim()),
     [sites],
   );
