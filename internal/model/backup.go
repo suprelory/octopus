@@ -2,6 +2,16 @@ package model
 
 import "time"
 
+// StatsModel is retained only for legacy backup compatibility. Current relay
+// statistics do not use it, and new databases do not create its table unless
+// a backup containing these historical records is restored.
+type StatsModel struct {
+	ID        int    `json:"id" gorm:"primaryKey"`
+	Name      string `json:"name" gorm:"not null"`
+	ChannelID int    `json:"channel_id" gorm:"not null"`
+	StatsMetrics
+}
+
 // DBDump is a full-database JSON export format for Octopus.
 // Import uses incremental semantics (insert new rows, and upsert on certain key-based tables).
 type DBDump struct {

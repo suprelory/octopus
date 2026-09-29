@@ -91,7 +91,11 @@ func DBExportZip(ctx context.Context, w io.Writer, includeLogs, includeStats boo
 		if err := writeZipTable(ctx, zw, conn, "stats_hourly.json", &[]model.StatsHourly{}); err != nil {
 			return err
 		}
-		if err := writeZipTable(ctx, zw, conn, "stats_model.json", &[]model.StatsModel{}); err != nil {
+		legacyStats, err := loadLegacyStatsModels(conn)
+		if err != nil {
+			return fmt.Errorf("zip read stats_model: %w", err)
+		}
+		if err := writeZipJSON(zw, "stats_model.json", legacyStats); err != nil {
 			return err
 		}
 		if err := writeZipTable(ctx, zw, conn, "stats_channel.json", &[]model.StatsChannel{}); err != nil {

@@ -259,18 +259,6 @@ func firstUnsupportedResponsesToolType(tools []ResponsesTool) string {
 	return ""
 }
 
-func firstUnsupportedResponsesInputType(input *ResponsesInput) string {
-	if input == nil || len(input.Items) == 0 {
-		return ""
-	}
-	for _, item := range input.Items {
-		if unsupported := firstUnsupportedResponsesTopLevelItemType(&item); unsupported != "" {
-			return unsupported
-		}
-	}
-	return ""
-}
-
 func firstUnsupportedResponsesTopLevelItemType(item *ResponsesItem) string {
 	if item == nil {
 		return ""

@@ -73,9 +73,11 @@ func DBExportAll(ctx context.Context, includeLogs, includeStats bool) (*model.DB
 		if err := conn.Find(&d.StatsHourly).Error; err != nil {
 			return nil, fmt.Errorf("export stats_hourly: %w", err)
 		}
-		if err := conn.Find(&d.StatsModel).Error; err != nil {
+		legacyStats, err := loadLegacyStatsModels(conn)
+		if err != nil {
 			return nil, fmt.Errorf("export stats_model: %w", err)
 		}
+		d.StatsModel = legacyStats
 		if err := conn.Find(&d.StatsChannel).Error; err != nil {
 			return nil, fmt.Errorf("export stats_channel: %w", err)
 		}

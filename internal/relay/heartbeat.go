@@ -188,11 +188,6 @@ func (h *earlyHeartbeat) FlushOrError(c *gin.Context, statusCode int, message st
 	resp.Error(c, statusCode, message)
 }
 
-type streamHeartbeatWriter interface {
-	Write([]byte) (int, error)
-	Flush()
-}
-
 func streamHeartbeatInterval() time.Duration {
 	interval, err := op.SettingGetInt(dbmodel.SettingKeySSEHeartbeatInterval)
 	if err != nil || interval <= 0 {
@@ -208,12 +203,4 @@ func newStreamHeartbeatTicker() (*time.Ticker, <-chan time.Time) {
 	}
 	ticker := time.NewTicker(interval)
 	return ticker, ticker.C
-}
-
-func writeSSEHeartbeat(writer streamHeartbeatWriter) error {
-	if _, err := writer.Write([]byte(":\n\n")); err != nil {
-		return err
-	}
-	writer.Flush()
-	return nil
 }

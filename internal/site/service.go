@@ -53,10 +53,6 @@ func CheckinAll(ctx context.Context) {
 	sitesync.CheckinAll(ctx)
 }
 
-func CheckinAllWithOptions(ctx context.Context, opts sitesync.SiteBatchOptions) sitesync.SiteBatchSummary {
-	return sitesync.CheckinAllWithOptions(ctx, opts)
-}
-
 func StartCheckinBatch(ctx context.Context) (*model.SiteCheckinBatchJob, error) {
 	return sitesync.StartCheckinBatch(ctx)
 }

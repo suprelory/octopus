@@ -63,19 +63,6 @@ func NewStreamFinalizer(policies ...StreamTerminalPolicy) *StreamFinalizer {
 	}
 }
 
-// SetTerminalPolicy updates the policy before the first event is processed.
-// It keeps lazy relay construction compatible with the historical constructor.
-func (f *StreamFinalizer) SetTerminalPolicy(policy StreamTerminalPolicy) {
-	if f == nil || f.sequence != 0 || f.finalized {
-		return
-	}
-	f.policy = policy.normalized()
-}
-
-func (f *StreamFinalizer) TerminalSeen() bool {
-	return f != nil && f.terminalSeen
-}
-
 func (f *StreamFinalizer) FinishCause() StreamFinishCause {
 	if f == nil {
 		return StreamFinishCauseSourceError

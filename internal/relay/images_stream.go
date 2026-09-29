@@ -1,11 +1,9 @@
 package relay
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -59,25 +57,6 @@ func proxySSE(ctx context.Context, c *gin.Context, respUp *http.Response, firstT
 		err = context.Cause(ctx)
 	}
 	return scanner.Usage(), committed, err
-}
-
-func readLineLimited(br *bufio.Reader, limit int) ([]byte, error) {
-	var out []byte
-	for {
-		part, err := br.ReadSlice('\n')
-		out = append(out, part...)
-		if len(out) > limit {
-			return nil, fmt.Errorf("sse line exceeds limit %d bytes", limit)
-		}
-		if err == nil {
-			return out, nil
-		}
-		if errors.Is(err, bufio.ErrBufferFull) {
-			continue
-		}
-		// 允许返回已读部分 + err（调用方按 err 处理）
-		return out, err
-	}
 }
 
 type usageScanner struct {

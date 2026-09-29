@@ -199,7 +199,7 @@ func TestStreamProcessor_PrecommitWaitsForMeaningfulPayload(t *testing.T) {
 		Transform: func(_ context.Context, data []byte) ([]byte, error) {
 			return append(append([]byte("data: "), data...), []byte("\n\n")...), nil
 		},
-		PrecommitPredicate: IsMeaningfulPayload,
+		PrecommitPredicate: isMeaningfulPayload,
 		OnFirstToken:       func() { firstTokenCalls++ },
 	})
 
@@ -223,7 +223,7 @@ func TestStreamProcessor_PrecommitRejectsMetadataOnlyStream(t *testing.T) {
 		Transform: func(_ context.Context, data []byte) ([]byte, error) {
 			return append(append([]byte("data: "), data...), []byte("\n\n")...), nil
 		},
-		PrecommitPredicate: IsMeaningfulPayload,
+		PrecommitPredicate: isMeaningfulPayload,
 	})
 
 	err := processor.Run()
@@ -269,7 +269,7 @@ func TestStreamProcessor_AllowEmptyPayloadFlushesMetadataOnlyStream(t *testing.T
 		Transform: func(_ context.Context, data []byte) ([]byte, error) {
 			return append(append([]byte("data: "), data...), []byte("\n\n")...), nil
 		},
-		PrecommitPredicate: IsMeaningfulPayload,
+		PrecommitPredicate: isMeaningfulPayload,
 		AllowEmptyPayload:  true,
 	})
 
@@ -315,7 +315,7 @@ func TestStreamProcessor_AllowEmptyPayloadStillRejectsSilentStream(t *testing.T)
 		Writer:             writer,
 		Context:            context.Background(),
 		Transform:          func(context.Context, []byte) ([]byte, error) { return nil, nil },
-		PrecommitPredicate: IsMeaningfulPayload,
+		PrecommitPredicate: isMeaningfulPayload,
 		AllowEmptyPayload:  true,
 	})
 

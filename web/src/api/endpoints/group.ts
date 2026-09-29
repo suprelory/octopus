@@ -196,10 +196,6 @@ export interface GroupAutoGroupConfigUpdateRequest {
     run_now?: boolean;
 }
 
-export interface GroupAutoGroupRunRequest {
-    channel_ids?: number[];
-}
-
 /**
  * 获取分组列表 Hook
  * 
@@ -403,49 +399,6 @@ export function useUpdateGroupAutoGroupConfig() {
         },
     });
 }
-
-export function useRunGroupAutoGroup() {
-    const queryClient = useQueryClient();
-
-    return useMutation({
-        mutationFn: async (data: GroupAutoGroupRunRequest = {}) =>
-            apiClient.post<null>('/api/v1/group/auto-group/run', data),
-        onSuccess: () => {
-            logger.log('自动分组执行成功');
-            invalidateAutoGroupRelated(queryClient);
-        },
-        onError: (error) => {
-            logger.error('自动分组执行失败:', error);
-        },
-    });
-}
-
-/**
- * 自动添加分组 item Hook
- *
- * 后端路由: POST /api/v1/group/auto-add-item
- * Body: { id: number }
- *
- * @example
- * const autoAdd = useAutoAddGroupItem();
- * autoAdd.mutate(1); // 为 groupId=1 自动添加匹配的 items
- */
-// export function useAutoAddGroupItem() {
-//     const queryClient = useQueryClient();
-
-//     return useMutation({
-//         mutationFn: async (groupId: number) => {
-//             return apiClient.post<null>(`/api/v1/group/auto-add-item`, { id: groupId });
-//         },
-//         onSuccess: () => {
-//             logger.log('自动添加分组 item 成功');
-//             queryClient.invalidateQueries({ queryKey: ['groups', 'list'] });
-//         },
-//         onError: (error) => {
-//             logger.error('自动添加分组 item 失败:', error);
-//         },
-//     });
-// }
 
 /**
  * 获取某个分组的预设列表

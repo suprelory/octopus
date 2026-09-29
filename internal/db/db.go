@@ -85,7 +85,6 @@ func initializeSchema(db *gorm.DB) error {
 		&model.StatsTotal{},
 		&model.StatsDaily{},
 		&model.StatsHourly{},
-		&model.StatsModel{},
 		&model.StatsChannel{},
 		&model.StatsAPIKey{},
 		&model.StatsSiteModelHourly{},

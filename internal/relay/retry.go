@@ -1,7 +1,6 @@
 package relay
 
 import (
-	"context"
 	"math/rand/v2"
 	"net/http"
 	"strconv"
@@ -104,26 +103,6 @@ func retryAfterHeaderValue(retryAt time.Time, now time.Time) string {
 		seconds = 1
 	}
 	return strconv.FormatInt(seconds, 10)
-}
-
-// waitBackoff 等待 delay 或 ctx 取消，返回 false 表示 ctx 已取消。
-//
-// 用 time.NewTimer + Stop 而不是 time.After：后者创建的 timer 在触发前不会被
-// 回收，而这里的退避最长可以到 60s，高并发重试下会持续积累。
-func waitBackoff(ctx context.Context, delay time.Duration) bool {
-	if delay <= 0 {
-		return ctx.Err() == nil
-	}
-
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-
-	select {
-	case <-ctx.Done():
-		return false
-	case <-timer.C:
-		return true
-	}
 }
 
 func (ra *relayAttempt) captureRetryAfter(header string) {

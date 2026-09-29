@@ -124,17 +124,6 @@ func anyRouterRequestJSONWithCookies(ctx context.Context, siteRecord *model.Site
 	return nil, cookieHeader, lastResponseErr
 }
 
-func anyRouterParseJSONObject(body []byte) (map[string]any, bool) {
-	if len(body) == 0 {
-		return map[string]any{}, true
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, false
-	}
-	return payload, true
-}
-
 func anyRouterFormatHTTPError(statusCode int, header http.Header, body string) error {
 	return formatSiteHTTPError(statusCode, header, []byte(body))
 }

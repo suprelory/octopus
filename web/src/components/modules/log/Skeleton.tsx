@@ -3,7 +3,7 @@
 import { cn } from '@/lib/utils';
 
 /** 日志卡片骨架屏：结构对齐 LogCard，避免首屏数据到达时布局跳动。 */
-export function LogCardSkeleton() {
+function LogCardSkeleton() {
     return (
         <div className="page-card">
             <div className="grid grid-cols-[auto_1fr] items-center gap-2.5 p-2.5 sm:gap-4 sm:p-4">

@@ -35,14 +35,6 @@ func SiteAccountGet(id int, ctx context.Context) (*model.SiteAccount, error) {
 	return &account, nil
 }
 
-func siteIsCheckinOnly(siteID int, ctx context.Context) (bool, error) {
-	var site model.Site
-	if err := db.GetDB().WithContext(ctx).Select("kind").First(&site, siteID).Error; err != nil {
-		return false, fmt.Errorf("load account site: %w", err)
-	}
-	return site.IsCheckinOnly(), nil
-}
-
 func SiteAccountCreate(account *model.SiteAccount, ctx context.Context) error {
 	if account == nil {
 		return fmt.Errorf("site account is nil")

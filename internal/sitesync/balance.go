@@ -105,11 +105,6 @@ func fetchSiteAccountBalanceResult(ctx context.Context, siteRecord *model.Site, 
 	}
 }
 
-func fetchManagementQuotaBalance(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int, quotaIsRemaining bool) (float64, float64, float64) {
-	result := fetchManagementQuotaBalanceResult(ctx, siteRecord, account, accessToken, userID, quotaIsRemaining)
-	return result.balance, result.balanceUsed, result.todayIncome
-}
-
 func fetchManagementQuotaBalanceResult(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int, quotaIsRemaining bool) siteBalanceFetchResult {
 	if strings.TrimSpace(accessToken) == "" {
 		return siteBalanceFetchResult{reason: "access_token_missing"}
@@ -378,16 +373,6 @@ func isValidUserSelfPayload(payload map[string]any, err error) bool {
 		return true
 	}
 	return false
-}
-
-func fetchSub2APIBalance(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string) (float64, float64) {
-	balance, used, _ := fetchSub2APIBalanceResult(ctx, siteRecord, account, accessToken)
-	return balance, used
-}
-
-func fetchSub2APIBalanceResult(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string) (float64, float64, bool) {
-	result := fetchSub2APIBalanceDetails(ctx, siteRecord, account, accessToken)
-	return result.balance, result.balanceUsed, result.ok
 }
 
 func fetchSub2APIBalanceDetails(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string) siteBalanceFetchResult {

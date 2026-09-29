@@ -62,7 +62,7 @@ func TestInitializeSchemaCreatesCurrentTablesAndPreservesExistingData(t *testing
 			t.Errorf("missing current table %s", table)
 		}
 	}
-	for _, table := range []string{"migration_records", "site_prices", "site_disabled_models"} {
+	for _, table := range []string{"migration_records", "site_prices", "site_disabled_models", "stats_models"} {
 		if gormDB.Migrator().HasTable(table) {
 			t.Errorf("obsolete table %s was created", table)
 		}
@@ -86,6 +86,15 @@ func TestInitializeSchemaCreatesCurrentTablesAndPreservesExistingData(t *testing
 	if err := gormDB.Create(&setting).Error; err != nil {
 		t.Fatal(err)
 	}
+	// Upgrades keep historical statistics available to the backup compatibility
+	// path, even though fresh installations no longer create this table.
+	if err := gormDB.Migrator().CreateTable(&model.StatsModel{}); err != nil {
+		t.Fatal(err)
+	}
+	legacyStats := model.StatsModel{ID: 1, Name: "legacy-model", ChannelID: 7, StatsMetrics: model.StatsMetrics{RequestSuccess: 42}}
+	if err := gormDB.Create(&legacyStats).Error; err != nil {
+		t.Fatal(err)
+	}
 	capture.reset()
 	if err := initializeSchema(gormDB); err != nil {
 		t.Fatalf("reinitialize schema: %v", err)
@@ -105,6 +114,10 @@ func TestInitializeSchemaCreatesCurrentTablesAndPreservesExistingData(t *testing
 	var savedSetting model.Setting
 	if err := gormDB.First(&savedSetting, "key = ?", setting.Key).Error; err != nil || savedSetting.Value != setting.Value {
 		t.Fatalf("existing setting changed: %+v, error=%v", savedSetting, err)
+	}
+	var savedLegacyStats model.StatsModel
+	if err := gormDB.First(&savedLegacyStats, legacyStats.ID).Error; err != nil || savedLegacyStats != legacyStats {
+		t.Fatalf("legacy statistics changed: %+v, error=%v", savedLegacyStats, err)
 	}
 }
 

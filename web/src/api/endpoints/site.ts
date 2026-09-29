@@ -92,17 +92,6 @@ export function useDetectSitePlatform() {
   });
 }
 
-export function useSiteAvailableModels(siteId: number | null) {
-  return useQuery({
-    queryKey: ["sites", "available-models", siteId],
-    queryFn: async () =>
-      apiClient.get<{ site_id: number; models: string[] }>(
-        `/api/v1/site/${siteId}/available-models`,
-      ),
-    enabled: siteId != null && siteId > 0,
-  });
-}
-
 export { SitePlatform, SiteCredentialType } from './site-types';
 export type {
   CustomHeader,
@@ -141,7 +130,6 @@ export {
 export {
   useSyncAllSites,
   useCheckinAllSites,
-  useSiteCheckinBatch,
   useLatestSiteCheckinBatch,
   useSiteLastSyncTime,
   useSiteLastCheckinTime,

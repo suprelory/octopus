@@ -43,11 +43,10 @@ func (s *dbImportState) importStats() error {
 			if !resolved.Exists {
 				continue
 			}
-			row.ID = 0
 			row.ChannelID = resolved.ID
 			filteredStatsModel = append(filteredStatsModel, row)
 		}
-		if n, err := createDoNothing(tx, filteredStatsModel); err != nil {
+		if n, err := importLegacyStatsModels(tx, filteredStatsModel); err != nil {
 			return fmt.Errorf("import stats_model: %w", err)
 		} else {
 			res.RowsAffected["stats_model"] = n

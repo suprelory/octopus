@@ -280,11 +280,6 @@ func normalizeWSUpstreamErrorCode(code any) string {
 	return openaiOutbound.NormalizeStreamErrorCode(code)
 }
 
-func isWSPassthroughTerminal(data []byte) bool {
-	observation, err := openaiOutbound.InspectResponseEvent(data, time.Now())
-	return err == nil && observation.Terminal
-}
-
 func (ra *relayAttempt) applyWSPassthroughStats(stats *wsPassthroughStats) {
 	if ra == nil || ra.metrics == nil || stats == nil {
 		return

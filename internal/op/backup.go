@@ -31,6 +31,13 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 	}
 
 	conn := db.GetDB().WithContext(ctx)
+	// MySQL DDL implicitly commits transactions, so prepare the optional legacy
+	// table before starting the transaction that restores backup data.
+	if dump.IncludeStats && len(dump.StatsModel) > 0 && !conn.Migrator().HasTable(&model.StatsModel{}) {
+		if err := conn.Migrator().CreateTable(&model.StatsModel{}); err != nil {
+			return nil, fmt.Errorf("prepare legacy stats_model import: %w", err)
+		}
+	}
 	res := &model.DBImportResult{RowsAffected: map[string]int64{}}
 
 	err := conn.Transaction(func(tx *gorm.DB) error {

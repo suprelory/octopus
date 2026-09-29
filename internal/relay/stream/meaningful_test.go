@@ -6,10 +6,9 @@ import (
 	"strings"
 )
 
-// IsMeaningfulPayload recognizes semantic content across the inbound formats
-// supported by relay. Metadata-only events (created/start/usage/done) remain
-// buffered so a failed upstream can still be retried safely.
-func IsMeaningfulPayload(_, transformed []byte) bool {
+// isMeaningfulPayload supplies a wire-format predicate for processor buffering
+// tests. Production relays derive semantic progress from canonical events.
+func isMeaningfulPayload(_, transformed []byte) bool {
 	trimmed := bytes.TrimSpace(transformed)
 	if len(trimmed) == 0 {
 		return false

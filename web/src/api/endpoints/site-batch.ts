@@ -51,18 +51,6 @@ export function useCheckinAllSites() {
   });
 }
 
-export function useSiteCheckinBatch(taskID: string | null) {
-  return useQuery({
-    queryKey: ["sites", "checkin-batch", taskID],
-    queryFn: () => apiClient.get<SiteCheckinBatchJob>(`/api/v1/site/checkin-batches/${taskID}`),
-    enabled: Boolean(taskID),
-    refetchInterval: (query) => {
-      const status = query.state.data?.status;
-      return taskID && (status === 'queued' || status === 'running') ? 1500 : false;
-    },
-  });
-}
-
 export function useLatestSiteCheckinBatch() {
   const queryClient = useQueryClient();
   return useQuery({

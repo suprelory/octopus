@@ -33,20 +33,3 @@ func validateWSResponseCreatePayload(payload []byte) error {
 func parseWSRetryDeadline(now time.Time, retryAfter, retryAt json.RawMessage) time.Time {
 	return openaiOutbound.ParseStreamRetryDeadline(now, retryAfter, retryAt)
 }
-
-func firstRetryDeadline(values ...time.Time) time.Time {
-	for _, value := range values {
-		if !value.IsZero() {
-			return value
-		}
-	}
-	return time.Time{}
-}
-
-func isWSStreamTerminalEvent(eventType string) bool {
-	return openaiOutbound.IsResponseTerminalEvent(eventType)
-}
-
-func isWSStreamErrorEvent(eventType string) bool {
-	return openaiOutbound.IsResponseErrorEvent(eventType)
-}

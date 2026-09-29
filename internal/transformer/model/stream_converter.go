@@ -99,7 +99,6 @@ func (c *CanonicalStreamConverter) Finalization() *StreamFinalization { return c
 func (c *CanonicalStreamConverter) Response() *InternalLLMResponse {
 	return c.finalizer.aggregator.Response()
 }
-func (c *CanonicalStreamConverter) TerminalSeen() bool             { return c.finalizer.TerminalSeen() }
 func (c *CanonicalStreamConverter) FinishCause() StreamFinishCause { return c.finalizer.FinishCause() }
 
 var _ StreamConverter = (*CanonicalStreamConverter)(nil)

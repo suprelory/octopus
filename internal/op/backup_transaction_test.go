@@ -81,6 +81,7 @@ func TestDBImportRollsBackEarlierStagesOnFailure(t *testing.T) {
 			dump.Settings = []model.Setting{{Key: preserved.Key, Value: "replaced"}}
 			dump.IncludeStats = true
 			dump.StatsTotal = []model.StatsTotal{{ID: 123, StatsMetrics: model.StatsMetrics{RequestSuccess: 7}}}
+			dump.StatsModel = []model.StatsModel{{ID: 123, ChannelID: 1, Name: "legacy-model", StatsMetrics: model.StatsMetrics{RequestSuccess: 7}}}
 			dump.IncludeLogs = true
 			dump.RelayLogs = []model.RelayLog{{ID: 123, Time: 123, Success: true}}
 
@@ -90,6 +91,10 @@ func TestDBImportRollsBackEarlierStagesOnFailure(t *testing.T) {
 			}
 			if result != nil {
 				t.Fatalf("failed import returned a success result: %+v", result)
+			}
+			var legacyCount int64
+			if err := conn.Model(&model.StatsModel{}).Count(&legacyCount).Error; err != nil || legacyCount != 0 {
+				t.Fatalf("failed import left legacy statistics: count=%d error=%v", legacyCount, err)
 			}
 			for i, row := range models {
 				var after int64
@@ -115,7 +120,7 @@ func TestDBImportRollsBackEarlierStagesOnFailure(t *testing.T) {
 			if err != nil {
 				t.Fatalf("retry import after rollback: %v", err)
 			}
-			for table, want := range map[string]int64{"sites": 1, "site_accounts": 3, "stats_total": 1, "relay_logs": 1} {
+			for table, want := range map[string]int64{"sites": 1, "site_accounts": 3, "stats_total": 1, "stats_model": 1, "relay_logs": 1} {
 				if got := result.RowsAffected[table]; got != want {
 					t.Errorf("retry imported %d %s rows, want %d", got, table, want)
 				}

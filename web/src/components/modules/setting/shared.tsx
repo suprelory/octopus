@@ -98,7 +98,7 @@ export function useSettingToggle(key: string) {
     return { enabled, toggle };
 }
 
-export function SettingHelpTip({ children }: { children: React.ReactNode }) {
+function SettingHelpTip({ children }: { children: React.ReactNode }) {
     return (
         <TooltipProvider>
             <Tooltip>
