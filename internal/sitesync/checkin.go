@@ -14,6 +14,7 @@ import (
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
+	"github.com/bestruirui/octopus/internal/utils/log"
 	"github.com/bestruirui/octopus/internal/utils/snowflake"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -43,7 +44,34 @@ func releaseAccountCheckin(accountID int) {
 }
 
 func CheckinAccount(ctx context.Context, accountID int) (*model.SiteCheckinResult, error) {
-	return runAccountCheckin(ctx, accountID, SiteBatchTriggerManual, true)
+	started := time.Now()
+	result, err := runAccountCheckin(ctx, accountID, SiteBatchTriggerManual, true)
+	status := model.SiteExecutionStatusFailed
+	reason, message := string(siteBatchReason(err)), sanitizeSiteStatusMessage(err)
+	if result != nil {
+		// Prefer the persisted outcome, which has already had account credentials redacted.
+		status, reason, message = result.Status, result.Reason, sanitizeSiteStatusText(result.Message)
+	}
+	fields := []any{
+		"trigger", string(SiteBatchTriggerManual),
+		"account_id", accountID,
+		"status", string(status),
+		"reason", reason,
+		"message", message,
+		"duration", time.Since(started).String(),
+	}
+	if result != nil {
+		fields = append(fields, "site_id", result.SiteID, "log_id", result.LogID)
+		if result.Reward != "" {
+			fields = append(fields, "reward", sanitizeSiteStatusText(result.Reward))
+		}
+	}
+	if err != nil || status == model.SiteExecutionStatusFailed {
+		log.Warnw("sitesync.checkin.manual", fields...)
+	} else {
+		log.Infow("sitesync.checkin.manual", fields...)
+	}
+	return result, err
 }
 
 func checkinAccountWithTrigger(ctx context.Context, accountID int, trigger SiteBatchTrigger) (*model.SiteCheckinResult, error) {
