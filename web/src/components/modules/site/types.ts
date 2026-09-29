@@ -11,7 +11,6 @@ export type SiteSummary = {
   balance: number;
   todayIncome: number;
   failedAccountCount: number;
-  partialAccountCount: number;
   disabledAccountCount: number;
   enabledAccountCount: number;
   healthLabel: string;

@@ -1,7 +1,7 @@
 import { SiteAccount, Site as SiteRecord } from "@/api/endpoints/site";
 import { accountHasCheckinEnabled, deriveCheckinStatus, siteHasCheckinEnabled } from "./checkin-status";
 import { normalizedStatus } from "./site-display";
-import { siteAccountHasActivePartialSync, siteAccountHasActiveSyncFailure } from "./sync-health";
+import { siteAccountHasActiveSyncFailure } from "./sync-health";
 import { SiteSummary, VisibleSite } from "./types";
 
 export function accountHasCheckinFailure(site: SiteRecord, account: SiteAccount) {
@@ -21,7 +21,6 @@ export function buildSiteSummary(site: SiteRecord): SiteSummary {
   let balance = 0;
   let todayIncome = 0;
   let failedAccountCount = 0;
-  let partialAccountCount = 0;
   let disabledAccountCount = 0;
   let enabledAccountCount = 0;
 
@@ -37,8 +36,6 @@ export function buildSiteSummary(site: SiteRecord): SiteSummary {
 
     if (accountHasHealthFailure(site, account)) {
       failedAccountCount += 1;
-    } else if (site.kind !== 'checkin' && siteAccountHasActivePartialSync(site, account)) {
-      partialAccountCount += 1;
     }
   }
 
@@ -51,7 +48,6 @@ export function buildSiteSummary(site: SiteRecord): SiteSummary {
       balance,
       todayIncome,
       failedAccountCount,
-      partialAccountCount,
       disabledAccountCount,
       enabledAccountCount,
       healthLabel: "站点停用",
@@ -68,31 +64,10 @@ export function buildSiteSummary(site: SiteRecord): SiteSummary {
       balance,
       todayIncome,
       failedAccountCount,
-      partialAccountCount,
       disabledAccountCount,
       enabledAccountCount,
       healthLabel: `${failedAccountCount} 异常`,
       healthTone: "danger",
-    };
-  }
-
-  // A partial sync is actionable, so it outranks the purely informational
-  // "some accounts are disabled" label; otherwise one disabled account hides
-  // the warning for every partially synced account on the site.
-  if (partialAccountCount > 0) {
-    return {
-      accountCount: site.accounts.length,
-      keyCount,
-      modelCount,
-      groupCount,
-      balance,
-      todayIncome,
-      failedAccountCount,
-      partialAccountCount,
-      disabledAccountCount,
-      enabledAccountCount,
-      healthLabel: `${partialAccountCount} 部分同步`,
-      healthTone: "warning",
     };
   }
 
@@ -105,7 +80,6 @@ export function buildSiteSummary(site: SiteRecord): SiteSummary {
       balance,
       todayIncome,
       failedAccountCount,
-      partialAccountCount,
       disabledAccountCount,
       enabledAccountCount,
       healthLabel: `${disabledAccountCount} 已停用`,
@@ -122,7 +96,6 @@ export function buildSiteSummary(site: SiteRecord): SiteSummary {
       balance,
       todayIncome,
       failedAccountCount,
-      partialAccountCount,
       disabledAccountCount,
       enabledAccountCount,
       healthLabel: "待配置",
@@ -147,7 +120,6 @@ export function buildSiteSummary(site: SiteRecord): SiteSummary {
     balance,
     todayIncome,
     failedAccountCount,
-    partialAccountCount,
     disabledAccountCount,
     enabledAccountCount,
     healthLabel: checkinInactive
