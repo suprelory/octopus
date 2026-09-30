@@ -505,7 +505,7 @@ func TestHandlerPassthroughsOpenAIResponsesRawTools(t *testing.T) {
 		}
 		capturedBody = append([]byte(nil), body...)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"resp_1","object":"response","created_at":1,"model":"gpt-4o","output":[],"status":"completed"}`))
+		_, _ = w.Write([]byte(`{"id":"resp_1","object":"response","created_at":1,"model":"gpt-4o","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}],"status":"completed"}`))
 	}))
 	defer server.Close()
 

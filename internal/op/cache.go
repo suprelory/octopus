@@ -9,6 +9,16 @@ import (
 )
 
 func InitCache() error {
+	return refreshCache(true)
+}
+
+// RefreshCacheAfterImport leaves live statistics and their pending writes
+// untouched when the backup only contains configuration.
+func RefreshCacheAfterImport(includeStats bool) error {
+	return refreshCache(includeStats)
+}
+
+func refreshCache(includeStats bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), conf.CacheInitTimeout())
 	defer cancel()
 	if err := settingRefreshCache(ctx); err != nil {
@@ -29,8 +39,10 @@ func InitCache() error {
 	if err := llmRefreshCache(ctx); err != nil {
 		return fmt.Errorf("llm refresh cache error: %v", err)
 	}
-	if err := statsRefreshCache(ctx); err != nil {
-		return fmt.Errorf("stats refresh cache error: %v", err)
+	if includeStats {
+		if err := statsRefreshCache(ctx); err != nil {
+			return fmt.Errorf("stats refresh cache error: %v", err)
+		}
 	}
 	return nil
 }

@@ -53,8 +53,10 @@ func ConvertToResponsesRequest(req *model.InternalLLMRequest) *ResponsesRequest 
 	// Convert text options
 	if req.ResponseFormat != nil {
 		format := &ResponsesTextFormat{
-			Type: req.ResponseFormat.Type,
-			Name: req.ResponseFormat.Name,
+			Strict:      req.ResponseFormat.Strict,
+			Description: req.ResponseFormat.Description,
+			Type:        req.ResponseFormat.Type,
+			Name:        req.ResponseFormat.Name,
 		}
 		// Prefer the parsed Schema so nested fields survive round-trips;
 		// fall back to RawSchema (passthrough) then the legacy JSONSchema

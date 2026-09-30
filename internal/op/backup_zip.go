@@ -71,6 +71,9 @@ func DBExportZip(ctx context.Context, w io.Writer, includeLogs, includeStats boo
 	if err := writeZipTable(ctx, zw, conn, "group_items.json", &[]model.GroupItem{}); err != nil {
 		return err
 	}
+	if err := writeZipTable(ctx, zw, conn, "group_presets.json", &[]model.GroupPreset{}); err != nil {
+		return err
+	}
 	if err := writeZipTable(ctx, zw, conn, "llm_infos.json", &[]model.LLMInfo{}); err != nil {
 		return err
 	}

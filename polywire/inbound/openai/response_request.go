@@ -158,8 +158,10 @@ func convertToInternalRequest(req *ResponsesRequest) (*model.InternalLLMRequest,
 	// Convert text format
 	if req.Text != nil && req.Text.Format != nil && req.Text.Format.Type != "" {
 		rf := &model.ResponseFormat{
-			Type: req.Text.Format.Type,
-			Name: req.Text.Format.Name,
+			Strict:      req.Text.Format.Strict,
+			Description: req.Text.Format.Description,
+			Type:        req.Text.Format.Type,
+			Name:        req.Text.Format.Name,
 		}
 		if len(req.Text.Format.Schema) > 0 {
 			rf.RawSchema = req.Text.Format.Schema

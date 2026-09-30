@@ -14,15 +14,15 @@ type taskEntry struct {
 	interval   time.Duration
 	fn         func()
 	runOnStart bool
-	ticker     *time.Ticker
 	stopCh     chan struct{}
-	updateCh   chan time.Duration
+	updateCh   chan struct{}
 	running    atomic.Bool
 }
 
 var (
-	tasks   = make(map[string]*taskEntry)
-	tasksMu sync.RWMutex
+	tasks        = make(map[string]*taskEntry)
+	tasksMu      sync.RWMutex
+	tasksStarted bool
 )
 
 // Register 注册一个定时任务
@@ -47,7 +47,11 @@ func Register(name string, interval time.Duration, runOnStart bool, fn func()) {
 		fn:         fn,
 		runOnStart: runOnStart,
 		stopCh:     make(chan struct{}),
-		updateCh:   make(chan time.Duration),
+		updateCh:   make(chan struct{}, 1),
+	}
+	if tasksStarted {
+		entry := tasks[name]
+		safe.Go("task-loop:"+name, func() { runTask(entry) })
 	}
 	log.Debugf("task %s registered with interval %v, runOnStart: %v", name, interval, runOnStart)
 }
@@ -56,61 +60,70 @@ func Register(name string, interval time.Duration, runOnStart bool, fn func()) {
 // 当 interval 为 0 时，删除任务
 func Update(name string, interval time.Duration) {
 	tasksMu.Lock()
+	defer tasksMu.Unlock()
 	entry, exists := tasks[name]
 	if !exists {
-		tasksMu.Unlock()
 		log.Warnf("task %s not found", name)
 		return
 	}
 
 	if interval <= 0 {
 		delete(tasks, name)
-		tasksMu.Unlock()
 		close(entry.stopCh)
 		log.Infof("task %s removed: interval is 0", name)
 		return
 	}
-	tasksMu.Unlock()
-
+	entry.interval = interval
 	select {
-	case entry.updateCh <- interval:
+	case entry.updateCh <- struct{}{}:
 		log.Infof("task %s interval updated to %v", name, interval)
 	default:
-		log.Warnf("task %s update channel full, skipping", name)
+		// A wakeup is already queued; the loop reads the latest interval.
 	}
 }
 
 // RUN 启动所有注册的任务
 func RUN() {
-	tasksMu.RLock()
+	startTasks()
+	// 阻塞主协程
+	select {}
+}
+
+func startTasks() {
+	tasksMu.Lock()
+	defer tasksMu.Unlock()
+	if tasksStarted {
+		return
+	}
+	tasksStarted = true
 	for _, entry := range tasks {
 		safe.Go("task-loop:"+entry.name, func() {
 			runTask(entry)
 		})
 	}
-	tasksMu.RUnlock()
-
-	// 阻塞主协程
-	select {}
 }
 
 func runTask(entry *taskEntry) {
+	tasksMu.RLock()
+	interval := entry.interval
+	tasksMu.RUnlock()
 	// 根据配置决定是否在启动时立即执行
 	if entry.runOnStart {
 		triggerTask(entry, "startup")
 	}
 
-	entry.ticker = time.NewTicker(entry.interval)
-	defer entry.ticker.Stop()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
 
 	for {
 		select {
-		case <-entry.ticker.C:
+		case <-ticker.C:
 			triggerTask(entry, "ticker")
-		case newInterval := <-entry.updateCh:
-			entry.ticker.Stop()
-			entry.interval = newInterval
-			entry.ticker = time.NewTicker(newInterval)
+		case <-entry.updateCh:
+			tasksMu.RLock()
+			interval = entry.interval
+			tasksMu.RUnlock()
+			ticker.Reset(interval)
 		case <-entry.stopCh:
 			return
 		}
@@ -120,6 +133,11 @@ func runTask(entry *taskEntry) {
 func triggerTask(entry *taskEntry, trigger string) {
 	if entry == nil {
 		return
+	}
+	select {
+	case <-entry.stopCh:
+		return
+	default:
 	}
 	if !entry.running.CompareAndSwap(false, true) {
 		log.Warnf("task %s skipped: previous run still in progress (trigger=%s)", entry.name, trigger)

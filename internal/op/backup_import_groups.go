@@ -23,6 +23,9 @@ func (s *dbImportState) importGroups() error {
 			return fmt.Errorf("import groups: invalid group mode: %d", g.Mode)
 		}
 		g.Items = nil
+		// Restore this only after preset IDs have been remapped. Older backups
+		// may contain a marker without the corresponding preset rows.
+		g.ActivePresetID = nil
 
 		var existing model.Group
 		if err := tx.Where("name = ?", g.Name).First(&existing).Error; err == nil {
@@ -35,6 +38,7 @@ func (s *dbImportState) importGroups() error {
 			return fmt.Errorf("import groups: %w", err)
 		}
 		groupIDMap[oldID] = g.ID
+		s.newGroupIDs[g.ID] = true
 		res.RowsAffected["groups"]++
 	}
 	return nil

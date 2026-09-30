@@ -54,6 +54,7 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 			state.importBindings,
 			state.importGroups,
 			state.importGroupItems,
+			state.importGroupPresets,
 			state.importModelPrices,
 			state.importAPIKeys,
 			state.importSettings,
@@ -94,6 +95,7 @@ type dbImportState struct {
 	accountIDs       map[int]int
 	userGroupIDs     map[int]int
 	groupIDs         map[int]int
+	newGroupIDs      map[int]bool
 	apiKeyIDs        map[int]int
 }
 
@@ -109,6 +111,7 @@ func newDBImportState(tx *gorm.DB, dump *model.DBDump, result *model.DBImportRes
 		accountIDs:       make(map[int]int),
 		userGroupIDs:     make(map[int]int),
 		groupIDs:         make(map[int]int),
+		newGroupIDs:      make(map[int]bool),
 		apiKeyIDs:        make(map[int]int),
 	}
 }

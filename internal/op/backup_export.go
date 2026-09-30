@@ -53,6 +53,9 @@ func DBExportAll(ctx context.Context, includeLogs, includeStats bool) (*model.DB
 	if err := conn.Find(&d.GroupItems).Error; err != nil {
 		return nil, fmt.Errorf("export group_items: %w", err)
 	}
+	if err := conn.Find(&d.GroupPresets).Error; err != nil {
+		return nil, fmt.Errorf("export group_presets: %w", err)
+	}
 	if err := conn.Find(&d.LLMInfos).Error; err != nil {
 		return nil, fmt.Errorf("export llm_infos: %w", err)
 	}

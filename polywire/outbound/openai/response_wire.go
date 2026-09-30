@@ -207,9 +207,11 @@ type ResponsesTextOptions struct {
 }
 
 type ResponsesTextFormat struct {
-	Type   string          `json:"type,omitempty"`
-	Name   string          `json:"name,omitempty"`
-	Schema json.RawMessage `json:"schema,omitempty"`
+	Strict      *bool           `json:"strict,omitempty"`
+	Description string          `json:"description,omitempty"`
+	Type        string          `json:"type,omitempty"`
+	Name        string          `json:"name,omitempty"`
+	Schema      json.RawMessage `json:"schema,omitempty"`
 }
 
 type ResponsesReasoning struct {

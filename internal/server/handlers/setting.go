@@ -209,7 +209,7 @@ func importDB(c *gin.Context) {
 	}
 	middleware.AuditFields(c, "rows_affected", result.RowsAffected)
 
-	if err := op.InitCache(); err != nil {
+	if err := op.RefreshCacheAfterImport(dump.IncludeStats); err != nil {
 		log.Warnf("cache refresh after import failed: %v", err)
 	} else if err := middleware.ReloadTrustedProxies(); err != nil {
 		log.Warnf("trusted proxy refresh after import failed: %v", err)
@@ -238,6 +238,7 @@ func decodeDBDump(body []byte, dump *model.DBDump) error {
 		len(dump.SiteChannelBindings) == 0 &&
 		len(dump.Groups) == 0 &&
 		len(dump.GroupItems) == 0 &&
+		len(dump.GroupPresets) == 0 &&
 		len(dump.Settings) == 0 &&
 		len(dump.APIKeys) == 0 &&
 		len(dump.LLMInfos) == 0 &&

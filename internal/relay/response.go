@@ -60,6 +60,11 @@ func (ra *relayAttempt) handleResponsePassthrough(ctx context.Context, response 
 	if internalResponse == nil {
 		return fmt.Errorf("failed to observe passthrough response: empty canonical response")
 	}
+	if ra.emptyResponseDetection {
+		if err := validateNonStreamResponse(internalResponse); err != nil {
+			return err
+		}
+	}
 	if _, err := ra.inAdapter.TransformResponse(ctx, internalResponse); err != nil {
 		return fmt.Errorf("failed to validate passthrough response: %w", err)
 	}
