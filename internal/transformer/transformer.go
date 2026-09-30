@@ -24,6 +24,10 @@ func PlanRequestForModel(req *model.InternalLLMRequest, effectiveModel string, t
 	return engine.PlanRequestForModel(req, effectiveModel, typ, passthrough)
 }
 
+func PrepareRequestForModel(req *model.InternalLLMRequest, effectiveModel string, typ outbound.OutboundType, passthrough bool) (outbound.CapabilityDecision, *outbound.PreparedRequest) {
+	return engine.PrepareRequestForModel(req, effectiveModel, typ, passthrough)
+}
+
 // Forward on every call so host log reconfiguration also affects existing adapters.
 type hostLogger struct{}
 

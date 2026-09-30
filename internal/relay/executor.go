@@ -210,6 +210,7 @@ func (r *relayExecutor) runChannelAttempts(channel *dbmodel.Channel, key dbmodel
 			failoverDeadline:       execution.deadline(),
 			emptyResponseDetection: execution.emptyResponseDetection,
 			capabilityDecision:     decision,
+			preparedRequest:        req.capabilityPlanner.preparedFor(channel, modelName, decision),
 			transportRecovery:      recovery,
 		}
 		result = attempt.attempt()

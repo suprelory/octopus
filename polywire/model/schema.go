@@ -46,10 +46,11 @@ type Schema struct {
 	PropertyOrdering     []string           `json:"propertyOrdering,omitempty"`
 	Default              any                `json:"default,omitempty"`
 	Const                any                `json:"const,omitempty"`
+	Defs                 map[string]*Schema `json:"$defs,omitempty"`
+	Definitions          map[string]*Schema `json:"definitions,omitempty"`
 
-	// Ref is the Draft-07 $ref target. Not supported by Gemini; when set,
-	// ToGemini returns ErrSchemaLossy. OpenAI Responses JSON Schema accepts
-	// $ref so the string is passed through.
+	// Ref is the JSON Schema $ref target. Gemini conversion resolves local
+	// references and reports unresolved or recursive references as lossy.
 	Ref string `json:"$ref,omitempty"`
 }
 
@@ -110,91 +111,11 @@ func (s *Schema) ToGemini() (*GeminiSchema, error) {
 	if s == nil {
 		return nil, nil
 	}
-	var lossy []string
-	out := toGeminiInternal(s, &lossy)
-	if len(lossy) > 0 {
-		return out, fmt.Errorf("%w: %v", ErrSchemaLossy, lossy)
+	raw, err := json.Marshal(s)
+	if err != nil {
+		return nil, fmt.Errorf("schema: encode typed schema: %w", err)
 	}
-	return out, nil
-}
-
-func toGeminiInternal(s *Schema, lossy *[]string) *GeminiSchema {
-	if s == nil {
-		return nil
-	}
-	// Gemini rejects $ref, additionalProperties, allOf/oneOf, const,
-	// pattern, minLength/maxLength. Track them but still emit a best-effort
-	// schema so callers can degrade gracefully.
-	if s.Ref != "" {
-		*lossy = append(*lossy, "$ref")
-	}
-	if s.AdditionalProperties != nil {
-		*lossy = append(*lossy, "additionalProperties")
-	}
-	if len(s.AllOf) > 0 {
-		*lossy = append(*lossy, "allOf")
-	}
-	if len(s.OneOf) > 0 {
-		*lossy = append(*lossy, "oneOf")
-	}
-	if s.Const != nil {
-		*lossy = append(*lossy, "const")
-	}
-	if s.Pattern != "" {
-		*lossy = append(*lossy, "pattern")
-	}
-	if s.MinLength != nil || s.MaxLength != nil {
-		*lossy = append(*lossy, "min/maxLength")
-	}
-
-	g := &GeminiSchema{
-		Type:             s.Type,
-		Format:           s.Format,
-		Description:      s.Description,
-		Nullable:         s.Nullable,
-		Required:         append([]string(nil), s.Required...),
-		PropertyOrdering: append([]string(nil), s.PropertyOrdering...),
-		Minimum:          s.Minimum,
-		Maximum:          s.Maximum,
-		MinItems:         s.MinItems,
-		MaxItems:         s.MaxItems,
-	}
-
-	// Gemini's enum is string-typed; coerce where possible.
-	if len(s.Enum) > 0 {
-		g.Enum = make([]string, 0, len(s.Enum))
-		for _, v := range s.Enum {
-			switch t := v.(type) {
-			case string:
-				g.Enum = append(g.Enum, t)
-			case fmt.Stringer:
-				g.Enum = append(g.Enum, t.String())
-			default:
-				// Non-string enum entries are not representable on Gemini.
-				*lossy = append(*lossy, "enum(non-string)")
-			}
-		}
-		if len(g.Enum) > 0 && g.Format == "" && g.Type == "string" {
-			g.Format = "enum"
-		}
-	}
-
-	if len(s.Properties) > 0 {
-		g.Properties = make(map[string]*GeminiSchema, len(s.Properties))
-		for k, v := range s.Properties {
-			g.Properties[k] = toGeminiInternal(v, lossy)
-		}
-	}
-	if s.Items != nil {
-		g.Items = toGeminiInternal(s.Items, lossy)
-	}
-	if len(s.AnyOf) > 0 {
-		g.AnyOf = make([]*GeminiSchema, 0, len(s.AnyOf))
-		for _, v := range s.AnyOf {
-			g.AnyOf = append(g.AnyOf, toGeminiInternal(v, lossy))
-		}
-	}
-	return g
+	return ConvertJSONSchemaToGemini(raw)
 }
 
 // ToOpenAIResponseFormat emits the OpenAI Responses-API-compatible shape

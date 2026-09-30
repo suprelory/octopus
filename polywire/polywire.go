@@ -52,3 +52,9 @@ func (e *Engine) Outbound(typ outbound.OutboundType) model.Outbound {
 func (e *Engine) PlanRequestForModel(req *model.InternalLLMRequest, effectiveModel string, typ outbound.OutboundType, passthrough bool) outbound.CapabilityDecision {
 	return outbound.PlanRequestForModelWithConfig(req, effectiveModel, typ, passthrough, e.config)
 }
+
+// PrepareRequestForModel retains the validated conversion for execution with
+// Build, avoiding another protocol conversion after channel and key selection.
+func (e *Engine) PrepareRequestForModel(req *model.InternalLLMRequest, effectiveModel string, typ outbound.OutboundType, passthrough bool) (outbound.CapabilityDecision, *outbound.PreparedRequest) {
+	return outbound.PrepareRequestForModelWithConfig(req, effectiveModel, typ, passthrough, e.config)
+}

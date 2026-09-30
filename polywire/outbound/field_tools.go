@@ -2,6 +2,7 @@ package outbound
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -68,13 +69,19 @@ func reportWireTools(input conversionInput, typ OutboundType) LossReport {
 			continue
 		}
 		if (kind == "function" || kind == "") && len(tool.Function.Parameters) > 0 {
+			if typ == OutboundTypeGemini {
+				if _, err := model.ConvertJSONSchemaToGemini(tool.Function.Parameters); err != nil {
+					action := LossActionReject
+					if errors.Is(err, model.ErrSchemaLossy) {
+						action = LossActionTranslate
+					}
+					report = append(report, CapabilityLoss{Field: fmt.Sprintf("tools[%d].function.parameters", index), Action: action, Reason: err.Error()})
+				}
+				continue
+			}
 			var source any
 			if err := json.Unmarshal(tool.Function.Parameters, &source); err != nil {
 				continue
-			}
-			if typ == OutboundTypeGemini {
-				normalizeSchemaTypeCase(source)
-				normalizeSchemaTypeCase(parameters)
 			}
 			if !reflect.DeepEqual(source, parameters) {
 				report = append(report, CapabilityLoss{Field: fmt.Sprintf("tools[%d].function.parameters", index), Action: LossActionTranslate, Reason: fmt.Sprintf("%s rewrites tool schema constraints in the emitted definition", typ)})
@@ -82,20 +89,4 @@ func reportWireTools(input conversionInput, typ OutboundType) LossReport {
 		}
 	}
 	return report
-}
-
-func normalizeSchemaTypeCase(value any) {
-	switch node := value.(type) {
-	case map[string]any:
-		if typ, ok := node["type"].(string); ok {
-			node["type"] = strings.ToLower(typ)
-		}
-		for _, child := range node {
-			normalizeSchemaTypeCase(child)
-		}
-	case []any:
-		for _, child := range node {
-			normalizeSchemaTypeCase(child)
-		}
-	}
 }

@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -9,6 +10,13 @@ import (
 	"github.com/bestruirui/octopus/polywire/model"
 	"github.com/bestruirui/octopus/polywire/outbound"
 )
+
+func (ra *relayAttempt) buildOutboundRequest(ctx context.Context) (*http.Request, outbound.LossReport, error) {
+	if ra.preparedRequest != nil {
+		return ra.preparedRequest.Build(ctx, ra.channel.GetBaseUrl(), ra.usedKey.ChannelKey)
+	}
+	return outbound.BuildRequest(ctx, ra.outAdapter, ra.channel.Type, ra.internalRequest, ra.channel.GetBaseUrl(), ra.usedKey.ChannelKey)
+}
 
 // forward 转发请求到上游服务
 func (ra *relayAttempt) forward() (int, error) {

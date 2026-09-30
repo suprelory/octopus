@@ -29,7 +29,16 @@ type relayCapabilityPlanner struct {
 	rawBody          []byte
 	websocketIngress bool
 	decisions        map[relayCapabilityCacheKey]outbound.CapabilityDecision
+	prepared         map[relayCapabilityCacheKey]*outbound.PreparedRequest
+	preparedBytes    int64
 }
+
+// Candidate ranking can visit many models. Bound retained converted bodies so
+// large inputs do not multiply memory use by the number of candidates.
+const (
+	maxRelayPreparedRequests = 8
+	maxRelayPreparedBytes    = 16 << 20
+)
 
 func newRelayCapabilityPlanner(request *model.InternalLLMRequest, rawBody []byte, websocketIngress bool) *relayCapabilityPlanner {
 	return &relayCapabilityPlanner{
@@ -37,6 +46,7 @@ func newRelayCapabilityPlanner(request *model.InternalLLMRequest, rawBody []byte
 		rawBody:          rawBody,
 		websocketIngress: websocketIngress,
 		decisions:        make(map[relayCapabilityCacheKey]outbound.CapabilityDecision),
+		prepared:         make(map[relayCapabilityCacheKey]*outbound.PreparedRequest),
 	}
 }
 
@@ -79,10 +89,28 @@ func (p *relayCapabilityPlanner) plan(channel *dbmodel.Channel, adapter model.Ou
 		return decision
 	}
 
-	decision := transformer.PlanRequestForModel(p.request, effectiveModel, channel.Type, passthrough)
+	decision, prepared := transformer.PrepareRequestForModel(p.request, effectiveModel, channel.Type, passthrough)
 	decorateParamOverrideDecision(&decision, override, overrideConfigured)
 	p.decisions[key] = decision
+	if prepared != nil && prepared.Size() > 0 && len(p.prepared) < maxRelayPreparedRequests && p.preparedBytes+prepared.Size() <= maxRelayPreparedBytes {
+		p.prepared[key] = prepared
+		p.preparedBytes += prepared.Size()
+	}
 	return decision
+}
+
+func (p *relayCapabilityPlanner) preparedFor(channel *dbmodel.Channel, modelName string, decision outbound.CapabilityDecision) *outbound.PreparedRequest {
+	if p == nil || channel == nil || decision.Passthrough || decision.Rejected() {
+		return nil
+	}
+	if p.effectiveModel(modelName) != modelName {
+		return nil // The execution payload must use the exact planned model.
+	}
+	return p.prepared[relayCapabilityCacheKey{
+		effectiveModel: p.effectiveModel(modelName),
+		outboundType:   channel.Type,
+		overrideHash:   helper.InspectParamOverride(channel.ParamOverride).Fingerprint,
+	}]
 }
 
 func (p *relayCapabilityPlanner) rankChannel(channel *dbmodel.Channel, item dbmodel.GroupItem) int {

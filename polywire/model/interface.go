@@ -58,6 +58,25 @@ type Outbound interface {
 	TransformError(ctx context.Context, statusCode int, headers http.Header, body []byte) *ResponseError
 }
 
+// RequestTarget contains the transport inputs that are independent of the
+// converted body. Query is read-only and preserves nil versus an empty query.
+type RequestTarget struct {
+	Model     string
+	Streaming bool
+	Query     url.Values
+}
+
+func RequestTargetFrom(request *InternalLLMRequest) RequestTarget {
+	return RequestTarget{Model: request.Model, Streaming: request.Stream != nil && *request.Stream, Query: request.Query}
+}
+
+// RequestTargeter allows a validated wire body to be reused for another attempt.
+// Implementations set only the endpoint and authentication, must not mutate
+// target, and must not read or modify adapter stream state.
+type RequestTargeter interface {
+	RetargetRequest(wire *http.Request, target RequestTarget, baseURL, key string) error
+}
+
 // RequestTransformationAction describes a deterministic request change made by
 // an outbound adapter while preparing provider wire data.
 type RequestTransformationAction string

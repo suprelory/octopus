@@ -60,25 +60,31 @@ func (o *MessageOutbound) TransformRequest(ctx context.Context, request *model.I
 		req.Header.Set("Accept", "application/json")
 	}
 	req.Header.Set("Anthropic-Version", "2023-06-01")
-	req.Header.Set("X-API-Key", key)
 	if betas := collectAnthropicBetaHeaders(anthropicReq, request); len(betas) > 0 {
 		req.Header.Set("anthropic-beta", strings.Join(betas, ","))
 	}
 
-	// Parse and set URL
+	if err := o.RetargetRequest(req, model.RequestTargetFrom(request), baseUrl, key); err != nil {
+		req.Body.Close()
+		return nil, err
+	}
+	return req, nil
+}
+
+func (*MessageOutbound) RetargetRequest(req *http.Request, target model.RequestTarget, baseUrl, key string) error {
 	parsedUrl, err := url.Parse(strings.TrimSuffix(baseUrl, "/"))
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse base url: %w", err)
+		return fmt.Errorf("failed to parse base url: %w", err)
 	}
 
 	parsedUrl.Path = parsedUrl.Path + "/messages"
 	// Pass through the original query parameters exactly as-is
-	if request.Query != nil {
-		parsedUrl.RawQuery = request.Query.Encode()
+	if target.Query != nil {
+		parsedUrl.RawQuery = target.Query.Encode()
 	}
 	req.URL = parsedUrl
-
-	return req, nil
+	req.Header.Set("X-API-Key", key)
+	return nil
 }
 
 func (o *MessageOutbound) TransformResponse(ctx context.Context, response *http.Response) (*model.InternalLLMResponse, error) {

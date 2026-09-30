@@ -16,10 +16,12 @@ func evaluateFeature(req *model.InternalLLMRequest, effectiveModel string, outbo
 		case OutboundTypeAnthropic:
 			degrade(decision, "response_format", "Anthropic transformer cannot emit the canonical response_format body")
 		case OutboundTypeGemini:
-			if req.ResponseFormat != nil && req.ResponseFormat.Schema != nil {
-				if _, err := req.ResponseFormat.Schema.ToGemini(); errors.Is(err, model.ErrSchemaLossy) {
-					reportLoss(decision, "response_format.schema", LossActionTranslate, err.Error())
+			if _, err := req.ResponseFormat.ToGeminiSchema(); err != nil {
+				action := LossActionReject
+				if errors.Is(err, model.ErrSchemaLossy) {
+					action = LossActionTranslate
 				}
+				reportLoss(decision, "response_format.schema", action, err.Error())
 			}
 		}
 	case FeatureToolChoice:

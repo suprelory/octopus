@@ -30,16 +30,14 @@ func run() error {
 		return err
 	}
 	target := outbound.OutboundTypeAnthropic
-	plan := engine.PlanRequestForModel(request, "claude-demo", target, false)
+	plan, prepared := engine.PrepareRequestForModel(request, "claude-demo", target, false)
 	if plan.Rejected() {
 		return fmt.Errorf("conversion rejected: %s", plan.Summary())
 	}
 	// The caller chooses whether the reported losses are acceptable.
 	fmt.Println("Plan:", plan.Status)
-	prepared := request.Clone()
-	prepared.Model = "claude-demo"
 	provider := engine.Outbound(target)
-	wire, report, err := outbound.BuildRequest(ctx, provider, target, prepared, "https://example.invalid/v1", "")
+	wire, report, err := prepared.Build(ctx, "https://example.invalid/v1", "")
 	if err != nil {
 		return err
 	}

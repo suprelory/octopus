@@ -28,7 +28,7 @@ func (ra *relayAttempt) forwardViaWS(ctx context.Context) (int, error) {
 	if pc == nil {
 		return -1, nil
 	}
-	wire, report, err := outbound.BuildRequest(ctx, ra.outAdapter, ra.channel.Type, ra.internalRequest, ra.channel.GetBaseUrl(), ra.usedKey.ChannelKey)
+	wire, report, err := ra.buildOutboundRequest(ctx)
 	if err != nil {
 		wsUpstreamPool.Put(pc)
 		return 0, classifyLocalRelayError(FailureConfiguration, fmt.Errorf("failed to build websocket request: %w", err))

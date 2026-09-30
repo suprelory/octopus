@@ -56,7 +56,14 @@ func TestCleanGeminiSchemaRemovesPropertyNamesRecursively(t *testing.T) {
 		},
 	}
 
-	(&MessagesOutbound{}).cleanGeminiSchema(schema)
+	raw, err := json.Marshal(schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema, err = geminiSchemaParameters(raw)
+	if err == nil {
+		t.Fatal("expected propertyNames loss to be reported")
+	}
 
 	if _, ok := schema["propertyNames"]; ok {
 		t.Fatalf("expected top-level propertyNames to be removed")

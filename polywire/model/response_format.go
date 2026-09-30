@@ -10,8 +10,8 @@ import (
 // payload has two parts — a wrapper (name / strict / description) and the
 // actual schema. Schema holds the parsed form; RawSchema keeps the original
 // bytes so providers that prefer passthrough (or un-parseable schemas) stay
-// faithful to the client's intent. Callers should prefer Schema where
-// possible and fall back to RawSchema as an escape hatch.
+// faithful to the client's intent. Gemini conversion and JSON serialization
+// prefer RawSchema when available so unsupported keywords remain auditable.
 type ResponseFormat struct {
 	// Any of "json_schema", "json_object", "text".
 	Type string `json:"type"`
@@ -33,8 +33,7 @@ type ResponseFormat struct {
 
 	// RawSchema preserves the original schema bytes for passthrough /
 	// provider-specific forwarding when the typed Schema cannot capture
-	// every keyword. Emitters should emit RawSchema only when Schema is
-	// nil or when an explicit passthrough is requested.
+	// every keyword. Clear it when intentionally replacing Schema in a clone.
 	RawSchema json.RawMessage `json:"-"`
 
 	// JSONSchema is the legacy field name kept for backward compatibility
@@ -89,7 +88,7 @@ func (r *ResponseFormat) UnmarshalJSON(data []byte) error {
 }
 
 // MarshalJSON re-serialises the canonical OpenAI Responses wire shape. When
-// Schema is populated it's preferred over RawSchema; JSONSchema is kept as
+// RawSchema is populated it's preferred over Schema; JSONSchema is kept as
 // the outermost carrier so downstream code that only reads the legacy field
 // still works.
 func (r ResponseFormat) MarshalJSON() ([]byte, error) {

@@ -25,15 +25,13 @@ if err != nil {
     return err
 }
 target := outbound.OutboundTypeAnthropic
-decision := engine.PlanRequestForModel(request, "claude-model", target, false)
+decision, prepared := engine.PrepareRequestForModel(request, "claude-model", target, false)
 if decision.Rejected() {
     return fmt.Errorf("conversion rejected: %s", decision.Summary())
 }
 // The host decides whether a degraded conversion is acceptable.
-prepared := request.Clone()
-prepared.Model = "claude-model"
 provider := engine.Outbound(target)
-wire, report, err := outbound.BuildRequest(ctx, provider, target, prepared, baseURL, apiKey)
+wire, report, err := prepared.Build(ctx, baseURL, apiKey)
 ```
 
 Import `polywire`, `polywire/inbound`, and `polywire/outbound` under the module
@@ -41,6 +39,15 @@ path above. `wire` is an unsent `*http.Request`; `report` describes the actual
 encoded request. The host executes it with its own HTTP client, calls
 `provider.TransformResponse`, then `client.TransformResponse`. The host closes
 request/response bodies. Unknown factory types return `nil`.
+
+`PrepareRequestForModel` retains the validated body and conversion report.
+`PreparedRequest.Build` creates a fresh HTTP request for the chosen context,
+endpoint and key without converting the payload again. Treat a prepared request
+as an immutable snapshot: changing the source request requires preparing again.
+Keep the response adapter fresh for each attempt. Passthrough and rejected
+decisions return no prepared body; custom adapters can opt in by implementing
+`model.RequestTargeter`. `PlanRequestForModel` remains available when only a
+decision is needed, and `outbound.BuildRequest` still supports direct conversion.
 
 See the complete [conversion example](examples/convert/main.go), which uses a
 synthetic response and runs without network I/O:
@@ -173,6 +180,21 @@ terminal marker; error events discard deferred output. Refusal deltas accumulate
 across batches and are emitted as Anthropic text with a refusal stop reason when
 the upstream supplies an ordinary completion reason.
 
+`StreamAggregator` merges chunks incrementally and buffers text, reasoning,
+refusal, audio and tool arguments without retaining the original chunks.
+Indexed content blocks and tools keep their original order. `Response` returns
+an independent snapshot; `BuildAndReset` transfers the completed aggregate and
+releases its state. Input chunks may be reused after `Add` returns.
+
+Gemini tool parameters and structured output share
+`model.ConvertJSONSchemaToGemini`. Conversion preserves `anyOf`, nullable type
+unions and resolvable local references, using the original schema bytes when
+available. Unsupported keywords and recursive/unresolved references produce
+`ErrSchemaLossy` with source paths, and both wire paths report the same losses.
+Reference expansion is bounded to 64 levels and 4096 nodes. The schema profile
+remains conservative: unsupported constraints such as `additionalProperties`,
+`oneOf`, `allOf`, `pattern` and length bounds are reported for host policy review.
+
 `ProtocolDescriptor.FieldRules` records each source semantic, target wire field,
 action, condition, and reason. `outbound.BuildRequest` returns the HTTP request
 and its conversion report without consuming the body or sending any bytes.
@@ -185,6 +207,14 @@ fallbacks involving unknown top-level fields or identified native semantics.
 These are host decisions; Polywire returns evidence for either policy.
 Passthrough is planned separately because its preserved raw fields do not use
 canonical builders.
+
+Octopus reuses prepared bodies across candidate selection and HTTP/WebSocket
+attempts within one relay request. The cache uses the effective model, outbound
+protocol, passthrough decision and override fingerprint; it retains at most eight
+bodies totaling 16 MiB. Requests outside that budget use ordinary construction.
+Every attempt reapplies its endpoint, credentials, context and wire overrides,
+and enforces the conversion policy. See [conversion benchmarks](CONVERSION_BENCHMARKS.md)
+for the measured aggregation and preparation costs.
 
 Each attempt records `conversion.mode` (`lossless_canonical`, `raw_sidecar`, or
 `lossy_canonical`), `replay_available`, `raw_input_preserved`, and `exact_replay`.

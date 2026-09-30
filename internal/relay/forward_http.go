@@ -119,14 +119,7 @@ func (ra *relayAttempt) forwardViaHTTPPassthrough(ctx context.Context, pt model.
 // forwardViaHTTPStandard 是 forwardViaHTTP 的原路径（直通判定失败时的兜底）。
 // 留作显式出口，避免 passthrough 失败时的递归。
 func (ra *relayAttempt) forwardViaHTTPStandard(ctx context.Context) (int, error) {
-	outboundRequest, report, err := outbound.BuildRequest(
-		ctx,
-		ra.outAdapter,
-		ra.channel.Type,
-		ra.internalRequest,
-		ra.channel.GetBaseUrl(),
-		ra.usedKey.ChannelKey,
-	)
+	outboundRequest, report, err := ra.buildOutboundRequest(ctx)
 	if err != nil {
 		log.Warnf("failed to create request: %v", err)
 		return 0, classifyLocalRelayError(FailureConfiguration, fmt.Errorf("failed to create request: %w", err))

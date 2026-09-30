@@ -30,10 +30,24 @@ func (o *MessagesOutbound) TransformRequest(ctx context.Context, request *model.
 		return nil, fmt.Errorf("failed to marshal gemini request: %w", err)
 	}
 
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	if err := o.RetargetRequest(req, model.RequestTargetFrom(request), baseUrl, key); err != nil {
+		req.Body.Close()
+		return nil, err
+	}
+	return req, nil
+}
+
+func (*MessagesOutbound) RetargetRequest(req *http.Request, target model.RequestTarget, baseUrl, key string) error {
 	// Build URL
 	parsedUrl, err := url.Parse(strings.TrimSuffix(baseUrl, "/"))
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse base url: %w", err)
+		return fmt.Errorf("failed to parse base url: %w", err)
 	}
 
 	// G-H5: When the channel BaseURL omits the API version segment
@@ -46,14 +60,14 @@ func (o *MessagesOutbound) TransformRequest(ctx context.Context, request *model.
 	}
 
 	// Determine if streaming
-	isStream := request.Stream != nil && *request.Stream
+	isStream := target.Streaming
 	method := "generateContent"
 	if isStream {
 		method = "streamGenerateContent"
 	}
 
 	// Build path: /models/{model}:{method}
-	modelName := request.Model
+	modelName := target.Model
 	if !strings.Contains(modelName, "/") {
 		modelName = "models/" + modelName
 	}
@@ -68,18 +82,14 @@ func (o *MessagesOutbound) TransformRequest(ctx context.Context, request *model.
 		parsedUrl.RawQuery = q.Encode()
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, parsedUrl.String(), bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
+	req.URL = parsedUrl
 	if key != "" {
 		req.Header.Set("x-goog-api-key", key)
+	} else {
+		req.Header.Del("x-goog-api-key")
 	}
 
-	return req, nil
+	return nil
 }
 
 // Helper functions
@@ -451,22 +461,11 @@ func (o *MessagesOutbound) applyGeminiResponseFormat(config *model.GeminiGenerat
 		config.ResponseMimeType = "application/json"
 	case "json_schema":
 		config.ResponseMimeType = "application/json"
-		if request.ResponseFormat.Schema != nil {
-			geminiSchema, err := request.ResponseFormat.Schema.ToGemini()
-			if err != nil {
-				o.config.Log().Warnf("gemini: response schema lossy conversion: %v", err)
-			}
-			if geminiSchema != nil {
-				config.ResponseSchema = geminiSchema
-			}
-		} else if len(request.ResponseFormat.RawSchema) > 0 {
-			var fallback model.GeminiSchema
-			if err := json.Unmarshal(request.ResponseFormat.RawSchema, &fallback); err == nil {
-				config.ResponseSchema = &fallback
-			} else {
-				o.config.Log().Warnf("gemini: response raw schema passthrough failed: %v", err)
-			}
+		schema, err := request.ResponseFormat.ToGeminiSchema()
+		if err != nil {
+			o.config.Log().Warnf("gemini: response schema conversion: %v", err)
 		}
+		config.ResponseSchema = schema
 	case "text":
 		config.ResponseMimeType = "text/plain"
 	default:
@@ -512,13 +511,10 @@ func (o *MessagesOutbound) applyGeminiTools(geminiReq *model.GeminiGenerateConte
 	for _, tool := range request.Tools {
 		switch tool.Type {
 		case "function", "":
-			var params map[string]any
-			if len(tool.Function.Parameters) > 0 {
-				if err := json.Unmarshal(tool.Function.Parameters, &params); err != nil {
-					o.config.Log().Warnf("gemini: failed to unmarshal tool parameters for %s: %v", tool.Function.Name, err)
-				}
+			params, err := geminiSchemaParameters(tool.Function.Parameters)
+			if err != nil {
+				o.config.Log().Warnf("gemini: tool schema conversion for %s: %v", tool.Function.Name, err)
 			}
-			o.cleanGeminiSchema(params)
 			functionDeclarations = append(functionDeclarations, &model.GeminiFunctionDeclaration{
 				Name:        tool.Function.Name,
 				Description: tool.Function.Description,

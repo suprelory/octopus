@@ -232,7 +232,7 @@ type GeminiSchema struct {
 	// "array", "object"); MarshalJSON normalises to Gemini's required
 	// UPPER_SNAKE_CASE at serialization time. Missing or unknown types are
 	// rejected by Gemini at the API boundary.
-	Type string `json:"type"`
+	Type string `json:"type,omitempty"`
 
 	// Description is the free-form natural-language hint shown to the model.
 	Description string `json:"description,omitempty"`

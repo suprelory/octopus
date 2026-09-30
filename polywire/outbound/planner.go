@@ -68,6 +68,19 @@ func PlanRequestForModel(req *model.InternalLLMRequest, effectiveModel string, o
 // PlanRequestForModelWithConfig uses the supplied dependencies for the local wire
 // build. It does not send the request or enforce a host degradation policy.
 func PlanRequestForModelWithConfig(req *model.InternalLLMRequest, effectiveModel string, outboundType OutboundType, passthrough bool, cfg config.Config) (decision CapabilityDecision) {
+	return planRequestForModel(req, effectiveModel, outboundType, passthrough, cfg, nil)
+}
+
+// PrepareRequestForModelWithConfig also retains the actual validated wire body
+// for execution. Passthrough, rejected, or non-retargetable requests return no
+// prepared body. The caller owns caching and must keep it scoped to this request.
+func PrepareRequestForModelWithConfig(req *model.InternalLLMRequest, effectiveModel string, outboundType OutboundType, passthrough bool, cfg config.Config) (CapabilityDecision, *PreparedRequest) {
+	var prepared *PreparedRequest
+	decision := planRequestForModel(req, effectiveModel, outboundType, passthrough, cfg, &prepared)
+	return decision, prepared
+}
+
+func planRequestForModel(req *model.InternalLLMRequest, effectiveModel string, outboundType OutboundType, passthrough bool, cfg config.Config, reusable **PreparedRequest) (decision CapabilityDecision) {
 	decision = CapabilityDecision{Status: CapabilitySupported, Lossiness: "none"}
 	defer func() {
 		decision.Conversion = req.ConversionState(decision.OutboundFormat, decision.Passthrough, decision.Status == CapabilityDegraded || decision.Status == CapabilityRejected)
@@ -105,16 +118,23 @@ func PlanRequestForModelWithConfig(req *model.InternalLLMRequest, effectiveModel
 		return decision
 	}
 
-	prepared := req.Clone()
+	// Adapters already own normalization copies. Only the effective model is
+	// changed here, so another deep clone of the full request is unnecessary.
+	prepared := *req
 	if strings.TrimSpace(effectiveModel) != "" {
 		prepared.Model = effectiveModel
 	}
-	wire, report, err := BuildRequest(context.Background(), New(outboundType, cfg), outboundType, prepared, "https://conversion.invalid", "")
+	adapter := New(outboundType, cfg)
+	wire, report, err := BuildRequest(context.Background(), adapter, outboundType, &prepared, "https://conversion.invalid", "")
 	if err != nil {
 		return rejectDecision(decision, err.Error())
 	}
-	wire.Body.Close()
-	return ApplyConversionReport(decision, report)
+	defer wire.Body.Close()
+	decision = ApplyConversionReport(decision, report)
+	if reusable != nil && !decision.Rejected() {
+		*reusable = prepareWireRequest(wire, adapter, &prepared, report)
+	}
+	return decision
 }
 
 // ApplyConversionReport records evidence returned by the actual request build.

@@ -7,6 +7,10 @@ func cloneCitations(citations []Citation) []Citation {
 	cloned := make([]Citation, len(citations))
 	for index, citation := range citations {
 		cloned[index] = citation
+		if citation.AnnotationIndex != nil {
+			annotationIndex := *citation.AnnotationIndex
+			cloned[index].AnnotationIndex = &annotationIndex
+		}
 		cloned[index].Raw = cloneRawMessage(citation.Raw)
 	}
 	return cloned

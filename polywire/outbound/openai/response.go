@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -59,17 +57,12 @@ func (o *ResponseOutbound) TransformRequest(ctx context.Context, request *model.
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", "Bearer "+key)
 	applyOpenAIOrgProjectHeaders(req, request)
 
-	// Parse and set URL
-	parsedUrl, err := url.Parse(strings.TrimSuffix(baseUrl, "/"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse base url: %w", err)
+	if err := o.RetargetRequest(req, model.RequestTargetFrom(request), baseUrl, key); err != nil {
+		req.Body.Close()
+		return nil, err
 	}
-	parsedUrl.Path = parsedUrl.Path + "/responses"
-	req.URL = parsedUrl
-	req.Method = http.MethodPost
 
 	return req, nil
 }

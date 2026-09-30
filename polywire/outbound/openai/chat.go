@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/bestruirui/octopus/polywire/httpio"
@@ -123,16 +122,12 @@ func (o *ChatOutbound) TransformRequest(ctx context.Context, request *model.Inte
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", "Bearer "+key)
 	applyOpenAIOrgProjectHeaders(req, request)
 
-	parsedUrl, err := url.Parse(strings.TrimSuffix(baseUrl, "/"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse base url: %w", err)
+	if err := o.RetargetRequest(req, model.RequestTargetFrom(request), baseUrl, key); err != nil {
+		req.Body.Close()
+		return nil, err
 	}
-	parsedUrl.Path = parsedUrl.Path + "/chat/completions"
-	req.URL = parsedUrl
-	req.Method = http.MethodPost
 	return req, nil
 }
 
