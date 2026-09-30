@@ -42,6 +42,7 @@ func TestNotificationTestSendsOnlySelectedDraftChannel(t *testing.T) {
 
 func TestNotificationTestRejectsInvalidInputAndHidesProviderErrors(t *testing.T) {
 	for _, body := range []string{
+		`{"channel":"webhook","config":{"webhook_url":"https://example.invalid","templates":{"webhook":{"body":"{{password}}"}}}}`,
 		`{`, `{"channel":"webhook","config":{"webhook_url":"file:///secret-marker"}}`,
 		`{"channel":"unknown","config":{}}`, `{"channel":"telegram","config":{"telegram_bot_token":"123:secret-marker"}}`,
 	} {

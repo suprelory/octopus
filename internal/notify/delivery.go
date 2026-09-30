@@ -23,6 +23,8 @@ type Message struct {
 	// Payload preserves an event source's structured webhook contract. All other
 	// channels receive the same title and human-readable text.
 	Payload any `json:"-"`
+	// Variables contains display-only event details available to templates.
+	Variables map[string]string `json:"-"`
 }
 
 func NewHTTPClient() *http.Client {
@@ -39,6 +41,11 @@ func Deliver(ctx context.Context, client *http.Client, target Target, message Me
 	defer cancel()
 	if message.Timestamp.IsZero() {
 		message.Timestamp = time.Now().UTC()
+	}
+	var templateErr error
+	message, templateErr = applyTemplate(target.config.Templates[target.Kind], message)
+	if templateErr != nil {
+		return templateErr
 	}
 	if target.Kind == SMTP {
 		return deliverSMTP(ctx, target.config, message)

@@ -232,8 +232,20 @@ func (n *checkinNotifier) deliver(target notify.Target, event checkinNotificatio
 		lines = append(lines, fmt.Sprintf("连续失败：%d 次", event.FailureCount))
 	}
 	lines = append(lines, "时间："+event.OccurredAt.Format(time.RFC3339))
+	variables := map[string]string{
+		"event": event.Title, "site": event.SiteName, "account": event.AccountName,
+		"source": source, "detail": event.Message, "reward": event.Reward,
+		"failure_count": strconv.Itoa(event.FailureCount),
+	}
+	if event.Balance != nil {
+		variables["balance"] = fmt.Sprintf("%.4f", *event.Balance)
+	}
+	if event.Threshold != nil {
+		variables["threshold"] = fmt.Sprintf("%.4f", *event.Threshold)
+	}
 	return notify.Deliver(context.Background(), n.client, target, notify.Message{
 		Level: event.Level, Title: event.Title, Text: strings.Join(lines, "\n"),
 		Timestamp: event.OccurredAt, Payload: event,
+		Variables: variables,
 	})
 }

@@ -24,6 +24,53 @@ async function openChannels(page: Page) {
 }
 
 for (const width of [1440, 390]) {
+	test(`notification templates stay isolated and persist at ${width}px`, async ({ page }) => {
+		await page.setViewportSize({ width, height: 1000 });
+		const settings = initialSettings();
+		const state = await mockApp(page, 'setting', { settings, mutate: request => {
+			if (request.path === '/api/v1/setting/set') {
+				const body = request.body as Setting;
+				settings.find(item => item.key === body.key)!.value = body.value;
+				return { data: body };
+			}
+			if (request.path === '/api/v1/setting/notification/test') return { data: { channel: 'bark', success: true } };
+			return { status: 500, message: 'Unexpected mutation' };
+		} });
+		let card = await openChannels(page);
+		await card.getByLabel('标题模板', { exact: true }).fill('[Webhook] {{site}}');
+		await card.getByLabel('正文模板', { exact: true }).fill('{{account}} / {{detail}}');
+		await expect(card.getByLabel('预览 · 示例数据')).toContainText('[Webhook] 示例站点');
+		await card.getByRole('combobox', { name: '通知渠道', exact: true }).click();
+		await page.getByRole('option', { name: 'Bark', exact: true }).click();
+		await expect(card.getByLabel('标题模板', { exact: true })).toHaveValue('');
+		await card.getByLabel('Bark 推送地址').fill('https://bark.example/device');
+		await card.getByLabel('正文模板', { exact: true }).fill('Bark {{message}}');
+		await card.getByRole('button', { name: '测试此渠道', exact: true }).click();
+		await expect(page.getByText('Bark 测试通知已发送', { exact: true })).toBeVisible();
+		const probe = state.mutations.find(item => item.path === '/api/v1/setting/notification/test')!.body as { config: NotificationConfig };
+		expect(probe.config.templates).toEqual({ bark: { body: 'Bark {{message}}' } });
+		expect(probe.config.webhook_url).toBeUndefined();
+		expect(settings[0].value).toBe('');
+		await card.getByRole('button', { name: '保存通知渠道', exact: true }).click();
+		await expect.poll(() => settings[0].value).not.toBe('');
+		expect(JSON.parse(settings[0].value).templates).toEqual({ webhook: { title: '[Webhook] {{site}}', body: '{{account}} / {{detail}}' }, bark: { body: 'Bark {{message}}' } });
+		card = await openChannels(page);
+		await expect(card.getByLabel('标题模板', { exact: true })).toHaveValue('[Webhook] {{site}}');
+		await card.getByLabel('正文模板', { exact: true }).fill('{{unknown}}');
+		await expect(card.getByRole('alert')).toBeVisible();
+		await expect(card.getByRole('button', { name: '保存通知渠道', exact: true })).toBeDisabled();
+		await expect(card.getByRole('button', { name: '测试此渠道', exact: true })).toBeDisabled();
+		await card.getByRole('button', { name: '恢复默认', exact: true }).click();
+		await expect(card.getByLabel('正文模板', { exact: true })).toHaveValue('');
+		await card.getByRole('button', { name: '保存通知渠道', exact: true }).click();
+		await expect.poll(() => JSON.parse(settings[0].value).templates.webhook).toBeUndefined();
+		expect(JSON.parse(settings[0].value).templates.bark.body).toBe('Bark {{message}}');
+		const bounds = await card.boundingBox();
+		expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width + 1);
+		expect(state.pageErrors).toEqual([]);
+		expect(state.unexpectedRequests).toEqual([]);
+	});
+
     test(`configure and test all notification channels at ${width}px`, async ({ page }, testInfo) => {
         await page.setViewportSize({ width, height: 1000 });
         const settings = initialSettings();

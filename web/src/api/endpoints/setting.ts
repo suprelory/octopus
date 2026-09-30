@@ -111,7 +111,13 @@ export function useSetSetting() {
 
 export type NotificationChannel = 'webhook' | 'bark' | 'serverchan' | 'telegram' | 'smtp';
 
+export interface NotificationTemplate {
+    title?: string;
+    body?: string;
+}
+
 export interface NotificationConfig {
+    templates?: Partial<Record<NotificationChannel, NotificationTemplate>>;
     webhook_url?: string;
     bark_url?: string;
     serverchan_key?: string;

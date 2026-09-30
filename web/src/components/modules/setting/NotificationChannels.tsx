@@ -13,6 +13,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SettingCard } from './shared';
+import { NotificationTemplateEditor } from './NotificationTemplateEditor';
+import { validNotificationTemplate } from './notification-template';
 
 const CHANNELS: NotificationChannel[] = ['webhook', 'bark', 'serverchan', 'telegram', 'smtp'];
 const FIELDS = {
@@ -24,7 +26,14 @@ const FIELDS = {
 } as const;
 
 function compact(config: NotificationConfig): NotificationConfig {
-    return Object.fromEntries(Object.entries(config).filter(([, value]) => value !== '' && value !== 0 && value !== undefined));
+    const result = Object.fromEntries(Object.entries(config).filter(([, value]) => value !== '' && value !== 0 && value !== undefined)) as NotificationConfig;
+    if (result.templates) {
+        result.templates = Object.fromEntries(Object.entries(result.templates).map(([key, value]) => [key,
+            Object.fromEntries(Object.entries(value).filter(([, text]) => text?.trim())),
+        ]).filter(([, value]) => Object.keys(value).length > 0));
+        if (Object.keys(result.templates ?? {}).length === 0) delete result.templates;
+    }
+    return result;
 }
 
 function readConfig(raw: string, legacyWebhook: string): NotificationConfig {
@@ -33,6 +42,14 @@ function readConfig(raw: string, legacyWebhook: string): NotificationConfig {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Invalid configuration');
     const knownFields: readonly string[] = Object.values(FIELDS).flat();
     for (const [key, value] of Object.entries(parsed)) {
+        if (key === 'templates') {
+            if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid templates');
+            for (const [kind, template] of Object.entries(value)) {
+                if (!CHANNELS.includes(kind as NotificationChannel) || !template || typeof template !== 'object' || Array.isArray(template)
+                    || Object.entries(template).some(([field, text]) => !['title', 'body'].includes(field) || typeof text !== 'string')) throw new Error('Invalid template');
+            }
+            continue;
+        }
         if (!knownFields.includes(key) || (key === 'smtp_port' ? typeof value !== 'number' : typeof value !== 'string')) {
             throw new Error('Invalid configuration');
         }
@@ -80,6 +97,7 @@ export function SettingNotificationChannels() {
     const busy = saveSetting.isPending || testChannel.isPending;
     const unavailable = saved === null || busy;
     const serialized = JSON.stringify(compact(draft));
+    const templatesValid = Object.values(draft.templates ?? {}).every(validNotificationTemplate);
     const configured = CHANNELS.filter(item => isConfigured(draft, item)).map(item => t(item));
 
     async function save() {
@@ -96,7 +114,7 @@ export function SettingNotificationChannels() {
     async function test() {
         const config = Object.fromEntries(FIELDS[channel].map(key => [key, draft[key]]));
         try {
-            await testChannel.mutateAsync({ channel, config: compact(config) });
+            await testChannel.mutateAsync({ channel, config: compact({ ...config, templates: { [channel]: draft.templates?.[channel] ?? {} } }) });
             toast.success(t('testSuccess', { channel: t(channel) }));
         } catch (error) {
             toast.error(t('testFailed', { channel: t(channel) }), { description: (error as ApiError)?.message });
@@ -107,11 +125,13 @@ export function SettingNotificationChannels() {
         setDraft(current => {
             const next = { ...current };
             for (const key of FIELDS[channel]) delete next[key];
+            next.templates = { ...next.templates };
+            delete next.templates[channel];
             return next;
         });
     }
 
-    function field(key: Exclude<keyof NotificationConfig, 'smtp_port' | 'smtp_tls'>, label: string, placeholder: string, type = 'text') {
+    function field(key: Exclude<keyof NotificationConfig, 'smtp_port' | 'smtp_tls' | 'templates'>, label: string, placeholder: string, type = 'text') {
         return <label className="grid min-w-0 gap-2 text-sm font-medium">
             {label}
             <Input type={type} value={draft[key] ?? ''} placeholder={placeholder} disabled={unavailable}
@@ -170,8 +190,11 @@ export function SettingNotificationChannels() {
                     {field('smtp_to', t('smtpTo'), 'admin@example.com, team@example.com')}
                     <p className="text-xs text-muted-foreground">{t('smtpHint')}</p>
                 </> : null}
+                <NotificationTemplateEditor template={draft.templates?.[channel] ?? {}} disabled={unavailable}
+                    onChange={template => setDraft(current => ({ ...current, templates: { ...current.templates, [channel]: template } }))} />
+                {channel === 'webhook' ? <p className="text-xs text-muted-foreground">{t('templateWebhookHint')}</p> : null}
                 <div className="flex flex-wrap items-center gap-2">
-                    <Button type="button" variant="outline" size="sm" disabled={unavailable || !isConfigured(draft, channel)} onClick={test}>
+                    <Button type="button" variant="outline" size="sm" disabled={unavailable || !isConfigured(draft, channel) || !validNotificationTemplate(draft.templates?.[channel] ?? {})} onClick={test}>
                         {testChannel.isPending ? t('testing') : t('test')}
                     </Button>
                     <Button type="button" variant="ghost" size="sm" disabled={unavailable} onClick={clearChannel}>{t('clear')}</Button>
@@ -179,7 +202,7 @@ export function SettingNotificationChannels() {
             </div>
             <p className="text-xs text-muted-foreground">{configured.length ? t('configured', { channels: configured.join(' / ') }) : t('noneConfigured')}</p>
             <div className="flex flex-wrap items-center gap-3">
-                <Button type="button" disabled={unavailable || (!invalidConfig && serialized === saved)} onClick={save}>{t('save')}</Button>
+                <Button type="button" disabled={unavailable || !templatesValid || (!invalidConfig && serialized === saved)} onClick={save}>{t('save')}</Button>
                 <p className="text-xs text-muted-foreground">{t('saveHint')}</p>
             </div>
         </SettingCard>

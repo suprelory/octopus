@@ -28,18 +28,19 @@ const (
 // Config uses the same channel fields as meta-gateway. Empty fields disable a
 // channel; SMTP additionally supports STARTTLS, implicit TLS and local relays.
 type Config struct {
-	WebhookURL       string `json:"webhook_url,omitempty"`
-	BarkURL          string `json:"bark_url,omitempty"`
-	ServerChanKey    string `json:"serverchan_key,omitempty"`
-	TelegramBotToken string `json:"telegram_bot_token,omitempty"`
-	TelegramChatID   string `json:"telegram_chat_id,omitempty"`
-	SMTPHost         string `json:"smtp_host,omitempty"`
-	SMTPPort         int    `json:"smtp_port,omitempty"`
-	SMTPUser         string `json:"smtp_user,omitempty"`
-	SMTPPassword     string `json:"smtp_password,omitempty"`
-	SMTPFrom         string `json:"smtp_from,omitempty"`
-	SMTPTo           string `json:"smtp_to,omitempty"`
-	SMTPTLS          string `json:"smtp_tls,omitempty"`
+	Templates        map[Kind]Template `json:"templates,omitempty"`
+	WebhookURL       string            `json:"webhook_url,omitempty"`
+	BarkURL          string            `json:"bark_url,omitempty"`
+	ServerChanKey    string            `json:"serverchan_key,omitempty"`
+	TelegramBotToken string            `json:"telegram_bot_token,omitempty"`
+	TelegramChatID   string            `json:"telegram_chat_id,omitempty"`
+	SMTPHost         string            `json:"smtp_host,omitempty"`
+	SMTPPort         int               `json:"smtp_port,omitempty"`
+	SMTPUser         string            `json:"smtp_user,omitempty"`
+	SMTPPassword     string            `json:"smtp_password,omitempty"`
+	SMTPFrom         string            `json:"smtp_from,omitempty"`
+	SMTPTo           string            `json:"smtp_to,omitempty"`
+	SMTPTLS          string            `json:"smtp_tls,omitempty"`
 }
 
 var (
@@ -55,8 +56,8 @@ func ParseConfig(raw string) (Config, error) {
 	if raw == "" {
 		return config, nil
 	}
-	if len(raw) > 16384 || !strings.HasPrefix(raw, "{") {
-		return config, errors.New("notification channels must be a JSON object of at most 16 KiB")
+	if len(raw) > 65536 || !strings.HasPrefix(raw, "{") {
+		return config, errors.New("notification channels must be a JSON object of at most 64 KiB")
 	}
 	decoder := json.NewDecoder(strings.NewReader(raw))
 	decoder.DisallowUnknownFields()
@@ -85,6 +86,16 @@ func ResolveConfig(raw, legacyWebhook string) (Config, error) {
 }
 
 func (c *Config) Validate() error {
+	for kind, template := range c.Templates {
+		switch kind {
+		case Webhook, Bark, ServerChan, Telegram, SMTP:
+		default:
+			return errors.New("unsupported notification template channel")
+		}
+		if err := template.Validate(); err != nil {
+			return err
+		}
+	}
 	fields := []*string{&c.WebhookURL, &c.BarkURL, &c.ServerChanKey, &c.TelegramBotToken,
 		&c.TelegramChatID, &c.SMTPHost, &c.SMTPUser, &c.SMTPFrom, &c.SMTPTo, &c.SMTPTLS}
 	for _, field := range fields {
@@ -184,10 +195,17 @@ func (c Config) Targets() []Target {
 			SMTPPassword: c.SMTPPassword, SMTPFrom: c.SMTPFrom, SMTPTo: c.SMTPTo, SMTPTLS: c.SMTPTLS,
 		}})
 	}
+	for i := range targets {
+		if template, ok := c.Templates[targets[i].Kind]; ok {
+			targets[i].config.Templates = map[Kind]Template{targets[i].Kind: template}
+		}
+	}
 	return targets
 }
 
 func (t Target) Fingerprint() [32]byte {
-	encoded, _ := json.Marshal(t.config)
+	config := t.config
+	config.Templates = nil // Content edits must not bypass delivery cooldowns.
+	encoded, _ := json.Marshal(config)
 	return sha256.Sum256(append([]byte(t.Kind+":"), encoded...))
 }

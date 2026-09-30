@@ -71,6 +71,7 @@ func TestSMTPDeliversUnicodeMessageToAllRecipients(t *testing.T) {
 	host, portText, _ := net.SplitHostPort(listener.Addr().String())
 	port, _ := strconv.Atoi(portText)
 	config := Config{SMTPHost: host, SMTPPort: port, SMTPFrom: "Octopus <sender@example.com>", SMTPTo: "a@example.com, b@example.com", SMTPTLS: "none"}
+	config.Templates = map[Kind]Template{SMTP: {Title: "[邮件] {{title}}", Body: "[邮件]\n{{message}}"}}
 	if err := config.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -94,14 +95,14 @@ func TestSMTPDeliversUnicodeMessageToAllRecipients(t *testing.T) {
 		t.Fatal(err)
 	}
 	subject, err := new(mime.WordDecoder).DecodeHeader(parsed.Header.Get("Subject"))
-	if err != nil || !strings.Contains(subject, "签到成功") || parsed.Header.Get("Bcc") != "" {
+	if err != nil || !strings.Contains(subject, "[邮件] 签到成功") || parsed.Header.Get("Bcc") != "" {
 		t.Fatalf("invalid or injected subject: %q, %v", subject, err)
 	}
 	if _, err := mail.ParseDate(parsed.Header.Get("Date")); err != nil || parsed.Header.Get("Content-Transfer-Encoding") != "quoted-printable" {
 		t.Fatalf("invalid email headers: %v", err)
 	}
 	body, _ := io.ReadAll(quotedprintable.NewReader(parsed.Body))
-	if !strings.Contains(string(body), "奖励：2.5") {
+	if !strings.Contains(string(body), "奖励：2.5") || !strings.HasPrefix(string(body), "[邮件]") {
 		t.Fatal("SMTP body lost the result")
 	}
 }
