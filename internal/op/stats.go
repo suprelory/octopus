@@ -32,6 +32,9 @@ var statsAPIKeyCache = cache.New[int, model.StatsAPIKey](16)
 var statsAPIKeyCacheNeedUpdate = make(map[int]struct{})
 var statsAPIKeyCacheNeedUpdateLock sync.Mutex
 
+// Serialize complete snapshot writes with key deletion, including day rollover.
+var statsPersistenceLock sync.Mutex
+
 // pendingDailyOverrides holds prev-day StatsDaily snapshots whose persistence
 // failed. Retried on the next StatsSaveDB cycle so a rollover snapshot is
 // never silently dropped after the in-memory cache has advanced.
@@ -82,6 +85,8 @@ func StatsSaveDBTask() {
 }
 
 func StatsSaveDB(ctx context.Context) error {
+	statsPersistenceLock.Lock()
+	defer statsPersistenceLock.Unlock()
 	if err := flushPendingDailyOverrides(ctx); err != nil {
 		return err
 	}
@@ -196,6 +201,8 @@ func persistStatsSnapshots(
 }
 
 func statsSaveDBWithDailyOverride(ctx context.Context, dailyOverride model.StatsDaily) error {
+	statsPersistenceLock.Lock()
+	defer statsPersistenceLock.Unlock()
 	statsTotalCacheLock.RLock()
 	totalSnap := statsTotalCache
 	statsTotalCacheLock.RUnlock()
@@ -310,6 +317,13 @@ func StatsHourlyUpdate(metrics model.StatsMetrics) error {
 }
 
 func StatsAPIKeyUpdate(apiKeyID int, metrics model.StatsMetrics) error {
+	apiKeyWriteLock.RLock()
+	defer apiKeyWriteLock.RUnlock()
+	// A request admitted before deletion may finish afterward. Global usage is
+	// still recorded, but it must not recreate statistics for a deleted key.
+	if _, exists := apiKeyCache.Get(apiKeyID); !exists {
+		return nil
+	}
 	statsAPIKeyCache.Update(apiKeyID, func(current model.StatsAPIKey, exists bool) model.StatsAPIKey {
 		if !exists {
 			current.APIKeyID = apiKeyID
@@ -335,14 +349,22 @@ func StatsChannelDel(id int) error {
 }
 
 func StatsAPIKeyDel(id int) error {
-	if _, ok := statsAPIKeyCache.Get(id); !ok {
-		return nil
+	apiKeyWriteLock.Lock()
+	defer apiKeyWriteLock.Unlock()
+	statsPersistenceLock.Lock()
+	defer statsPersistenceLock.Unlock()
+	if err := db.GetDB().Where("api_key_id = ?", id).Delete(&model.StatsAPIKey{}).Error; err != nil {
+		return err
 	}
+	clearAPIKeyStatsCache(id)
+	return nil
+}
+
+func clearAPIKeyStatsCache(id int) {
 	statsAPIKeyCache.Del(id)
 	statsAPIKeyCacheNeedUpdateLock.Lock()
 	delete(statsAPIKeyCacheNeedUpdate, id)
 	statsAPIKeyCacheNeedUpdateLock.Unlock()
-	return db.GetDB().Delete(&model.StatsAPIKey{}, id).Error
 }
 
 func StatsTotalGet() model.StatsTotal {
@@ -360,14 +382,9 @@ func StatsTodayGet() model.StatsDaily {
 func StatsChannelGet(id int) model.StatsChannel {
 	stats, ok := statsChannelCache.Get(id)
 	if !ok {
-		tmp := model.StatsChannel{
+		return model.StatsChannel{
 			ChannelID: id,
 		}
-		statsChannelCache.Set(id, tmp)
-		statsChannelCacheNeedUpdateLock.Lock()
-		statsChannelCacheNeedUpdate[id] = struct{}{}
-		statsChannelCacheNeedUpdateLock.Unlock()
-		return tmp
 	}
 	return stats
 }
@@ -375,14 +392,9 @@ func StatsChannelGet(id int) model.StatsChannel {
 func StatsAPIKeyGet(id int) model.StatsAPIKey {
 	stats, ok := statsAPIKeyCache.Get(id)
 	if !ok {
-		tmp := model.StatsAPIKey{
+		return model.StatsAPIKey{
 			APIKeyID: id,
 		}
-		statsAPIKeyCache.Set(id, tmp)
-		statsAPIKeyCacheNeedUpdateLock.Lock()
-		statsAPIKeyCacheNeedUpdate[id] = struct{}{}
-		statsAPIKeyCacheNeedUpdateLock.Unlock()
-		return tmp
 	}
 	return stats
 }

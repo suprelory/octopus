@@ -49,7 +49,8 @@ func init() {
 }
 
 func createAPIKey(c *gin.Context) {
-	var req model.APIKey
+	// Missing enabled retains the creation default; explicit false is preserved.
+	req := model.APIKey{Enabled: true}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		resp.InvalidJSON(c)
 		return

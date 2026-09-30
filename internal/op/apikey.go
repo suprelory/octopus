@@ -3,25 +3,37 @@ package op
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/utils/cache"
+	"gorm.io/gorm"
 )
 
 var apiKeyCache = cache.New[int, model.APIKey](16)
 var apiKeyIDMap = cache.New[string, int](16)
 
+// Serialize DB commits and cache publication with key deletion and settlement.
+// When combined, acquire apiKeyWriteLock before statsPersistenceLock.
+var apiKeyWriteLock sync.RWMutex
+
 func APIKeyCreate(key *model.APIKey, ctx context.Context) error {
-	if err := db.GetDB().WithContext(ctx).Create(key).Error; err != nil {
+	apiKeyWriteLock.Lock()
+	defer apiKeyWriteLock.Unlock()
+	created := *key
+	if err := db.GetDB().WithContext(ctx).Create(&created).Error; err != nil {
 		return fmt.Errorf("failed to create API key: %w", err)
 	}
+	*key = created
 	apiKeyCache.Set(key.ID, *key)
 	apiKeyIDMap.Set(key.APIKey, key.ID)
 	return nil
 }
 
 func APIKeyUpdate(key *model.APIKey, ctx context.Context) error {
+	apiKeyWriteLock.Lock()
+	defer apiKeyWriteLock.Unlock()
 	existing, ok := apiKeyCache.Get(key.ID)
 	if !ok {
 		return fmt.Errorf("API key not found")
@@ -59,19 +71,27 @@ func APIKeyGetByAPIKey(apiKey string, ctx context.Context) (model.APIKey, error)
 }
 
 func APIKeyDelete(id int, ctx context.Context) error {
-	k := model.APIKey{
-		ID: id,
+	apiKeyWriteLock.Lock()
+	defer apiKeyWriteLock.Unlock()
+	// A flush must not persist a pre-delete snapshot after the transaction.
+	statsPersistenceLock.Lock()
+	defer statsPersistenceLock.Unlock()
+	var k model.APIKey
+	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.First(&k, id).Error; err != nil {
+			return fmt.Errorf("load API key: %w", err)
+		}
+		if err := tx.Where("api_key_id = ?", id).Delete(&model.StatsAPIKey{}).Error; err != nil {
+			return fmt.Errorf("failed to delete stats API key: %w", err)
+		}
+		if err := tx.Delete(&k).Error; err != nil {
+			return fmt.Errorf("failed to delete API key: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
-	if err := StatsAPIKeyDel(id); err != nil {
-		return fmt.Errorf("failed to delete stats API key: %v", err)
-	}
-	result := db.GetDB().WithContext(ctx).Delete(&k)
-	if result.RowsAffected == 0 {
-		return fmt.Errorf("API key not found")
-	}
-	if result.Error != nil {
-		return fmt.Errorf("failed to delete API key: %w", result.Error)
-	}
+	clearAPIKeyStatsCache(id)
 	RateLimitDel(id)
 	apiKeyCache.Del(k.ID)
 	apiKeyIDMap.Del(k.APIKey)
@@ -79,6 +99,8 @@ func APIKeyDelete(id int, ctx context.Context) error {
 }
 
 func apiKeyRefreshCache(ctx context.Context) error {
+	apiKeyWriteLock.Lock()
+	defer apiKeyWriteLock.Unlock()
 	apiKeys := []model.APIKey{}
 	if err := db.GetDB().WithContext(ctx).Find(&apiKeys).Error; err != nil {
 		return err
