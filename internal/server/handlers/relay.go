@@ -6,7 +6,7 @@ import (
 	"github.com/bestruirui/octopus/internal/relay"
 	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/server/router"
-	"github.com/bestruirui/octopus/internal/transformer/inbound"
+	"github.com/bestruirui/octopus/polywire/inbound"
 	"github.com/gin-gonic/gin"
 )
 

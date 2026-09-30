@@ -15,8 +15,8 @@ import (
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/relay/balancer"
-	"github.com/bestruirui/octopus/internal/transformer/inbound"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
+	"github.com/bestruirui/octopus/polywire/inbound"
+	"github.com/bestruirui/octopus/polywire/outbound"
 	"github.com/gin-gonic/gin"
 )
 

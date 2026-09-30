@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bestruirui/octopus/internal/transformer/httpio"
-	"github.com/bestruirui/octopus/internal/transformer/model"
 	"github.com/bestruirui/octopus/internal/utils/log"
+	"github.com/bestruirui/octopus/polywire/httpio"
+	"github.com/bestruirui/octopus/polywire/model"
 )
 
 func protocolErrorFromAttempt(upstreamError *model.ResponseError, statusCode int, err error) *model.ResponseError {

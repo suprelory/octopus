@@ -6,8 +6,8 @@ import (
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/relay/stream"
-	"github.com/bestruirui/octopus/internal/transformer/model"
 	"github.com/bestruirui/octopus/internal/utils/log"
+	"github.com/bestruirui/octopus/polywire/model"
 )
 
 func emptyResponseDetectionEnabled() bool {

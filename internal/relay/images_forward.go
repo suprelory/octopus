@@ -16,7 +16,7 @@ import (
 	"github.com/bestruirui/octopus/internal/helper"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/relay/bodycache"
-	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
+	transformerModel "github.com/bestruirui/octopus/polywire/model"
 	"github.com/gin-gonic/gin"
 )
 

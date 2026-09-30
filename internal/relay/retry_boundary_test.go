@@ -14,9 +14,10 @@ import (
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/relay/balancer"
-	"github.com/bestruirui/octopus/internal/transformer/inbound"
-	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
+	"github.com/bestruirui/octopus/internal/transformer"
+	"github.com/bestruirui/octopus/polywire/inbound"
+	transformerModel "github.com/bestruirui/octopus/polywire/model"
+	"github.com/bestruirui/octopus/polywire/outbound"
 	"github.com/gin-gonic/gin"
 )
 
@@ -116,7 +117,7 @@ func TestHTTPAndWSShareRetryBoundaries(t *testing.T) {
 					client, server := newTestWSConnPair(t)
 					defer client.CloseNow()
 					defer server.CloseNow()
-					adapter := inbound.Get(inbound.InboundTypeOpenAIResponse)
+					adapter := transformer.Inbound(inbound.InboundTypeOpenAIResponse)
 					parsed, err := adapter.TransformRequest(requestCtx, []byte(body))
 					if err != nil {
 						t.Fatal(err)

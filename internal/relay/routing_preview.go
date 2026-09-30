@@ -12,8 +12,9 @@ import (
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/relay/balancer"
-	"github.com/bestruirui/octopus/internal/transformer/inbound"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
+	"github.com/bestruirui/octopus/internal/transformer"
+	"github.com/bestruirui/octopus/polywire/inbound"
+	"github.com/bestruirui/octopus/polywire/outbound"
 )
 
 type RoutingPreviewRequest struct {
@@ -128,7 +129,7 @@ func PreviewRouting(ctx context.Context, input RoutingPreviewRequest) (*RoutingP
 		if !ok {
 			return nil, fmt.Errorf("unsupported preview endpoint")
 		}
-		request, err := inbound.Get(typ).TransformRequest(ctx, body)
+		request, err := transformer.Inbound(typ).TransformRequest(ctx, body)
 		if err != nil {
 			return nil, fmt.Errorf("invalid simulated request: %w", err)
 		}
@@ -156,7 +157,7 @@ func PreviewRouting(ctx context.Context, input RoutingPreviewRequest) (*RoutingP
 			preExcluded[item.ID] = "channel_not_found"
 		} else if !channel.Enabled {
 			preExcluded[item.ID] = "channel_disabled"
-		} else if outbound.Get(channel.Type) == nil {
+		} else if transformer.Outbound(channel.Type) == nil {
 			preExcluded[item.ID] = "unsupported_channel_type"
 		} else {
 			eligibleGroup.Items = append(eligibleGroup.Items, item)
@@ -178,7 +179,7 @@ func PreviewRouting(ctx context.Context, input RoutingPreviewRequest) (*RoutingP
 		row := RoutingPreviewCandidate{Item: item, ChannelName: channel.Name, Order: it.Index() + 1, SelectionReason: it.SelectionReason(), Strategy: it.SelectionStrategy(), QualityRank: it.QualityRank(), Metrics: it.SelectionMetrics(), Reason: "eligible", Eligible: true}
 		var decision outbound.CapabilityDecision
 		if planner != nil {
-			decision = planner.plan(channel, outbound.Get(channel.Type), item.ModelName)
+			decision = planner.plan(channel, transformer.Outbound(channel.Type), item.ModelName)
 		} else {
 			decision = outbound.PlanRelayOperation(channel.Type, operation)
 			decorateParamOverrideDecision(&decision, helper.InspectParamOverride(channel.ParamOverride), channelParamOverrideActive(channel))

@@ -7,8 +7,9 @@ import (
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/relay/balancer"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
+	"github.com/bestruirui/octopus/internal/transformer"
 	"github.com/bestruirui/octopus/internal/utils/log"
+	"github.com/bestruirui/octopus/polywire/outbound"
 )
 
 // evaluateCapabilityPolicy applies the relay-wide degradation policy to a
@@ -159,7 +160,7 @@ func getCapabilityDegradationPolicy() capabilityDegradationPolicy {
 }
 
 func logRelayCapability(channel *dbmodel.Channel, modelName string, decision outbound.CapabilityDecision, policy capabilityDegradationPolicy) {
-	outbound.RecordCapabilityDecision(decision)
+	transformer.RecordCapabilityDecision(decision)
 	if channel == nil {
 		return
 	}

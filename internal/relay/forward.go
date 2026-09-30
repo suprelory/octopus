@@ -6,8 +6,8 @@ import (
 
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/relay/balancer"
-	"github.com/bestruirui/octopus/internal/transformer/model"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
+	"github.com/bestruirui/octopus/polywire/model"
+	"github.com/bestruirui/octopus/polywire/outbound"
 )
 
 // forward 转发请求到上游服务

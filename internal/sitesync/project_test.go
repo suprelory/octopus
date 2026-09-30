@@ -9,7 +9,7 @@ import (
 	dbpkg "github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
+	"github.com/bestruirui/octopus/polywire/outbound"
 )
 
 func TestBuildProjectedChannelBaseURL(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
-	outboundmodel "github.com/bestruirui/octopus/internal/transformer/outbound"
+	outboundmodel "github.com/bestruirui/octopus/polywire/outbound"
 )
 
 func GroupAutoGroupConfigGet(ctx context.Context) (*model.GroupAutoGroupConfig, error) {

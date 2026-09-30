@@ -7,8 +7,9 @@ import (
 	"testing"
 
 	dbmodel "github.com/bestruirui/octopus/internal/model"
-	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
+	"github.com/bestruirui/octopus/internal/transformer"
+	transformerModel "github.com/bestruirui/octopus/polywire/model"
+	"github.com/bestruirui/octopus/polywire/outbound"
 )
 
 func TestInvalidParamOverrideCannotBypassValidation(t *testing.T) {
@@ -24,7 +25,7 @@ func TestInvalidParamOverrideCannotBypassValidation(t *testing.T) {
 		RawAPIFormat: transformerModel.APIFormatOpenAIResponse,
 	}
 	for _, websocket := range []bool{false, true} {
-		if planRelayPassthrough(internalRequest, []byte(body), channel, outbound.Get(channel.Type), websocket) {
+		if planRelayPassthrough(internalRequest, []byte(body), channel, transformer.Outbound(channel.Type), websocket) {
 			t.Fatalf("invalid configuration enabled passthrough: websocket=%t", websocket)
 		}
 	}

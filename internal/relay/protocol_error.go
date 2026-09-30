@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/bestruirui/octopus/internal/server/resp"
-	"github.com/bestruirui/octopus/internal/transformer/model"
+	"github.com/bestruirui/octopus/polywire/model"
 	"github.com/gin-gonic/gin"
 )
 

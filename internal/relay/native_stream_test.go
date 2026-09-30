@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bestruirui/octopus/internal/transformer/inbound"
-	"github.com/bestruirui/octopus/internal/transformer/model"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
+	"github.com/bestruirui/octopus/polywire/inbound"
+	"github.com/bestruirui/octopus/polywire/model"
+	"github.com/bestruirui/octopus/polywire/outbound"
 )
 
 func TestNativePassthroughPreservesUnknownAndMCPFrames(t *testing.T) {

@@ -12,9 +12,10 @@ import (
 
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
-	"github.com/bestruirui/octopus/internal/transformer/inbound"
-	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
+	"github.com/bestruirui/octopus/internal/transformer"
+	"github.com/bestruirui/octopus/polywire/inbound"
+	transformerModel "github.com/bestruirui/octopus/polywire/model"
+	"github.com/bestruirui/octopus/polywire/outbound"
 	"github.com/gin-gonic/gin"
 )
 
@@ -82,7 +83,7 @@ func TestPlanRelayCapabilityRejectsRemovedOutboundTypeWithoutMutatingRequest(t *
 	}
 	relayRequest := &relayRequest{internalRequest: request}
 	channel := &dbmodel.Channel{Type: outbound.OutboundType(-1)}
-	decision := planRelayCapability(relayRequest, channel, outbound.Get(channel.Type), "legacy-model")
+	decision := planRelayCapability(relayRequest, channel, transformer.Outbound(channel.Type), "legacy-model")
 	if !decision.Rejected() {
 		t.Fatalf("removed outbound type should be rejected: %#v", decision)
 	}
@@ -102,12 +103,12 @@ func TestStandardStreamFinalizationWritesCanonicalTailAndMetrics(t *testing.T) {
 	ra := &relayAttempt{
 		relayRequest: &relayRequest{
 			ctx:             context.Background(),
-			inAdapter:       inbound.Get(inbound.InboundTypeOpenAIChat),
+			inAdapter:       transformer.Inbound(inbound.InboundTypeOpenAIChat),
 			internalRequest: request,
 			metrics:         metrics,
 			streamWriter:    writer,
 		},
-		outAdapter: outbound.Get(outbound.OutboundTypeOpenAIChat),
+		outAdapter: transformer.Outbound(outbound.OutboundTypeOpenAIChat),
 	}
 	rawSSE := "data: {\"id\":\"chat_1\",\"object\":\"chat.completion.chunk\",\"model\":\"model_1\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hello\"},\"finish_reason\":\"stop\"}]}\n\n"
 	response := &http.Response{

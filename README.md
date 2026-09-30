@@ -23,7 +23,7 @@ Octopus 是一个面向多模型服务的 LLM API 聚合、协议转换和负载
 | 数据访问 | GORM；SQLite（默认）、MySQL、PostgreSQL |
 | 配置与 CLI | Viper、Cobra |
 | 日志与缓存 | Zap 结构化日志、分片内存缓存、xxhash |
-| 协议适配 | OpenAI、Anthropic、Gemini 等 inbound/outbound transformer |
+| 协议适配 | Polywire 独立 Go 模块，支持 OpenAI、Anthropic、Gemini 协议转换 |
 | 前端框架 | Next.js 16、React 19、TypeScript |
 | 前端样式与组件 | Tailwind CSS 4、Radix UI、shadcn/ui、Lucide |
 | 前端状态 | Zustand、TanStack React Query |
@@ -55,6 +55,8 @@ Outbound Transformer
 ```
 
 后端入口为 `main.go`，启动流程依次初始化配置、数据库、缓存、HTTP 服务和后台任务。前端使用 Next.js 静态导出，生产构建后嵌入 Go 二进制的 `static/out` 目录。
+
+协议转换由 [Polywire](polywire/README.md) 提供，模块路径为 `github.com/bestruirui/octopus/polywire`。根模块通过 `replace => ./polywire` 使用工作区内的代码。`internal/transformer` 负责注入日志、token 估算和进程内签名缓存，并记录能力决策统计；路由、降级策略、重试、连接管理和计费仍由 Octopus 负责。
 
 协议转换优先选择能够无损保留请求语义的渠道。未知顶层字段、Responses 原生工具与输入项，以及 Anthropic MCP、容器和服务端工具等语义无法由其他协议完整表达时，会优先尝试可保留这些语义的渠道；没有可用的保留渠道时，允许有损转换以维持可用性，并在运行日志中记录具体损失。严格降级策略也允许仅涉及这些语义的回退，其他语义损失仍遵循严格策略。同协议恢复仍校验所需的原始数据，缺失或损坏的数据不会被标记为无损恢复。
 
@@ -230,9 +232,10 @@ internal/db/          GORM 初始化和当前表结构创建
 internal/model/       数据模型
 internal/op/          业务逻辑与缓存
 internal/relay/       API 代理、负载均衡、熔断和流处理
-internal/transformer/ 协议转换 inbound/outbound
+internal/transformer/ Polywire 宿主集成与能力统计
 internal/server/      路由、处理器、中间件和认证
 internal/task/        后台定时任务
+polywire/             独立协议转换模块、通用 SSE 解码与契约测试
 scripts/              构建、价格同步、发布签名脚本
 web/src/              Next.js 管理面板
 static/out/           前端生产静态文件
@@ -240,11 +243,16 @@ static/out/           前端生产静态文件
 
 ## 测试与质量检查
 
-运行后端全部测试：
+运行宿主与 Polywire 的测试。根目录的 `./...` 不会遍历嵌套 Go 模块，需要分别执行：
 
 ```sh
-go test ./...
+GOWORK=off go test ./...
+cd polywire
+GOWORK=off go test ./...
+cd ..
 ```
+
+PowerShell 下先执行 `$env:GOWORK = 'off'`，再在两个目录分别运行 `go test ./...`。Polywire 可单独运行 `go vet ./...`、`go build ./...` 和 `go run ./examples/convert`，无需启动 Octopus。
 
 运行前端检查和构建：
 

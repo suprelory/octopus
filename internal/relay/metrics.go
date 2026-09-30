@@ -12,9 +12,9 @@ import (
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/price"
 	"github.com/bestruirui/octopus/internal/relay/balancer"
-	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
 	"github.com/bestruirui/octopus/internal/utils/log"
 	"github.com/bestruirui/octopus/internal/utils/tokenizer"
+	transformerModel "github.com/bestruirui/octopus/polywire/model"
 )
 
 // RelayMetrics 负责最终的日志收集与持久化

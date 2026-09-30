@@ -19,11 +19,11 @@ import (
 	"github.com/bestruirui/octopus/internal/relay/balancer"
 	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/server/resp"
-	"github.com/bestruirui/octopus/internal/transformer/httpio"
-	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
-	openaiOutbound "github.com/bestruirui/octopus/internal/transformer/outbound/openai"
 	"github.com/bestruirui/octopus/internal/utils/log"
+	"github.com/bestruirui/octopus/polywire/httpio"
+	transformerModel "github.com/bestruirui/octopus/polywire/model"
+	"github.com/bestruirui/octopus/polywire/outbound"
+	openaiOutbound "github.com/bestruirui/octopus/polywire/outbound/openai"
 	"github.com/gin-gonic/gin"
 )
 

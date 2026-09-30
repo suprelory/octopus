@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
+	"github.com/bestruirui/octopus/polywire/outbound"
 	"github.com/dlclark/regexp2"
 )
 

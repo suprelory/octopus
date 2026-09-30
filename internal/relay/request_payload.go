@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/bestruirui/octopus/internal/helper"
-	"github.com/bestruirui/octopus/internal/transformer/httpio"
+	"github.com/bestruirui/octopus/polywire/httpio"
 )
 
 func (ra *relayAttempt) clientRequestHeaders() http.Header {

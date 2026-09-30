@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	transformermodel "github.com/bestruirui/octopus/internal/transformer/model"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
+	transformermodel "github.com/bestruirui/octopus/polywire/model"
+	"github.com/bestruirui/octopus/polywire/outbound"
 )
 
 func TestEvaluateCapabilityPolicy(t *testing.T) {

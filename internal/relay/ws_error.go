@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/bestruirui/octopus/internal/relay/stream"
-	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
 	"github.com/bestruirui/octopus/internal/utils/log"
+	transformerModel "github.com/bestruirui/octopus/polywire/model"
 )
 
 type wsPublicError struct {

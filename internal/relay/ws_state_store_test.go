@@ -6,7 +6,7 @@ import (
 
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/relay/balancer"
-	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
+	transformerModel "github.com/bestruirui/octopus/polywire/model"
 )
 
 func TestResolveWSConversationStateFallsBackToStoredState(t *testing.T) {

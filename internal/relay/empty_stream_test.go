@@ -11,9 +11,10 @@ import (
 	"testing"
 
 	"github.com/bestruirui/octopus/internal/relay/stream"
-	"github.com/bestruirui/octopus/internal/transformer/inbound"
-	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
+	"github.com/bestruirui/octopus/internal/transformer"
+	"github.com/bestruirui/octopus/polywire/inbound"
+	transformerModel "github.com/bestruirui/octopus/polywire/model"
+	"github.com/bestruirui/octopus/polywire/outbound"
 	"github.com/gin-gonic/gin"
 )
 
@@ -36,7 +37,7 @@ func newEmptyStreamTestAttempt(t *testing.T, inType inbound.InboundType, rawForm
 	}
 	req := &relayRequest{
 		c:               c,
-		inAdapter:       inbound.Get(inType),
+		inAdapter:       transformer.Inbound(inType),
 		internalRequest: internalReq,
 		metrics:         NewRelayMetrics(1, internalReq.Model, "chat", "", nil, internalReq),
 		apiKeyID:        1,
@@ -44,7 +45,7 @@ func newEmptyStreamTestAttempt(t *testing.T, inType inbound.InboundType, rawForm
 	}
 	return &relayAttempt{
 		relayRequest:           req,
-		outAdapter:             outbound.Get(outType),
+		outAdapter:             transformer.Outbound(outType),
 		emptyResponseDetection: true,
 	}, recorder
 }

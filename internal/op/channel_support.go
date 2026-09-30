@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/bestruirui/octopus/internal/model"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
+	"github.com/bestruirui/octopus/polywire/outbound"
 )
 
 // validateChannelReference validates channels before creating route bindings.

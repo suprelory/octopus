@@ -7,9 +7,9 @@ import (
 	"net/http"
 
 	"github.com/bestruirui/octopus/internal/helper"
-	"github.com/bestruirui/octopus/internal/transformer/model"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
 	"github.com/bestruirui/octopus/internal/utils/log"
+	"github.com/bestruirui/octopus/polywire/model"
+	"github.com/bestruirui/octopus/polywire/outbound"
 )
 
 // maxUpstreamErrorBodySize bounds provider-controlled error responses. Some

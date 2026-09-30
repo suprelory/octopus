@@ -8,9 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bestruirui/octopus/internal/transformer/inbound"
-	"github.com/bestruirui/octopus/internal/transformer/model"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
+	"github.com/bestruirui/octopus/internal/transformer"
+	"github.com/bestruirui/octopus/polywire/inbound"
+	"github.com/bestruirui/octopus/polywire/model"
+	"github.com/bestruirui/octopus/polywire/outbound"
 )
 
 type diagnosticsErrorReader struct{}
@@ -34,7 +35,7 @@ func TestRelayStreamDiagnosticsDistinguishEOFAndTerminal(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			request := &model.InternalLLMRequest{Model: "m", Stream: p1Bool(true)}
-			ra := &relayAttempt{relayRequest: &relayRequest{ctx: context.Background(), internalRequest: request, inAdapter: inbound.Get(inbound.InboundTypeOpenAIChat), streamWriter: &notifyStreamWriter{header: http.Header{}}, metrics: NewRelayMetrics(1, "m", "chat", "", nil, request)}, outAdapter: outbound.Get(outbound.OutboundTypeOpenAIChat)}
+			ra := &relayAttempt{relayRequest: &relayRequest{ctx: context.Background(), internalRequest: request, inAdapter: transformer.Inbound(inbound.InboundTypeOpenAIChat), streamWriter: &notifyStreamWriter{header: http.Header{}}, metrics: NewRelayMetrics(1, "m", "chat", "", nil, request)}, outAdapter: transformer.Outbound(outbound.OutboundTypeOpenAIChat)}
 			var reader io.Reader = strings.NewReader(delta + tt.tail)
 			if tt.broken {
 				reader = io.MultiReader(reader, diagnosticsErrorReader{})

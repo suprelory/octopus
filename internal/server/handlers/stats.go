@@ -7,7 +7,7 @@ import (
 	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/server/resp"
 	"github.com/bestruirui/octopus/internal/server/router"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
+	"github.com/bestruirui/octopus/internal/transformer"
 	"github.com/gin-gonic/gin"
 )
 
@@ -66,5 +66,5 @@ func getStatsAPIKey(c *gin.Context) {
 }
 
 func getStatsCapability(c *gin.Context) {
-	resp.Success(c, outbound.SnapshotCapabilityMetrics())
+	resp.Success(c, transformer.SnapshotCapabilityMetrics())
 }

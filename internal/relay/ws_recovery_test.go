@@ -15,7 +15,8 @@ import (
 
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
-	"github.com/bestruirui/octopus/internal/transformer/inbound"
+	"github.com/bestruirui/octopus/internal/transformer"
+	"github.com/bestruirui/octopus/polywire/inbound"
 	"github.com/coder/websocket"
 )
 
@@ -151,7 +152,7 @@ func TestWSReplayDeadlineStopsAtCommit(t *testing.T) {
 	client, server := newTestWSConnPair(t)
 	defer client.CloseNow()
 	defer server.CloseNow()
-	adapter := inbound.Get(inbound.InboundTypeOpenAIResponse)
+	adapter := transformer.Inbound(inbound.InboundTypeOpenAIResponse)
 	body := []byte(`{"model":"long-replay","input":"next","stream":true}`)
 	parsed, err := adapter.TransformRequest(ctx, body)
 	if err != nil {
@@ -215,7 +216,7 @@ func TestWSStaleConnectionResendHonorsBudget(t *testing.T) {
 			client, server := newTestWSConnPair(t)
 			defer client.CloseNow()
 			defer server.CloseNow()
-			adapter := inbound.Get(inbound.InboundTypeOpenAIResponse)
+			adapter := transformer.Inbound(inbound.InboundTypeOpenAIResponse)
 			body := []byte(`{"model":"stale-budget","input":"hello","stream":true}`)
 			parsed, err := adapter.TransformRequest(ctx, body)
 			if err != nil {

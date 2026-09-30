@@ -10,9 +10,9 @@ import (
 
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/relay/stream"
-	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
-	openaiOutbound "github.com/bestruirui/octopus/internal/transformer/outbound/openai"
 	"github.com/bestruirui/octopus/internal/utils/log"
+	transformerModel "github.com/bestruirui/octopus/polywire/model"
+	openaiOutbound "github.com/bestruirui/octopus/polywire/outbound/openai"
 	"github.com/coder/websocket"
 )
 

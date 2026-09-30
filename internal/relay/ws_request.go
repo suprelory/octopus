@@ -10,9 +10,10 @@ import (
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/relay/balancer"
-	"github.com/bestruirui/octopus/internal/transformer/inbound"
-	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
+	"github.com/bestruirui/octopus/internal/transformer"
 	"github.com/bestruirui/octopus/internal/utils/log"
+	"github.com/bestruirui/octopus/polywire/inbound"
+	transformerModel "github.com/bestruirui/octopus/polywire/model"
 	"github.com/coder/websocket"
 )
 
@@ -99,7 +100,7 @@ func processWSResponseCreate(
 	}
 
 	// Parse request
-	inAdapter := inbound.Get(inbound.InboundTypeOpenAIResponse)
+	inAdapter := transformer.Inbound(inbound.InboundTypeOpenAIResponse)
 	internalRequest, err := inAdapter.TransformRequest(ctx, bodyBytes)
 	if err != nil {
 		reject(400, "invalid_request", err.Error())

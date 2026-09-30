@@ -2,9 +2,9 @@ package relay
 
 import (
 	dbmodel "github.com/bestruirui/octopus/internal/model"
-	"github.com/bestruirui/octopus/internal/transformer/inbound"
-	"github.com/bestruirui/octopus/internal/transformer/model"
 	"github.com/bestruirui/octopus/internal/utils/log"
+	"github.com/bestruirui/octopus/polywire/inbound"
+	"github.com/bestruirui/octopus/polywire/model"
 )
 
 // prepareHTTPResponsesReplay makes a known continuation self-contained before

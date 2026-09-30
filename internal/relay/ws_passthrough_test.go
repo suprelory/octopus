@@ -11,9 +11,10 @@ import (
 
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
-	"github.com/bestruirui/octopus/internal/transformer/inbound"
-	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
+	"github.com/bestruirui/octopus/internal/transformer"
+	"github.com/bestruirui/octopus/polywire/inbound"
+	transformerModel "github.com/bestruirui/octopus/polywire/model"
+	"github.com/bestruirui/octopus/polywire/outbound"
 	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 )
@@ -74,7 +75,7 @@ func TestForwardViaWSPassthroughNormalizesPayloadAndRecordsMetrics(t *testing.T)
 	req := &relayRequest{
 		c:               nil,
 		ctx:             context.Background(),
-		inAdapter:       inbound.Get(inbound.InboundTypeOpenAIResponse),
+		inAdapter:       transformer.Inbound(inbound.InboundTypeOpenAIResponse),
 		internalRequest: internalReq,
 		metrics:         NewRelayMetrics(1, "client-model", "chat", "", rawBody, internalReq),
 		apiKeyID:        1,
@@ -84,7 +85,7 @@ func TestForwardViaWSPassthroughNormalizesPayloadAndRecordsMetrics(t *testing.T)
 		rawBody:         rawBody,
 		streamWriter:    NewWSStreamWriter(context.Background(), serverConn),
 	}
-	ra := &relayAttempt{relayRequest: req, outAdapter: outbound.Get(channel.Type), channel: channel, usedKey: channel.Keys[0]}
+	ra := &relayAttempt{relayRequest: req, outAdapter: transformer.Outbound(channel.Type), channel: channel, usedKey: channel.Keys[0]}
 
 	status, err := ra.forwardViaWS(context.Background())
 	if err != nil || status != http.StatusOK {

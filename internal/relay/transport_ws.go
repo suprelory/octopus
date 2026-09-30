@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/bestruirui/octopus/internal/transformer/model"
-	openaiOutbound "github.com/bestruirui/octopus/internal/transformer/outbound/openai"
+	"github.com/bestruirui/octopus/polywire/model"
+	openaiOutbound "github.com/bestruirui/octopus/polywire/outbound/openai"
 
 	"github.com/bestruirui/octopus/internal/utils/log"
 	"github.com/coder/websocket"

@@ -7,8 +7,9 @@ import (
 
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/relay/balancer"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
+	"github.com/bestruirui/octopus/internal/transformer"
 	"github.com/bestruirui/octopus/internal/utils/log"
+	"github.com/bestruirui/octopus/polywire/outbound"
 )
 
 type relayExecutor struct {
@@ -77,7 +78,7 @@ func (r *relayExecutor) run() relayOutcome {
 			iter.Skip(channel.ID, 0, channel.Name, "channel disabled")
 			continue
 		}
-		adapter := outbound.Get(channel.Type)
+		adapter := transformer.Outbound(channel.Type)
 		if adapter == nil {
 			iter.Skip(channel.ID, 0, channel.Name, fmt.Sprintf("unsupported channel type: %d", channel.Type))
 			continue
@@ -202,7 +203,7 @@ func (r *relayExecutor) runChannelAttempts(channel *dbmodel.Channel, key dbmodel
 		}
 		attempt := &relayAttempt{
 			relayRequest:           attemptRequest,
-			outAdapter:             outbound.Get(channel.Type),
+			outAdapter:             transformer.Outbound(channel.Type),
 			channel:                channel,
 			usedKey:                key,
 			firstTokenTimeOutSec:   execution.firstTokenTimeout,
@@ -239,7 +240,7 @@ func (r *relayExecutor) candidateAvailable(item dbmodel.GroupItem) bool {
 	if err != nil || !channel.Enabled {
 		return false
 	}
-	adapter := outbound.Get(channel.Type)
+	adapter := transformer.Outbound(channel.Type)
 	if adapter == nil {
 		return false
 	}

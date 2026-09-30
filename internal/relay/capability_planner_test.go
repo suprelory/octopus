@@ -6,8 +6,9 @@ import (
 	"testing"
 
 	dbmodel "github.com/bestruirui/octopus/internal/model"
-	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
+	"github.com/bestruirui/octopus/internal/transformer"
+	transformerModel "github.com/bestruirui/octopus/polywire/model"
+	"github.com/bestruirui/octopus/polywire/outbound"
 )
 
 func TestRelayCapabilityPlannerCachesDecisionAndInvalidatesFingerprint(t *testing.T) {
@@ -22,7 +23,7 @@ func TestRelayCapabilityPlannerCachesDecisionAndInvalidatesFingerprint(t *testin
 		Type:            outbound.OutboundTypeAnthropic,
 		PassthroughMode: dbmodel.ChannelPassthroughModeOff,
 	}
-	adapter := outbound.Get(channel.Type)
+	adapter := transformer.Outbound(channel.Type)
 
 	first := planner.plan(channel, adapter, "claude-3")
 	second := planner.plan(channel, adapter, "claude-3")
@@ -50,7 +51,7 @@ func TestRelayCapabilityPlannerCachesDecisionAndInvalidatesFingerprint(t *testin
 		t.Fatalf("model change did not create a distinct cache entry, entries=%d", len(planner.decisions))
 	}
 	channel.Type = outbound.OutboundTypeGemini
-	planner.plan(channel, outbound.Get(channel.Type), "claude-4")
+	planner.plan(channel, transformer.Outbound(channel.Type), "claude-4")
 	if len(planner.decisions) != 4 {
 		t.Fatalf("outbound type change did not create a distinct cache entry, entries=%d", len(planner.decisions))
 	}
@@ -64,7 +65,7 @@ func TestPlanRelayCapabilityLazilySharesRequestPlanner(t *testing.T) {
 	}
 	req := &relayRequest{internalRequest: request, rawBody: []byte(`{}`)}
 	channel := &dbmodel.Channel{ID: 42, Type: outbound.OutboundTypeAnthropic}
-	adapter := outbound.Get(channel.Type)
+	adapter := transformer.Outbound(channel.Type)
 
 	first := planRelayCapability(req, channel, adapter, "claude-3")
 	second := planRelayCapability(req, channel, adapter, "claude-3")
@@ -89,8 +90,8 @@ func TestRelayCapabilityPlannerSharesEquivalentChannels(t *testing.T) {
 	firstChannel := &dbmodel.Channel{ID: 101, Type: outbound.OutboundTypeAnthropic, PassthroughMode: dbmodel.ChannelPassthroughModeOff}
 	secondChannel := &dbmodel.Channel{ID: 202, Type: outbound.OutboundTypeAnthropic, PassthroughMode: dbmodel.ChannelPassthroughModeOff}
 
-	first := planner.plan(firstChannel, outbound.Get(firstChannel.Type), "claude-3")
-	second := planner.plan(secondChannel, outbound.Get(secondChannel.Type), "claude-3")
+	first := planner.plan(firstChannel, transformer.Outbound(firstChannel.Type), "claude-3")
+	second := planner.plan(secondChannel, transformer.Outbound(secondChannel.Type), "claude-3")
 	if len(planner.decisions) != 1 {
 		t.Fatalf("equivalent channels should share one decision, got %d: %+v", len(planner.decisions), planner.decisions)
 	}

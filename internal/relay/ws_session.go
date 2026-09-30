@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
-	openaiOutbound "github.com/bestruirui/octopus/internal/transformer/outbound/openai"
+	transformerModel "github.com/bestruirui/octopus/polywire/model"
+	openaiOutbound "github.com/bestruirui/octopus/polywire/outbound/openai"
 )
 
 type wsConversationState struct {

@@ -18,8 +18,8 @@ import (
 	"github.com/bestruirui/octopus/internal/relay/bodycache"
 	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/server/resp"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
 	"github.com/bestruirui/octopus/internal/utils/log"
+	"github.com/bestruirui/octopus/polywire/outbound"
 	"github.com/gin-gonic/gin"
 )
 

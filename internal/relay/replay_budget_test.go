@@ -10,7 +10,8 @@ import (
 
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
-	"github.com/bestruirui/octopus/internal/transformer/inbound"
+	"github.com/bestruirui/octopus/internal/transformer"
+	"github.com/bestruirui/octopus/polywire/inbound"
 )
 
 func TestReplayChannelBudgetCountsSubmissionsInsteadOfIteratorPositions(t *testing.T) {
@@ -33,7 +34,7 @@ func TestReplayChannelBudgetCountsSubmissionsInsteadOfIteratorPositions(t *testi
 	client, server := newTestWSConnPair(t)
 	defer client.CloseNow()
 	defer server.CloseNow()
-	adapter := inbound.Get(inbound.InboundTypeOpenAIResponse)
+	adapter := transformer.Inbound(inbound.InboundTypeOpenAIResponse)
 	body := []byte(`{"model":"replay-skips","input":"next","stream":true}`)
 	parsed, err := adapter.TransformRequest(ctx, body)
 	if err != nil {

@@ -8,9 +8,9 @@ import (
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	sitesvc "github.com/bestruirui/octopus/internal/site"
-	"github.com/bestruirui/octopus/internal/transformer/inbound"
 	"github.com/bestruirui/octopus/internal/utils/log"
 	"github.com/bestruirui/octopus/internal/utils/safe"
+	"github.com/bestruirui/octopus/polywire/inbound"
 )
 
 func detectRouteMismatchTarget(inboundType inbound.InboundType, err error) (model.SiteModelRouteType, bool) {

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
+	transformerModel "github.com/bestruirui/octopus/polywire/model"
 )
 
 func TestParseRetryAtSupportsDeltaSecondsAndHTTPDate(t *testing.T) {

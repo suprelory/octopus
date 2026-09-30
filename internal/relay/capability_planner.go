@@ -5,8 +5,9 @@ import (
 
 	"github.com/bestruirui/octopus/internal/helper"
 	dbmodel "github.com/bestruirui/octopus/internal/model"
-	"github.com/bestruirui/octopus/internal/transformer/model"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
+	"github.com/bestruirui/octopus/internal/transformer"
+	"github.com/bestruirui/octopus/polywire/model"
+	"github.com/bestruirui/octopus/polywire/outbound"
 )
 
 // relayCapabilityCacheKey describes every decision input that can vary between
@@ -51,18 +52,18 @@ func (p *relayCapabilityPlanner) effectiveModel(modelName string) string {
 
 func (p *relayCapabilityPlanner) plan(channel *dbmodel.Channel, adapter model.Outbound, modelName string) outbound.CapabilityDecision {
 	if p == nil || p.request == nil {
-		return outbound.PlanRequestForModel(nil, "", outbound.OutboundType(0), false)
+		return transformer.PlanRequestForModel(nil, "", outbound.OutboundType(0), false)
 	}
 
 	effectiveModel := p.effectiveModel(modelName)
 	if channel == nil {
-		return outbound.PlanRequestForModel(p.request, effectiveModel, outbound.OutboundType(-1), false)
+		return transformer.PlanRequestForModel(p.request, effectiveModel, outbound.OutboundType(-1), false)
 	}
 	if adapter == nil {
 		// A nil adapter is an invalid/temporary candidate. Do not cache the
 		// non-passthrough fallback in case a later validation supplies a real
 		// adapter for the same channel and model.
-		return outbound.PlanRequestForModel(p.request, effectiveModel, channel.Type, false)
+		return transformer.PlanRequestForModel(p.request, effectiveModel, channel.Type, false)
 	}
 
 	override := helper.InspectParamOverride(channel.ParamOverride)
@@ -78,7 +79,7 @@ func (p *relayCapabilityPlanner) plan(channel *dbmodel.Channel, adapter model.Ou
 		return decision
 	}
 
-	decision := outbound.PlanRequestForModel(p.request, effectiveModel, channel.Type, passthrough)
+	decision := transformer.PlanRequestForModel(p.request, effectiveModel, channel.Type, passthrough)
 	decorateParamOverrideDecision(&decision, override, overrideConfigured)
 	p.decisions[key] = decision
 	return decision
@@ -88,7 +89,7 @@ func (p *relayCapabilityPlanner) rankChannel(channel *dbmodel.Channel, item dbmo
 	if channel == nil || !channel.Enabled {
 		return capabilityRankRejected
 	}
-	adapter := outbound.Get(channel.Type)
+	adapter := transformer.Outbound(channel.Type)
 	if adapter == nil || p == nil || p.request == nil {
 		return capabilityRankRejected
 	}
@@ -137,7 +138,7 @@ func containsString(values []string, target string) bool {
 
 func planRelayCapability(req *relayRequest, channel *dbmodel.Channel, adapter model.Outbound, modelName string) outbound.CapabilityDecision {
 	if req == nil || req.internalRequest == nil {
-		return outbound.PlanRequestForModel(nil, "", outbound.OutboundType(0), false)
+		return transformer.PlanRequestForModel(nil, "", outbound.OutboundType(0), false)
 	}
 	if req.capabilityPlanner == nil {
 		// Direct/unit callers may construct relayRequest themselves. Lazily

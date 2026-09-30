@@ -3,6 +3,7 @@ module github.com/bestruirui/octopus
 go 1.25.0
 
 require (
+	github.com/bestruirui/octopus/polywire v0.0.0
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/coder/websocket v1.8.14
 	github.com/dlclark/regexp2 v1.11.5
@@ -24,6 +25,8 @@ require (
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/gorm v1.31.1
 )
+
+replace github.com/bestruirui/octopus/polywire => ./polywire
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect

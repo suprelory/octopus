@@ -1,0 +1,32 @@
+// Package transformer connects Octopus services to the independent Polywire module.
+package transformer
+
+import (
+	"github.com/bestruirui/octopus/internal/utils/log"
+	"github.com/bestruirui/octopus/internal/utils/tokenizer"
+	"github.com/bestruirui/octopus/polywire"
+	"github.com/bestruirui/octopus/polywire/inbound"
+	"github.com/bestruirui/octopus/polywire/model"
+	"github.com/bestruirui/octopus/polywire/outbound"
+)
+
+// The host owns this Engine for the process lifetime so scoped signatures survive
+// retries and follow-up requests. Each factory call still returns a new adapter.
+var engine = polywire.New(polywire.Config{
+	Logger:       hostLogger{},
+	TokenCounter: tokenizer.CountTokens,
+})
+
+func Inbound(typ inbound.InboundType) model.Inbound     { return engine.Inbound(typ) }
+func Outbound(typ outbound.OutboundType) model.Outbound { return engine.Outbound(typ) }
+
+func PlanRequestForModel(req *model.InternalLLMRequest, effectiveModel string, typ outbound.OutboundType, passthrough bool) outbound.CapabilityDecision {
+	return engine.PlanRequestForModel(req, effectiveModel, typ, passthrough)
+}
+
+// Forward on every call so host log reconfiguration also affects existing adapters.
+type hostLogger struct{}
+
+func (hostLogger) Warnf(format string, args ...any)     { log.Warnf(format, args...) }
+func (hostLogger) Warnw(message string, fields ...any)  { log.Warnw(message, fields...) }
+func (hostLogger) Debugw(message string, fields ...any) { log.Debugw(message, fields...) }

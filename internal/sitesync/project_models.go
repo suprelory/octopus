@@ -7,7 +7,7 @@ import (
 
 	"github.com/bestruirui/octopus/internal/helper"
 	"github.com/bestruirui/octopus/internal/model"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
+	"github.com/bestruirui/octopus/polywire/outbound"
 )
 
 func syncProjectedModelPrices(ctx context.Context, modelsByGroup map[string][]model.SiteModel) error {

@@ -19,10 +19,11 @@ import (
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/relay/balancer"
-	"github.com/bestruirui/octopus/internal/transformer/inbound"
-	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
+	"github.com/bestruirui/octopus/internal/transformer"
 	"github.com/bestruirui/octopus/internal/utils/tokenizer"
+	"github.com/bestruirui/octopus/polywire/inbound"
+	transformerModel "github.com/bestruirui/octopus/polywire/model"
+	"github.com/bestruirui/octopus/polywire/outbound"
 	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 )
@@ -72,7 +73,7 @@ func TestHandleStreamResponsePassthroughAnthropicPreservesRawSSE(t *testing.T) {
 	}
 	req := &relayRequest{
 		c:               c,
-		inAdapter:       inbound.Get(inbound.InboundTypeAnthropic),
+		inAdapter:       transformer.Inbound(inbound.InboundTypeAnthropic),
 		internalRequest: internalReq,
 		metrics:         NewRelayMetrics(1, internalReq.Model, "chat", "", nil, internalReq),
 		apiKeyID:        1,
@@ -80,7 +81,7 @@ func TestHandleStreamResponsePassthroughAnthropicPreservesRawSSE(t *testing.T) {
 	}
 	ra := &relayAttempt{
 		relayRequest: req,
-		outAdapter:   outbound.Get(outbound.OutboundTypeAnthropic),
+		outAdapter:   transformer.Outbound(outbound.OutboundTypeAnthropic),
 	}
 
 	response := &http.Response{
@@ -124,7 +125,7 @@ func TestHandleStreamResponsePassthroughOpenAIResponsesPreservesRawSSE(t *testin
 	}
 	req := &relayRequest{
 		c:               c,
-		inAdapter:       inbound.Get(inbound.InboundTypeOpenAIResponse),
+		inAdapter:       transformer.Inbound(inbound.InboundTypeOpenAIResponse),
 		internalRequest: internalReq,
 		metrics:         NewRelayMetrics(1, internalReq.Model, "chat", "", nil, internalReq),
 		apiKeyID:        1,
@@ -132,7 +133,7 @@ func TestHandleStreamResponsePassthroughOpenAIResponsesPreservesRawSSE(t *testin
 	}
 	ra := &relayAttempt{
 		relayRequest: req,
-		outAdapter:   outbound.Get(outbound.OutboundTypeOpenAIResponse),
+		outAdapter:   transformer.Outbound(outbound.OutboundTypeOpenAIResponse),
 		channel:      &model.Channel{Type: outbound.OutboundTypeOpenAIResponse},
 	}
 
@@ -208,7 +209,7 @@ func newOpenAIResponsesPassthroughAttempt(writer StreamWriter) (*relayAttempt, *
 	}
 	req := &relayRequest{
 		c:               c,
-		inAdapter:       inbound.Get(inbound.InboundTypeOpenAIResponse),
+		inAdapter:       transformer.Inbound(inbound.InboundTypeOpenAIResponse),
 		internalRequest: internalReq,
 		metrics:         NewRelayMetrics(1, internalReq.Model, "chat", "", nil, internalReq),
 		apiKeyID:        1,
@@ -217,7 +218,7 @@ func newOpenAIResponsesPassthroughAttempt(writer StreamWriter) (*relayAttempt, *
 	}
 	ra := &relayAttempt{
 		relayRequest: req,
-		outAdapter:   outbound.Get(outbound.OutboundTypeOpenAIResponse),
+		outAdapter:   transformer.Outbound(outbound.OutboundTypeOpenAIResponse),
 		channel:      &model.Channel{Type: outbound.OutboundTypeOpenAIResponse},
 	}
 	return ra, req
@@ -339,7 +340,7 @@ func TestHandleStreamResponsePassthroughAnthropicClientCancelAfterTerminal(t *te
 	}
 	req := &relayRequest{
 		c:               c,
-		inAdapter:       inbound.Get(inbound.InboundTypeAnthropic),
+		inAdapter:       transformer.Inbound(inbound.InboundTypeAnthropic),
 		internalRequest: internalReq,
 		metrics:         NewRelayMetrics(1, internalReq.Model, "chat", "", nil, internalReq),
 		apiKeyID:        1,
@@ -348,7 +349,7 @@ func TestHandleStreamResponsePassthroughAnthropicClientCancelAfterTerminal(t *te
 	}
 	ra := &relayAttempt{
 		relayRequest: req,
-		outAdapter:   outbound.Get(outbound.OutboundTypeAnthropic),
+		outAdapter:   transformer.Outbound(outbound.OutboundTypeAnthropic),
 	}
 
 	response := &http.Response{
@@ -1205,7 +1206,7 @@ func TestForwardViaWSRedialsFreshRequestAfterStalePooledConnection(t *testing.T)
 	internalReq := &transformerModel.InternalLLMRequest{Model: "gpt-4o", Stream: boolPtr(true)}
 	req := &relayRequest{
 		c:               c,
-		inAdapter:       inbound.Get(inbound.InboundTypeOpenAIResponse),
+		inAdapter:       transformer.Inbound(inbound.InboundTypeOpenAIResponse),
 		internalRequest: internalReq,
 		metrics:         NewRelayMetrics(1, "gpt-4o", "chat", "", nil, internalReq),
 		apiKeyID:        1,
@@ -1213,7 +1214,7 @@ func TestForwardViaWSRedialsFreshRequestAfterStalePooledConnection(t *testing.T)
 	}
 	ra := &relayAttempt{
 		relayRequest: req,
-		outAdapter:   outbound.Get(channel.Type),
+		outAdapter:   transformer.Outbound(channel.Type),
 		channel:      channel,
 		usedKey:      channel.Keys[0],
 	}
@@ -1281,7 +1282,7 @@ func TestForwardViaWSReconnectsContinuationAfterReadFailureBeforeFirstEvent(t *t
 	internalReq := &transformerModel.InternalLLMRequest{Model: "gpt-4o", Stream: boolPtr(true), PreviousResponseID: stringPtr("resp_prev")}
 	req := &relayRequest{
 		c:               c,
-		inAdapter:       inbound.Get(inbound.InboundTypeOpenAIResponse),
+		inAdapter:       transformer.Inbound(inbound.InboundTypeOpenAIResponse),
 		internalRequest: internalReq,
 		metrics:         NewRelayMetrics(1, "gpt-4o", "chat", "", nil, internalReq),
 		apiKeyID:        1,
@@ -1289,7 +1290,7 @@ func TestForwardViaWSReconnectsContinuationAfterReadFailureBeforeFirstEvent(t *t
 	}
 	ra := &relayAttempt{
 		relayRequest: req,
-		outAdapter:   outbound.Get(channel.Type),
+		outAdapter:   transformer.Outbound(channel.Type),
 		channel:      channel,
 		usedKey:      channel.Keys[0],
 	}
@@ -1346,7 +1347,7 @@ func TestForwardDoesNotUseWSForFreshHTTPIngress(t *testing.T) {
 	internalReq := &transformerModel.InternalLLMRequest{Model: "gpt-4o", Stream: boolPtr(false), RawAPIFormat: transformerModel.APIFormatOpenAIResponse}
 	req := &relayRequest{
 		c:               c,
-		inAdapter:       inbound.Get(inbound.InboundTypeOpenAIResponse),
+		inAdapter:       transformer.Inbound(inbound.InboundTypeOpenAIResponse),
 		internalRequest: internalReq,
 		metrics:         NewRelayMetrics(1, "gpt-4o", "chat", "", nil, internalReq),
 		apiKeyID:        1,
@@ -1354,7 +1355,7 @@ func TestForwardDoesNotUseWSForFreshHTTPIngress(t *testing.T) {
 	}
 	ra := &relayAttempt{
 		relayRequest: req,
-		outAdapter:   outbound.Get(channel.Type),
+		outAdapter:   transformer.Outbound(channel.Type),
 		channel:      channel,
 		usedKey:      channel.Keys[0],
 	}
@@ -1400,8 +1401,8 @@ func TestForwardViaHTTPClearsDefaultGoUserAgent(t *testing.T) {
 	c, _ := gin.CreateTestContext(writer)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 	internalReq := &transformerModel.InternalLLMRequest{Model: "gpt-4o", Stream: boolPtr(false), RawAPIFormat: transformerModel.APIFormatOpenAIResponse}
-	req := &relayRequest{c: c, inAdapter: inbound.Get(inbound.InboundTypeOpenAIResponse), internalRequest: internalReq, metrics: NewRelayMetrics(1, "gpt-4o", "chat", "", nil, internalReq), apiKeyID: 1, requestModel: "gpt-4o"}
-	ra := &relayAttempt{relayRequest: req, outAdapter: outbound.Get(channel.Type), channel: channel, usedKey: channel.Keys[0]}
+	req := &relayRequest{c: c, inAdapter: transformer.Inbound(inbound.InboundTypeOpenAIResponse), internalRequest: internalReq, metrics: NewRelayMetrics(1, "gpt-4o", "chat", "", nil, internalReq), apiKeyID: 1, requestModel: "gpt-4o"}
+	ra := &relayAttempt{relayRequest: req, outAdapter: transformer.Outbound(channel.Type), channel: channel, usedKey: channel.Keys[0]}
 
 	statusCode, err := ra.forwardViaHTTP(context.Background())
 	if err != nil || statusCode != http.StatusOK {
@@ -1460,7 +1461,7 @@ func TestForwardViaWSPreservesClientUserAgentHeaders(t *testing.T) {
 	internalReq := &transformerModel.InternalLLMRequest{Model: "gpt-4o", Stream: boolPtr(true)}
 	req := &relayRequest{
 		c:               c,
-		inAdapter:       inbound.Get(inbound.InboundTypeOpenAIResponse),
+		inAdapter:       transformer.Inbound(inbound.InboundTypeOpenAIResponse),
 		internalRequest: internalReq,
 		metrics:         NewRelayMetrics(1, "gpt-4o", "chat", "", nil, internalReq),
 		apiKeyID:        1,
@@ -1468,7 +1469,7 @@ func TestForwardViaWSPreservesClientUserAgentHeaders(t *testing.T) {
 	}
 	ra := &relayAttempt{
 		relayRequest: req,
-		outAdapter:   outbound.Get(channel.Type),
+		outAdapter:   transformer.Outbound(channel.Type),
 		channel:      channel,
 		usedKey:      channel.Keys[0],
 	}

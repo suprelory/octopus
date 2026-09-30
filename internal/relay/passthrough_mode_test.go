@@ -6,8 +6,9 @@ import (
 
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
-	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
+	"github.com/bestruirui/octopus/internal/transformer"
+	transformerModel "github.com/bestruirui/octopus/polywire/model"
+	"github.com/bestruirui/octopus/polywire/outbound"
 )
 
 func TestShouldUseHTTPPassthroughHonorsChannelMode(t *testing.T) {
@@ -19,7 +20,7 @@ func TestShouldUseHTTPPassthroughHonorsChannelMode(t *testing.T) {
 			},
 		},
 		channel:    &dbmodel.Channel{PassthroughMode: dbmodel.ChannelPassthroughModeAuto},
-		outAdapter: outbound.Get(outbound.OutboundTypeAnthropic),
+		outAdapter: transformer.Outbound(outbound.OutboundTypeAnthropic),
 	}
 	passthrough := attempt.outAdapter.(transformerModel.PassthroughCapable)
 	if !attempt.shouldUseHTTPPassthrough(passthrough) {
@@ -39,7 +40,7 @@ func TestParamOverrideForcesValidatedTransformerPath(t *testing.T) {
 		ParamOverride:   &override,
 	}
 	request := &transformerModel.InternalLLMRequest{RawAPIFormat: transformerModel.APIFormatAnthropicMessage}
-	adapter := outbound.Get(channel.Type)
+	adapter := transformer.Outbound(channel.Type)
 	rawBody := []byte(`{"model":"m"}`)
 	if planRelayPassthrough(request, rawBody, channel, adapter, false) {
 		t.Fatal("param override must disable byte-stable passthrough")
@@ -79,7 +80,7 @@ func TestShouldUseHTTPPassthroughKeepsResponsesNativeOnlySafety(t *testing.T) {
 	attempt := &relayAttempt{
 		relayRequest: &relayRequest{rawBody: []byte(`{"model":"m"}`), internalRequest: request},
 		channel:      &dbmodel.Channel{PassthroughMode: dbmodel.ChannelPassthroughModeOff},
-		outAdapter:   outbound.Get(outbound.OutboundTypeOpenAIResponse),
+		outAdapter:   transformer.Outbound(outbound.OutboundTypeOpenAIResponse),
 	}
 	passthrough := attempt.outAdapter.(transformerModel.PassthroughCapable)
 	if !attempt.shouldUseHTTPPassthrough(passthrough) {
@@ -100,7 +101,7 @@ func TestPlanRelayPassthroughMatchesResponsesExecutionGuards(t *testing.T) {
 		Type:            outbound.OutboundTypeOpenAIResponse,
 		PassthroughMode: dbmodel.ChannelPassthroughModeOff,
 	}
-	adapter := outbound.Get(channel.Type)
+	adapter := transformer.Outbound(channel.Type)
 	rawBody := []byte(`{"model":"m","tools":[{"type":"custom","name":"shell"}]}`)
 
 	if !planRelayPassthrough(request, rawBody, channel, adapter, false) {
@@ -111,7 +112,7 @@ func TestPlanRelayPassthroughMatchesResponsesExecutionGuards(t *testing.T) {
 	if planRelayPassthrough(request, rawBody, channel, adapter, false) {
 		t.Fatal("exact replay must use canonical recovery instead of raw passthrough")
 	}
-	if decision := outbound.PlanRequestForModel(request, request.Model, channel.Type, false); decision.Rejected() {
+	if decision := transformer.PlanRequestForModel(request, request.Model, channel.Type, false); decision.Rejected() {
 		t.Fatalf("exact replay must remain eligible for canonical recovery: %#v", decision)
 	}
 }
@@ -126,13 +127,13 @@ func TestPlanRelayPassthroughRejectsNativeOnlyWSTransform(t *testing.T) {
 		Type:   outbound.OutboundTypeOpenAIResponse,
 		WSMode: dbmodel.ChannelWSModeTransform,
 	}
-	adapter := outbound.Get(channel.Type)
+	adapter := transformer.Outbound(channel.Type)
 
 	passthrough := planRelayPassthrough(request, []byte(`{"model":"m"}`), channel, adapter, true)
 	if passthrough {
 		t.Fatal("WS transform mode must not be planned as native passthrough")
 	}
-	decision := outbound.PlanRequestForModel(request, request.Model, channel.Type, passthrough)
+	decision := transformer.PlanRequestForModel(request, request.Model, channel.Type, passthrough)
 	if !decision.Rejected() {
 		t.Fatalf("native-only WS transform decision = %#v, want rejected", decision)
 	}
@@ -159,7 +160,7 @@ func TestPlanRelayPassthroughKeepsWSContinuationOnPassthroughTransport(t *testin
 		Type:   outbound.OutboundTypeOpenAIResponse,
 		WSMode: dbmodel.ChannelWSModePassthrough,
 	}
-	adapter := outbound.Get(channel.Type)
+	adapter := transformer.Outbound(channel.Type)
 	rawBody := []byte(`{"model":"m","previous_response_id":"resp_previous","tools":[{"type":"custom","name":"shell"}]}`)
 
 	if !planRelayPassthrough(request, rawBody, channel, adapter, true) {
@@ -168,7 +169,7 @@ func TestPlanRelayPassthroughKeepsWSContinuationOnPassthroughTransport(t *testin
 	if planRelayPassthrough(request, rawBody, channel, adapter, false) {
 		t.Fatal("HTTP ingress continuation must stay on the affinity-aware WS transform path")
 	}
-	if decision := outbound.PlanRequestForModel(request, request.Model, channel.Type, false); decision.Rejected() {
+	if decision := transformer.PlanRequestForModel(request, request.Model, channel.Type, false); decision.Rejected() {
 		t.Fatalf("HTTP continuation must remain eligible for upstream WS recovery: %#v", decision)
 	}
 }

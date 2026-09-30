@@ -1,6 +1,6 @@
 package relay
 
-import "github.com/bestruirui/octopus/internal/transformer/inbound"
+import "github.com/bestruirui/octopus/polywire/inbound"
 
 func relayEndpointType(inboundType inbound.InboundType) string {
 	switch inboundType {

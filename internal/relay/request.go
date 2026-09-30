@@ -16,10 +16,11 @@ import (
 	"github.com/bestruirui/octopus/internal/relay/balancer"
 	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/server/resp"
-	"github.com/bestruirui/octopus/internal/transformer/compat"
-	"github.com/bestruirui/octopus/internal/transformer/inbound"
-	"github.com/bestruirui/octopus/internal/transformer/model"
+	"github.com/bestruirui/octopus/internal/transformer"
 	"github.com/bestruirui/octopus/internal/utils/log"
+	"github.com/bestruirui/octopus/polywire/compat"
+	"github.com/bestruirui/octopus/polywire/inbound"
+	"github.com/bestruirui/octopus/polywire/model"
 	"github.com/gin-gonic/gin"
 )
 
@@ -109,7 +110,7 @@ func prepareHTTPRelay(inboundType inbound.InboundType, c *gin.Context) *httpRela
 // of re-running TransformRequest (JSON parse, protocol conversion, and
 // token counting) on the unchanged body for every retry.
 func newAttemptInboundAdapter(inboundType inbound.InboundType, seed *model.InternalLLMRequest) (model.Inbound, error) {
-	adapter := inbound.Get(inboundType)
+	adapter := transformer.Inbound(inboundType)
 	if adapter == nil {
 		return nil, fmt.Errorf("unsupported inbound type: %d", inboundType)
 	}
@@ -134,7 +135,7 @@ func parseRequest(inboundType inbound.InboundType, c *gin.Context) ([]byte, *mod
 		return nil, nil, nil, err
 	}
 
-	inAdapter := inbound.Get(inboundType)
+	inAdapter := transformer.Inbound(inboundType)
 	transformCtx := c.Request.Context()
 	signatureScope := compat.GeminiSignatureScopeFromContext(transformCtx)
 	if apiKeyID := c.GetInt("api_key_id"); apiKeyID > 0 {

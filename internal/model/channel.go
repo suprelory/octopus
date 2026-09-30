@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
+	"github.com/bestruirui/octopus/polywire/outbound"
 )
 
 type AutoGroupType int

@@ -7,15 +7,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bestruirui/octopus/internal/transformer/inbound"
-	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
+	"github.com/bestruirui/octopus/internal/transformer"
+	"github.com/bestruirui/octopus/polywire/inbound"
+	transformerModel "github.com/bestruirui/octopus/polywire/model"
 )
 
 func TestNewAttemptRelayRequestIsolatesMutableState(t *testing.T) {
 	rawBody := []byte(`{"model":"client-model","messages":[{"role":"user","content":"hello"}]}`)
 	base := &relayRequest{
 		ctx:         context.Background(),
-		inAdapter:   inbound.Get(inbound.InboundTypeOpenAIChat),
+		inAdapter:   transformer.Inbound(inbound.InboundTypeOpenAIChat),
 		inboundType: inbound.InboundTypeOpenAIChat,
 		internalRequest: &transformerModel.InternalLLMRequest{
 			Model:               "client-model",
@@ -89,7 +90,7 @@ func TestNewAttemptRelayRequestSeedsAnthropicAdapterState(t *testing.T) {
 		"messages":[{"role":"user","content":"hello"}],
 		"tools":[{"name":"lookup","description":"look things up","input_schema":{"type":"object"}}]
 	}`)
-	baseAdapter := inbound.Get(inbound.InboundTypeAnthropic)
+	baseAdapter := transformer.Inbound(inbound.InboundTypeAnthropic)
 	internalRequest, err := baseAdapter.TransformRequest(context.Background(), rawBody)
 	if err != nil {
 		t.Fatalf("base TransformRequest error = %v", err)

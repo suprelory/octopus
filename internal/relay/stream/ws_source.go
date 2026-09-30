@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bestruirui/octopus/internal/transformer/model"
+	"github.com/bestruirui/octopus/polywire/model"
 )
 
 // WSUpstreamReader abstracts WebSocket upstream reader interface.

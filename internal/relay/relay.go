@@ -2,7 +2,7 @@ package relay
 
 import (
 	dbmodel "github.com/bestruirui/octopus/internal/model"
-	"github.com/bestruirui/octopus/internal/transformer/inbound"
+	"github.com/bestruirui/octopus/polywire/inbound"
 	"github.com/gin-gonic/gin"
 )
 

@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/bestruirui/octopus/internal/transformer/outbound"
+	"github.com/bestruirui/octopus/polywire/outbound"
 )
 
 type SiteModelRouteType string
