@@ -5,11 +5,14 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"mime"
+	"mime/multipart"
 	"mime/quotedprintable"
 	"net"
 	"net/mail"
 	"net/smtp"
+	"net/textproto"
 	"strconv"
 	"strings"
 	"time"
@@ -89,23 +92,15 @@ func deliverSMTP(ctx context.Context, config Config, message Message) error {
 		}
 		recipients = append(recipients, recipient.String())
 	}
+	content, err := encodeSMTPMessage(from.String(), recipients, message)
+	if err != nil {
+		return err
+	}
 	writer, err := client.Data()
 	if err != nil {
 		return errors.New("SMTP message rejected")
 	}
-	title := strings.Join(strings.Fields(message.Title), " ")
-	body := strings.ReplaceAll(strings.ReplaceAll(message.Text, "\r\n", "\n"), "\n", "\r\n")
-	// Quoted-printable keeps Unicode results compatible with SMTP relays that
-	// do not advertise 8BITMIME, and bounds the length of each body line.
-	var encodedBody bytes.Buffer
-	encoder := quotedprintable.NewWriter(&encodedBody)
-	_, _ = encoder.Write([]byte(body))
-	_ = encoder.Close()
-	content := "From: " + from.String() + "\r\nTo: " + strings.Join(recipients, ", ") +
-		"\r\nSubject: " + mime.QEncoding.Encode("UTF-8", "[Octopus] "+title) +
-		"\r\nDate: " + message.Timestamp.Format(time.RFC1123Z) +
-		"\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n" + encodedBody.String() + "\r\n"
-	if _, err := writer.Write([]byte(content)); err != nil {
+	if _, err := writer.Write(content); err != nil {
 		return errors.New("SMTP message write failed")
 	}
 	if err := writer.Close(); err != nil {
@@ -114,4 +109,51 @@ func deliverSMTP(ctx context.Context, config Config, message Message) error {
 	// DATA was accepted; a failed QUIT must not cause a duplicate delivery.
 	_ = client.Quit()
 	return nil
+}
+
+func encodeSMTPMessage(from string, recipients []string, message Message) ([]byte, error) {
+	title := strings.Join(strings.Fields(message.Title), " ")
+	headers := "From: " + from + "\r\nTo: " + strings.Join(recipients, ", ") +
+		"\r\nSubject: " + mime.QEncoding.Encode("UTF-8", "[Octopus] "+title) +
+		"\r\nDate: " + message.Timestamp.Format(time.RFC1123Z) + "\r\nMIME-Version: 1.0\r\n"
+	var body bytes.Buffer
+	if message.Format == MarkdownFormat {
+		htmlBody, document, err := markdownDocument(message.Text)
+		if err != nil {
+			return nil, err
+		}
+		writer := multipart.NewWriter(&body)
+		headers += fmt.Sprintf("Content-Type: multipart/alternative; boundary=%q\r\n\r\n", writer.Boundary())
+		for _, part := range []struct{ kind, text string }{
+			{"text/plain", markdownText(document)}, {"text/html", "<!doctype html><html><body>" + htmlBody + "</body></html>"},
+		} {
+			partWriter, err := writer.CreatePart(textproto.MIMEHeader{
+				"Content-Type": {part.kind + "; charset=UTF-8"}, "Content-Transfer-Encoding": {"quoted-printable"},
+			})
+			if err != nil {
+				return nil, errors.New("could not encode notification email")
+			}
+			encoded := quotedPrintableText(part.text)
+			if _, err := partWriter.Write(encoded); err != nil {
+				return nil, errors.New("could not encode notification email")
+			}
+		}
+		if err := writer.Close(); err != nil {
+			return nil, errors.New("could not encode notification email")
+		}
+	} else {
+		headers += "Content-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n"
+		body.Write(quotedPrintableText(message.Text))
+	}
+	return []byte(headers + body.String() + "\r\n"), nil
+}
+
+// Quoted-printable preserves Unicode without requiring SMTP's 8BITMIME extension.
+func quotedPrintableText(text string) []byte {
+	text = strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\n", "\r\n")
+	var content bytes.Buffer
+	encoder := quotedprintable.NewWriter(&content)
+	_, _ = encoder.Write([]byte(text)) // bytes.Buffer cannot fail.
+	_ = encoder.Close()
+	return content.Bytes()
 }

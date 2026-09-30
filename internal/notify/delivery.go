@@ -20,6 +20,7 @@ type Message struct {
 	Title     string    `json:"title"`
 	Text      string    `json:"message"`
 	Timestamp time.Time `json:"timestamp"`
+	Format    Format    `json:"format,omitempty"`
 	// Payload preserves an event source's structured webhook contract. All other
 	// channels receive the same title and human-readable text.
 	Payload any `json:"-"`
@@ -64,6 +65,12 @@ func Deliver(ctx context.Context, client *http.Client, target Target, message Me
 		body, err = json.Marshal(payload)
 	case Bark:
 		endpoint = target.config.BarkURL
+		if message.Format == MarkdownFormat {
+			message.Text, err = markdownPlainText(message.Text)
+			if err != nil {
+				return err
+			}
+		}
 		body, err = json.Marshal(map[string]string{"title": message.Title, "body": message.Text, "group": "Octopus"})
 	case ServerChan:
 		endpoint = "https://sctapi.ftqq.com/" + target.config.ServerChanKey + ".send"
@@ -71,10 +78,18 @@ func Deliver(ctx context.Context, client *http.Client, target Target, message Me
 		body = []byte(url.Values{"title": {message.Title}, "desp": {message.Text}}.Encode())
 	case Telegram:
 		endpoint = "https://api.telegram.org/bot" + target.config.TelegramBotToken + "/sendMessage"
-		text := message.Title + "\n" + message.Text
-		// Telegram limits text to 4096 characters. Keep a small margin for UTF-16.
-		text = truncateTelegramText(text, 4000)
-		body, err = json.Marshal(map[string]string{"chat_id": target.config.TelegramChatID, "text": text})
+		payload := map[string]string{"chat_id": target.config.TelegramChatID}
+		if message.Format == MarkdownFormat {
+			payload["text"], err = telegramMarkdown(message.Title, message.Text, 4000)
+			if err != nil {
+				return err
+			}
+			payload["parse_mode"] = "HTML"
+		} else {
+			// Telegram limits text to 4096 characters. Keep a margin for UTF-16.
+			payload["text"] = truncateTelegramText(message.Title+"\n"+message.Text, 4000)
+		}
+		body, err = json.Marshal(payload)
 	default:
 		return errors.New("unsupported notification channel")
 	}

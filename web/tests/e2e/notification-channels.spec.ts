@@ -24,7 +24,64 @@ async function openChannels(page: Page) {
 }
 
 for (const width of [1440, 390]) {
-	test(`notification templates stay isolated and persist at ${width}px`, async ({ page }) => {
+    test(`Markdown format previews, stays isolated, and persists at ${width}px`, async ({ page }, testInfo) => {
+        await page.setViewportSize({ width, height: 1000 });
+        const settings = initialSettings();
+        const state = await mockApp(page, 'setting', { settings, mutate: request => {
+            if (request.path === '/api/v1/setting/set') {
+                const body = request.body as Setting;
+                settings.find(item => item.key === body.key)!.value = body.value;
+                return { data: body };
+            }
+            if (request.path === '/api/v1/setting/notification/test') return { data: { channel: 'telegram', success: true } };
+            return { status: 500, message: 'Unexpected mutation' };
+        } });
+        let card = await openChannels(page);
+        await expect(card.getByRole('combobox', { name: '正文格式', exact: true })).toContainText('纯文本');
+        await card.getByRole('combobox', { name: '通知渠道', exact: true }).click();
+        await page.getByRole('option', { name: 'Telegram', exact: true }).click();
+        await card.getByLabel('Telegram Bot Token').fill('123:test-token');
+        await card.getByLabel('Telegram Chat ID').fill('-100123');
+        await card.getByRole('combobox', { name: '正文格式', exact: true }).click();
+        await page.getByRole('option', { name: 'Markdown', exact: true }).click();
+        const body = '# {{event}}\n\n**{{site}}**\n\n`{{account}}`\n\n| 奖励 | 余额 |\n| - | - |\n| {{reward}} | {{balance}} |\n\n[详情](https://example.com)\n\n[危险链接](javascript:alert)\n\n<script>window.previewInjected = true</script>';
+        await card.getByLabel('正文模板', { exact: true }).fill(body);
+        const preview = card.getByLabel('预览 · 示例数据');
+        await expect(preview.locator('strong')).toHaveText('示例站点');
+        await expect(preview.locator('code')).toHaveText('示例账号');
+        await expect(preview.locator('table')).toContainText('0.50 USD');
+        await expect(preview.getByRole('link', { name: '详情', exact: true })).toHaveAttribute('href', 'https://example.com');
+        await expect(preview.locator('script, a[href^="javascript:"]')).toHaveCount(0);
+        await card.getByRole('button', { name: '测试此渠道', exact: true }).click();
+        await expect(page.getByText('Telegram 测试通知已发送', { exact: true })).toBeVisible();
+        const probe = state.mutations.find(item => item.path === '/api/v1/setting/notification/test')!.body as { config: NotificationConfig };
+        expect(probe.config.templates).toEqual({ telegram: { format: 'markdown', body } });
+        await card.getByRole('combobox', { name: '通知渠道', exact: true }).click();
+        await page.getByRole('option', { name: 'Webhook', exact: true }).click();
+        await expect(card.getByRole('combobox', { name: '正文格式', exact: true })).toContainText('纯文本');
+        await card.getByRole('button', { name: '保存通知渠道', exact: true }).click();
+        await expect.poll(() => JSON.parse(settings[0].value).templates.telegram.format).toBe('markdown');
+        expect(JSON.parse(settings[0].value).templates.webhook).toBeUndefined();
+        card = await openChannels(page);
+        await card.getByRole('combobox', { name: '通知渠道', exact: true }).click();
+        await page.getByRole('option', { name: 'Telegram', exact: true }).click();
+        await expect(card.getByRole('combobox', { name: '正文格式', exact: true })).toContainText('Markdown');
+        await expect(card.getByLabel('正文模板', { exact: true })).toHaveValue(body);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+        const reloadedPreview = card.getByLabel('预览 · 示例数据');
+        await reloadedPreview.scrollIntoViewIfNeeded();
+        await reloadedPreview.screenshot({ path: testInfo.outputPath('notification-markdown.png') });
+        await card.getByRole('combobox', { name: '正文格式', exact: true }).click();
+        await page.getByRole('option', { name: '纯文本', exact: true }).click();
+        await expect(card.getByLabel('预览 · 示例数据').locator('strong, code, table')).toHaveCount(0);
+        await card.getByRole('button', { name: '保存通知渠道', exact: true }).click();
+        await expect.poll(() => JSON.parse(settings[0].value).templates.telegram.format).toBeUndefined();
+        expect(JSON.parse(settings[0].value).templates.telegram.body).toBe(body);
+        expect(state.pageErrors).toEqual([]);
+        expect(state.unexpectedRequests).toEqual([]);
+    });
+
+    test(`notification templates stay isolated and persist at ${width}px`, async ({ page }) => {
 		await page.setViewportSize({ width, height: 1000 });
 		const settings = initialSettings();
 		const state = await mockApp(page, 'setting', { settings, mutate: request => {

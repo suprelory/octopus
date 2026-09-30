@@ -114,6 +114,7 @@ export type NotificationChannel = 'webhook' | 'bark' | 'serverchan' | 'telegram'
 export interface NotificationTemplate {
     title?: string;
     body?: string;
+    format?: '' | 'text' | 'markdown';
 }
 
 export interface NotificationConfig {

@@ -37,13 +37,17 @@
 
 | 渠道 | 配置 | 发送方式 |
 | --- | --- | --- |
-| Webhook | HTTP / HTTPS 地址 | POST JSON，保留原有签到事件字段 |
-| Bark | 含设备密钥的完整推送 URL，支持自建服务 | POST 标题、正文及 Octopus 分组 |
-| Server酱 | SendKey | Server酱 Turbo 接口，发送标题和正文 |
-| Telegram | Bot Token、Chat ID | `sendMessage` 纯文本，支持用户、群组和频道 |
-| SMTP 邮件 | 服务器、端口、发件人、收件人，可选用户名和密码 | 支持 STARTTLS、隐式 TLS；无需认证的邮件中继可显式选择不加密 |
+| Webhook | HTTP / HTTPS 地址 | POST JSON，保留原有签到事件字段；Markdown 正文原样传递，并附 `format: "markdown"` |
+| Bark | 含设备密钥的完整推送 URL，支持自建服务 | POST 标题、正文及 Octopus 分组；Markdown 转为纯文本 |
+| Server酱 | SendKey | Server酱 Turbo 接口，直接传递 Markdown 正文 |
+| Telegram | Bot Token、Chat ID | `sendMessage`，支持纯文本及由 Markdown 转换的 HTML，支持用户、群组和频道 |
+| SMTP 邮件 | 服务器、端口、发件人、收件人，可选用户名和密码 | 支持 STARTTLS、隐式 TLS；Markdown 生成 HTML 和纯文本双版本；无需认证的邮件中继可显式选择不加密 |
 
 SMTP 未填写端口时默认使用 587，显式选择 TLS 时默认使用 465；自动安全模式在 465 端口使用 TLS，其他端口要求 STARTTLS。多个收件人使用逗号分隔，最多 20 个。所有网络请求使用服务端网络连接。
+
+每个渠道可以单独设置标题、正文模板及“纯文本 / Markdown”正文格式；旧配置未指定格式时沿用纯文本发送逻辑。标题始终为纯文本，模板留空或替换后全空时沿用事件原内容。支持 `{{site}}`、`{{account}}`、`{{message}}`、`{{detail}}`、`{{reward}}`、`{{balance}}` 等编辑器列出的变量，变量只替换一次，Markdown 模式会转义变量中的格式字符。编辑器使用示例数据预览，恢复默认会清除该渠道的模板和格式。
+
+Markdown 支持标题、强调、链接、代码、列表、表格等常见语法，邮件与 Telegram 转换时禁用原始 HTML。Telegram 仅输出其支持的 HTML 标签，列表、表格和图片替代文字转为文字，并按显示文字的 UTF-16 长度截断长消息，保留完整标签。Bark 转为纯文本并保留链接地址；Webhook 的 Markdown 渲染由接收端决定。修改模板和格式不会重置通知冷却。
 
 然后在“签到结果通知”开启通知，并选择需要的结果。此处开关、冷却时间和阈值自动保存，默认仍只通知定时签到异常。
 
@@ -99,7 +103,11 @@ Webhook 接收端应返回 2xx；Bark、Server酱和 Telegram 还会检查业务
   "smtp_user": "sender@example.com",
   "smtp_password": "app-password",
   "smtp_from": "Octopus <sender@example.com>",
-  "smtp_to": "admin@example.com"
+  "smtp_to": "admin@example.com",
+  "templates": {
+    "telegram": { "format": "markdown", "body": "**{{site}}**\n账号：{{account}}\n{{message}}" },
+    "smtp": { "format": "markdown", "title": "{{emoji}} {{title}}", "body": "## {{event}}\n\n{{message}}" }
+  }
 }
 ```
 

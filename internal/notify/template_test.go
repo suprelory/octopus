@@ -61,6 +61,8 @@ func TestTemplateValidationAndFingerprint(t *testing.T) {
 		`{"templates":{"bark":{"title":"line\nbreak"}}}`,
 		`{"templates":{"bark":{"extra":"secret-marker"}}}`,
 		`{"templates":{"bark":{"body":true}}}`,
+		`{"templates":{"bark":{"format":"html"}}}`,
+		`{"templates":{"bark":{"format":true}}}`,
 	} {
 		if _, err := ParseConfig(raw); err == nil || strings.Contains(err.Error(), "secret-marker") {
 			t.Fatalf("invalid template accepted or leaked: %v", err)
@@ -71,7 +73,7 @@ func TestTemplateValidationAndFingerprint(t *testing.T) {
 	}
 	config := Config{WebhookURL: "https://example.invalid/hook", BarkURL: "https://example.invalid/device"}
 	before := config.Targets()
-	config.Templates = map[Kind]Template{Webhook: {Title: "one"}, Bark: {Title: "two"}}
+	config.Templates = map[Kind]Template{Webhook: {Title: "one", Format: MarkdownFormat}, Bark: {Title: "two", Format: TextFormat}}
 	encoded, _ := json.Marshal(config)
 	restored, err := ParseConfig(string(encoded))
 	if err != nil {

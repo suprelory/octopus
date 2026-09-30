@@ -13,6 +13,8 @@ func TestCheckinNotificationSettings(t *testing.T) {
 		{SettingKeyCheckinNotifyManualEnabled, "false", true}, {SettingKeyCheckinNotifyManualEnabled, "1", false},
 		{SettingKeyNotificationChannels, `{}`, true},
 		{SettingKeyNotificationChannels, `{"bark_url":"https://api.day.app/key"}`, true},
+		{SettingKeyNotificationChannels, `{"templates":{"telegram":{"format":"markdown","body":"**{{site}}**"}}}`, true},
+		{SettingKeyNotificationChannels, `{"templates":{"telegram":{"format":"html"}}}`, false},
 		{SettingKeyNotificationChannels, `{"telegram_chat_id":"123"}`, false},
 		{SettingKeyNotificationChannels, `{"webhook_url":"file:///tmp/test"}`, false},
 		{SettingKeyCheckinNotifyCooldownSeconds, "0", true}, {SettingKeyCheckinNotifyCooldownSeconds, "604800", true},

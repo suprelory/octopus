@@ -46,7 +46,8 @@ function readConfig(raw: string, legacyWebhook: string): NotificationConfig {
             if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid templates');
             for (const [kind, template] of Object.entries(value)) {
                 if (!CHANNELS.includes(kind as NotificationChannel) || !template || typeof template !== 'object' || Array.isArray(template)
-                    || Object.entries(template).some(([field, text]) => !['title', 'body'].includes(field) || typeof text !== 'string')) throw new Error('Invalid template');
+                    || Object.entries(template).some(([field, text]) => !['title', 'body', 'format'].includes(field) || typeof text !== 'string'
+                        || (field === 'format' && !['', 'text', 'markdown'].includes(text)))) throw new Error('Invalid template');
             }
             continue;
         }
@@ -190,7 +191,7 @@ export function SettingNotificationChannels() {
                     {field('smtp_to', t('smtpTo'), 'admin@example.com, team@example.com')}
                     <p className="text-xs text-muted-foreground">{t('smtpHint')}</p>
                 </> : null}
-                <NotificationTemplateEditor template={draft.templates?.[channel] ?? {}} disabled={unavailable}
+                <NotificationTemplateEditor channel={channel} template={draft.templates?.[channel] ?? {}} disabled={unavailable}
                     onChange={template => setDraft(current => ({ ...current, templates: { ...current.templates, [channel]: template } }))} />
                 {channel === 'webhook' ? <p className="text-xs text-muted-foreground">{t('templateWebhookHint')}</p> : null}
                 <div className="flex flex-wrap items-center gap-2">

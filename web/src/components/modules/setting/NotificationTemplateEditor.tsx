@@ -2,12 +2,16 @@
 
 import { useRef } from 'react';
 import { useTranslations } from 'next-intl';
-import type { NotificationTemplate } from '@/api/endpoints/setting';
+import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import type { NotificationChannel, NotificationTemplate } from '@/api/endpoints/setting';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { NOTIFICATION_VARIABLES, renderNotificationTemplate, validNotificationTemplate } from './notification-template';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { NOTIFICATION_VARIABLES, escapeNotificationMarkdown, renderNotificationTemplate, validNotificationTemplate } from './notification-template';
 
-export function NotificationTemplateEditor({ template, disabled, onChange }: {
+export function NotificationTemplateEditor({ channel, template, disabled, onChange }: {
+    channel: NotificationChannel;
     template: NotificationTemplate;
     disabled: boolean;
     onChange: (template: NotificationTemplate) => void;
@@ -21,8 +25,10 @@ export function NotificationTemplateEditor({ template, disabled, onChange }: {
         reward: '0.50 USD', balance: '12.5000', threshold: '5.0000', failure_count: '0',
     };
     const valid = validNotificationTemplate(template);
+    const markdown = template.format === 'markdown';
     const title = (renderNotificationTemplate(template.title ?? '', sample) ?? '').replace(/[\r\n]/g, ' ').trim() || sample.title;
-    const body = renderNotificationTemplate(template.body ?? '', sample) ?? '';
+    const body = renderNotificationTemplate(template.body ?? '', sample, markdown) ?? '';
+    const previewBody = body.trim() ? body : markdown ? escapeNotificationMarkdown(sample.message) : sample.message;
 
     function insertVariable(variable: string) {
         const input = bodyRef.current;
@@ -40,6 +46,18 @@ export function NotificationTemplateEditor({ template, disabled, onChange }: {
             <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={() => onChange({})}>{t('templateReset')}</Button>
         </div>
         <p className="text-xs text-muted-foreground">{t('templateHint')}</p>
+        <label className="grid gap-2 text-sm font-medium">
+            {t('templateFormat')}
+            <Select value={template.format || 'text'} disabled={disabled}
+                onValueChange={value => onChange({ ...template, format: value === 'markdown' ? 'markdown' : undefined })}>
+                <SelectTrigger aria-label={t('templateFormat')} className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="text">{t('formatText')}</SelectItem>
+                    <SelectItem value="markdown">Markdown</SelectItem>
+                </SelectContent>
+            </Select>
+        </label>
+        {markdown ? <p className="text-xs text-muted-foreground">{t(`formatHints.${channel}`)}</p> : null}
         <label className="grid gap-2 text-sm font-medium">
             {t('templateSubject')}
             <Input aria-label={t('templateSubject')} value={template.title ?? ''} placeholder="{{title}}" disabled={disabled} maxLength={512}
@@ -64,7 +82,15 @@ export function NotificationTemplateEditor({ template, disabled, onChange }: {
         {!valid ? <p role="alert" className="text-xs text-destructive">{t('templateInvalid')}</p> : null}
         <div className="space-y-2 rounded-lg bg-muted/50 p-3" aria-label={t('templatePreview')}>
             <p className="text-xs text-muted-foreground">{t('templatePreview')}</p>
-            {valid ? <><p className="break-words text-sm font-medium">{title}</p><p className="whitespace-pre-wrap break-words text-xs">{body.trim() ? body : sample.message}</p></> : null}
+            {valid ? <><p className="break-words text-sm font-medium">{title}</p>
+                {markdown ? <div className="min-w-0 space-y-2 break-words text-xs [&_p]:whitespace-pre-wrap [&_a]:text-primary [&_a]:underline [&_h1]:text-base [&_h2]:text-sm [&_h3]:font-semibold [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-muted [&_pre]:p-2 [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_td]:border [&_td]:px-2 [&_td]:py-1">
+                    <Markdown remarkPlugins={[remarkGfm]} skipHtml components={{
+                        a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>,
+                        img: ({ alt }) => <span>{alt}</span>,
+                        table: ({ children }) => <div className="max-w-full overflow-x-auto"><table>{children}</table></div>,
+                    }}>{previewBody}</Markdown>
+                </div> : <p className="whitespace-pre-wrap break-words text-xs">{previewBody}</p>}
+            </> : null}
         </div>
     </div>;
 }
