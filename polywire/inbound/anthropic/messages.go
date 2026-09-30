@@ -21,6 +21,7 @@ type MessagesInbound struct {
 	nativeContentType         string
 	hasFinished               bool
 	messageStopped            bool
+	hasRefusal                bool
 	messageID                 string
 	modelName                 string
 	requestModel              string
@@ -30,6 +31,7 @@ type MessagesInbound struct {
 	pendingUsage              *model.Usage
 	toolCallIndices           map[int]bool // Track which tool call indices we've seen
 	inputToken                int64
+	toolStreamOrder           toolStreamOrder
 
 	streamAggregator model.StreamAggregator
 	// storedResponse stores the non-stream response

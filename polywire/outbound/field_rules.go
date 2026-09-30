@@ -222,5 +222,6 @@ func describeWireConversion(req *model.InternalLLMRequest, adapter model.Outboun
 	for _, rule := range descriptor.FieldRules {
 		report = append(report, rule.report(input)...)
 	}
+	report = append(report, reportChatEmptyFieldDrops(input, report)...)
 	return uniqueLossReports(report), nil
 }

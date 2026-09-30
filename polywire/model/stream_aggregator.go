@@ -157,7 +157,7 @@ func mergeChoiceDelta(existingChoice *Choice, choice Choice) {
 			existingChoice.Message.ToolCalls = MergeToolCallDelta(existingChoice.Message.ToolCalls, toolCall)
 		}
 		if delta.Refusal != "" {
-			existingChoice.Message.Refusal = delta.Refusal
+			existingChoice.Message.Refusal += delta.Refusal
 		}
 	}
 	if len(choice.Citations) > 0 {

@@ -461,7 +461,7 @@ func InternalResponseFromStreamEvents(events []StreamEvent) *InternalLLMResponse
 					mergeMessageContentDelta(&choice.Delta.Content, content)
 				}
 				if event.Delta.Refusal != "" {
-					choice.Delta.Refusal = event.Delta.Refusal
+					choice.Delta.Refusal += event.Delta.Refusal
 				}
 			}
 		case StreamEventKindThinkingDelta:

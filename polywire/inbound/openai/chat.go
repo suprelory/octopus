@@ -29,6 +29,9 @@ func (i *ChatInbound) TransformRequest(ctx context.Context, body []byte) (*model
 	if err := request.NormalizeOperation(); err != nil {
 		return nil, err
 	}
+	if err := request.CaptureRequestRecovery(body, request); err != nil {
+		return nil, err
+	}
 	return &request, nil
 }
 

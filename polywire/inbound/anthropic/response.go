@@ -154,6 +154,10 @@ func (i *MessagesInbound) TransformResponse(ctx context.Context, response *model
 			} else if message.Content.Content != nil && *message.Content.Content != "" {
 				contentBlocks = append(contentBlocks, MessageContentBlock{Type: "text", Text: message.Content.Content})
 			}
+			if message.Refusal != "" {
+				refusal := message.Refusal
+				contentBlocks = append(contentBlocks, MessageContentBlock{Type: "text", Text: &refusal})
+			}
 
 			// Handle tool calls
 			if len(message.ToolCalls) > 0 {
@@ -227,6 +231,10 @@ func (i *MessagesInbound) TransformResponse(ctx context.Context, response *model
 				}
 			}
 			resp.StopReason = &stopReason
+		}
+		if message != nil && message.Refusal != "" && resp.StopReason != nil && *resp.StopReason == "end_turn" {
+			refusal := "refusal"
+			resp.StopReason = &refusal
 		}
 
 		if choice.StopSequence != nil {

@@ -169,6 +169,9 @@ func (r *InternalLLMRequest) normalizeRequestType() error {
 	if r == nil {
 		return fmt.Errorf("request is nil")
 	}
+	if err := r.validateChoiceCount(); err != nil {
+		return err
+	}
 	if r.Operation != nil {
 		if err := r.ValidateOperationConsistency(); err != nil {
 			return err

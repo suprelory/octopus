@@ -21,6 +21,7 @@ func (i *MessagesInbound) TransformStreamEvents(ctx context.Context, events []mo
 	if stream := model.InternalResponseFromStreamEvents(events); stream != nil && stream.Object != "[DONE]" {
 		i.streamAggregator.Add(stream)
 	}
+	events = i.toolStreamOrder.push(events)
 
 	var firstUsage *model.Usage
 	for _, event := range events {
@@ -151,13 +152,17 @@ func (i *MessagesInbound) TransformStreamEvents(ctx context.Context, events []mo
 			if err := ensureStarted(event); err != nil {
 				return nil, err
 			}
-			if event.Delta == nil || event.Delta.Text == "" {
+			if event.Delta == nil {
+				continue
+			}
+			text := event.Delta.Text + event.Delta.Refusal
+			i.hasRefusal = i.hasRefusal || event.Delta.Refusal != ""
+			if text == "" {
 				continue
 			}
 			if err := startText(event.BlockIndex); err != nil {
 				return nil, err
 			}
-			text := event.Delta.Text
 			deltaEvent := StreamEvent{Type: "content_block_delta", Index: &i.contentIndex, Delta: &StreamDelta{Type: lo.ToPtr("text_delta"), Text: &text}}
 			data, err := json.Marshal(deltaEvent)
 			if err != nil {
@@ -342,6 +347,9 @@ func (i *MessagesInbound) TransformStreamEvents(ctx context.Context, events []mo
 			if stopReason == "" {
 				stopReason = "end_turn"
 			}
+			if stopReason == "end_turn" && i.hasRefusal {
+				stopReason = "refusal"
+			}
 			i.stopReason = &stopReason
 			i.stopSequence = event.StopSequence
 			i.hasFinished = true
@@ -414,6 +422,8 @@ func (i *MessagesInbound) ensureDefaultStopReason() {
 	stopReason := "end_turn"
 	if len(i.toolCallIndices) > 0 {
 		stopReason = "tool_use"
+	} else if i.hasRefusal {
+		stopReason = "refusal"
 	}
 	i.stopReason = &stopReason
 }

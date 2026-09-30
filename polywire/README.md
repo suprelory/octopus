@@ -137,6 +137,15 @@ aggregator twice. Run transformer tests for request fixtures, signatures and
 stream ordering, and relay tests for retry isolation and replay. Golden fixtures
 change only when protocol behavior changes intentionally.
 
+Chat requests retain unknown top-level fields in their native recovery sidecar;
+conversion to another protocol reports each omitted extension. Native canonical
+builders preserve explicit null and empty values for declared wire fields, while
+concrete prepared values take precedence. `EmptyFields` retains only those small
+empty carriers. Use `SetFieldPresence(field, FieldAbsent)` when intentionally
+removing one from a cloned request. Chat reports also account for empty fields
+that the target cannot emit. Only a single completion choice is supported: `n:1`
+and `n:null` are accepted, and other explicit counts fail request validation.
+
 `InternalLLMRequest.Operation` is the authoritative endpoint payload. Outbound
 builders and replay use `ChatPayload`, `ResponsesPayload`, `EmbeddingsPayload`,
 `ImagesPayload`, `RerankPayload`, and `ConversationMessages`. Shared routing and
@@ -156,6 +165,13 @@ for at least one release cycle. Relay uses canonical events and one per-stream
 finalizer owns message and block completion, and inbound encoders serialize the
 result. A terminal marker can repair missing canonical stops; a source error
 cannot. `Finish` seals the stream for every termination cause.
+
+The Anthropic encoder keeps an active tool's deltas streaming and defers other
+interleaved content until that tool stops, preserving tool IDs and arguments in
+serial content blocks. The legacy aggregate API flushes remaining tools at its
+terminal marker; error events discard deferred output. Refusal deltas accumulate
+across batches and are emitted as Anthropic text with a refusal stop reason when
+the upstream supplies an ordinary completion reason.
 
 `ProtocolDescriptor.FieldRules` records each source semantic, target wire field,
 action, condition, and reason. `outbound.BuildRequest` returns the HTTP request

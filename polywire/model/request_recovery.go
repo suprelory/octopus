@@ -1,6 +1,7 @@
 package model
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -264,7 +265,12 @@ func MarshalRequestWithRecovery(req *InternalLLMRequest, target APIFormat, wire 
 	if err != nil {
 		return nil, err
 	}
-	if req.Operation == nil || req.Operation.Recovery == nil || req.Operation.Recovery.Format != target || len(req.Operation.Recovery.Fields) == 0 {
+	var recovery *RequestRecovery
+	if req.Operation != nil && req.Operation.Recovery != nil && req.Operation.Recovery.Format == target {
+		recovery = req.Operation.Recovery
+	}
+	preserveEmpty := req.RawAPIFormat == target && len(req.EmptyFields) > 0
+	if !preserveEmpty && (recovery == nil || len(recovery.Fields) == 0) {
 		return body, nil
 	}
 	var fields map[string]json.RawMessage
@@ -284,7 +290,23 @@ func MarshalRequestWithRecovery(req *InternalLLMRequest, target APIFormat, wire 
 			}
 		}
 	}
-	for field, raw := range req.Operation.Recovery.Fields {
+	if preserveEmpty {
+		for field, raw := range req.EmptyFields {
+			if !reserved[field] || req.FieldPresenceOf(field) == FieldAbsent {
+				continue
+			}
+			// The prepared wire value wins when model mapping or request edits
+			// supply a concrete value. Only restore omitted or null carriers.
+			current, exists := fields[field]
+			if !exists || bytes.Equal(bytes.TrimSpace(current), []byte("null")) {
+				fields[field] = raw
+			}
+		}
+	}
+	if recovery == nil {
+		return json.Marshal(fields)
+	}
+	for field, raw := range recovery.Fields {
 		if _, exists := fields[field]; exists || reserved[field] {
 			return nil, fmt.Errorf("native recovery field %q conflicts with a canonical field", field)
 		}

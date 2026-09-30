@@ -34,6 +34,7 @@ type ChatCompletionsRequest struct {
 	Logprobs            *bool                 `json:"logprobs,omitempty"`
 	MaxCompletionTokens *int64                `json:"max_completion_tokens,omitempty"`
 	MaxTokens           *int64                `json:"max_tokens,omitempty"`
+	N                   *int64                `json:"n,omitempty"`
 	PresencePenalty     *float64              `json:"presence_penalty,omitempty"`
 	Seed                *int64                `json:"seed,omitempty"`
 	Store               *bool                 `json:"store,omitempty"`
@@ -178,6 +179,7 @@ func buildChatCompletionsRequest(request *model.InternalLLMRequest) *ChatComplet
 		Logprobs:            request.Logprobs,
 		MaxCompletionTokens: request.MaxCompletionTokens,
 		MaxTokens:           request.MaxTokens,
+		N:                   request.N,
 		PresencePenalty:     request.PresencePenalty,
 		Seed:                request.Seed,
 		Store:               request.Store,

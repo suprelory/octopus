@@ -101,6 +101,9 @@ func (r *InternalLLMRequest) ValidateOperationConsistency() error {
 	if r == nil {
 		return fmt.Errorf("request is nil")
 	}
+	if err := r.validateChoiceCount(); err != nil {
+		return err
+	}
 	if r.Operation == nil {
 		return nil
 	}
@@ -130,6 +133,13 @@ func (r *InternalLLMRequest) ValidateOperationConsistency() error {
 	}
 	if r.EmbeddingEncodingFormat != nil && (embeddings == nil || !reflect.DeepEqual(r.EmbeddingEncodingFormat, embeddings.EncodingFormat)) {
 		return conflict("embedding_encoding_format")
+	}
+	return nil
+}
+
+func (r *InternalLLMRequest) validateChoiceCount() error {
+	if r.N != nil && *r.N != 1 {
+		return fmt.Errorf("n must be 1: multiple completion choices are not supported")
 	}
 	return nil
 }

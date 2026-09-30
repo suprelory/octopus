@@ -77,11 +77,9 @@ type InternalLLMRequest struct {
 	// [o-series models](https://platform.openai.com/docs/guides/reasoning).
 	MaxTokens *int64 `json:"max_tokens,omitempty"`
 
-	// How many chat completion choices to generate for each input message. Note that
-	// you will be charged based on the number of generated tokens across all of the
-	// choices. Keep `n` as `1` to minimize costs.
-	// NOTE: Not supported, always 1.
-	// N *int64 `json:"n,omitempty"`
+	// N records the requested choice count. The conversion layer supports one
+	// choice; explicit larger counts are rejected instead of silently discarded.
+	N *int64 `json:"n,omitempty"`
 
 	// Number between -2.0 and 2.0. Positive values penalize new tokens based on
 	// whether they appear in the text so far, increasing the model's likelihood to
@@ -322,6 +320,10 @@ type InternalLLMRequest struct {
 	// distinguishes absent from explicit null/empty values without widening the
 	// canonical field types or serializing runtime metadata upstream.
 	Presence map[string]FieldPresence `json:"-"`
+	// EmptyFields retains only explicit null, empty string, array and object
+	// values. Native builders use them to preserve presence despite omitempty;
+	// non-empty request payloads are not duplicated in this map.
+	EmptyFields map[string]json.RawMessage `json:"-"`
 
 	// EstimatedInputTokens is the input token count the inbound transformer
 	// computed while parsing the client request (system blocks, messages,
