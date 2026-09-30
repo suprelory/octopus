@@ -1,10 +1,8 @@
 package middleware
 
 import (
-	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/bestruirui/octopus/internal/apperror"
 	"github.com/bestruirui/octopus/internal/conf"
@@ -35,6 +33,16 @@ func Auth() gin.HandlerFunc {
 }
 
 func APIKeyAuth() gin.HandlerFunc {
+	return apiKeyAuth(true)
+}
+
+// APIKeyWSAuth is only for the WebSocket upgrade route. Message admission
+// performs rate limiting inside the connection instead of charging the upgrade.
+func APIKeyWSAuth() gin.HandlerFunc {
+	return apiKeyAuth(false)
+}
+
+func apiKeyAuth(checkRPM bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var apiKey string
 		var requestType string
@@ -61,41 +69,22 @@ func APIKeyAuth() gin.HandlerFunc {
 			return
 		}
 		apiKeyObj, err := op.APIKeyGetByAPIKey(apiKey, c.Request.Context())
-		if err != nil {
+		if err != nil || apiKeyObj.APIKey != apiKey {
 			RecordAuthEvent(c, "api_key.rejected", apperror.CodeAuthInvalidToken, 0)
 			resp.InvalidToken(c)
 			c.Abort()
 			return
 		}
-		if !apiKeyObj.Enabled {
-			RecordAuthEvent(c, "api_key.rejected", apperror.CodeAuthAPIKeyDisabled, apiKeyObj.ID)
-			resp.ErrorWithAppError(c, http.StatusUnauthorized, apperror.New(apperror.CodeAuthAPIKeyDisabled, "API key is disabled").WithStatus(http.StatusUnauthorized))
-			c.Abort()
-			return
-		}
-		if apiKeyObj.ExpireAt > 0 && apiKeyObj.ExpireAt < time.Now().Unix() {
-			RecordAuthEvent(c, "api_key.rejected", apperror.CodeAuthAPIKeyExpired, apiKeyObj.ID)
-			resp.APIKeyExpired(c)
-			c.Abort()
-			return
-		}
-		statsAPIKey := op.StatsAPIKeyGet(apiKeyObj.ID)
-		if apiKeyObj.MaxCost > 0 && apiKeyObj.MaxCost < statsAPIKey.StatsMetrics.OutputCost+statsAPIKey.StatsMetrics.InputCost {
-			RecordAuthEvent(c, "api_key.rejected", apperror.CodeAuthAPIKeyCostExceeded, apiKeyObj.ID)
-			resp.ErrorWithAppError(c, http.StatusUnauthorized, apperror.New(apperror.CodeAuthAPIKeyCostExceeded, "API key has reached the max cost").WithStatus(http.StatusUnauthorized))
-			c.Abort()
-			return
-		}
-		if apiKeyObj.MaxRPM > 0 {
-			allowed, retryAfter := op.RateLimitCheck(apiKeyObj.ID, apiKeyObj.MaxRPM)
-			if !allowed {
-				RecordAuthEvent(c, "api_key.rejected", apperror.CodeAuthAPIKeyRateLimited, apiKeyObj.ID)
+		if authErr, retryAfter := auth.ValidateAPIKey(apiKeyObj, checkRPM); authErr != nil {
+			RecordAuthEvent(c, "api_key.rejected", authErr.Code, apiKeyObj.ID)
+			if retryAfter > 0 {
 				c.Header("Retry-After", strconv.Itoa(retryAfter))
-				resp.ErrorWithAppError(c, http.StatusTooManyRequests, apperror.New(apperror.CodeAuthAPIKeyRateLimited, "API key has exceeded the rate limit").WithStatus(http.StatusTooManyRequests))
-				c.Abort()
-				return
 			}
+			resp.ErrorWithAppError(c, authErr.Status, authErr)
+			c.Abort()
+			return
 		}
+		c.Set("authenticated_api_key", apiKey)
 		c.Set("request_type", requestType)
 		c.Set("supported_models", apiKeyObj.SupportedModels)
 		c.Set("api_key_id", apiKeyObj.ID)

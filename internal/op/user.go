@@ -224,17 +224,22 @@ func UserChangeUsername(newUsername string) error {
 }
 
 func UserVerify(username, password string) error {
+	_, err := UserVerifyAndGet(username, password)
+	return err
+}
+
+func UserVerifyAndGet(username, password string) (model.User, error) {
 	current := userSnapshot()
 	if current.ID == 0 {
-		return apperror.New(apperror.CodeAuthBootstrapRequired, "administrator setup is required").WithStatus(http.StatusServiceUnavailable)
+		return model.User{}, apperror.New(apperror.CodeAuthBootstrapRequired, "administrator setup is required").WithStatus(http.StatusServiceUnavailable)
 	}
 	if username != current.Username {
-		return fmt.Errorf("incorrect username")
+		return model.User{}, fmt.Errorf("incorrect username")
 	}
 	if err := current.ComparePassword(password); err != nil {
-		return fmt.Errorf("incorrect password")
+		return model.User{}, fmt.Errorf("incorrect password")
 	}
-	return nil
+	return current, nil
 }
 
 func UserGet() model.User {

@@ -69,7 +69,8 @@ func login(c *gin.Context) {
 		return
 	}
 
-	if err := op.UserVerify(user.Username, user.Password); err != nil {
+	verifiedUser, err := op.UserVerifyAndGet(user.Username, user.Password)
+	if err != nil {
 		if apperror.IsCode(err, apperror.CodeAuthBootstrapRequired) {
 			middleware.RecordAuthEvent(c, "login.rejected", apperror.CodeAuthBootstrapRequired, 0)
 			resp.ErrorWithAppError(c, http.StatusServiceUnavailable, err)
@@ -82,7 +83,7 @@ func login(c *gin.Context) {
 	}
 	op.LoginAttemptSucceeded(source)
 
-	token, expire, err := auth.GenerateJWTToken(user.Expire)
+	token, expire, err := auth.GenerateJWTTokenForUser(user.Expire, verifiedUser)
 	if err != nil {
 		resp.InternalErrorWithLog(c, err)
 		return

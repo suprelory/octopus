@@ -7,23 +7,26 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '.';
 /**
  * 获取认证 Store（延迟导入以避免循环依赖）
  */
-let getAuthStore: (() => { token: string | null; logout: () => void }) | null = null;
+type AuthSnapshot = { token: string | null; sessionVersion?: number; logout: () => void };
+let getAuthStore: (() => AuthSnapshot) | null = null;
 
-export function setAuthStoreGetter(getter: () => { token: string | null; logout: () => void }) {
+export function setAuthStoreGetter(getter: () => AuthSnapshot) {
     getAuthStore = getter;
 }
 
 /**
  * 全局错误处理
  */
-const handleError = (error: ApiError) => {
+const handleError = (error: ApiError, session?: AuthSnapshot) => {
     console.error('API Error:', error);
 
     // 401 未授权，调用 store 的 logout
     if (error.code === HttpStatus.UNAUTHORIZED) {
-        if (getAuthStore) {
+        if (getAuthStore && session) {
             const store = getAuthStore();
-            store.logout();
+            if (store.token === session.token && store.sessionVersion === session.sessionVersion) {
+                store.logout();
+            }
         }
     }
 };
@@ -44,7 +47,7 @@ function isApiErrorParams(value: unknown): value is ApiErrorParams {
 /**
  * 处理响应
  */
-async function handleResponse<T>(response: Response): Promise<T> {
+async function handleResponse<T>(response: Response, session?: AuthSnapshot): Promise<T> {
     const contentType = response.headers.get('content-type');
     const isJson = contentType?.includes('application/json');
 
@@ -73,7 +76,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
             message: translateApiErrorCode(errorCode, rawMessage, errorParams),
         };
 
-        handleError(error);
+        handleError(error, session);
         throw error;
     }
 
@@ -109,10 +112,10 @@ async function request<T>(
     }
 
     // 添加 Authorization - 从 zustand store 获取 token
-    if (typeof window !== 'undefined' && getAuthStore) {
-        const store = getAuthStore();
-        if (store.token) {
-            headers.set('Authorization', `Bearer ${store.token}`);
+    const session = typeof window !== 'undefined' ? getAuthStore?.() : undefined;
+    if (session) {
+        if (session.token) {
+            headers.set('Authorization', `Bearer ${session.token}`);
         }
     }
 
@@ -123,7 +126,12 @@ async function request<T>(
         body,
     });
 
-    return handleResponse<T>(response);
+    const result = await handleResponse<T>(response, session);
+    const current = getAuthStore?.();
+    if (session && (session.token !== current?.token || session.sessionVersion !== current?.sessionVersion)) {
+        throw new Error('Authentication changed while request was in flight');
+    }
+    return result;
 }
 
 /**
@@ -160,4 +168,3 @@ export const apiClient = {
     patch: <T>(path: string, data?: unknown, params?: Record<string, string | number | boolean>): Promise<T> =>
         request<T>('PATCH', path, data ? JSON.stringify(data) : undefined, params),
 };
-

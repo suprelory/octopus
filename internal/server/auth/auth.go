@@ -1,8 +1,11 @@
 package auth
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"fmt"
 	"sync"
 	"time"
 
@@ -77,6 +80,23 @@ func jwtLifetime(expiresMin int) time.Duration {
 }
 
 func GenerateJWTToken(expiresMin int) (string, string, error) {
+	return GenerateJWTTokenForUser(expiresMin, op.UserGet())
+}
+
+// Bind the signing key to the persisted password hash. A successful password
+// change revokes existing sessions, including after a server restart.
+func userJWTSecret(user model.User) []byte {
+	mac := hmac.New(sha256.New, getJWTSecret())
+	fmt.Fprintf(mac, "admin-session:%d:%s", user.ID, user.Password)
+	return mac.Sum(nil)
+}
+
+// GenerateJWTTokenForUser signs for the same snapshot whose credentials were
+// verified, so a concurrent password change cannot mint a new valid session.
+func GenerateJWTTokenForUser(expiresMin int, user model.User) (string, string, error) {
+	if user.ID == 0 || user.Password == "" {
+		return "", "", fmt.Errorf("administrator is not initialized")
+	}
 	now := time.Now()
 	claims := &jwt.RegisteredClaims{
 		IssuedAt:  jwt.NewNumericDate(now),
@@ -84,7 +104,7 @@ func GenerateJWTToken(expiresMin int) (string, string, error) {
 		Issuer:    conf.APP_NAME,
 		ExpiresAt: jwt.NewNumericDate(now.Add(jwtLifetime(expiresMin))),
 	}
-	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(getJWTSecret())
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(userJWTSecret(user))
 	if err != nil {
 		return "", "", err
 	}
@@ -92,14 +112,19 @@ func GenerateJWTToken(expiresMin int) (string, string, error) {
 }
 
 func VerifyJWTToken(token string) bool {
+	user := op.UserGet()
+	if user.ID == 0 || user.Password == "" {
+		return false
+	}
 	// 固定签名算法与签发者。golang-jwt v5 本身已拒绝 alg:none，且 keyfunc 返回
 	// []byte 时 RS256 会因密钥类型不匹配而失败，这里属于纵深防御。
 	jwtToken, err := jwt.Parse(token,
 		func(token *jwt.Token) (interface{}, error) {
-			return getJWTSecret(), nil
+			return userJWTSecret(user), nil
 		},
 		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
 		jwt.WithIssuer(conf.APP_NAME),
+		jwt.WithExpirationRequired(),
 	)
 	if err != nil || !jwtToken.Valid {
 		return false

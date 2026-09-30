@@ -41,11 +41,16 @@ export function useAPIKeyLogin() {
         mutationFn: async (apiKey: string) => {
             // 先设置以便 apiClient 发送请求时带上 token
             setAPIKeyAuth(apiKey);
-            await apiClient.get<null>('/api/v1/apikey/login');
+            const sessionVersion = useAuthStore.getState().sessionVersion;
+            try {
+                await apiClient.get<null>('/api/v1/apikey/login');
+            } catch (error) {
+                if (useAuthStore.getState().sessionVersion === sessionVersion) logout();
+                throw error;
+            }
             return apiKey;
         },
         onError: (error) => {
-            logout();
             logger.error('API Key 登录失败:', error);
         },
     });
@@ -55,10 +60,10 @@ export function useAPIKeyLogin() {
  * 获取当前 API Key 的详细统计数据 Hook（仅 API Key 登录用户使用）
  */
 export function useAPIKeyDashboardStats() {
-    const { isAPIKeyAuth, isAuthenticated } = useAuthStore();
+    const { isAPIKeyAuth, isAuthenticated, sessionVersion } = useAuthStore();
 
     return useQuery({
-        queryKey: ['apikey', 'dashboard', 'stats'],
+        queryKey: ['apikey', 'dashboard', 'stats', sessionVersion],
         queryFn: () => apiClient.get<APIKeyStatsResponse>('/api/v1/apikey/stats'),
         select: (data): APIKeyStatsResponseFormatted => ({
             stats: {

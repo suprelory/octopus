@@ -37,7 +37,7 @@ func init() {
 
 	// WebSocket route for /v1/responses (no RequireJSON middleware)
 	router.NewGroupRouter("/v1").
-		Use(middleware.APIKeyAuth()).
+		Use(middleware.APIKeyWSAuth()).
 		AddRoute(
 			router.NewRoute("/responses", http.MethodGet).
 				Handle(wsResponse),

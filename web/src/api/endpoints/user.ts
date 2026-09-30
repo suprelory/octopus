@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { apiClient, setAuthStoreGetter } from '../client';
 import { logger } from '@/lib/logger';
+import { clearSessionQueries } from '../query-session';
 
 /**
  * 用户登录请求
@@ -51,6 +52,7 @@ export interface ChangeUsernameRequest {
  * 认证状态 Store
  */
 interface AuthState {
+    sessionVersion: number;
     isAuthenticated: boolean;
     isLoading: boolean;
     isAPIKeyAuth: boolean;
@@ -70,6 +72,7 @@ interface AuthState {
 export const useAuthStore = create<AuthState>()(
     persist(
         (set, get) => ({
+            sessionVersion: 0,
             isAuthenticated: false,
             isLoading: true,
             isAPIKeyAuth: false,
@@ -77,7 +80,9 @@ export const useAuthStore = create<AuthState>()(
             expireAt: null,
 
             setAuth: (token: string, expireAt: string) => {
+                clearSessionQueries();
                 set({
+                    sessionVersion: get().sessionVersion + 1,
                     isAuthenticated: true,
                     isAPIKeyAuth: false,
                     token,
@@ -87,7 +92,9 @@ export const useAuthStore = create<AuthState>()(
             },
 
             setAPIKeyAuth: (apiKey: string) => {
+                clearSessionQueries();
                 set({
+                    sessionVersion: get().sessionVersion + 1,
                     isAuthenticated: true,
                     isAPIKeyAuth: true,
                     token: apiKey,
@@ -97,7 +104,7 @@ export const useAuthStore = create<AuthState>()(
             },
 
             checkAuth: async () => {
-                const { token, expireAt, isAPIKeyAuth } = get();
+                const { token, expireAt, isAPIKeyAuth, sessionVersion } = get();
 
                 if (!token) {
                     set({ isAuthenticated: false, isLoading: false });
@@ -116,15 +123,19 @@ export const useAuthStore = create<AuthState>()(
                     // API Key 模式只需校验 key 是否有效即可
                     const endpoint = isAPIKeyAuth ? '/api/v1/apikey/login' : '/api/v1/user/status';
                     await apiClient.get<unknown>(endpoint);
+                    if (get().sessionVersion !== sessionVersion) return;
                     set({ isAuthenticated: true, isLoading: false });
                 } catch (error) {
+                    if (get().sessionVersion !== sessionVersion) return;
                     logger.error('认证验证失败:', error);
                     get().logout();
                 }
             },
 
             logout: () => {
+                clearSessionQueries();
                 set({
+                    sessionVersion: get().sessionVersion + 1,
                     isAuthenticated: false,
                     isAPIKeyAuth: false,
                     token: null,
@@ -150,6 +161,7 @@ if (typeof window !== 'undefined') {
         const state = useAuthStore.getState();
         return {
             token: state.token,
+            sessionVersion: state.sessionVersion,
             logout: state.logout
         };
     });
@@ -215,6 +227,7 @@ export function useChangePassword() {
         },
         onSuccess: (message) => {
             logger.log('密码修改成功:', message);
+            useAuthStore.getState().logout();
         },
         onError: (error) => {
             logger.error('密码修改失败:', error);

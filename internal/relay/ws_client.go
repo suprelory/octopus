@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/bestruirui/octopus/internal/apperror"
+	"github.com/bestruirui/octopus/internal/op"
+	"github.com/bestruirui/octopus/internal/server/auth"
 	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/utils/log"
 	"github.com/coder/websocket"
@@ -36,7 +40,7 @@ func HandleWSResponse(c *gin.Context) {
 	ctx = context.WithValue(ctx, affinityHeadersKey{}, c.Request.Header.Clone())
 
 	apiKeyID := c.GetInt("api_key_id")
-	supportedModels := c.GetString("supported_models")
+	apiKey := c.GetString("authenticated_api_key")
 	clientIP := middleware.ClientIP(c)
 
 	log.Debugf("ws client connected (apikey=%d)", apiKeyID)
@@ -88,7 +92,22 @@ func HandleWSResponse(c *gin.Context) {
 			continue
 		}
 
-		conversationState = processWSResponseCreate(ctx, conn, data, apiKeyID, supportedModels, clientIP, downstreamSessionID, conversationState)
+		key, err := op.APIKeyGetByAPIKey(apiKey, ctx)
+		if err != nil || key.ID != apiKeyID || key.APIKey != apiKey {
+			middleware.RecordAuthEvent(c, "api_key.rejected", apperror.CodeAuthInvalidToken, apiKeyID)
+			writeWSError(ctx, conn, http.StatusUnauthorized, apperror.CodeAuthInvalidToken, "Invalid API key")
+			continue
+		}
+		if authErr, retryAfter := auth.ValidateAPIKey(key, true); authErr != nil {
+			middleware.RecordAuthEvent(c, "api_key.rejected", authErr.Code, apiKeyID)
+			var retryAt time.Time
+			if retryAfter > 0 {
+				retryAt = time.Now().Add(time.Duration(retryAfter) * time.Second)
+			}
+			writeWSError(ctx, conn, authErr.Status, authErr.Code, authErr.Message, retryAt)
+			continue
+		}
+		conversationState = processWSResponseCreate(ctx, conn, data, apiKeyID, key.SupportedModels, clientIP, downstreamSessionID, conversationState)
 	}
 }
 
