@@ -36,6 +36,30 @@ class ReleaseIdentityTests(unittest.TestCase):
             git("checkout", "--detach", "v1.2.3")
             self.assertEqual(validate("refs/tags/v1.2.3", first).returncode, 0)
 
+            # A fixed workflow may recover an older tag. Its own branch must
+            # never become the application revision checked or built.
+            git("checkout", "--detach", second)
+
+            def recover_tag(tag, sha=second, resolve_only=True):
+                command = [sys.executable, str(SCRIPT), "--ref", "refs/heads/dev", "--sha", sha, "--tag", tag]
+                if resolve_only:
+                    command.append("--resolve-only")
+                return subprocess.run(command, cwd=directory, text=True, capture_output=True)
+
+            result = recover_tag("v1.2.4")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), f"tag=v1.2.4\nsha={first}")
+            self.assertNotEqual(recover_tag("v1.2.4", sha=first).returncode, 0)
+            self.assertNotEqual(recover_tag("v1.2.4", resolve_only=False).returncode, 0)
+            for invalid in ["master", "refs/tags/v1.2.4", "v9.9.9", "v1.2.4\nsha=other", "v1.2.4/../master"]:
+                self.assertNotEqual(recover_tag(invalid).returncode, 0)
+
+            git("checkout", "--detach", first)
+            self.assertEqual(validate("refs/tags/v1.2.4", first).returncode, 0)
+            # Moving a tag between resolution and the final checkout fails.
+            git("tag", "--force", "v1.2.4", second)
+            self.assertNotEqual(validate("refs/tags/v1.2.4", first).returncode, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
