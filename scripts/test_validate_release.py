@@ -1,0 +1,41 @@
+import pathlib
+import subprocess
+import sys
+import tempfile
+import unittest
+
+
+SCRIPT = pathlib.Path(__file__).with_name("validate_release.py").resolve()
+
+
+class ReleaseIdentityTests(unittest.TestCase):
+    def test_tagged_untagged_and_manual_references(self):
+        with tempfile.TemporaryDirectory() as directory:
+            def git(*args):
+                return subprocess.check_output(["git", *args], cwd=directory, text=True, stderr=subprocess.PIPE).strip()
+
+            git("init")
+            git("-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "--allow-empty", "-m", "first")
+            first = git("rev-parse", "HEAD")
+            git("tag", "v1.2.3")
+            git("-c", "user.name=Test", "-c", "user.email=test@example.test", "tag", "-a", "v1.2.4", "-m", "annotated")
+
+            def validate(ref, sha):
+                return subprocess.run([sys.executable, str(SCRIPT), "--ref", ref, "--sha", sha], cwd=directory, text=True, capture_output=True)
+
+            for tag in ["v1.2.3", "v1.2.4"]:
+                result = validate("refs/tags/" + tag, first)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), "tag=" + tag)
+            self.assertNotEqual(validate("refs/heads/master", first).returncode, 0)
+            git("-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "--allow-empty", "-m", "after tag")
+            second = git("rev-parse", "HEAD")
+            self.assertNotEqual(validate("refs/tags/v1.2.3", second).returncode, 0)
+            self.assertNotEqual(validate("refs/tags/v1.2.3", first).returncode, 0)
+            self.assertNotEqual(validate("refs/tags/v9.9.9", second).returncode, 0)
+            git("checkout", "--detach", "v1.2.3")
+            self.assertEqual(validate("refs/tags/v1.2.3", first).returncode, 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

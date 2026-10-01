@@ -14,7 +14,7 @@ test('notification preview substitutes known values once and keeps missing value
 test('code preview keeps variable punctuation literal and prevents delimiter injection', () => {
     for (const source of ['`{{site}}`', '```text\n{{site}}\n```', '~~~text\n{{site}}\n~~~', '```text\n{{site}}']) {
         const site = 'account_*`x`<tag>&' + (source.includes('\n') ? '\n```\n~~~\n**injected**' : '');
-        const html = renderToStaticMarkup(createElement(Markdown, { children: renderNotificationTemplate(source, { site }, true) }));
+        const html = renderToStaticMarkup(createElement(Markdown, null, renderNotificationTemplate(source, { site }, true)));
         assert.match(html, /account_\*`x`&lt;tag&gt;&amp;/);
         assert.doesNotMatch(html, /<strong>|<tag>|account\\_/);
         assert.match(html, /<code/);

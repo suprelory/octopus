@@ -2,29 +2,59 @@ name: release
 
 on:
   push:
-    branches:
-      - master
+    tags:
+      - 'v[0-9]*'
   workflow_dispatch:
 
 permissions:
-  contents: write
-  packages: write
-  
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Validate release tag
+        id: tag
+        env:
+          RELEASE_REF: ${{ github.ref }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: python scripts/validate_release.py --ref "$RELEASE_REF" --sha "$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+
+  checks:
+    needs: validate
+    uses: ./.github/workflows/ci.yml
+
   release:
     name: release
+    needs: [validate, checks]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          ref: master
+          ref: ${{ github.sha }}
 
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version: 'stable'
+          go-version-file: go.mod
     
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -39,7 +69,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 'latest'
+          node-version: '24'
           cache: 'pnpm'
           cache-dependency-path: web/pnpm-lock.yaml
 
@@ -47,19 +77,14 @@ jobs:
         run: bash scripts/build.sh release
         env:
           OCTOPUS_RELEASE_SIGNING_KEY: ${{ secrets.OCTOPUS_RELEASE_SIGNING_KEY }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
 
-      - name: Get latest tag
-        id: tag
-        run: |
-          LATEST_TAG=$(git describe --tags --abbrev=0)
-          echo "TAG_NAME=$LATEST_TAG" >> $GITHUB_OUTPUT
-
-      - name: Upload Release
-        uses: softprops/action-gh-release@v3
-        with:
-          files: build/archives/*
-          prerelease: false
-          tag_name: ${{ steps.tag.outputs.TAG_NAME }}
+      # `release create` refuses an existing release; never update old assets.
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        run: gh release create "$RELEASE_TAG" build/archives/* --verify-tag --title "$RELEASE_TAG" --generate-notes
 
       - name: Docker meta (Debian)
         id: meta-debian
@@ -70,7 +95,7 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}
           tags: |
             type=raw,value=latest
-            type=raw,value=${{ steps.tag.outputs.TAG_NAME }}
+            type=raw,value=${{ needs.validate.outputs.tag }}
 
       - name: Docker meta (Alpine)
         id: meta-alpine
@@ -81,7 +106,7 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}
           tags: |
             type=raw,value=latest-alpine
-            type=raw,value=${{ steps.tag.outputs.TAG_NAME }}-alpine
+            type=raw,value=${{ needs.validate.outputs.tag }}-alpine
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4

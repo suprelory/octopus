@@ -1,12 +1,15 @@
 name: CI
 
 on:
+  workflow_call:
   pull_request:
     branches:
       - dev
+      - master
   push:
     branches:
       - dev
+      - master
 
 permissions:
   contents: read
@@ -114,3 +117,15 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      - name: Typecheck
+        run: pnpm exec tsc --noEmit
+
+      - name: Install browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Browser regression tests
+        run: pnpm test:e2e
+
+      - name: Build frontend
+        run: pnpm build
