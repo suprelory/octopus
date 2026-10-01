@@ -61,7 +61,7 @@ func TestConfiguredHTTPCheckinUsesAccountAuthPathHeadersAndBody(t *testing.T) {
 		AccessToken:    "stale-platform-token",
 		Username:       `Alice "A"`,
 	}
-	result, token, err := checkinAccountState(context.Background(), site, account)
+	result, token, err := checkinAccountState(context.Background(), site, account, nil)
 	if err != nil {
 		t.Fatalf("configured checkin failed: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestConfiguredHTTPCheckinInterpretsAlreadyCheckedInAndFailures(t *testing.T
 			CheckinHTTPMethod:  "GET",
 			CheckinHTTPPath:    test.path,
 		}
-		result, _, err := checkinAccountState(context.Background(), site, account)
+		result, _, err := checkinAccountState(context.Background(), site, account, nil)
 		if err != nil {
 			t.Fatalf("checkin %s failed: %v", test.path, err)
 		}
@@ -145,7 +145,7 @@ func TestConfiguredHTTPCheckinAlreadyCheckedInHintOverridesStatus(t *testing.T) 
 			defer server.Close()
 			site := &model.Site{Platform: model.SitePlatformAPI, BaseURL: server.URL, CheckinHTTPEnabled: true, CheckinHTTPMethod: "GET", CheckinHTTPPath: "/checkin"}
 			account := &model.SiteAccount{CredentialType: model.SiteCredentialTypeCookie, Cookie: "session=test-cookie"}
-			result, token, err := checkinAccountState(context.Background(), site, account)
+			result, token, err := checkinAccountState(context.Background(), site, account, nil)
 			if err != nil || result == nil {
 				t.Fatalf("already-checked-in hint was rejected: %+v, %v", result, err)
 			}
@@ -168,7 +168,7 @@ func TestConfiguredHTTPCheckinDoesNotOverrideFailuresWithoutAnAlreadyCheckedInHi
 		}))
 		site := &model.Site{Platform: model.SitePlatformAPI, BaseURL: server.URL, CheckinHTTPEnabled: true, CheckinHTTPMethod: "GET", CheckinHTTPPath: "/checkin"}
 		account := &model.SiteAccount{CredentialType: model.SiteCredentialTypeCookie, Cookie: "session=test-cookie"}
-		result, _, err := checkinAccountState(context.Background(), site, account)
+		result, _, err := checkinAccountState(context.Background(), site, account, nil)
 		server.Close()
 		if err == nil || result != nil {
 			t.Fatalf("failure without a matching hint was overridden: %+v, %v", result, err)

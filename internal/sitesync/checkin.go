@@ -129,9 +129,18 @@ func runAccountCheckin(ctx context.Context, accountID int, trigger SiteBatchTrig
 	}
 	var result *model.SiteCheckinResult
 	var accessToken string
+	var balanceBefore siteBalanceFetchResult
 	if runErr == nil {
 		originalToken := executionAccount.AccessToken
-		result, accessToken, runErr = checkinAccountState(ctx, siteRecord, executionAccount)
+		result, accessToken, runErr = checkinAccountState(ctx, siteRecord, executionAccount, func(token string) error {
+			balanceBefore = fetchAccountBalanceBeforeCheckin(ctx, siteRecord, executionAccount, token)
+			// A challenge blocks this site's requests, including the check-in.
+			// Preserve the batch's existing stop/backoff behavior after one hit.
+			if IsCloudflareProtectionError(balanceBefore.err) {
+				return balanceBefore.err
+			}
+			return nil
+		})
 		if executionAccount != account && accessToken != "" && accessToken != originalToken {
 			persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 			saveErr := db.GetDB().WithContext(persistCtx).Model(&model.SiteAccount{}).
@@ -184,6 +193,7 @@ func runAccountCheckin(ctx context.Context, accountID int, trigger SiteBatchTrig
 				logSiteDataWarning(siteRecord, account, accessToken, "linked_balance", "save_failed", saveErr)
 			}
 		}
+		fillCheckinRewardFromBalance(ctx, result, balanceBefore, balance)
 	}
 	checkinNotifications.notify(siteRecord, account, result, balance, trigger)
 	if runErr != nil {

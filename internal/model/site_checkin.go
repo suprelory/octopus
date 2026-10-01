@@ -12,8 +12,9 @@ const (
 	SiteCheckinReasonNotConfigured    = "checkin_not_configured"
 )
 
-// SiteCheckinLog is an immutable outcome, separate from the account's latest
-// status. Names are snapshots so history remains readable after account edits.
+// SiteCheckinLog stores one outcome per execution, separate from the account's
+// latest status. A missing reward may be filled once after the balance refresh.
+// Names are snapshots so history remains readable after account edits.
 // No credential or upstream response body belongs in this table.
 type SiteCheckinLog struct {
 	ID          int64               `json:"id" gorm:"primaryKey;autoIncrement:false;index:idx_site_checkin_site_id,priority:2,sort:desc;index:idx_site_checkin_account_id,priority:2,sort:desc"`
@@ -38,7 +39,7 @@ type SiteCheckinLogPage struct {
 	NextBeforeID int64            `json:"next_before_id,omitempty"`
 }
 
-// SiteCheckinStats is an aggregate view over immutable check-in logs. Reward
+// SiteCheckinStats is an aggregate view over persisted check-in logs. Reward
 // values are stored as strings for compatibility with upstream responses, so
 // invalid values are reported separately instead of being silently counted.
 type SiteCheckinStats struct {

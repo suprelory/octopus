@@ -140,12 +140,12 @@ func TestCustomCheckinRequiresCookieAndNeverResolvesPlatformCredentials(t *testi
 	account := &model.SiteAccount{CredentialType: model.SiteCredentialTypeUsernamePassword, Username: "legacy", Password: "legacy-password", AccessToken: "legacy-token"}
 	for _, cookie := range []string{"", "session=bad\r\nInjected: value"} {
 		account.Cookie = cookie
-		if _, _, err := checkinAccountState(context.Background(), site, account); err == nil || calls.Load() != 0 {
+		if _, _, err := checkinAccountState(context.Background(), site, account, nil); err == nil || calls.Load() != 0 {
 			t.Fatal("invalid cookie issued a request")
 		}
 	}
 	account.Cookie = "session=external-cookie"
-	result, token, err := checkinAccountState(context.Background(), site, account)
+	result, token, err := checkinAccountState(context.Background(), site, account, nil)
 	if err != nil || result.Status != model.SiteExecutionStatusSuccess || token != "" || calls.Load() != 1 {
 		t.Fatalf("unexpected result: %+v, token=%q, %v", result, token, err)
 	}

@@ -63,7 +63,9 @@ func resolveAnyRouterManagedAccessToken(ctx context.Context, siteRecord *model.S
 
 func anyRouterDiscoverUserID(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string) (int, error) {
 	if jwtID := anyRouterTryDecodeJWTUserID(accessToken); jwtID > 0 {
-		if ok, _ := anyRouterTestBearerUserID(ctx, siteRecord, account, accessToken, jwtID); ok {
+		if ok, err := anyRouterTestBearerUserID(ctx, siteRecord, account, accessToken, jwtID); IsCloudflareProtectionError(err) {
+			return 0, err
+		} else if ok {
 			return jwtID, nil
 		}
 	}
@@ -77,6 +79,9 @@ func anyRouterDiscoverUserID(ctx context.Context, siteRecord *model.Site, accoun
 		map[string]string{"Authorization": "Bearer " + strings.TrimSpace(accessToken)},
 		account,
 	)
+	if IsCloudflareProtectionError(err) {
+		return 0, err
+	}
 	if err == nil {
 		if userID := anyRouterExtractUserID(payload); userID > 0 {
 			return userID, nil
@@ -84,12 +89,16 @@ func anyRouterDiscoverUserID(ctx context.Context, siteRecord *model.Site, accoun
 	}
 
 	for _, userID := range anyRouterBuildUserIDProbeCandidates(accessToken) {
-		if ok, _ := anyRouterTestBearerUserID(ctx, siteRecord, account, accessToken, userID); ok {
+		if ok, err := anyRouterTestBearerUserID(ctx, siteRecord, account, accessToken, userID); IsCloudflareProtectionError(err) {
+			return 0, err
+		} else if ok {
 			return userID, nil
 		}
 	}
 
-	if payload, _, cookieErr := anyRouterFetchUserSelfByCookie(ctx, siteRecord, account, accessToken, 0); cookieErr == nil {
+	if payload, _, cookieErr := anyRouterFetchUserSelfByCookie(ctx, siteRecord, account, accessToken, 0); IsCloudflareProtectionError(cookieErr) {
+		return 0, cookieErr
+	} else if cookieErr == nil {
 		if userID := anyRouterExtractUserID(payload); userID > 0 {
 			return userID, nil
 		}
@@ -124,6 +133,9 @@ func anyRouterFetchUserSelfByCookie(ctx context.Context, siteRecord *model.Site,
 		headers := map[string]string{"Cookie": cookie}
 		anyRouterAddUserIDHeaders(headers, userID)
 		payload, cookieHeader, err := anyRouterRequestJSONWithCookies(ctx, siteRecord, http.MethodGet, requestURL, nil, headers, account)
+		if IsCloudflareProtectionError(err) {
+			return nil, "", err
+		}
 		if err != nil {
 			continue
 		}
@@ -141,6 +153,9 @@ func anyRouterProbeUserIDByCookie(ctx context.Context, siteRecord *model.Site, a
 			headers := map[string]string{"Cookie": cookie}
 			anyRouterAddUserIDHeaders(headers, userID)
 			payload, _, err := anyRouterRequestJSONWithCookies(ctx, siteRecord, http.MethodGet, requestURL, nil, headers, account)
+			if IsCloudflareProtectionError(err) {
+				return 0, err
+			}
 			if err != nil {
 				continue
 			}

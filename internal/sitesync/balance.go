@@ -47,7 +47,7 @@ func refreshAccountBalanceAfterCheckin(ctx context.Context, siteRecord *model.Si
 	}
 	refreshCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	result := fetchSiteAccountBalanceResult(refreshCtx, siteRecord, account, accessToken, firstManagedPlatformUserID(account))
+	result := fetchSiteAccountBalanceResult(refreshCtx, siteRecord, account, accessToken, firstManagedPlatformUserID(account), true)
 	if !result.ok {
 		return result
 	}
@@ -77,11 +77,11 @@ func refreshAccountBalanceAfterCheckin(ctx context.Context, siteRecord *model.Si
 }
 
 func fetchSiteAccountBalance(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int) (float64, float64, float64) {
-	result := fetchSiteAccountBalanceResult(ctx, siteRecord, account, accessToken, userID)
+	result := fetchSiteAccountBalanceResult(ctx, siteRecord, account, accessToken, userID, true)
 	return result.balance, result.balanceUsed, result.todayIncome
 }
 
-func fetchSiteAccountBalanceResult(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int) (result siteBalanceFetchResult) {
+func fetchSiteAccountBalanceResult(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int, includeIncomeLogs bool) (result siteBalanceFetchResult) {
 	defer func() {
 		if !result.ok && result.reason != "" {
 			logSiteDataWarning(siteRecord, account, accessToken, "balance", result.reason, result.err)
@@ -93,11 +93,11 @@ func fetchSiteAccountBalanceResult(ctx context.Context, siteRecord *model.Site, 
 	switch siteRecord.Platform {
 	case model.SitePlatformOneAPI,
 		model.SitePlatformOneHub:
-		return fetchManagementQuotaBalanceResult(ctx, siteRecord, account, accessToken, userID, false)
+		return fetchManagementQuotaBalanceResult(ctx, siteRecord, account, accessToken, userID, false, includeIncomeLogs)
 	case model.SitePlatformNewAPI,
 		model.SitePlatformAnyRouter,
 		model.SitePlatformDoneHub:
-		return fetchManagementQuotaBalanceResult(ctx, siteRecord, account, accessToken, userID, true)
+		return fetchManagementQuotaBalanceResult(ctx, siteRecord, account, accessToken, userID, true, includeIncomeLogs)
 	case model.SitePlatformSub2API:
 		return fetchSub2APIBalanceDetails(ctx, siteRecord, account, accessToken)
 	default:
@@ -105,22 +105,33 @@ func fetchSiteAccountBalanceResult(ctx context.Context, siteRecord *model.Site, 
 	}
 }
 
-func fetchManagementQuotaBalanceResult(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int, quotaIsRemaining bool) siteBalanceFetchResult {
+func fetchManagementQuotaBalanceResult(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int, quotaIsRemaining, includeIncomeLogs bool) siteBalanceFetchResult {
 	if strings.TrimSpace(accessToken) == "" {
 		return siteBalanceFetchResult{reason: "access_token_missing"}
 	}
-	knownUserID := userID > 0
-	if !knownUserID {
-		if discovered, _ := anyRouterDiscoverUserID(ctx, siteRecord, account, accessToken); discovered > 0 {
-			userID = discovered
-			rememberManagedPlatformUserID(userID, account)
-		}
-	}
-
 	requestURL := buildSiteURL(siteRecord.BaseURL, "/api/user/self")
-
 	payload, _, err := anyRouterRequestJSONWithCookies(ctx, siteRecord, http.MethodGet, requestURL, nil,
 		anyRouterAuthHeaders(accessToken, userID), account)
+	if IsCloudflareProtectionError(err) {
+		return siteBalanceFetchResult{reason: "upstream_profile_unavailable", err: err}
+	}
+	// Most deployments accept the first profile request. Discover a missing user
+	// ID only when necessary, especially for the extra pre-check-in snapshot.
+	if userID <= 0 && !isValidUserSelfPayload(payload, err) {
+		discovered, discoverErr := anyRouterDiscoverUserID(ctx, siteRecord, account, accessToken)
+		if IsCloudflareProtectionError(discoverErr) {
+			return siteBalanceFetchResult{reason: "upstream_profile_unavailable", err: discoverErr}
+		}
+		if discovered > 0 {
+			userID = discovered
+			rememberManagedPlatformUserID(userID, account)
+			payload, _, err = anyRouterRequestJSONWithCookies(ctx, siteRecord, http.MethodGet, requestURL, nil,
+				anyRouterAuthHeaders(accessToken, userID), account)
+			if IsCloudflareProtectionError(err) {
+				return siteBalanceFetchResult{reason: "upstream_profile_unavailable", err: err}
+			}
+		}
+	}
 
 	// Attempt 2: cookie-based fallback with the same userID. AnyRouter often stores the access_token
 	// as a raw session cookie value, so `Authorization: Bearer <cookie>` fails and only cookie auth works.
@@ -128,6 +139,9 @@ func fetchManagementQuotaBalanceResult(ctx context.Context, siteRecord *model.Si
 	// shielded deployments expect requests to arrive.
 	if !isValidUserSelfPayload(payload, err) {
 		cookiePayload, _, cookieErr := anyRouterFetchUserSelfByCookie(ctx, siteRecord, account, accessToken, userID)
+		if IsCloudflareProtectionError(cookieErr) {
+			return siteBalanceFetchResult{reason: "upstream_profile_unavailable", err: cookieErr}
+		}
 		if isValidUserSelfPayload(cookiePayload, cookieErr) {
 			payload = cookiePayload
 			err = nil
@@ -136,15 +150,25 @@ func fetchManagementQuotaBalanceResult(ctx context.Context, siteRecord *model.Si
 			// session cookie) when the passed-in userID doesn't match reality. Safe for multi-account:
 			// anyRouterProbeAlternateUserIDByCookie returns 0 when the probed ID matches the current
 			// one, and it only returns IDs that genuinely validate against the session.
-			if alt, _ := anyRouterProbeAlternateUserIDByCookie(ctx, siteRecord, account, accessToken, userID); alt > 0 {
+			alt, probeErr := anyRouterProbeAlternateUserIDByCookie(ctx, siteRecord, account, accessToken, userID)
+			if IsCloudflareProtectionError(probeErr) {
+				return siteBalanceFetchResult{reason: "upstream_profile_unavailable", err: probeErr}
+			}
+			if alt > 0 {
 				altPayload, _, altErr := anyRouterRequestJSONWithCookies(ctx, siteRecord, http.MethodGet, requestURL, nil,
 					anyRouterAuthHeaders(accessToken, alt), account)
+				if IsCloudflareProtectionError(altErr) {
+					return siteBalanceFetchResult{reason: "upstream_profile_unavailable", err: altErr}
+				}
 				if isValidUserSelfPayload(altPayload, altErr) {
 					payload = altPayload
 					err = nil
 					rememberManagedPlatformUserID(alt, account)
 				} else {
 					altCookiePayload, _, altCookieErr := anyRouterFetchUserSelfByCookie(ctx, siteRecord, account, accessToken, alt)
+					if IsCloudflareProtectionError(altCookieErr) {
+						return siteBalanceFetchResult{reason: "upstream_profile_unavailable", err: altCookieErr}
+					}
 					if isValidUserSelfPayload(altCookiePayload, altCookieErr) {
 						payload = altCookiePayload
 						err = nil
@@ -157,6 +181,12 @@ func fetchManagementQuotaBalanceResult(ctx context.Context, siteRecord *model.Si
 
 	if !isValidUserSelfPayload(payload, err) {
 		return siteBalanceFetchResult{reason: "upstream_profile_unavailable", err: err}
+	}
+	if userID <= 0 {
+		if discovered := anyRouterExtractUserID(payload); discovered > 0 {
+			userID = discovered
+			rememberManagedPlatformUserID(userID, account)
+		}
 	}
 
 	data, ok := payload["data"].(map[string]any)
@@ -187,7 +217,7 @@ func fetchManagementQuotaBalanceResult(ctx context.Context, siteRecord *model.Si
 		todayIncome /= siteBalanceQuotaPerUSD
 	}
 
-	if !todayIncomeKnown && supportsTodayIncomeLogFallback(siteRecord.Platform) {
+	if includeIncomeLogs && !todayIncomeKnown && supportsTodayIncomeLogFallback(siteRecord.Platform) {
 		if fallback, ok := fetchTodayIncomeFromLogs(ctx, siteRecord, account, accessToken, userID); ok {
 			todayIncome = fallback
 			todayIncomeKnown = true

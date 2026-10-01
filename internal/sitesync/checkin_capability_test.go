@@ -395,7 +395,7 @@ func TestAnyRouterChecksFallbacksBeforeRecordingUnsupported(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			result, _, err := checkinAccountState(context.Background(), &model.Site{Platform: model.SitePlatformAnyRouter, BaseURL: server.URL}, &model.SiteAccount{CredentialType: model.SiteCredentialTypeAccessToken, AccessToken: "fake-token"})
+			result, _, err := checkinAccountState(context.Background(), &model.Site{Platform: model.SitePlatformAnyRouter, BaseURL: server.URL}, &model.SiteAccount{CredentialType: model.SiteCredentialTypeAccessToken, AccessToken: "fake-token"}, nil)
 			if tc.want == model.SiteCheckinSupportUnknown {
 				if err == nil || result != nil {
 					t.Fatalf("uncertain fallback decided support: %+v, %v", result, err)

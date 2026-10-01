@@ -8,13 +8,21 @@ import (
 	"github.com/bestruirui/octopus/internal/model"
 )
 
-func checkinAnyRouter(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount) (*model.SiteCheckinResult, string, error) {
+func checkinAnyRouter(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, beforeCheckin func(string) error) (*model.SiteCheckinResult, string, error) {
 	accessToken, err := resolveAnyRouterManagedAccessToken(ctx, siteRecord, account)
 	if err != nil {
 		return nil, accessToken, err
 	}
 
-	userID, _ := anyRouterDiscoverUserID(ctx, siteRecord, account, accessToken)
+	userID, discoverErr := anyRouterDiscoverUserID(ctx, siteRecord, account, accessToken)
+	if IsCloudflareProtectionError(discoverErr) {
+		return nil, accessToken, discoverErr
+	}
+	if beforeCheckin != nil {
+		if err := beforeCheckin(accessToken); err != nil {
+			return nil, accessToken, err
+		}
+	}
 	result, bearerErr := anyRouterTryCheckinWithBearer(ctx, siteRecord, account, accessToken, userID)
 	if result != nil {
 		return result, accessToken, nil

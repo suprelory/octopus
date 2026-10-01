@@ -72,7 +72,7 @@ func syncAccountState(ctx context.Context, siteRecord *model.Site, account *mode
 	}
 }
 
-func checkinAccountState(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount) (*model.SiteCheckinResult, string, error) {
+func checkinAccountState(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, beforeCheckin func(string) error) (*model.SiteCheckinResult, string, error) {
 	if siteRecord == nil || account == nil {
 		return nil, "", fmt.Errorf("site or account is nil")
 	}
@@ -80,11 +80,16 @@ func checkinAccountState(ctx context.Context, siteRecord *model.Site, account *m
 	case model.SiteCheckinAdapterHTTP:
 		return checkinConfiguredHTTP(ctx, siteRecord, account)
 	case model.SiteCheckinAdapterAnyRouter:
-		return checkinAnyRouter(ctx, siteRecord, account)
+		return checkinAnyRouter(ctx, siteRecord, account, beforeCheckin)
 	case model.SiteCheckinAdapterManagement:
 		accessToken, err := resolveManagedAccessToken(ctx, siteRecord, account)
 		if err != nil {
 			return nil, accessToken, err
+		}
+		if beforeCheckin != nil {
+			if err := beforeCheckin(accessToken); err != nil {
+				return nil, accessToken, err
+			}
 		}
 		payload, err := requestJSONWithManagedAccessToken(ctx, siteRecord, http.MethodPost, buildSiteURL(siteRecord.BaseURL, "/api/user/checkin"), nil, accessToken, account)
 		if err != nil {

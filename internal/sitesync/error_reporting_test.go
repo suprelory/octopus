@@ -52,7 +52,7 @@ func TestCheckinResponseStatusAndMessage(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			server := siteErrorTestServer(t, tc.status, "application/json", tc.body)
-			result, _, err := checkinAccountState(context.Background(), &model.Site{BaseURL: server.URL, Platform: model.SitePlatformOneAPI}, &model.SiteAccount{CredentialType: model.SiteCredentialTypeAccessToken, AccessToken: "test-token"})
+			result, _, err := checkinAccountState(context.Background(), &model.Site{BaseURL: server.URL, Platform: model.SitePlatformOneAPI}, &model.SiteAccount{CredentialType: model.SiteCredentialTypeAccessToken, AccessToken: "test-token"}, nil)
 			if tc.errorCode != "" {
 				if apperror.Code(err) != tc.errorCode || err.Error() != tc.message {
 					t.Fatalf("error = %v, want %s: %s", err, tc.errorCode, tc.message)
