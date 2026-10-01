@@ -5,14 +5,24 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
 	"gorm.io/gorm"
 )
 
 func DBExportAll(ctx context.Context, includeLogs, includeStats bool) (*model.DBDump, error) {
-	conn := db.GetDB().WithContext(ctx)
+	var dump *model.DBDump
+	err := withBackupSnapshot(ctx, func(conn *gorm.DB) error {
+		var err error
+		dump, err = exportAllSnapshot(ctx, conn, includeLogs, includeStats)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return dump, nil
+}
 
+func exportAllSnapshot(ctx context.Context, conn *gorm.DB, includeLogs, includeStats bool) (*model.DBDump, error) {
 	d := &model.DBDump{
 		Version:      dbDumpVersion,
 		ExportedAt:   time.Now().UTC(),

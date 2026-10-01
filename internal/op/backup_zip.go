@@ -6,26 +6,53 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"time"
 
-	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
 	"gorm.io/gorm"
 )
 
-// DBExportZip streams the database dump as a ZIP archive: small tables become
-// JSON files, relay_logs become NDJSON to avoid building a giant in-memory
-// slice. The writer is consumed once; failures partway through cannot return a
-// JSON error to the client, so callers should validate inputs before invoking.
-func DBExportZip(ctx context.Context, w io.Writer, includeLogs, includeStats bool) (err error) {
+// DBExportZip spools a consistent snapshot to a private temporary archive before
+// sending it. Slow clients must not hold a database transaction or connection.
+// Logs are still paged as NDJSON, keeping memory independent of archive size.
+func DBExportZip(ctx context.Context, w io.Writer, includeLogs, includeStats bool) error {
+	file, err := os.CreateTemp("", "octopus-backup-*.zip")
+	if err != nil {
+		return fmt.Errorf("create backup archive: %w", err)
+	}
+	defer func() { file.Close(); os.Remove(file.Name()) }()
+	if err := withBackupSnapshot(ctx, func(conn *gorm.DB) error {
+		return exportZipSnapshot(ctx, file, conn, includeLogs, includeStats)
+	}); err != nil {
+		return err
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	_, err = io.Copy(w, backupContextReader{ctx: ctx, reader: file})
+	return err
+}
+
+type backupContextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r backupContextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(p)
+}
+
+func exportZipSnapshot(ctx context.Context, w io.Writer, conn *gorm.DB, includeLogs, includeStats bool) (err error) {
 	zw := zip.NewWriter(w)
 	defer func() {
 		if closeErr := zw.Close(); closeErr != nil && err == nil {
 			err = closeErr
 		}
 	}()
-
-	conn := db.GetDB().WithContext(ctx)
 
 	manifest := map[string]any{
 		"version":       dbDumpVersion,
