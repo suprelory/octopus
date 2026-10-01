@@ -147,6 +147,7 @@ for (const { width, theme } of [{ width: 1440, theme: 'light' }, { width: 390, t
             await page.getByLabel('密码', { exact: true }).fill('invalid-demo-password');
             await page.getByRole('button', { name: '登录', exact: true }).click();
             await expect(page.getByRole('alert').filter({ hasText: '登录失败,请检查登录凭据' })).toBeVisible();
+            await expect(page.getByLabel('用户名', { exact: true })).toHaveValue('demo-user');
             expect(state.mutations).toHaveLength(1);
             expect(state.unexpectedRequests).toEqual([]);
             expect(state.pageErrors).toEqual([]);

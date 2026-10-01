@@ -8,6 +8,21 @@ import * as querySession from '../src/api/query-session.ts';
 
 const require = createRequire(import.meta.url);
 
+test('anonymous authentication errors preserve the session while expired credentials log out', async (t) => {
+    const { store, apiClient } = loadAuth();
+    t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ message: 'unauthorized' }), {
+        status: 401, headers: { 'content-type': 'application/json' },
+    }));
+    t.mock.method(console, 'error', () => {});
+    const version = store.getState().sessionVersion;
+    await assert.rejects(apiClient.post('/api/v1/user/login', { username: 'invalid' }));
+    assert.equal(store.getState().sessionVersion, version);
+    store.getState().setAuth('expired-token', '2099-01-01T00:00:00Z');
+    await assert.rejects(apiClient.get('/api/v1/private'));
+    assert.equal(store.getState().token, null);
+    assert.equal(store.getState().isAuthenticated, false);
+});
+
 // Execute the real store/client with browser storage and presentation-only
 // dependencies supplied locally; no browser or backend service is required.
 function loadAuth() {

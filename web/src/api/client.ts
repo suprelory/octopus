@@ -22,7 +22,7 @@ const handleError = (error: ApiError, session?: AuthSnapshot) => {
 
     // 401 未授权，调用 store 的 logout
     if (error.code === HttpStatus.UNAUTHORIZED) {
-        if (getAuthStore && session) {
+        if (getAuthStore && session?.token) {
             const store = getAuthStore();
             if (store.token === session.token && store.sessionVersion === session.sessionVersion) {
                 store.logout();

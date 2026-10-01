@@ -220,12 +220,7 @@ export function APIKeyExportOverlay({
     const platformLabel = platform === 'ccswitch' ? 'CC Switch' : 'Cherry Studio';
 
     return (
-        <OverlayPortal onClose={onClose}>
-            <div
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby={titleId}
-                data-slot="dialog-content"
+        <OverlayPortal onClose={onClose} title={`${t('apiKey.export.title')} · ${apiKey.name}`}
                 className={cn(
                     'fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 bg-card p-5 rounded-3xl border border-border max-h-[80vh] overflow-auto',
                     OVERLAY_ENTRANCE,
@@ -384,7 +379,6 @@ export function APIKeyExportOverlay({
                         checkIconClassName="size-4"
                     />
                 </div>
-            </div>
         </OverlayPortal>
     );
 }

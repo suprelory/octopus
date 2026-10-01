@@ -13,21 +13,7 @@ import { useGroupList } from '@/api/endpoints/group';
 import { OverlayPortal } from './OverlayPortal';
 import { OVERLAY_ENTRANCE } from '@/lib/animations/css-entrances';
 import { cn } from '@/lib/utils';
-
-function toExpireAt(date: Date, time: string): number {
-    const t = /^\d{2}:\d{2}$/.test(time) ? time : '00:00';
-    const [hh, mm] = t.split(':').map(Number);
-    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), hh, mm, 0));
-    // 返回 Unix 时间戳（秒）
-    return Math.floor(d.getTime() / 1000);
-}
-
-function parseExpireDate(expireAt?: number): Date | undefined {
-    if (!expireAt) return undefined;
-    // 从 Unix 时间戳（秒）转换为 Date
-    const d = new Date(expireAt * 1000);
-    return isNaN(d.getTime()) ? undefined : d;
-}
+import { toExpireAt, parseExpireDate, formatExpireTime, updateExpireTime } from '@/lib/api-key-expiration';
 
 function normalizeHHmm(input: string): string {
     const cleaned = input.replace(/[^\d:]/g, '');
@@ -85,7 +71,7 @@ function APIKeyForm({ apiKey, isPending, submitLabel, onSubmit, onClose }: APIKe
         if (apiKey?.expire_at) {
             const d = new Date(apiKey.expire_at * 1000);
             if (!isNaN(d.getTime())) {
-                return `${d.getUTCHours().toString().padStart(2, '0')}:${d.getUTCMinutes().toString().padStart(2, '0')}`;
+                return formatExpireTime(d);
             }
         }
         return '00:00';
@@ -114,7 +100,7 @@ function APIKeyForm({ apiKey, isPending, submitLabel, onSubmit, onClose }: APIKe
 
     const handleSelectDate = useCallback((d: Date | undefined) => {
         if (d) {
-            updateForm({ expire_at: toExpireAt(d, expireTime) });
+            updateForm({ expire_at: toExpireAt(d, normalizeHHmm(expireTime)) });
             setExpireOpen(false);
         } else {
             updateForm({ expire_at: undefined });
@@ -125,12 +111,12 @@ function APIKeyForm({ apiKey, isPending, submitLabel, onSubmit, onClose }: APIKe
         if (!expireDate) return;
         const normalized = normalizeHHmm(expireTime);
         setExpireTime(normalized);
-        updateForm({ expire_at: toExpireAt(expireDate, normalized) });
-    }, [expireDate, expireTime, updateForm]);
+        updateForm({ expire_at: updateExpireTime(form.expire_at!, normalized) });
+    }, [expireDate, expireTime, form.expire_at, updateForm]);
 
     const handleToggleNeverExpire = useCallback(() => {
         if (neverExpire) {
-            updateForm({ expire_at: toExpireAt(new Date(), expireTime) });
+            updateForm({ expire_at: toExpireAt(new Date(), normalizeHHmm(expireTime)) });
         } else {
             updateForm({ expire_at: undefined });
             setExpireOpen(false);
@@ -393,12 +379,9 @@ export function APIKeyFormOverlay({
     onSubmit: (data: Omit<APIKey, 'id' | 'api_key'>) => void;
     onClose: () => void;
 }) {
+    const t = useTranslations('setting');
     return (
-        <OverlayPortal onClose={onClose}>
-            <div
-                role="dialog"
-                aria-modal="true"
-                data-slot="dialog-content"
+        <OverlayPortal onClose={onClose} title={`${t('apiKey.title')} · ${apiKey?.name ?? submitLabel}`}
                 className={cn(
                     'fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 bg-card p-5 rounded-3xl border border-border max-h-[80vh] overflow-auto',
                     OVERLAY_ENTRANCE,
@@ -411,7 +394,6 @@ export function APIKeyFormOverlay({
                     onSubmit={onSubmit}
                     onClose={onClose}
                 />
-            </div>
         </OverlayPortal>
     );
 }

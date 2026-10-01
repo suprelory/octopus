@@ -21,11 +21,7 @@ export function APIKeyStatsCard({
     const stats = useMemo(() => statsList.find((s) => s.api_key_id === apiKey.id), [statsList, apiKey.id]);
 
     return (
-        <OverlayPortal onClose={onClose}>
-            <div
-                role="dialog"
-                aria-modal="true"
-                data-slot="dialog-content"
+        <OverlayPortal onClose={onClose} title={`${t('apiKey.title')} · ${apiKey.name}`}
                 className={cn(
                     'fixed left-1/2 top-1/2 z-50 w-[min(320px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex flex-col bg-card p-5 rounded-3xl border border-border max-h-[80vh] overflow-auto',
                     OVERLAY_ENTRANCE,
@@ -38,6 +34,7 @@ export function APIKeyStatsCard({
                     <button
                         type="button"
                         onClick={onClose}
+                        aria-label={t('apiKey.form.cancel')}
                         className="size-8 flex items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors hover:bg-muted/80"
                     >
                         <X className="size-4" />
@@ -92,7 +89,6 @@ export function APIKeyStatsCard({
                         </div>
                     </div>
                 )}
-            </div>
         </OverlayPortal>
     );
 }

@@ -1,38 +1,34 @@
 'use client';
 
-import { useEffect } from 'react';
-import { createPortal } from 'react-dom';
+import { useRef } from 'react';
+import * as Dialog from '@radix-ui/react-dialog';
 import { BACKDROP_ENTRANCE } from '@/lib/animations/css-entrances';
 import { cn } from '@/lib/utils';
 
-// Key 卡片编辑/统计/导出浮层的共用顶层容器。
-// 浮层原先 absolute 定位在卡片内，超出设置页 overflow-y-auto 容器顶边的部分
-// 会被裁切（视觉上被 header 挡住），portal 到 body 并 fixed 定位后不受裁切影响。
-// data-slot 复用 MorphingDialog 的 PORTAL_IGNORED_SLOTS 机制：
-// 浮层在放大视图中打开时，点击/Escape 不会连带关闭底层对话框。
-// z-50 与 MorphingDialog/Popover/Select 一致，层级由 portal 挂载顺序（后开在上）决定。
-export function OverlayPortal({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
-    useEffect(() => {
-        const handleKeyDown = (event: KeyboardEvent) => {
-            // Radix Select/Popover 展开时 Escape 已被其消费（defaultPrevented），不连带关闭浮层
-            if (event.key === 'Escape' && !event.defaultPrevented) onClose();
-        };
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [onClose]);
-
-    return createPortal(
-        <>
-            {/* 淡入用 CSS keyframes 而非 motion：调用方已不再包 AnimatePresence，
-                退出动画本就不会播放，改成 CSS 后淡入也不必占用主线程。 */}
-            <div
-                data-slot="dialog-overlay"
-                aria-hidden="true"
-                className={cn('fixed inset-0 z-50 bg-white/40 backdrop-blur-xs dark:bg-black/40', BACKDROP_ENTRANCE)}
-                onClick={onClose}
-            />
-            {children}
-        </>,
-        document.body
+// Radix owns focus trapping, background accessibility and Escape for nested
+// popovers. Keep the slots used by MorphingDialog to recognize an upper layer.
+export function OverlayPortal({ onClose, title, className, children }: {
+    onClose: () => void;
+    title: string;
+    className?: string;
+    children: React.ReactNode;
+}) {
+    const returnFocus = useRef<HTMLElement | null>(null);
+    return (
+        <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}>
+            <Dialog.Portal>
+                <Dialog.Overlay data-slot="dialog-overlay"
+                    className={cn('fixed inset-0 z-50 bg-white/40 backdrop-blur-xs dark:bg-black/40', BACKDROP_ENTRANCE)} />
+                <Dialog.Content data-slot="dialog-content" className={className} aria-describedby={undefined}
+                    onOpenAutoFocus={() => { returnFocus.current = document.activeElement as HTMLElement | null; }}
+                    onCloseAutoFocus={(event) => {
+                        event.preventDefault();
+                        returnFocus.current?.focus();
+                    }}>
+                    <Dialog.Title className="sr-only">{title}</Dialog.Title>
+                    {children}
+                </Dialog.Content>
+            </Dialog.Portal>
+        </Dialog.Root>
     );
 }
