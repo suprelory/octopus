@@ -18,6 +18,7 @@ const (
 	relayLogQueueSize        = 5000
 	relayLogQueueBytes       = 64 << 20
 	relayLogRecentMaxSize    = 100 // 最近日志缓存，用于实时查询/不落库模式
+	relayLogRecentMaxBytes   = 8 << 20
 	relayLogCleanupBatchSize = 1000
 	relayLogCleanupBatchWait = 30 * time.Millisecond
 	relayLogWriterMaxBatches = 25
@@ -90,13 +91,28 @@ func signalRelayLogFlush() {
 }
 
 func appendRelayLogRecent(relayLog model.RelayLog) {
-	relayLogBuffer.recentLock.Lock()
-	relayLogBuffer.recent = append(relayLogBuffer.recent, relayLog)
-	if len(relayLogBuffer.recent) > relayLogRecentMaxSize {
-		keep := relayLogRecentMaxSize / 2
-		relayLogBuffer.recent = append([]model.RelayLog(nil), relayLogBuffer.recent[len(relayLogBuffer.recent)-keep:]...)
+	// Oversized bodies remain available from persisted logs. Keep their metadata
+	// here without retaining a reference to the original body allocation.
+	if relayLogApproxBytes(relayLog) > relayLogRecentMaxBytes {
+		relayLog.RequestContent = ""
+		relayLog.ResponseContent = ""
 	}
-	relayLogBuffer.recentLock.Unlock()
+	if relayLogApproxBytes(relayLog) > relayLogRecentMaxBytes {
+		return
+	}
+	relayLogBuffer.recentLock.Lock()
+	defer relayLogBuffer.recentLock.Unlock()
+	relayLogBuffer.recent = append(relayLogBuffer.recent, relayLog)
+	bytes := relayLogBatchApproxBytes(relayLogBuffer.recent)
+	start := 0
+	for len(relayLogBuffer.recent)-start > relayLogRecentMaxSize || bytes > relayLogRecentMaxBytes {
+		bytes -= relayLogApproxBytes(relayLogBuffer.recent[start])
+		start++
+	}
+	if start > 0 {
+		// Copy so evicted strings are also released by the backing array.
+		relayLogBuffer.recent = append([]model.RelayLog(nil), relayLogBuffer.recent[start:]...)
+	}
 }
 
 func enqueueRelayLogPending(relayLog model.RelayLog) bool {
@@ -259,7 +275,13 @@ func RelayLogAdd(relayLog model.RelayLog) error {
 	relayLogBuffer.snapshotLock.RLock()
 	relayLog.ID = snowflake.GenerateID()
 	notifySubscribers(relayLog)
-	appendRelayLogRecent(relayLog)
+	recent := relayLog
+	if !enabled {
+		// Disabling retention keeps live query metadata, but no new bodies.
+		recent.RequestContent = ""
+		recent.ResponseContent = ""
+	}
+	appendRelayLogRecent(recent)
 
 	if enabled {
 		enqueueRelayLogPending(relayLog)

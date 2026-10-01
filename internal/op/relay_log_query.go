@@ -2,6 +2,7 @@ package op
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/bestruirui/octopus/internal/db"
@@ -292,11 +293,13 @@ func RelayLogGet(ctx context.Context, id int64) (*model.RelayLog, error) {
 	if item, ok := relayLogFindPending(id); ok {
 		return &item, nil
 	}
-	if item, ok := relayLogFindRecent(id); ok {
-		return &item, nil
-	}
 	var entry model.RelayLog
 	if err := db.GetDB().WithContext(ctx).First(&entry, "id = ?", id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			if item, ok := relayLogFindRecent(id); ok {
+				return &item, nil
+			}
+		}
 		return nil, err
 	}
 	return &entry, nil
