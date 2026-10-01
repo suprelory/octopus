@@ -84,7 +84,7 @@ func normalizeSiteProxyFields(site *model.Site) {
 }
 
 // Platform check-ins can use accounts from the linked subscription site;
-// custom HTTP check-ins only use the link to identify the reward destination.
+// custom HTTP check-ins can query the linked reward account's balance.
 func validateLinkedSite(site *model.Site, ctx context.Context) error {
 	if site.LinkedSiteID == nil {
 		return nil
@@ -208,6 +208,10 @@ func SiteUpdate(req *model.SiteUpdateRequest, ctx context.Context) (*model.Site,
 		merged.CheckinHTTPHeaders = *req.CheckinHTTPHeaders
 		selectFields = append(selectFields, "checkin_http_headers")
 	}
+	if req.CheckinRewardExtractor != nil {
+		merged.CheckinRewardExtractor = *req.CheckinRewardExtractor
+		selectFields = append(selectFields, "checkin_reward_extractor")
+	}
 	if req.CheckinTimezone != nil {
 		merged.CheckinTimezone = *req.CheckinTimezone
 		selectFields = append(selectFields, "checkin_timezone")
@@ -300,6 +304,9 @@ func SiteUpdate(req *model.SiteUpdateRequest, ctx context.Context) (*model.Site,
 	}
 	if req.CheckinHTTPHeaders != nil {
 		updates.CheckinHTTPHeaders = merged.CheckinHTTPHeaders
+	}
+	if req.CheckinRewardExtractor != nil {
+		updates.CheckinRewardExtractor = merged.CheckinRewardExtractor
 	}
 	if req.CheckinTimezone != nil {
 		updates.CheckinTimezone = merged.CheckinTimezone

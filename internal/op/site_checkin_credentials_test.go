@@ -2,9 +2,11 @@ package op
 
 import (
 	"encoding/json"
+	"strings"
+	"testing"
+
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
-	"testing"
 )
 
 func TestCheckinBackupRemapsLinkedAccountAndPreservesCookie(t *testing.T) {
@@ -20,11 +22,11 @@ func TestCheckinBackupRemapsLinkedAccountAndPreservesCookie(t *testing.T) {
 	dump := &model.DBDump{Version: 1, Sites: []model.Site{
 		{ID: 2, Name: "Rewards", Kind: model.SiteKindCheckin, LinkedSiteID: &sourceSiteID, Platform: model.SitePlatformOneAPI, BaseURL: "https://platform.example"},
 		{ID: 1, Name: "Subscription", Kind: model.SiteKindRelay, Platform: model.SitePlatformOneAPI, BaseURL: "https://platform.example"},
-		{ID: 3, Name: "External", Kind: model.SiteKindCheckin, Platform: model.SitePlatformAPI, BaseURL: "https://external.example", CheckinHTTPEnabled: true, CheckinHTTPPath: "/daily"},
+		{ID: 3, Name: "External", Kind: model.SiteKindCheckin, LinkedSiteID: &sourceSiteID, Platform: model.SitePlatformAPI, BaseURL: "https://external.example", CheckinHTTPEnabled: true, CheckinHTTPPath: "/daily", CheckinRewardExtractor: "return response.data?.amount ?? null;"},
 	}, SiteAccounts: []model.SiteAccount{
 		{ID: 2, SiteID: 2, Name: "Rewards", CredentialType: model.SiteCredentialTypeLinkedAccount, LinkedAccountID: &sourceID},
 		{ID: 1, SiteID: 1, Name: "Source", CredentialType: model.SiteCredentialTypeAccessToken, AccessToken: "source-token"},
-		{ID: 3, SiteID: 3, Name: "Cookie", CredentialType: model.SiteCredentialTypeCookie, Cookie: "session=backup-cookie"},
+		{ID: 3, SiteID: 3, Name: "Cookie", CredentialType: model.SiteCredentialTypeCookie, Cookie: "session=backup-cookie", LinkedAccountID: &sourceID},
 	}}
 	if _, err := DBImportIncremental(ctx, dump); err != nil {
 		t.Fatal(err)
@@ -44,8 +46,16 @@ func TestCheckinBackupRemapsLinkedAccountAndPreservesCookie(t *testing.T) {
 	if err := db.GetDB().Where("name = ?", "Cookie").First(&cookie).Error; err != nil {
 		t.Fatal(err)
 	}
-	if cookie.Cookie != "session=backup-cookie" {
-		t.Fatal("cookie lost in backup")
+	if cookie.Cookie != "session=backup-cookie" || cookie.CredentialType != model.SiteCredentialTypeCookie || cookie.LinkedAccountID == nil || *cookie.LinkedAccountID != source.ID {
+		t.Fatal("cookie or balance account link lost in backup")
+	}
+	external, err := SiteGet(cookie.SiteID, ctx)
+	if err != nil || external.CheckinRewardExtractor != "return response.data?.amount ?? null;" {
+		t.Fatalf("extractor lost in backup: %+v, %v", external, err)
+	}
+	_, balanceAccount, err := SiteCheckinBalanceAccount(external, &cookie, ctx)
+	if err != nil || balanceAccount.ID != source.ID {
+		t.Fatalf("external balance link not remapped: %+v, %v", balanceAccount, err)
 	}
 	if err := SiteAccountDel(source.ID, ctx); err != nil {
 		t.Fatal(err)
@@ -59,6 +69,10 @@ func TestCheckinBackupRemapsLinkedAccountAndPreservesCookie(t *testing.T) {
 	}
 	if account.LinkedAccountID != nil {
 		t.Fatal("reimport rebound a deleted source")
+	}
+	savedCookie, err := SiteAccountGet(cookie.ID, ctx)
+	if err != nil || savedCookie.LinkedAccountID != nil || savedCookie.CredentialType != model.SiteCredentialTypeCookie || savedCookie.Cookie != "session=backup-cookie" {
+		t.Fatal("deleting the balance source changed cookie credentials")
 	}
 }
 
@@ -87,7 +101,7 @@ func TestCheckinCredentialsRejectWrongSiteAndAcceptCookieUpdates(t *testing.T) {
 	if _, err := SiteUpdate(&model.SiteUpdateRequest{ID: checkin.ID, CheckinHTTPEnabled: &custom, CheckinHTTPPath: &path}, ctx); err != nil {
 		t.Fatal(err)
 	}
-	account.CredentialType, account.LinkedAccountID, account.Cookie = model.SiteCredentialTypeCookie, nil, "session=old"
+	account.CredentialType, account.LinkedAccountID, account.Cookie = model.SiteCredentialTypeCookie, &source.ID, "session=old"
 	if err := SiteAccountCreate(account, ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -99,5 +113,44 @@ func TestCheckinCredentialsRejectWrongSiteAndAcceptCookieUpdates(t *testing.T) {
 	updated, err := SiteAccountUpdate(&req, ctx)
 	if err != nil || updated.Cookie != "session=new" || !req.LinkedAccountIDSet || updated.LinkedAccountID != nil {
 		t.Fatalf("cookie update: %+v, %v", updated, err)
+	}
+	// A cookie account cannot query an account outside its associated site.
+	other := &model.Site{Name: "Other", Platform: site.Platform, BaseURL: "https://third.example"}
+	if err := SiteCreate(other, ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SiteUpdate(&model.SiteUpdateRequest{ID: checkin.ID, LinkedSiteID: &other.ID, LinkedSiteIDSet: true}, ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SiteAccountUpdate(&model.SiteAccountUpdateRequest{ID: account.ID, LinkedAccountID: &source.ID, LinkedAccountIDSet: true}, ctx); err == nil {
+		t.Fatal("cookie account accepted a balance account from the wrong subscription")
+	}
+}
+
+func TestCheckinRewardExtractorConfigurationCanBeSavedAndCleared(t *testing.T) {
+	ctx := setupBackupTestDB(t)
+	site := &model.Site{Name: "External", Kind: model.SiteKindCheckin, Platform: model.SitePlatformAPI, BaseURL: "https://external.example",
+		CheckinHTTPEnabled: true, CheckinHTTPPath: "/daily", CheckinRewardExtractor: "  return response.reward;  "}
+	if err := SiteCreate(site, ctx); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := SiteGet(site.ID, ctx)
+	if err != nil || saved.CheckinRewardExtractor != "return response.reward;" {
+		t.Fatalf("extractor not persisted: %+v, %v", saved, err)
+	}
+	for _, code := range []string{" return response.data?.reward; ", ""} {
+		body, _ := json.Marshal(map[string]any{"id": site.ID, "checkin_reward_extractor": code})
+		var request model.SiteUpdateRequest
+		if err := json.Unmarshal(body, &request); err != nil {
+			t.Fatal(err)
+		}
+		updated, err := SiteUpdate(&request, ctx)
+		if err != nil || updated.CheckinRewardExtractor != strings.TrimSpace(code) {
+			t.Fatalf("extractor update: %+v, %v", updated, err)
+		}
+	}
+	tooLong := strings.Repeat("a", model.CheckinRewardExtractorMaxBytes+1)
+	if _, err := SiteUpdate(&model.SiteUpdateRequest{ID: site.ID, CheckinRewardExtractor: &tooLong}, ctx); err == nil {
+		t.Fatal("oversized extractor accepted")
 	}
 }

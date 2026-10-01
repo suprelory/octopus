@@ -9,8 +9,74 @@ import (
 
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/utils/log"
 )
+
+type linkedCheckinBalance struct {
+	site    *model.Site
+	account *model.SiteAccount
+	token   string
+	before  siteBalanceFetchResult
+}
+
+// Failure to query the destination account must not prevent an external sign-in.
+func prepareLinkedCheckinBalance(ctx context.Context, site *model.Site, account *model.SiteAccount) *linkedCheckinBalance {
+	queryCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	sourceSite, source, err := op.SiteCheckinBalanceAccount(site, account, queryCtx)
+	if err != nil {
+		logSiteDataWarning(site, account, "", "linked_balance", "account_unavailable", err)
+		return nil
+	}
+	var token string
+	switch sourceSite.Platform {
+	case model.SitePlatformAnyRouter:
+		token, err = resolveAnyRouterManagedAccessToken(queryCtx, sourceSite, source)
+	case model.SitePlatformNewAPI, model.SitePlatformOneAPI, model.SitePlatformOneHub, model.SitePlatformDoneHub:
+		token, err = resolveManagedAccessToken(queryCtx, sourceSite, source)
+	case model.SitePlatformSub2API:
+		token = resolveDirectToken(source)
+	default:
+		return nil
+	}
+	if err != nil || token == "" {
+		logSiteDataWarning(sourceSite, source, token, "linked_balance", "credentials_unavailable", err)
+		return nil
+	}
+	if token != source.AccessToken && source.CredentialType == model.SiteCredentialTypeUsernamePassword {
+		persistCtx, persistCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		saveErr := db.GetDB().WithContext(persistCtx).Model(&model.SiteAccount{}).
+			Where("id = ? AND site_id = ? AND access_token = ?", source.ID, sourceSite.ID, source.AccessToken).
+			Update("access_token", token).Error
+		persistCancel()
+		if saveErr != nil {
+			logSiteDataWarning(sourceSite, source, token, "linked_balance", "token_save_failed", saveErr)
+		}
+	}
+	return &linkedCheckinBalance{site: sourceSite, account: source, token: token,
+		before: fetchAccountBalanceBeforeCheckin(queryCtx, sourceSite, source, token)}
+}
+
+func mirrorCheckinBalance(ctx context.Context, site *model.Site, account *model.SiteAccount, balance siteBalanceFetchResult) {
+	if !balance.ok {
+		return
+	}
+	updates := map[string]any{"balance": balance.balance}
+	if balance.usedKnown {
+		updates["balance_used"] = balance.balanceUsed
+	}
+	if balance.incomeKnown {
+		updates["today_income"] = balance.todayIncome
+	}
+	query := db.GetDB().WithContext(ctx).Model(&model.SiteAccount{}).Where("id = ?", account.ID)
+	if account.LinkedAccountID != nil {
+		query = query.Where("linked_account_id = ?", *account.LinkedAccountID)
+	}
+	if err := query.Updates(updates).Error; err != nil {
+		logSiteDataWarning(site, account, "", "linked_balance", "save_failed", err)
+	}
+}
 
 // Capture a fresh balance with the resolved check-in credentials. Cached account
 // balances may predate unrelated spending or deposits and cannot be a baseline.

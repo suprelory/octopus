@@ -16,24 +16,51 @@ func SiteCheckinLinkedAccount(site *model.Site, account *model.SiteAccount, ctx 
 	if !site.IsCheckinOnly() || site.CheckinHTTPEnabled || site.LinkedSiteID == nil || account.LinkedAccountID == nil {
 		return nil, fmt.Errorf("select a linked subscription site and account for platform checkin")
 	}
-	var sourceSite model.Site
-	if err := db.GetDB().WithContext(ctx).First(&sourceSite, *site.LinkedSiteID).Error; err != nil {
-		return nil, fmt.Errorf("linked subscription site is unavailable")
-	}
-	if sourceSite.IsCheckinOnly() {
-		return nil, fmt.Errorf("platform checkin must use a subscription account")
+	sourceSite, source, err := SiteCheckinBalanceAccount(site, account, ctx)
+	if err != nil {
+		return nil, err
 	}
 	if site.Platform != sourceSite.Platform || strings.TrimRight(site.BaseURL, "/") != strings.TrimRight(sourceSite.BaseURL, "/") {
 		return nil, fmt.Errorf("platform checkin must use the linked subscription site's platform and URL; update the checkin site settings")
 	}
-	var source model.SiteAccount
-	if err := db.GetDB().WithContext(ctx).Where("id = ? AND site_id = ?", *account.LinkedAccountID, sourceSite.ID).First(&source).Error; err != nil {
-		return nil, fmt.Errorf("linked subscription account is unavailable or belongs to another site")
-	}
 	if source.CredentialType != model.SiteCredentialTypeAccessToken && source.CredentialType != model.SiteCredentialTypeUsernamePassword {
 		return nil, fmt.Errorf("platform checkin requires a subscription account with an access token or username and password")
 	}
-	return &source, nil
+	return source, nil
+}
+
+// Balance queries use the subscription site's own address, platform and proxy.
+// An external check-in may run on a completely different site with its own cookie.
+func SiteCheckinBalanceAccount(site *model.Site, account *model.SiteAccount, ctx context.Context) (*model.Site, *model.SiteAccount, error) {
+	if site == nil || account == nil || !site.IsCheckinOnly() || site.LinkedSiteID == nil || account.LinkedAccountID == nil || *account.LinkedAccountID <= 0 {
+		return nil, nil, fmt.Errorf("select a linked subscription site and account for balance queries")
+	}
+	var sourceSite model.Site
+	if err := db.GetDB().WithContext(ctx).First(&sourceSite, *site.LinkedSiteID).Error; err != nil {
+		return nil, nil, fmt.Errorf("linked subscription site is unavailable")
+	}
+	if sourceSite.IsCheckinOnly() {
+		return nil, nil, fmt.Errorf("linked account must belong to a subscription site")
+	}
+	var source model.SiteAccount
+	if err := db.GetDB().WithContext(ctx).Where("id = ? AND site_id = ?", *account.LinkedAccountID, sourceSite.ID).First(&source).Error; err != nil {
+		return nil, nil, fmt.Errorf("linked subscription account is unavailable or belongs to another site")
+	}
+	if site.CheckinHTTPEnabled {
+		switch sourceSite.Platform {
+		case model.SitePlatformNewAPI, model.SitePlatformAnyRouter, model.SitePlatformOneAPI, model.SitePlatformOneHub, model.SitePlatformDoneHub:
+			if source.CredentialType != model.SiteCredentialTypeAccessToken && source.CredentialType != model.SiteCredentialTypeUsernamePassword {
+				return nil, nil, fmt.Errorf("balance queries require a subscription account with an access token or username and password")
+			}
+		case model.SitePlatformSub2API:
+			if source.CredentialType != model.SiteCredentialTypeAccessToken && source.CredentialType != model.SiteCredentialTypeAPIKey {
+				return nil, nil, fmt.Errorf("Sub2API balance queries require a subscription account with an access token or API key")
+			}
+		default:
+			return nil, nil, fmt.Errorf("the linked subscription platform does not support balance queries")
+		}
+	}
+	return &sourceSite, &source, nil
 }
 
 func validateSiteAccountCredentials(site *model.Site, account *model.SiteAccount, ctx context.Context) error {
@@ -44,7 +71,14 @@ func validateSiteAccountCredentials(site *model.Site, account *model.SiteAccount
 		return nil
 	}
 	if site.CheckinHTTPEnabled {
-		return model.ValidateSiteCheckinCookie(account.Cookie)
+		if err := model.ValidateSiteCheckinCookie(account.Cookie); err != nil {
+			return err
+		}
+		if account.LinkedAccountID != nil {
+			_, _, err := SiteCheckinBalanceAccount(site, account, ctx)
+			return err
+		}
+		return nil
 	}
 	if site.LinkedSiteID != nil || account.CredentialType == model.SiteCredentialTypeLinkedAccount || account.LinkedAccountID != nil {
 		_, err := SiteCheckinLinkedAccount(site, account, ctx)

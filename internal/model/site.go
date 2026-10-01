@@ -92,6 +92,7 @@ type Site struct {
 	CheckinHTTPPath                string             `json:"checkin_http_path" gorm:"type:text"`
 	CheckinHTTPBody                string             `json:"checkin_http_body" gorm:"type:text"`
 	CheckinHTTPHeaders             []CustomHeader     `json:"checkin_http_headers" gorm:"type:text;serializer:json"`
+	CheckinRewardExtractor         string             `json:"checkin_reward_extractor" gorm:"type:text"`
 	CheckinTimezone                string             `json:"checkin_timezone" gorm:"size:64;not null;default:'Asia/Shanghai'"`
 	CheckinWindowStart             string             `json:"checkin_window_start" gorm:"size:5;not null;default:'00:00'"`
 	CheckinWindowEnd               string             `json:"checkin_window_end" gorm:"size:5;not null;default:'23:59'"`

@@ -9,6 +9,7 @@ import { useTranslations } from 'next-intl';
 import { useSiteCheckinDefaults } from '@/api/endpoints/site-checkin';
 import type { SiteCheckinMode } from '@/api/endpoints/site';
 import type { SiteFormFieldsProps } from './site-form';
+import { CheckinRewardExtractorField } from './CheckinRewardExtractorField';
 
 export function SiteCheckinFields({ siteForm, setSiteForm }: SiteFormFieldsProps) {
     const t = useTranslations('siteCheckinCapability');
@@ -117,6 +118,7 @@ export function SiteCheckinFields({ siteForm, setSiteForm }: SiteFormFieldsProps
                                 />
                             </label>
                         ) : null}
+                        <CheckinRewardExtractorField siteForm={siteForm} setSiteForm={setSiteForm} />
                     </div>
                 ) : null}
             </section>

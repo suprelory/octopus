@@ -129,6 +129,7 @@ func (s *Site) Normalize() {
 	}
 	s.CheckinHTTPPath = strings.TrimSpace(s.CheckinHTTPPath)
 	s.CheckinHTTPBody = strings.TrimSpace(s.CheckinHTTPBody)
+	s.CheckinRewardExtractor = strings.TrimSpace(s.CheckinRewardExtractor)
 	for i := range s.CheckinHTTPHeaders {
 		s.CheckinHTTPHeaders[i].HeaderKey = strings.TrimSpace(s.CheckinHTTPHeaders[i].HeaderKey)
 	}
@@ -212,6 +213,9 @@ func (s *Site) Validate() error {
 		if checkinParsed.Host == "" {
 			return fmt.Errorf("external checkin url must have a host")
 		}
+	}
+	if err := ValidateCheckinRewardExtractor(s.CheckinRewardExtractor); err != nil {
+		return err
 	}
 	if s.CheckinHTTPEnabled {
 		if s.CheckinHTTPMethod != http.MethodGet && s.CheckinHTTPMethod != http.MethodPost {

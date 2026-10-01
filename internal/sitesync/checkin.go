@@ -130,6 +130,10 @@ func runAccountCheckin(ctx context.Context, accountID int, trigger SiteBatchTrig
 	var result *model.SiteCheckinResult
 	var accessToken string
 	var balanceBefore siteBalanceFetchResult
+	var externalBalance *linkedCheckinBalance
+	if siteRecord.CheckinHTTPEnabled && account.LinkedAccountID != nil {
+		externalBalance = prepareLinkedCheckinBalance(ctx, siteRecord, account)
+	}
 	if runErr == nil {
 		originalToken := executionAccount.AccessToken
 		result, accessToken, runErr = checkinAccountState(ctx, siteRecord, executionAccount, func(token string) error {
@@ -176,22 +180,18 @@ func runAccountCheckin(ctx context.Context, accountID int, trigger SiteBatchTrig
 		return nil, sanitizeSiteError(err)
 	}
 	var balance siteBalanceFetchResult
-	if result.Status == model.SiteExecutionStatusSuccess && !siteRecord.CheckinHTTPEnabled {
-		balanceSite := *siteRecord
-		balanceSite.ID = executionAccount.SiteID
-		balance = refreshAccountBalanceAfterCheckin(ctx, &balanceSite, executionAccount, accessToken)
-		if executionAccount != account && balance.ok {
-			// Display the refreshed subscription balance on the check-in account too.
-			updates := map[string]any{"balance": balance.balance}
-			if balance.usedKnown {
-				updates["balance_used"] = balance.balanceUsed
+	if result.Status == model.SiteExecutionStatusSuccess {
+		if !siteRecord.CheckinHTTPEnabled {
+			balanceSite := *siteRecord
+			balanceSite.ID = executionAccount.SiteID
+			balance = refreshAccountBalanceAfterCheckin(ctx, &balanceSite, executionAccount, accessToken)
+			if executionAccount != account {
+				mirrorCheckinBalance(ctx, siteRecord, account, balance)
 			}
-			if balance.incomeKnown {
-				updates["today_income"] = balance.todayIncome
-			}
-			if saveErr := db.GetDB().WithContext(ctx).Model(&model.SiteAccount{}).Where("id = ?", account.ID).Updates(updates).Error; saveErr != nil {
-				logSiteDataWarning(siteRecord, account, accessToken, "linked_balance", "save_failed", saveErr)
-			}
+		} else if externalBalance != nil {
+			balanceBefore = externalBalance.before
+			balance = refreshAccountBalanceAfterCheckin(ctx, externalBalance.site, externalBalance.account, externalBalance.token)
+			mirrorCheckinBalance(ctx, siteRecord, account, balance)
 		}
 		fillCheckinRewardFromBalance(ctx, result, balanceBefore, balance)
 	}

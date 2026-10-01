@@ -39,6 +39,7 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
             await dialog.getByLabel('签到 Header 1 名称', { exact: true }).fill('X-Checkin-Mode');
             await dialog.getByLabel('签到 Header 1 值', { exact: true }).fill('daily');
             await dialog.getByLabel('JSON 请求体', { exact: true }).fill('{"source":"{{username}}"}');
+            await dialog.getByLabel('奖励提取代码（可选 JavaScript）', { exact: true }).fill('return response.data?.amount ?? null;');
             await expect(dialog.getByRole('button', { name: '高级设置', exact: true })).toHaveCount(0);
             await page.screenshot({ path: testInfo.outputPath('site-edit.png') });
             const bounds = await dialog.boundingBox();
@@ -53,6 +54,7 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
                     external_checkin_url: null, checkin_mode: 'enabled', checkin_http_enabled: true, checkin_http_method: 'POST',
                     checkin_http_path: '/api/checkin/spin?day=today', checkin_http_body: '{"source":"{{username}}"}',
                     checkin_http_headers: [{ header_key: 'X-Checkin-Mode', header_value: 'daily' }],
+                    checkin_reward_extractor: 'return response.data?.amount ?? null;',
                     checkin_timezone: 'UTC', checkin_window_start: '09:00',
                     checkin_window_end: '18:00', is_pinned: false, sort_order: 0, global_weight: 1,
                     custom_header: [],

@@ -126,6 +126,10 @@ export function useSiteForm({ site, onOpenChange, onCreated, kind = 'relay' }: {
                 return;
             }
 
+            if (new TextEncoder().encode(siteForm.checkin_reward_extractor).length > 16 * 1024 || siteForm.checkin_reward_extractor.includes('\0')) {
+                toast.error('奖励提取代码不能超过 16 KiB 或包含空字符');
+                return;
+            }
             if (siteForm.checkin_http_enabled) {
                 const checkinPath = siteForm.checkin_http_path.trim();
                 if (!checkinPath.startsWith('/') || checkinPath.startsWith('//') || /[\\\r\n\0#]/.test(checkinPath)) {
@@ -170,6 +174,7 @@ export function useSiteForm({ site, onOpenChange, onCreated, kind = 'relay' }: {
                 checkin_http_path: siteForm.checkin_http_path.trim(),
                 checkin_http_body: siteForm.checkin_http_body,
                 checkin_http_headers: trimHeaders(siteForm.checkin_http_headers),
+                checkin_reward_extractor: siteForm.checkin_reward_extractor.trim(),
                 checkin_timezone: siteForm.checkin_timezone.trim(),
                 checkin_window_start: siteForm.checkin_window_start,
                 checkin_window_end: siteForm.checkin_window_end,

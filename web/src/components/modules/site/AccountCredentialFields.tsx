@@ -127,7 +127,18 @@ export function AccountCredentialFields({ accountForm, setAccountForm, currentPl
                             <Input id="checkin-cookie" type="password" autoComplete="off" value={accountForm.cookie}
                                 onChange={(event) => setAccountForm((current) => current ? { ...current, cookie: event.target.value } : current)}
                                 placeholder="session=...; token=..." className="rounded-xl" required />
-                            <p className="text-xs text-muted-foreground">从签到站登录后的浏览器请求中复制完整 Cookie。自定义 HTTP 签到仅使用此 Cookie，无需订阅站 Access Token。</p>
+                            <p className="text-xs text-muted-foreground">从签到站登录后的浏览器请求中复制完整 Cookie，用于发送自定义 HTTP 签到请求。</p>
+                            <label htmlFor="checkin-balance-account" className="mt-2 font-medium">余额账号（可选）</label>
+                            <Select value={accountForm.linked_account_id?.toString() ?? 'none'}
+                                onValueChange={(value) => setAccountForm((current) => current ? { ...current, linked_account_id: value === 'none' ? null : Number(value) } : current)}>
+                                <SelectTrigger id="checkin-balance-account" className="w-full rounded-xl"><SelectValue placeholder="选择关联订阅账号" /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="none">不关联余额账号</SelectItem>
+                                    {linkedAccounts.map((item) => <SelectItem key={item.id} value={String(item.id)}>{item.name}</SelectItem>)}
+                                </SelectContent>
+                            </Select>
+                            <p className="text-xs text-muted-foreground">未提取到签到奖励时，使用此订阅账号签到前后的余额差。查询沿用订阅站及账号的凭据和代理。</p>
+                            {linkedAccounts.length === 0 ? <p className="text-xs text-muted-foreground">可先在签到站点设置中关联订阅站，并添加支持查询余额的订阅账号。</p> : null}
                         </div>
                     ) : accountForm.credential_type === SiteCredentialType.LinkedAccount ? (
                         <div key="linked-account" className="grid gap-2 text-sm">

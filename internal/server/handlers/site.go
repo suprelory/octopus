@@ -55,6 +55,7 @@ func init() {
 		AddRoute(router.NewRoute("/update", http.MethodPost).Handle(updateSite)).
 		AddRoute(router.NewRoute("/enable", http.MethodPost).Handle(enableSite)).
 		AddRoute(router.NewRoute("/detect", http.MethodPost).Handle(detectSitePlatform)).
+		AddRoute(router.NewRoute("/checkin-reward/test", http.MethodPost).Handle(testCheckinRewardExtractor)).
 		AddRoute(router.NewRoute("/batch", http.MethodPost).Handle(batchSite)).
 		AddRoute(router.NewRoute("/batch/edit", http.MethodPost).Handle(batchEditSite)).
 		AddRoute(router.NewRoute("/account/create", http.MethodPost).Handle(createSiteAccount)).

@@ -193,7 +193,7 @@ func TestInitializeSchemaAddsCustomHTTPCheckinColumnsToExistingSites(t *testing.
 	if err := initializeSchema(gormDB); err != nil {
 		t.Fatalf("upgrade existing schema: %v", err)
 	}
-	for _, column := range []string{"checkin_http_enabled", "checkin_http_method", "checkin_http_path", "checkin_http_body", "checkin_http_headers"} {
+	for _, column := range []string{"checkin_http_enabled", "checkin_http_method", "checkin_http_path", "checkin_http_body", "checkin_http_headers", "checkin_reward_extractor"} {
 		if !gormDB.Migrator().HasColumn(&model.Site{}, column) {
 			t.Errorf("missing migrated site column %s", column)
 		}

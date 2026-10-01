@@ -1,6 +1,13 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiClient } from '../client';
 import type { SiteCheckinDefaults, SitePlatform } from './site-types';
+
+export function useTestCheckinRewardExtractor() {
+  return useMutation({
+    mutationFn: (request: { code: string; response: unknown }) =>
+      apiClient.post<{ reward: string; found: boolean }>('/api/v1/site/checkin-reward/test', request),
+  });
+}
 
 export function useSiteCheckinDefaults() {
   return useQuery({

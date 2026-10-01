@@ -148,6 +148,7 @@ export type Site = {
   checkin_http_path?: string;
   checkin_http_body?: string;
   checkin_http_headers?: CustomHeader[] | null;
+  checkin_reward_extractor?: string;
   checkin_timezone: string;
   checkin_window_start: string;
   checkin_window_end: string;

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/utils/log"
 )
 
 const siteCheckinResponseLimit = 1 << 20
@@ -134,6 +135,14 @@ func checkinConfiguredHTTP(ctx context.Context, siteRecord *model.Site, account 
 		}
 	}
 	result := newSuccessfulCheckinResult(message, checkinRewardString(nestedValue(payload, "data", "reward")))
+	if result.Reason == model.SiteCheckinReasonCheckedIn && strings.TrimSpace(siteRecord.CheckinRewardExtractor) != "" {
+		reward, extractErr := ExtractCheckinReward(ctx, siteRecord.CheckinRewardExtractor, responseBody)
+		if extractErr != nil {
+			log.Warnf("checkin reward extractor failed for site %d: %v", siteRecord.ID, extractErr)
+		} else if reward != "" {
+			result.Reward = reward
+		}
+	}
 	if !jsonBool(payload["success"]) && !isAlreadyCheckedInMessage(message) {
 		// Preserve configured HTTP success semantics, but a generic 2xx/JSON
 		// response (including a login page) does not prove check-in support.

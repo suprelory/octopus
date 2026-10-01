@@ -57,8 +57,16 @@ export function useAccountForm({ site, account, onOpenChange }: {
             : credentialOptions(currentPlatform),
         [currentPlatform, site, account],
     );
-    const linkedAccounts = useMemo(() => (sites?.find((item) => item.id === site?.linked_site_id)?.accounts ?? [])
-        .filter((item) => item.credential_type === SiteCredentialType.AccessToken || item.credential_type === SiteCredentialType.UsernamePassword), [sites, site?.linked_site_id]);
+    const linkedAccounts = useMemo(() => {
+        const linkedSite = sites?.find((item) => item.id === site?.linked_site_id);
+        if (site?.checkin_http_enabled && linkedSite?.platform === SitePlatform.API) return [];
+        return (linkedSite?.accounts ?? []).filter((item) => {
+            if (site?.checkin_http_enabled && linkedSite?.platform === SitePlatform.Sub2API) {
+                return item.credential_type === SiteCredentialType.AccessToken || item.credential_type === SiteCredentialType.APIKey;
+            }
+            return item.credential_type === SiteCredentialType.AccessToken || item.credential_type === SiteCredentialType.UsernamePassword;
+        });
+    }, [sites, site?.linked_site_id, site?.checkin_http_enabled]);
 
     const handleSubmit = useCallback(
         async (event: FormEvent<HTMLFormElement>) => {
@@ -82,6 +90,11 @@ export function useAccountForm({ site, account, onOpenChange }: {
             if (accountForm.credential_type === SiteCredentialType.LinkedAccount &&
                 (!site.linked_site_id || !linkedAccounts.some((item) => item.id === accountForm.linked_account_id))) {
                 toast.error('请先关联订阅站，再选择用于平台签到的订阅账号');
+                return;
+            }
+            if (accountForm.credential_type === SiteCredentialType.Cookie && accountForm.linked_account_id !== null &&
+                !linkedAccounts.some((item) => item.id === accountForm.linked_account_id)) {
+                toast.error('请选择关联订阅站中用于查询余额的账号，或取消余额账号关联');
                 return;
             }
 
@@ -183,7 +196,8 @@ export function useAccountForm({ site, account, onOpenChange }: {
                 api_key: trimmedAPIKey,
                 refresh_token: isAccessToken ? accountForm.refresh_token.trim() : '',
                 cookie: accountForm.credential_type === SiteCredentialType.Cookie ? accountForm.cookie.trim() : '',
-                linked_account_id: accountForm.credential_type === SiteCredentialType.LinkedAccount ? accountForm.linked_account_id : null,
+                linked_account_id: accountForm.credential_type === SiteCredentialType.LinkedAccount || accountForm.credential_type === SiteCredentialType.Cookie
+                    ? accountForm.linked_account_id : null,
                 token_expires_at: isAccessToken ? parsedTokenExpiresAt : 0,
                 platform_user_id: shouldIncludePlatformUserID ? parsedPlatformUserID : null,
                 proxy_mode: accountForm.proxy_mode,
