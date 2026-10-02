@@ -137,6 +137,7 @@
     },
     "siteCheckinBatch": {
         "title": "全量簽到任務",
+        "selectedTitle": "批量簽到任務",
         "processed": "已處理",
         "success": "成功",
         "failed": "失敗",

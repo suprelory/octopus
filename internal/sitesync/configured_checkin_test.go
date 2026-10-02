@@ -95,7 +95,7 @@ func TestConfiguredHTTPCheckinInterpretsAlreadyCheckedInAndFailures(t *testing.T
 	}{
 		{path: "/already", wantStatus: model.SiteExecutionStatusSuccess, wantReason: model.SiteCheckinReasonAlreadyCheckedIn},
 		{path: "/rejected", wantStatus: model.SiteExecutionStatusFailed, wantMessage: "余额不足"},
-		{path: "/plain", wantStatus: model.SiteExecutionStatusSuccess, wantReason: model.SiteCheckinReasonCheckedIn},
+		{path: "/plain", wantStatus: model.SiteExecutionStatusFailed, wantReason: model.SiteCheckinReasonUnconfirmed},
 	} {
 		site := &model.Site{
 			Platform:           model.SitePlatformAPI,

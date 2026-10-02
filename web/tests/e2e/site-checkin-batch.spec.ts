@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import type { SiteCheckinBatchJob } from '../../src/api/endpoints/site';
 import { makeSite, makeCheckinSite, mockApp } from './fixtures';
 
 const activeBatch = {
@@ -56,6 +57,76 @@ test('settings task panel shows the latest full check-in batch', async ({ page }
     await expect(status).toContainText('执行中');
     await expect(status).toContainText('1/2');
     await expect(status).toContainText('Alpha site / Primary account');
+    expect(state.unexpectedRequests).toEqual([]);
+    expect(state.pageErrors).toEqual([]);
+});
+
+test('selected check-in submits only the chosen sites and displays the background task', async ({ page }) => {
+    const job: SiteCheckinBatchJob = { ...activeBatch, status: 'running', site_ids: [1, 2] };
+    let latest: SiteCheckinBatchJob | null = null;
+    let releaseRequest!: () => void;
+    const pendingRequest = new Promise<void>(resolve => { releaseRequest = resolve; });
+    const state = await mockApp(page, 'checkin', {
+        sites: [makeCheckinSite(1, 'Alpha site'), makeCheckinSite(2, 'Beta site'), makeCheckinSite(3, 'Unselected site')],
+        mutate: async request => {
+            expect(request).toEqual({ method: 'POST', path: '/api/v1/site/batch', body: { ids: [2, 1], action: 'checkin' } });
+            await pendingRequest;
+            latest = job;
+            return { data: job };
+        },
+    });
+    await page.route('**/api/v1/site/checkin-batches/latest', route =>
+        route.fulfill({ json: { code: 200, data: latest } }));
+
+    await page.goto('/');
+    for (const name of ['Beta site', 'Alpha site']) {
+        const card = page.locator('section.page-card:visible').filter({ has: page.getByRole('heading', { name, exact: true }) });
+        await card.getByRole('button', { name: '选择站点', exact: true }).click();
+    }
+    const submit = page.getByRole('button', { name: '批量签到', exact: true });
+    try {
+        await submit.click();
+        await expect(submit).toBeDisabled();
+        await expect.poll(() => state.mutations.length).toBe(1);
+    } finally {
+        releaseRequest();
+    }
+    const status = page.getByTestId('site-checkin-batch-status');
+    await expect(status.getByRole('heading', { name: '批量签到任务', exact: true })).toBeVisible();
+    await expect(status).toContainText('执行中');
+    await expect(status).toContainText('1/2');
+    await expect(page.getByText(`已启动批量签到任务 #${job.id}`, { exact: true })).toBeVisible();
+    latest = { ...job, status: 'completed_with_errors', attempted: 2, failed: 1, current_account_name: undefined };
+    await status.getByRole('button', { name: '刷新任务状态', exact: true }).click();
+    await expect(status).toContainText('完成但有失败');
+    await expect(status).toContainText('2/2');
+    expect(state.mutations).toHaveLength(1);
+    expect(state.unexpectedRequests).toEqual([]);
+    expect(state.pageErrors).toEqual([]);
+});
+
+test('a conflicting check-in scope shows the error and preserves the active task', async ({ page }) => {
+    const message = '已有其他范围的签到任务正在执行，请等待完成后再试';
+    const state = await mockApp(page, 'checkin', {
+        sites: [makeCheckinSite()],
+        mutate: request => {
+            expect(request).toEqual({ method: 'POST', path: '/api/v1/site/batch', body: { ids: [1], action: 'checkin' } });
+            return { status: 409, message, errorCode: 'site.checkin.batch_active' };
+        },
+    });
+    await page.route('**/api/v1/site/checkin-batches/latest', route =>
+        route.fulfill({ json: { code: 200, data: activeBatch } }));
+    await page.goto('/');
+    const card = page.locator('section.page-card:visible').filter({ has: page.getByRole('heading', { name: 'Alpha site', exact: true }) });
+    await card.getByRole('button', { name: '选择站点', exact: true }).click();
+    const submit = page.getByRole('button', { name: '批量签到', exact: true });
+    await submit.click();
+    await expect(page.getByText(message, { exact: true })).toBeVisible();
+    await expect(submit).toBeEnabled();
+    const status = page.getByTestId('site-checkin-batch-status');
+    await expect(status.getByRole('heading', { name: '全量签到任务', exact: true })).toBeVisible();
+    await expect(status).toContainText(activeBatch.id);
+    expect(state.mutations).toHaveLength(1);
     expect(state.unexpectedRequests).toEqual([]);
     expect(state.pageErrors).toEqual([]);
 });

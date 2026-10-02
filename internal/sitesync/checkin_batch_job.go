@@ -3,9 +3,13 @@ package sitesync
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"slices"
 	"sync"
 	"time"
 
+	"github.com/bestruirui/octopus/internal/apperror"
+	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/utils/log"
@@ -18,6 +22,31 @@ var (
 )
 
 func StartCheckinBatch(ctx context.Context) (*model.SiteCheckinBatchJob, error) {
+	return startCheckinBatch(ctx, nil)
+}
+
+func StartSelectedCheckinBatch(ctx context.Context, siteIDs []int) (*model.SiteCheckinBatchJob, error) {
+	// Normalize a private copy so duplicate/reordered selections identify the
+	// same task, and callers cannot change a running batch's scope.
+	selected := slices.Clone(siteIDs)
+	slices.Sort(selected)
+	selected = slices.Compact(selected)
+	if len(selected) == 0 || selected[0] <= 0 {
+		return nil, apperror.New(CodeSiteCheckinInvalidSelection, "请选择有效的签到站点").WithStatus(http.StatusBadRequest)
+	}
+	var count int64
+	if err := db.GetDB().WithContext(ctx).Model(&model.Site{}).
+		Where("id IN ? AND kind = ? AND archived = ?", selected, model.SiteKindCheckin, false).
+		Count(&count).Error; err != nil {
+		return nil, fmt.Errorf("validate checkin batch sites: %w", err)
+	}
+	if count != int64(len(selected)) {
+		return nil, apperror.New(CodeSiteCheckinInvalidSelection, "所选站点已不可用或不是签到站点，请刷新后重试").WithStatus(http.StatusBadRequest)
+	}
+	return startCheckinBatch(ctx, selected)
+}
+
+func startCheckinBatch(ctx context.Context, siteIDs []int) (*model.SiteCheckinBatchJob, error) {
 	checkinBatchTriggerMu.Lock()
 	defer checkinBatchTriggerMu.Unlock()
 
@@ -26,25 +55,30 @@ func StartCheckinBatch(ctx context.Context) (*model.SiteCheckinBatchJob, error) 
 		return nil, err
 	}
 	if active != nil {
-		return active, nil
+		if slices.Equal(active.SiteIDs, siteIDs) {
+			return active, nil
+		}
+		return nil, apperror.New(CodeSiteCheckinBatchActive, "已有其他范围的签到任务正在执行，请等待完成后再试").
+			WithStatus(http.StatusConflict)
 	}
 
 	now := time.Now().UTC()
 	job := &model.SiteCheckinBatchJob{
 		ID: snowflake.GenerateID(), Status: model.SiteCheckinBatchJobStatusQueued,
 		Trigger: string(SiteBatchTriggerManual), StartedAt: now, UpdatedAt: now,
+		SiteIDs: slices.Clone(siteIDs),
 	}
 	if err := op.SiteCheckinBatchJobCreate(ctx, job); err != nil {
 		return nil, err
 	}
 
 	safe.Go(fmt.Sprintf("site-checkin-batch:%d", job.ID), func() {
-		runCheckinBatchJob(job.ID)
+		runCheckinBatchJob(job.ID, slices.Clone(siteIDs))
 	})
 	return job, nil
 }
 
-func runCheckinBatchJob(taskID int64) {
+func runCheckinBatchJob(taskID int64, siteIDs []int) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
 	defer cancel()
 
@@ -83,6 +117,7 @@ func runCheckinBatchJob(taskID int64) {
 	summary := CheckinAllWithOptions(ctx, SiteBatchOptions{
 		Trigger: SiteBatchTriggerManual,
 		TaskID:  taskID,
+		SiteIDs: siteIDs,
 		OnProgress: func(progress SiteBatchProgress) {
 			persistCheckinBatchProgress(progress)
 		},

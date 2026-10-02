@@ -130,6 +130,7 @@ export {
 export {
   useSyncAllSites,
   useCheckinAllSites,
+  useCheckinSelectedSites,
   useLatestSiteCheckinBatch,
   useSiteLastSyncTime,
   useSiteLastCheckinTime,

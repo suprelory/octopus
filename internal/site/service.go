@@ -57,6 +57,10 @@ func StartCheckinBatch(ctx context.Context) (*model.SiteCheckinBatchJob, error) 
 	return sitesync.StartCheckinBatch(ctx)
 }
 
+func StartSelectedCheckinBatch(ctx context.Context, siteIDs []int) (*model.SiteCheckinBatchJob, error) {
+	return sitesync.StartSelectedCheckinBatch(ctx, siteIDs)
+}
+
 func GetCheckinBatch(ctx context.Context, taskID int64) (*model.SiteCheckinBatchJob, error) {
 	return op.SiteCheckinBatchJobGet(ctx, taskID)
 }

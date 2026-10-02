@@ -217,7 +217,18 @@ func CheckinAllWithOptions(ctx context.Context, opts SiteBatchOptions) SiteBatch
 		log.Warnw("sitesync.checkin.list_failed", "trigger", string(trigger), "reason", string(siteBatchReason(err)), "message", message)
 		return SiteBatchSummary{Phase: SiteBatchPhaseCheckin, Trigger: trigger, ErrorMessage: message}
 	}
-	defer markLastCheckinAllTime()
+	if len(opts.SiteIDs) == 0 {
+		defer markLastCheckinAllTime()
+	} else {
+		selected := make(map[int]struct{}, len(opts.SiteIDs))
+		for _, siteID := range opts.SiteIDs {
+			selected[siteID] = struct{}{}
+		}
+		sites = slices.DeleteFunc(sites, func(site model.Site) bool {
+			_, included := selected[site.ID]
+			return !included
+		})
+	}
 	items := eligibleCheckinAccounts(sites)
 	summary := newSiteBatchSummary(SiteBatchPhaseCheckin, opts, len(items))
 	summary.emitProgress()
@@ -288,7 +299,7 @@ func eligibleCheckinAccounts(sites []model.Site) []siteBatchAccount {
 	items := make([]siteBatchAccount, 0)
 	for siteIndex := range sites {
 		siteRecord := &sites[siteIndex]
-		if !siteRecord.Enabled || !siteRecord.IsCheckinOnly() || !siteRecord.ResolveCheckinCapability().Enabled {
+		if !siteRecord.Enabled || siteRecord.Archived || !siteRecord.IsCheckinOnly() || !siteRecord.ResolveCheckinCapability().Enabled {
 			continue
 		}
 		for accountIndex := range siteRecord.Accounts {

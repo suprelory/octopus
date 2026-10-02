@@ -569,7 +569,7 @@ func batchSite(c *gin.Context) {
 		return
 	}
 	validActions := map[string]bool{
-		"enable": true, "disable": true, "delete": true,
+		"enable": true, "disable": true, "delete": true, "checkin": true,
 	}
 	if !validActions[req.Action] {
 		resp.Error(c, http.StatusBadRequest, "invalid action")
@@ -581,6 +581,15 @@ func batchSite(c *gin.Context) {
 	}
 
 	middleware.AuditFields(c, "action", req.Action, "requested_count", len(req.IDs))
+	if req.Action == "checkin" {
+		job, err := sitesvc.StartSelectedCheckinBatch(c.Request.Context(), req.IDs)
+		if err != nil {
+			resp.InternalErrorWithLog(c, err)
+			return
+		}
+		resp.Success(c, job)
+		return
+	}
 	result, affected, err := op.SiteBatchApply(&req, sitesvc.DeleteSite, c.Request.Context())
 	if err != nil {
 		resp.InternalErrorWithLog(c, err)

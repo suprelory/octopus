@@ -46,7 +46,7 @@ export function CheckinBatchTaskStatus({ compact = false }: { compact?: boolean 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <Activity aria-hidden className={`size-4 shrink-0 ${active ? 'text-primary' : 'text-muted-foreground'}`} />
-          <h3 className="truncate text-sm font-semibold">{t('title')}</h3>
+          <h3 className="truncate text-sm font-semibold">{t(task.site_ids?.length ? 'selectedTitle' : 'title')}</h3>
           <Badge variant={statusTone(task.status)}>{status}</Badge>
         </div>
         <div className="flex shrink-0 items-center gap-2">

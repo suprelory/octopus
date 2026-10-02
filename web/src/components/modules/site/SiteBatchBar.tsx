@@ -16,8 +16,9 @@ export function SiteBatchBar({
   onEdit: () => void;
   isCheckin?: boolean;
 }) {
-  const { selectedSiteIds, setSelectedSiteIds, batchAction, handleBatchAction, setDeleteConfirm } =
+  const { selectedSiteIds, setSelectedSiteIds, batchAction, checkinSelectedSites, handleBatchAction, setDeleteConfirm } =
     actions;
+  const isBatchPending = batchAction.isPending || checkinSelectedSites.isPending;
   return selectedSiteIds.length > 0 ? (
     <section className="page-card sticky top-0 z-30 border-border/70 bg-card/95 p-4 backdrop-blur supports-[backdrop-filter]:bg-card/90">
       <div className="flex flex-wrap items-center gap-3">
@@ -49,13 +50,13 @@ export function SiteBatchBar({
           );
         })()}
         <span className="text-sm font-medium">已选 {selectedSiteIds.length} 个站点</span>
-        {isCheckin ? <Button variant="outline" size="sm" className="rounded-xl" onClick={() => handleBatchAction('checkin')} disabled={batchAction.isPending}>批量签到</Button> : null}
+        {isCheckin ? <Button variant="outline" size="sm" className="rounded-xl" onClick={() => handleBatchAction('checkin')} disabled={isBatchPending}>批量签到</Button> : null}
         <Button
           variant="outline"
           size="sm"
           className="rounded-xl"
           onClick={() => handleBatchAction("enable")}
-          disabled={batchAction.isPending}
+          disabled={isBatchPending}
         >
           批量启用
         </Button>
@@ -64,7 +65,7 @@ export function SiteBatchBar({
           size="sm"
           className="rounded-xl"
           onClick={() => handleBatchAction("disable")}
-          disabled={batchAction.isPending}
+          disabled={isBatchPending}
         >
           批量禁用
         </Button>
@@ -73,7 +74,7 @@ export function SiteBatchBar({
           size="sm"
           className="rounded-xl"
           onClick={() => onEdit()}
-          disabled={batchAction.isPending}
+          disabled={isBatchPending}
         >
           批量编辑
         </Button>
@@ -88,7 +89,7 @@ export function SiteBatchBar({
               name: String(selectedSiteIds.length),
             })
           }
-          disabled={batchAction.isPending}
+          disabled={isBatchPending}
         >
           批量删除
         </Button>

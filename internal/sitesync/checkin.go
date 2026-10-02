@@ -99,6 +99,22 @@ func runAccountCheckin(ctx context.Context, accountID int, trigger SiteBatchTrig
 			Message: "checkin is already running",
 		}, "", false)
 	}
+	// Recheck availability for every entry point, including direct manual API
+	// calls and accounts disabled after a batch selected its work.
+	unavailableReason, unavailableMessage := "", ""
+	switch {
+	case siteRecord.Archived:
+		unavailableReason, unavailableMessage = model.SiteCheckinReasonSiteArchived, "site is archived"
+	case !siteRecord.Enabled:
+		unavailableReason, unavailableMessage = model.SiteCheckinReasonSiteDisabled, "site is disabled"
+	case !account.Enabled:
+		unavailableReason, unavailableMessage = model.SiteCheckinReasonAccountDisabled, "account is disabled"
+	}
+	if unavailableReason != "" {
+		return persistCheckinOutcome(ctx, siteRecord, account, trigger, started, &model.SiteCheckinResult{
+			Status: model.SiteExecutionStatusSkipped, Reason: unavailableReason, Message: unavailableMessage,
+		}, "", false)
+	}
 	if result := checkinCapabilitySkip(siteRecord, allowVerify); result != nil {
 		return persistCheckinOutcome(ctx, siteRecord, account, trigger, started, result, "", false)
 	}
@@ -167,7 +183,9 @@ func runAccountCheckin(ctx context.Context, accountID int, trigger SiteBatchTrig
 		result = &model.SiteCheckinResult{Status: model.SiteExecutionStatusFailed, Reason: string(SiteBatchReasonInternalError), Message: runErr.Error()}
 	} else if result.Status == model.SiteExecutionStatusFailed {
 		runErr = newSiteBusinessError(result.Message)
-		result.Reason = string(siteBatchReason(runErr))
+		if result.Reason == "" {
+			result.Reason = string(siteBatchReason(runErr))
+		}
 	} else if result.Status == model.SiteExecutionStatusSkipped && result.Reason == "" {
 		result.Reason = model.SiteCheckinReasonUnsupported
 	}

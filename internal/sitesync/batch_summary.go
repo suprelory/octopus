@@ -59,6 +59,7 @@ const (
 type SiteBatchOptions struct {
 	Trigger    SiteBatchTrigger
 	TaskID     int64
+	SiteIDs    []int // Optional site filter for check-in batches; empty means all.
 	OnProgress func(SiteBatchProgress)
 }
 

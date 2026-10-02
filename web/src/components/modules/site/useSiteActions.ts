@@ -5,6 +5,7 @@ import {
   Site as SiteRecord,
   useArchiveSite,
   useCheckinSiteAccount,
+  useCheckinSelectedSites,
   useDeleteSite,
   useDeleteSiteAccount,
   useEnableSite,
@@ -42,6 +43,7 @@ export function useSiteActions(setExpandedSiteIds: Dispatch<SetStateAction<Set<n
   const checkinSiteAccount = useCheckinSiteAccount();
 
   const batchAction = useSiteBatchAction();
+  const checkinSelectedSites = useCheckinSelectedSites();
 
   // Batch selection
   const [selectedSiteIds, setSelectedSiteIds] = useState<number[]>([]);
@@ -192,6 +194,11 @@ export function useSiteActions(setExpandedSiteIds: Dispatch<SetStateAction<Set<n
       return;
     }
     try {
+      if (action === "checkin") {
+        const job = await checkinSelectedSites.mutateAsync(selectedSiteIds);
+        toast.success(`已启动批量签到任务 #${job.id}`);
+        return;
+      }
       const result = await batchAction.mutateAsync({
         ids: selectedSiteIds,
         action,
@@ -236,6 +243,7 @@ export function useSiteActions(setExpandedSiteIds: Dispatch<SetStateAction<Set<n
     deleteSiteAccount,
     archiveSite,
     batchAction,
+    checkinSelectedSites,
     handleToggleSite,
     handleDeleteSite,
     handleArchiveSite,

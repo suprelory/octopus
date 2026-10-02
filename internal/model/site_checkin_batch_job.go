@@ -14,11 +14,13 @@ const (
 	SiteCheckinBatchJobStatusInterrupted         SiteCheckinBatchJobStatus = "interrupted"
 )
 
-// SiteCheckinBatchJob persists the state of a manually triggered full check-in.
+// SiteCheckinBatchJob persists a manually triggered check-in batch. An empty
+// SiteIDs list denotes all eligible sites; selected batches retain their scope.
 type SiteCheckinBatchJob struct {
 	ID                 int64                     `json:"id,string" gorm:"primaryKey;autoIncrement:false"`
 	Status             SiteCheckinBatchJobStatus `json:"status" gorm:"size:32;not null;index:idx_site_checkin_batch_status"`
 	Trigger            string                    `json:"trigger" gorm:"size:16;not null"`
+	SiteIDs            []int                     `json:"site_ids,omitempty" gorm:"type:text;serializer:json"`
 	Total              int                       `json:"total" gorm:"not null;default:0"`
 	Attempted          int                       `json:"attempted" gorm:"not null;default:0"`
 	Success            int                       `json:"success" gorm:"not null;default:0"`

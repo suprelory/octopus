@@ -119,9 +119,7 @@ func checkinConfiguredHTTP(ctx context.Context, siteRecord *model.Site, account 
 		return nil, token, err
 	}
 	if !isJSON {
-		result := newSuccessfulCheckinResult("HTTP "+resp.Status+" (non-JSON response; checkin support is unverified)", "")
-		result.CapabilityEvidence = model.SiteCheckinSupportUnknown
-		return result, token, nil
+		return newUnconfirmedCheckinResult(), token, nil
 	}
 	if !isAlreadyCheckedInMessage(message) {
 		if !jsonBool(payload["success"]) && isUnsupportedCheckinMessage(message) {
@@ -134,6 +132,9 @@ func checkinConfiguredHTTP(ctx context.Context, siteRecord *model.Site, account 
 			}, token, nil
 		}
 	}
+	if !jsonBool(payload["success"]) && !isAlreadyCheckedInMessage(message) {
+		return newUnconfirmedCheckinResult(), token, nil
+	}
 	result := newSuccessfulCheckinResult(message, checkinRewardString(nestedValue(payload, "data", "reward")))
 	if result.Reason == model.SiteCheckinReasonCheckedIn && strings.TrimSpace(siteRecord.CheckinRewardExtractor) != "" {
 		reward, extractErr := ExtractCheckinReward(ctx, siteRecord.CheckinRewardExtractor, responseBody)
@@ -143,13 +144,18 @@ func checkinConfiguredHTTP(ctx context.Context, siteRecord *model.Site, account 
 			result.Reward = reward
 		}
 	}
-	if !jsonBool(payload["success"]) && !isAlreadyCheckedInMessage(message) {
-		// Preserve configured HTTP success semantics, but a generic 2xx/JSON
-		// response (including a login page) does not prove check-in support.
-		result.CapabilityEvidence = model.SiteCheckinSupportUnknown
-		result.Message = firstNonEmptyString(message, "HTTP "+resp.Status+" (checkin support is unverified)")
-	}
 	return result, token, nil
+}
+
+func newUnconfirmedCheckinResult() *model.SiteCheckinResult {
+	// A successful HTTP exchange does not establish that the account checked in.
+	// Keep the evidence unknown, and allow normal failure backoff without
+	// recording a success timestamp, extracting rewards or refreshing balances.
+	return &model.SiteCheckinResult{
+		Status: model.SiteExecutionStatusFailed, Reason: model.SiteCheckinReasonUnconfirmed,
+		Message:            "签到响应未确认成功，请检查签到接口和 Cookie",
+		CapabilityEvidence: model.SiteCheckinSupportUnknown,
+	}
 }
 
 func expandCheckinHTTPTemplate(value string, account *model.SiteAccount, resolvedToken string) string {

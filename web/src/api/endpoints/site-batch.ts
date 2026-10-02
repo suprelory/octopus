@@ -8,6 +8,7 @@ export type SiteCheckinBatchJob = {
   id: string;
   status: 'queued' | 'running' | 'completed' | 'completed_with_errors' | 'canceled' | 'failed' | 'interrupted';
   trigger: string;
+  site_ids?: number[];
   total: number;
   attempted: number;
   success: number;
@@ -48,6 +49,20 @@ export function useCheckinAllSites() {
       invalidateSiteQueries(queryClient);
     },
     onError: (error) => logger.error("站点批量签到失败:", error),
+  });
+}
+
+export function useCheckinSelectedSites() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (ids: number[]) =>
+      apiClient.post<SiteCheckinBatchJob>("/api/v1/site/batch", { ids, action: "checkin" }),
+    onSuccess: (job) => {
+      queryClient.setQueryData(["sites", "checkin-batch", "latest"], job);
+      void queryClient.invalidateQueries({ queryKey: ["sites", "checkin-batch", "latest"] });
+      invalidateSiteQueries(queryClient);
+    },
+    onError: (error) => logger.error("所选站点签到失败:", error),
   });
 }
 

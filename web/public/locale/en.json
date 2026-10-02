@@ -137,6 +137,7 @@
     },
     "siteCheckinBatch": {
         "title": "Full check-in task",
+        "selectedTitle": "Selected sites check-in task",
         "processed": "Processed",
         "success": "Success",
         "failed": "Failed",

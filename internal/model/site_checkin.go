@@ -10,6 +10,10 @@ const (
 	SiteCheckinReasonDisabled         = "checkin_disabled"
 	SiteCheckinReasonDefaultDisabled  = "checkin_default_disabled"
 	SiteCheckinReasonNotConfigured    = "checkin_not_configured"
+	SiteCheckinReasonSiteDisabled     = "site_disabled"
+	SiteCheckinReasonAccountDisabled  = "account_disabled"
+	SiteCheckinReasonSiteArchived     = "site_archived"
+	SiteCheckinReasonUnconfirmed      = "unconfirmed_checkin"
 )
 
 // SiteCheckinLog stores one outcome per execution, separate from the account's

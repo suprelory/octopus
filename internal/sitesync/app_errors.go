@@ -17,6 +17,8 @@ const (
 	CodeSiteSyncSnapshotNil           = "site.sync.snapshot_nil"
 	CodeSiteSyncCheckinOnly           = "site.sync.checkin_only"
 	CodeSiteCheckinSiteRequired       = "site.checkin.checkin_site_required"
+	CodeSiteCheckinInvalidSelection   = "site.checkin.invalid_selection"
+	CodeSiteCheckinBatchActive        = "site.checkin.batch_active"
 
 	CodeSiteAuthAccessTokenRequired = "site.auth.access_token_required"
 	CodeSiteAuthDirectTokenRequired = "site.auth.direct_token_required"
