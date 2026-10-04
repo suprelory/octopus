@@ -28,6 +28,39 @@ func RelayLogList(ctx context.Context, startTime, endTime *int, channelIDs []int
 
 // RelayLogListWithFilter 查询日志列表，支持时间、渠道、状态、关键字和 cursor 过滤。
 func RelayLogListWithFilter(ctx context.Context, filter RelayLogListFilter) (RelayLogListResult, error) {
+	var result RelayLogListResult
+	var err error
+	if filter.KeywordScope == RelayLogKeywordScopeContent && strings.TrimSpace(filter.Keyword) != "" {
+		result, err = relayLogSearchContents(ctx, filter)
+	} else {
+		result, err = relayLogListWithFilter(ctx, filter)
+	}
+	if err == nil && filter.IncludeContent {
+		for i := range result.Logs {
+			entry := &result.Logs[i]
+			if entry.Trace == nil {
+				if err := loadRelayTraceMetadata(ctx, entry); err != nil {
+					return RelayLogListResult{}, err
+				}
+			}
+			if entry.Trace == nil {
+				continue
+			}
+			request, reqErr := RelayLogContentGet(ctx, entry.ID, "", "request")
+			response, respErr := RelayLogContentGet(ctx, entry.ID, "", "response")
+			if reqErr == nil {
+				entry.RequestContent = request.Body
+			}
+			if respErr == nil {
+				entry.ResponseContent = response.Body
+			}
+			entry.Trace = relayTraceWithoutBodies(entry.Trace, "")
+		}
+	}
+	return result, err
+}
+
+func relayLogListWithFilter(ctx context.Context, filter RelayLogListFilter) (RelayLogListResult, error) {
 	enabled, err := SettingGetBool(model.SettingKeyRelayLogKeepEnabled)
 	if err != nil {
 		return RelayLogListResult{}, err
@@ -291,6 +324,7 @@ func appendDedupedByID(logs []model.RelayLog, cachedSource []model.RelayLog, dbL
 
 func RelayLogGet(ctx context.Context, id int64) (*model.RelayLog, error) {
 	if item, ok := relayLogFindPending(id); ok {
+		item.Trace = relayTraceWithoutBodies(item.Trace, "")
 		return &item, nil
 	}
 	var entry model.RelayLog
@@ -300,6 +334,9 @@ func RelayLogGet(ctx context.Context, id int64) (*model.RelayLog, error) {
 				return &item, nil
 			}
 		}
+		return nil, err
+	}
+	if err := loadRelayTraceMetadata(ctx, &entry); err != nil {
 		return nil, err
 	}
 	return &entry, nil
@@ -369,6 +406,7 @@ func relayLogFindRecent(id int64) (model.RelayLog, bool) {
 }
 
 func relayLogLightCopy(entry model.RelayLog) model.RelayLog {
+	entry.Trace = nil
 	entry.RequestContent = ""
 	entry.ResponseContent = ""
 	return entry

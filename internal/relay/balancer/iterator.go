@@ -708,6 +708,12 @@ func (s *AttemptSpan) SetAdapterType(adapterType string) {
 	s.attempt.AdapterType = adapterType
 }
 
+func (s *AttemptSpan) SetHTTPDetails(id string, status *int, requestID string) {
+	s.attempt.AttemptID = id
+	s.attempt.HTTPStatus = status
+	s.attempt.UpstreamRequestID = requestID
+}
+
 func (s *AttemptSpan) SetTransport(transport string, mode model.RelayLogWSMode, recovery model.RelayLogWSRecovery) {
 	s.attempt.Transport = transport
 	s.attempt.WSMode = mode

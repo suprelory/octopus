@@ -18,6 +18,9 @@ export type RelayLogWSRecovery = 'reconnect' | 'replay' | 'downgrade';
  * 单次渠道尝试信息
  */
 export interface ChannelAttempt {
+    attempt_id?: string;
+    http_status?: number;
+    upstream_request_id?: string;
     channel_id: number;
     channel_key_id?: number;
     channel_name: string;
@@ -126,8 +129,46 @@ export interface RelayLog {
 
 /** 完整日志详情；列表接口通常省略两个大字段。 */
 export interface RelayLogDetail extends RelayLog {
+    trace?: RelayTrace;
     request_content: string;
     response_content: string;
+}
+
+export interface RelayMessage {
+    method?: string;
+    url?: string;
+    status_code?: number;
+    headers?: Record<string, string[]>;
+    content_type?: string;
+    state: 'captured' | 'partial' | 'truncated' | 'not_captured' | 'expired' | 'unavailable';
+    reason?: string;
+    bytes: number;
+    captured_bytes: number;
+    body?: string;
+    body_encoding?: 'utf-8' | 'base64';
+}
+
+export interface RelayExchange {
+    attempt_id?: string;
+    channel_id?: number;
+    channel_name?: string;
+    model?: string;
+    transport: string;
+    upstream_request_id?: string;
+    error?: string;
+    request?: RelayMessage;
+    response?: RelayMessage;
+}
+
+export interface RelayTrace {
+    id: string;
+    client: RelayExchange;
+    attempts: RelayExchange[];
+}
+
+export function getLogContent(id: number, attemptId: string, direction: 'request' | 'response') {
+    const query = new URLSearchParams({ direction, attempt_id: attemptId });
+    return apiClient.get<RelayMessage>(`/api/v1/log/${id}/content?${query}`);
 }
 
 export type LogStatusFilter = 'all' | 'success' | 'error';

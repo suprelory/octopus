@@ -27,10 +27,16 @@ func recordRelayRejection(ctx context.Context, apiKeyID int, requestModel, endpo
 		return
 	}
 	entry := model.RelayLog{
-		Time: started.Unix(), RequestModelName: requestModel, ActualModelName: requestModel,
+		Trace: captureFromContext(ctx).snapshot(ctx),
+		Time:  started.Unix(), RequestModelName: requestModel, ActualModelName: requestModel,
 		RequestAPIKeyID: apiKeyID, ClientIP: clientIP, EndpointType: endpoint,
 		UseTime: int(duration), Success: false, UsedWS: ws,
 		Error: fmt.Sprintf("%s (HTTP %d): %s", code, status, message),
+	}
+	if entry.Trace != nil && entry.Trace.Client.Request != nil {
+		request := entry.Trace.Client.Request
+		request.Data, request.Body, request.CapturedBytes = nil, "", 0
+		request.State, request.Reason = "not_captured", "rejected_request"
 	}
 	if key, err := op.APIKeyGet(apiKeyID, ctx); err == nil {
 		entry.RequestAPIKeyName = key.Name

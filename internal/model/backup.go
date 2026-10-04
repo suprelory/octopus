@@ -45,6 +45,8 @@ type DBDump struct {
 	StatsSiteModelHourly []StatsSiteModelHourly `json:"stats_site_model_hourly,omitempty"`
 
 	RelayLogs            []RelayLog            `json:"relay_logs,omitempty"`
+	RelayRequestContents []RelayRequestContent `json:"relay_request_contents,omitempty"`
+	RelayAttemptContents []RelayAttemptContent `json:"relay_attempt_contents,omitempty"`
 	SiteCheckinLogs      []SiteCheckinLog      `json:"site_checkin_logs,omitempty"`
 	SiteCheckinBatchJobs []SiteCheckinBatchJob `json:"site_checkin_batch_jobs,omitempty"`
 }

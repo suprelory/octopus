@@ -28,6 +28,9 @@ type CapabilityLoss struct {
 
 // ChannelAttempt 记录单次渠道尝试的决策和结果
 type ChannelAttempt struct {
+	AttemptID         string                   `json:"attempt_id,omitempty"`
+	HTTPStatus        *int                     `json:"http_status,omitempty"`
+	UpstreamRequestID string                   `json:"upstream_request_id,omitempty"`
 	ChannelID         int                      `json:"channel_id"`
 	ChannelKeyID      int                      `json:"channel_key_id,omitempty"`
 	ChannelName       string                   `json:"channel_name"`
@@ -120,6 +123,7 @@ const (
 )
 
 type RelayLog struct {
+	Trace                *RelayTrace         `json:"trace,omitempty" gorm:"-"`
 	ID                   int64               `json:"id" gorm:"primaryKey;autoIncrement:false"` // Snowflake ID
 	Time                 int64               `json:"time"`                                     // 时间戳（秒）
 	RequestModelName     string              `json:"request_model_name"`                       // 请求模型名称

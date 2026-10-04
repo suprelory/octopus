@@ -121,6 +121,16 @@ func (s *dbImportState) importLogs() error {
 		} else {
 			res.RowsAffected["relay_logs"] = n
 		}
+		if n, err := createDoNothing(tx, dump.RelayRequestContents); err != nil {
+			return fmt.Errorf("import relay_request_contents: %w", err)
+		} else {
+			res.RowsAffected["relay_request_contents"] = n
+		}
+		if n, err := createDoNothing(tx, dump.RelayAttemptContents); err != nil {
+			return fmt.Errorf("import relay_attempt_contents: %w", err)
+		} else {
+			res.RowsAffected["relay_attempt_contents"] = n
+		}
 		if n, err := createDoNothing(tx, dump.SiteCheckinBatchJobs); err != nil {
 			return fmt.Errorf("import site_checkin_batch_jobs: %w", err)
 		} else {

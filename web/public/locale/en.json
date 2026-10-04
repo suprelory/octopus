@@ -778,6 +778,10 @@
             "enabled": {
                 "label": "Enable History Logs"
             },
+            "contentEnabled": "Capture request and response bodies",
+            "contentPeriod": "Body retention (days, 0 = forever)",
+            "contentLimit": "Maximum per body (MiB)",
+            "contentHint": "Sensitive headers are redacted. Bodies retain prompts and tool outputs. All attempts share a capture budget of four times the per-body limit.",
             "keepPeriod": {
                 "label": "Log Retention (days)",
                 "placeholder": "Enter days"
@@ -1103,6 +1107,33 @@
         }
     },
     "log": {
+        "trace": {
+            "clientRequest": "Client request",
+            "upstreamRequest": "Upstream request",
+            "upstreamResponse": "Upstream response",
+            "clientResponse": "Client response",
+            "attempt": "Upstream attempt",
+            "messages": "Captured messages",
+            "headers": "Headers",
+            "upstreamId": "Upstream request ID",
+            "search": "Search body",
+            "matches": "{count} matches",
+            "raw": "Raw",
+            "format": "Format",
+            "download": "Download body",
+            "loading": "Loading body…",
+            "retry": "Retry",
+            "empty": "No body captured",
+            "noMessage": "No message was observed at this boundary.",
+            "states": {
+                "captured": "Complete",
+                "partial": "Partial",
+                "truncated": "Size limit reached",
+                "not_captured": "Not captured",
+                "expired": "Expired",
+                "unavailable": "Unavailable"
+            }
+        },
         "list": {
             "empty": "No logs yet",
             "emptyHint": "New request logs will appear here automatically",

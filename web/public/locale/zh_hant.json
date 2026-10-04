@@ -778,6 +778,10 @@
             "enabled": {
                 "label": "啟用歷史日誌"
             },
+            "contentEnabled": "採集請求與回應正文",
+            "contentPeriod": "正文保存天數（0 為永久）",
+            "contentLimit": "每份正文上限（MiB）",
+            "contentHint": "敏感標頭會脫敏；正文保留提示詞和工具輸出。單筆請求的所有嘗試共用採集額度，為每份正文上限的四倍。",
             "keepPeriod": {
                 "label": "日誌保存天數",
                 "placeholder": "請輸入天數"
@@ -1103,6 +1107,33 @@
         }
     },
     "log": {
+        "trace": {
+            "clientRequest": "用戶端請求",
+            "upstreamRequest": "發往上游",
+            "upstreamResponse": "上游回應",
+            "clientResponse": "返回用戶端",
+            "attempt": "上游嘗試",
+            "messages": "報文",
+            "headers": "請求／回應標頭",
+            "upstreamId": "上游請求 ID",
+            "search": "搜尋正文",
+            "matches": "{count} 處符合",
+            "raw": "原文",
+            "format": "格式化",
+            "download": "下載正文",
+            "loading": "正在載入正文…",
+            "retry": "重試",
+            "empty": "沒有已擷取的正文",
+            "noMessage": "此位置沒有實際收發報文。",
+            "states": {
+                "captured": "完整",
+                "partial": "部分擷取",
+                "truncated": "已達大小上限",
+                "not_captured": "未採集",
+                "expired": "已過期",
+                "unavailable": "無法取得"
+            }
+        },
         "list": {
             "empty": "暫無日誌",
             "emptyHint": "新的請求日誌會自動出現在這裡",

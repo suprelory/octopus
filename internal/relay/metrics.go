@@ -19,6 +19,7 @@ import (
 
 // RelayMetrics 负责最终的日志收集与持久化
 type RelayMetrics struct {
+	capture      *relayCapture
 	execution    *relayExecution
 	affinity     balancer.AffinityOptions
 	APIKeyID     int
@@ -230,6 +231,7 @@ func (m *RelayMetrics) saveLog(ctx context.Context, success bool, err error, dur
 	}
 
 	relayLog := model.RelayLog{
+		Trace:            m.capture.snapshot(ctx),
 		Time:             m.StartTime.Unix(),
 		RequestModelName: m.RequestModel,
 		RequestAPIKeyID:  m.APIKeyID,
@@ -276,16 +278,16 @@ func (m *RelayMetrics) saveLog(ctx context.Context, success bool, err error, dur
 	relayLog.WSRecovery = m.WSRecovery
 
 	// 请求内容：优先原始请求体，保留 provider 专有字段（如 Anthropic cache_control）
-	if len(m.RawRequest) > 0 {
+	if m.capture == nil && len(m.RawRequest) > 0 {
 		relayLog.RequestContent = string(m.RawRequest)
-	} else if m.InternalRequest != nil {
+	} else if m.capture == nil && m.InternalRequest != nil {
 		if reqJSON, jsonErr := json.Marshal(m.InternalRequest); jsonErr == nil {
 			relayLog.RequestContent = string(reqJSON)
 		}
 	}
 
 	// 响应内容
-	if m.InternalResponse != nil {
+	if m.capture == nil && m.InternalResponse != nil {
 		respForLog := m.filterResponseForLog(m.InternalResponse)
 		if respJSON, jsonErr := json.Marshal(respForLog); jsonErr == nil {
 			relayLog.ResponseContent = string(respJSON)

@@ -13,6 +13,7 @@ func resetRelayLogStateForTest() {
 	relayLogBuffer.pendingLock.Lock()
 	relayLogBuffer.pending = make([]model.RelayLog, 0, relayLogBatchSize)
 	relayLogBuffer.pendingBytes = 0
+	relayLogBuffer.pendingContentBytes = 0
 	relayLogBuffer.pendingLock.Unlock()
 
 	relayLogBuffer.recentLock.Lock()

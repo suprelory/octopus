@@ -22,6 +22,7 @@ import { resolveLogDisplayFields } from './display';
 import { formatEndpointLabel, formatRequestTypeLabel, formatTime, formatDurationCompact, formatTPS, formatCacheHitRate, formatCompactTokenCount, makeDisableTargetKey, resolveTokenUsageDisplay } from './log-format';
 import { RetryBadgeWithTooltip, WSModeBadge } from './log-status';
 import { LogContentPanels } from './LogContentPanels';
+import { LogTracePanels } from './LogTracePanels';
 import { LogDiagnosticPanel } from './LogDiagnosticPanel';
 import { LogDisableDialog } from './LogDisableDialog';
 import { LogSummary } from './LogSummary';
@@ -226,7 +227,7 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
                                     onDisable={openDisableDialog}
                                     isDisablePending={isDisablePending}
                                 />
-                                <LogContentPanels
+                                {detailLog?.trace ? <LogTracePanels id={log.id} trace={detailLog.trace} /> : <LogContentPanels
                                     requestContent={requestContent}
                                     responseContent={responseContent}
                                     requestTokens={totalInputTokens}
@@ -236,7 +237,7 @@ export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; 
                                     responseCollapsed={responseJsonCollapsed}
                                     onToggleRequest={() => setRequestJsonCollapsed((value) => !value)}
                                     onToggleResponse={() => setResponseJsonCollapsed((value) => !value)}
-                                />
+                                />}
                             </div>
                         </MorphingDialogDescription>
 

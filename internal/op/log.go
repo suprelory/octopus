@@ -2,6 +2,7 @@ package op
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/utils/log"
 	"github.com/bestruirui/octopus/internal/utils/snowflake"
+	"gorm.io/gorm"
 )
 
 const (
@@ -28,9 +30,10 @@ const (
 // When locks are combined, acquire flushLock before snapshotLock, then the
 // pending/recent lock. The state must not be copied after first use.
 type relayLogBufferState struct {
-	pendingLock  sync.Mutex
-	pending      []model.RelayLog
-	pendingBytes int64
+	pendingLock         sync.Mutex
+	pending             []model.RelayLog
+	pendingBytes        int64
+	pendingContentBytes int64
 
 	recentLock sync.Mutex
 	recent     []model.RelayLog
@@ -91,6 +94,9 @@ func signalRelayLogFlush() {
 }
 
 func appendRelayLogRecent(relayLog model.RelayLog) {
+	if relayLog.Trace != nil {
+		relayLog.Trace = relayTraceWithoutBodies(relayLog.Trace, "")
+	}
 	// Oversized bodies remain available from persisted logs. Keep their metadata
 	// here without retaining a reference to the original body allocation.
 	if relayLogApproxBytes(relayLog) > relayLogRecentMaxBytes {
@@ -119,6 +125,11 @@ func enqueueRelayLogPending(relayLog model.RelayLog) bool {
 	estimatedBytes := relayLogApproxBytes(relayLog)
 	relayLogBuffer.pendingLock.Lock()
 	defer relayLogBuffer.pendingLock.Unlock()
+	contentBytes := relayTraceBytes(relayLog.Trace)
+	if relayLogBuffer.pendingContentBytes+contentBytes > relayLogContentQueueBytes {
+		relayLog.Trace = relayTraceWithoutBodies(relayLog.Trace, "queue_full")
+		contentBytes = 0
+	}
 	if len(relayLogBuffer.pending) >= relayLogQueueSize || relayLogBuffer.pendingBytes+estimatedBytes > relayLogQueueBytes {
 		dropped := relayLogBuffer.droppedTotal.Add(1)
 		warnRelayLogDropped(dropped)
@@ -126,6 +137,7 @@ func enqueueRelayLogPending(relayLog model.RelayLog) bool {
 	}
 	relayLogBuffer.pending = append(relayLogBuffer.pending, relayLog)
 	relayLogBuffer.pendingBytes += estimatedBytes
+	relayLogBuffer.pendingContentBytes += contentBytes
 	if len(relayLogBuffer.pending) >= relayLogBatchSize {
 		signalRelayLogFlush()
 	}
@@ -134,6 +146,11 @@ func enqueueRelayLogPending(relayLog model.RelayLog) bool {
 
 func relayLogApproxBytes(relayLog model.RelayLog) int64 {
 	size := 256
+	if relayLog.Trace != nil {
+		if metadata, err := json.Marshal(relayLog.Trace); err == nil {
+			size += len(metadata)
+		}
+	}
 	size += len(relayLog.RequestModelName) + len(relayLog.RequestAPIKeyName) + len(relayLog.ClientIP) + len(relayLog.EndpointType) + len(relayLog.ChannelName) + len(relayLog.ActualModelName) + len(relayLog.ReasoningEffort)
 	size += len(relayLog.RequestContent) + len(relayLog.ResponseContent) + len(relayLog.Error)
 	for _, attempt := range relayLog.Attempts {
@@ -203,9 +220,14 @@ func relayLogFlushPendingBatch(ctx context.Context, batchSize int) error {
 	relayLogBuffer.pendingLock.Unlock()
 
 	start := time.Now()
-	result := db.GetDB().WithContext(ctx).CreateInBatches(&batch, relayLogBatchSize)
-	if result.Error != nil {
-		return result.Error
+	err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.CreateInBatches(&batch, relayLogBatchSize).Error; err != nil {
+			return err
+		}
+		return persistRelayContents(tx, batch)
+	})
+	if err != nil {
+		return err
 	}
 	duration := time.Since(start)
 	log.Debugw("relay_log.flush", "batch_size", len(batch), "duration", duration.String(), "queue_length", RelayLogPendingLen())
@@ -232,6 +254,10 @@ func relayLogFlushPendingBatch(ctx context.Context, batchSize int) error {
 	}
 	if relayLogBuffer.pendingBytes < 0 {
 		relayLogBuffer.pendingBytes = 0
+	}
+	relayLogBuffer.pendingContentBytes = 0
+	for _, item := range relayLogBuffer.pending {
+		relayLogBuffer.pendingContentBytes += relayTraceBytes(item.Trace)
 	}
 	if len(relayLogBuffer.pending) == 0 {
 		relayLogBuffer.pending = make([]model.RelayLog, 0, relayLogBatchSize)
@@ -274,7 +300,13 @@ func RelayLogAdd(relayLog model.RelayLog) error {
 
 	relayLogBuffer.snapshotLock.RLock()
 	relayLog.ID = snowflake.GenerateID()
-	notifySubscribers(relayLog)
+	if relayLog.Trace != nil {
+		relayLog.RequestContent, relayLog.ResponseContent = "", ""
+		captureEnabled, _ := SettingGetBool(model.SettingKeyRelayLogContentEnabled)
+		if !enabled || !captureEnabled {
+			relayLog.Trace = relayTraceWithoutBodies(relayLog.Trace, "disabled")
+		}
+	}
 	recent := relayLog
 	if !enabled {
 		// Disabling retention keeps live query metadata, but no new bodies.
@@ -286,6 +318,7 @@ func RelayLogAdd(relayLog model.RelayLog) error {
 	if enabled {
 		enqueueRelayLogPending(relayLog)
 	}
+	notifySubscribers(relayLogLightCopy(relayLog))
 	relayLogBuffer.snapshotLock.RUnlock()
 
 	return nil

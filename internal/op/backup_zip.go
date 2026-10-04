@@ -143,6 +143,12 @@ func exportZipSnapshot(ctx context.Context, w io.Writer, conn *gorm.DB, includeL
 		if err := writeZipRelayLogsNDJSON(ctx, zw, conn); err != nil {
 			return err
 		}
+		if err := writeZipRelayContents[model.RelayRequestContent](zw, conn, "relay_request_contents.ndjson"); err != nil {
+			return err
+		}
+		if err := writeZipRelayContents[model.RelayAttemptContent](zw, conn, "relay_attempt_contents.ndjson"); err != nil {
+			return err
+		}
 		if err := writeZipSiteCheckinLogsNDJSON(zw, conn); err != nil {
 			return err
 		}
@@ -231,4 +237,32 @@ func writeZipRelayLogsNDJSON(ctx context.Context, zw *zip.Writer, conn *gorm.DB)
 		}
 	}
 	return nil
+}
+
+func writeZipRelayContents[T any](zw *zip.Writer, conn *gorm.DB, name string) error {
+	f, err := zw.Create(name)
+	if err != nil {
+		return err
+	}
+	enc := json.NewEncoder(f)
+	var lastID int64
+	for {
+		var ids []int64
+		if err := conn.Model(&model.RelayLog{}).Where("id > ?", lastID).Order("id ASC").Limit(20).Pluck("id", &ids).Error; err != nil {
+			return err
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		var batch []T
+		if err := conn.Where("log_id IN ?", ids).Find(&batch).Error; err != nil {
+			return err
+		}
+		for _, row := range batch {
+			if err := enc.Encode(row); err != nil {
+				return err
+			}
+		}
+		lastID = ids[len(ids)-1]
+	}
 }

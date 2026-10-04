@@ -75,6 +75,10 @@ func prepareHTTPRelay(inboundType inbound.InboundType, c *gin.Context) *httpRela
 	heartbeat := startEarlyHeartbeat(c, isStream)
 	ready = true
 	metrics := NewRelayMetrics(apiKeyID, requestModel, relayEndpointType(inboundType), middleware.ClientIP(c), rawBody, internalRequest)
+	metrics.capture = captureFromContext(c.Request.Context())
+	if metrics.capture != nil {
+		metrics.StartTime = metrics.capture.started
+	}
 	if replayState != nil {
 		metrics.SetWSMode(dbmodel.RelayLogWSModeReplay)
 		metrics.SetWSRecovery(dbmodel.RelayLogWSRecoveryReplay)
@@ -157,6 +161,9 @@ func parseRequest(inboundType inbound.InboundType, c *gin.Context) ([]byte, *mod
 		return nil, nil, nil, err
 	}
 
+	if trace := captureFromContext(c.Request.Context()); trace != nil {
+		trace.recordClientRequest(body)
+	}
 	return body, internalRequest, inAdapter, nil
 }
 

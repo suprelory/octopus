@@ -148,6 +148,20 @@ func exportRelayLogsPaged(ctx context.Context, conn *gorm.DB, d *model.DBDump) e
 			break
 		}
 		d.RelayLogs = append(d.RelayLogs, batch...)
+		ids := make([]int64, len(batch))
+		for i := range batch {
+			ids[i] = batch[i].ID
+		}
+		var clients []model.RelayRequestContent
+		var attempts []model.RelayAttemptContent
+		if err := conn.Where("log_id IN ?", ids).Find(&clients).Error; err != nil {
+			return err
+		}
+		if err := conn.Where("log_id IN ?", ids).Find(&attempts).Error; err != nil {
+			return err
+		}
+		d.RelayRequestContents = append(d.RelayRequestContents, clients...)
+		d.RelayAttemptContents = append(d.RelayAttemptContents, attempts...)
 		lastID = batch[len(batch)-1].ID
 		if len(batch) < dbExportLogBatchSize {
 			break

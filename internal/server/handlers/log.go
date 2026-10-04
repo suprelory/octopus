@@ -31,6 +31,7 @@ func init() {
 			router.NewRoute("/:id", http.MethodGet).
 				Handle(getLog),
 		).
+		AddRoute(router.NewRoute("/:id/content", http.MethodGet).Handle(getLogContent)).
 		AddRoute(
 			router.NewRoute("/clear", http.MethodDelete).
 				Handle(clearLog),
@@ -251,6 +252,25 @@ func clearLog(c *gin.Context) {
 		return
 	}
 	resp.Success(c, nil)
+}
+
+func getLogContent(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	direction := c.Query("direction")
+	if err != nil || id <= 0 || (direction != "request" && direction != "response") {
+		resp.InvalidParam(c)
+		return
+	}
+	message, err := op.RelayLogContentGet(c.Request.Context(), id, c.Query("attempt_id"), direction)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			resp.NotFound(c)
+		} else {
+			resp.InternalErrorWithLog(c, err)
+		}
+		return
+	}
+	resp.Success(c, message)
 }
 
 func getStreamToken(c *gin.Context) {

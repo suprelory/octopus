@@ -9,6 +9,7 @@ import (
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/utils/log"
 	"github.com/bestruirui/octopus/internal/utils/snowflake"
+	"gorm.io/gorm"
 )
 
 func RelayLogSaveDBTask(ctx context.Context) error {
@@ -43,6 +44,9 @@ func trimRelayLogRecent() {
 }
 
 func relayLogCleanup(ctx context.Context) error {
+	if err := relayLogContentCleanup(ctx); err != nil {
+		return err
+	}
 	keepPeriod, err := SettingGetInt(model.SettingKeyRelayLogKeepPeriod)
 	if err != nil {
 		return err
@@ -76,11 +80,11 @@ func relayLogCleanup(ctx context.Context) error {
 		if len(ids) == 0 {
 			break
 		}
-		result := dbConn.Where("id IN ?", ids).Unscoped().Delete(&model.RelayLog{})
-		if result.Error != nil {
-			return result.Error
+		count, err := deleteRelayLogRows(dbConn, ids)
+		if err != nil {
+			return err
 		}
-		deletedRows += result.RowsAffected
+		deletedRows += count
 		batchCount++
 		if len(ids) < relayLogCleanupBatchSize {
 			break
@@ -160,11 +164,11 @@ func RelayLogClear(ctx context.Context) error {
 		if len(ids) == 0 {
 			break
 		}
-		result := dbConn.Where("id IN ?", ids).Unscoped().Delete(&model.RelayLog{})
-		if result.Error != nil {
-			return result.Error
+		count, err := deleteRelayLogRows(dbConn, ids)
+		if err != nil {
+			return err
 		}
-		deletedRows += result.RowsAffected
+		deletedRows += count
 		batchCount++
 		if len(ids) < relayLogCleanupBatchSize {
 			break
@@ -216,6 +220,10 @@ func discardRelayLogBuffersThrough(clearThroughID int64) {
 	}
 	relayLogBuffer.pending = keptPending
 	relayLogBuffer.pendingBytes = keptPendingBytes
+	relayLogBuffer.pendingContentBytes = 0
+	for _, entry := range keptPending {
+		relayLogBuffer.pendingContentBytes += relayTraceBytes(entry.Trace)
+	}
 	relayLogBuffer.pendingLock.Unlock()
 
 	relayLogBuffer.recentLock.Lock()
@@ -227,4 +235,39 @@ func discardRelayLogBuffersThrough(clearThroughID int64) {
 	}
 	relayLogBuffer.recent = keptRecent
 	relayLogBuffer.recentLock.Unlock()
+}
+
+func relayLogContentCleanup(ctx context.Context) error {
+	days, err := SettingGetInt(model.SettingKeyRelayLogContentKeepPeriod)
+	if err != nil {
+		return err
+	}
+	if days <= 0 {
+		return nil
+	}
+	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour).Unix()
+	updates := map[string]any{"request_body": nil, "response_body": nil, "bodies_expired": true}
+	for _, table := range []any{&model.RelayRequestContent{}, &model.RelayAttemptContent{}} {
+		query := db.GetDB().WithContext(ctx).Model(table).Where("created_at < ? AND bodies_expired = ?", cutoff, false)
+		if err := expireRelayContentBatches(query, "log_id", updates); err != nil {
+			return err
+		}
+	}
+	query := db.GetDB().WithContext(ctx).Model(&model.RelayLog{}).Where("time < ? AND (request_content <> '' OR response_content <> '')", cutoff)
+	return expireRelayContentBatches(query, "id", map[string]any{"request_content": "", "response_content": ""})
+}
+
+func expireRelayContentBatches(query *gorm.DB, idColumn string, updates map[string]any) error {
+	for {
+		var ids []int64
+		if err := query.Session(&gorm.Session{}).Limit(200).Pluck(idColumn, &ids).Error; err != nil {
+			return err
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		if err := query.Session(&gorm.Session{}).Where(idColumn+" IN ?", ids).Updates(updates).Error; err != nil {
+			return err
+		}
+	}
 }

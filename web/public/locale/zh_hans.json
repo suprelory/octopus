@@ -778,6 +778,10 @@
             "enabled": {
                 "label": "启用历史日志"
             },
+            "contentEnabled": "采集请求与响应正文",
+            "contentPeriod": "正文保存天数（0 为永久）",
+            "contentLimit": "每份正文上限（MiB）",
+            "contentHint": "敏感请求头会脱敏；正文保留提示词和工具输出。单条请求的所有尝试共享采集额度，为每份正文上限的四倍。",
             "keepPeriod": {
                 "label": "日志保存天数",
                 "placeholder": "请输入天数"
@@ -1103,6 +1107,33 @@
         }
     },
     "log": {
+        "trace": {
+            "clientRequest": "客户端请求",
+            "upstreamRequest": "发往上游",
+            "upstreamResponse": "上游响应",
+            "clientResponse": "返回客户端",
+            "attempt": "上游尝试",
+            "messages": "报文",
+            "headers": "请求／响应头",
+            "upstreamId": "上游请求 ID",
+            "search": "搜索正文",
+            "matches": "{count} 处匹配",
+            "raw": "原文",
+            "format": "格式化",
+            "download": "下载正文",
+            "loading": "正在加载正文…",
+            "retry": "重试",
+            "empty": "没有已捕获的正文",
+            "noMessage": "该位置没有实际收发报文。",
+            "states": {
+                "captured": "完整",
+                "partial": "部分捕获",
+                "truncated": "已达大小上限",
+                "not_captured": "未采集",
+                "expired": "已过期",
+                "unavailable": "不可用"
+            }
+        },
         "list": {
             "empty": "暂无日志",
             "emptyHint": "新的请求日志会自动出现在这里",

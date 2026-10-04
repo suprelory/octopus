@@ -90,6 +90,8 @@ func initializeSchema(db *gorm.DB) error {
 		&model.StatsSiteModelHourly{},
 		&model.WSResponseAffinity{},
 		&model.RelayLog{},
+		&model.RelayRequestContent{},
+		&model.RelayAttemptContent{},
 	}
 	for _, table := range models {
 		if !db.Migrator().HasTable(table) {

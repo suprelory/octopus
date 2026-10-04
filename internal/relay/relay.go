@@ -13,6 +13,7 @@ type httpRelay struct {
 }
 
 func Handler(inboundType inbound.InboundType, c *gin.Context) {
+	startHTTPRelayCapture(c)
 	relay := prepareHTTPRelay(inboundType, c)
 	if relay == nil {
 		return
@@ -28,7 +29,10 @@ func (r *httpRelay) run() {
 	if result.Success {
 		r.saveResponsesReplay(outcome.attempt, outcome.channel, outcome.key)
 	}
-	req.metrics.SaveWithChannelStats(req.requestContext(), result.Success, result.Err, req.attempts(), false)
+	defer func() {
+		req.heartbeat.Stop()
+		req.metrics.SaveWithChannelStats(req.requestContext(), result.Success, result.Err, req.attempts(), false)
+	}()
 	if result.Success || result.Canceled || result.Written || req.responseCommitted() {
 		return
 	}

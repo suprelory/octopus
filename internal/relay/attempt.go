@@ -3,6 +3,7 @@ package relay
 import (
 	"errors"
 	"fmt"
+	"github.com/bestruirui/octopus/internal/relay/capture"
 	"net/http"
 	"strings"
 	"time"
@@ -18,11 +19,24 @@ func (ra *relayAttempt) attempt() attemptResult {
 	defer ra.closeFirstTokenBudget()
 
 	span := ra.iter.StartAttempt(ra.channel.ID, ra.usedKey.ID, ra.channel.Name)
+	ra.capture = ra.metrics.capture.beginAttempt(ra.channel, ra.internalRequest.Model, ra.usedKey.ChannelKey)
 	span.SetAdapterType(ra.channel.Type.String())
 	span.SetCapability(capabilityTrace(ra.capabilityDecision, ra.capabilityPolicy, ra.channel.Type.String()))
 
 	// 转发请求
 	statusCode, fwdErr := ra.forward()
+	if ra.capture != nil {
+		ra.capture.info.Transport = ra.upstreamTransport
+		if fwdErr != nil {
+			ra.capture.info.Error = capture.Text(fwdErr.Error(), ra.capture.secrets...)
+		}
+		exchange := ra.capture.snapshot()
+		var status *int
+		if exchange.Response != nil {
+			status = exchange.Response.StatusCode
+		}
+		span.SetHTTPDetails(exchange.AttemptID, status, exchange.UpstreamRequestID)
+	}
 	span.SetCapability(capabilityTrace(ra.capabilityDecision, ra.capabilityPolicy, ra.channel.Type.String()))
 	span.SetStreamDiagnostics(ra.streamDiagnostics)
 	mode, recoveryMode := dbmodel.RelayLogWSMode(""), dbmodel.RelayLogWSRecovery("")

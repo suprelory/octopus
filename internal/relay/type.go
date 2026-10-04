@@ -132,6 +132,7 @@ func (r *relayRequest) requestContext() context.Context {
 // relayAttempt 尝试级上下文
 type relayAttempt struct {
 	*relayRequest // 嵌入请求级上下文
+	capture       *exchangeCapture
 
 	outAdapter             model.Outbound
 	channel                *dbmodel.Channel

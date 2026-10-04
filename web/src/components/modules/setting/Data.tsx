@@ -18,6 +18,9 @@ export function SettingData() {
     // 历史日志与统计持久化
     const logEnabled = useSettingToggle(SettingKey.RelayLogKeepEnabled);
     const keepPeriod = useSettingField(SettingKey.RelayLogKeepPeriod);
+    const contentEnabled = useSettingToggle(SettingKey.RelayLogContentEnabled);
+    const contentPeriod = useSettingField(SettingKey.RelayLogContentKeepPeriod);
+    const contentLimit = useSettingField(SettingKey.RelayLogContentMaxMB);
     const statsInterval = useSettingField(SettingKey.StatsSaveInterval);
     const clearLogs = useClearLogs();
 
@@ -124,6 +127,17 @@ export function SettingData() {
                     {clearLogs.isPending ? t('log.clear.clearing') : t('log.clear.button')}
                 </Button>
             </SettingRow>
+
+            <SettingRow icon={ScrollText} label={t('log.contentEnabled')}>
+                <Switch checked={contentEnabled.enabled} onCheckedChange={contentEnabled.toggle} disabled={!logEnabled.enabled} />
+            </SettingRow>
+            <SettingRow icon={Calendar} label={t('log.contentPeriod')}>
+                <Input type="number" min={0} max={3650} value={contentPeriod.value} onChange={event => contentPeriod.setValue(event.target.value)} onBlur={contentPeriod.save} className={`${SETTING_CONTROL_WIDTH} rounded-xl`} disabled={!logEnabled.enabled} />
+            </SettingRow>
+            <SettingRow icon={Database} label={t('log.contentLimit')}>
+                <Input type="number" min={1} max={64} value={contentLimit.value} onChange={event => contentLimit.setValue(event.target.value)} onBlur={contentLimit.save} className={`${SETTING_CONTROL_WIDTH} rounded-xl`} disabled={!logEnabled.enabled || !contentEnabled.enabled} />
+            </SettingRow>
+            <p className="text-xs text-muted-foreground">{t('log.contentHint')}</p>
 
             <DatabaseBackupPanel
                 includeStats={includeStats}

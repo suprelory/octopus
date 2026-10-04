@@ -15,13 +15,16 @@ type SettingKey string
 
 const (
 	SettingKeyProxyURL                         SettingKey = "proxy_url"
-	SettingKeyTrustedProxies                   SettingKey = "trusted_proxies"              // 可信反向代理 IP/CIDR 列表（逗号或换行分隔）
-	SettingKeyStatsSaveInterval                SettingKey = "stats_save_interval"          // 将统计信息写入数据库的周期(分钟)
-	SettingKeyModelInfoUpdateInterval          SettingKey = "model_info_update_interval"   // 模型信息更新间隔(小时)
-	SettingKeySyncLLMInterval                  SettingKey = "sync_llm_interval"            // LLM 同步间隔(小时)
-	SettingKeySiteSyncInterval                 SettingKey = "site_sync_interval"           // 站点账号同步间隔(小时)
-	SettingKeyRelayLogKeepPeriod               SettingKey = "relay_log_keep_period"        // 日志保存时间范围(天)
-	SettingKeyRelayLogKeepEnabled              SettingKey = "relay_log_keep_enabled"       // 是否保留历史日志
+	SettingKeyTrustedProxies                   SettingKey = "trusted_proxies"            // 可信反向代理 IP/CIDR 列表（逗号或换行分隔）
+	SettingKeyStatsSaveInterval                SettingKey = "stats_save_interval"        // 将统计信息写入数据库的周期(分钟)
+	SettingKeyModelInfoUpdateInterval          SettingKey = "model_info_update_interval" // 模型信息更新间隔(小时)
+	SettingKeySyncLLMInterval                  SettingKey = "sync_llm_interval"          // LLM 同步间隔(小时)
+	SettingKeySiteSyncInterval                 SettingKey = "site_sync_interval"         // 站点账号同步间隔(小时)
+	SettingKeyRelayLogKeepPeriod               SettingKey = "relay_log_keep_period"      // 日志保存时间范围(天)
+	SettingKeyRelayLogKeepEnabled              SettingKey = "relay_log_keep_enabled"     // 是否保留历史日志
+	SettingKeyRelayLogContentEnabled           SettingKey = "relay_log_content_enabled"
+	SettingKeyRelayLogContentKeepPeriod        SettingKey = "relay_log_content_keep_period"
+	SettingKeyRelayLogContentMaxMB             SettingKey = "relay_log_content_max_mb"
 	SettingKeyCORSAllowOrigins                 SettingKey = "cors_allow_origins"           // 跨域白名单(逗号分隔的完整 origin, 如 "https://example.com,https://example2.com"). 为空不允许跨域, "*"允许所有来源但不下发凭证
 	SettingKeyCircuitBreakerThreshold          SettingKey = "circuit_breaker_threshold"    // 熔断触发阈值（连续失败次数）
 	SettingKeyCircuitBreakerCooldown           SettingKey = "circuit_breaker_cooldown"     // 熔断基础冷却时间（秒）
@@ -74,13 +77,16 @@ func DefaultSettings() []Setting {
 	return []Setting{
 		{Key: SettingKeyProxyURL, Value: ""},
 		{Key: SettingKeyTrustedProxies, Value: ""},
-		{Key: SettingKeyStatsSaveInterval, Value: "10"},           // 默认10分钟保存一次统计信息
-		{Key: SettingKeyCORSAllowOrigins, Value: ""},              // CORS 默认不允许跨域，设置为 "*" 才允许所有来源
-		{Key: SettingKeyModelInfoUpdateInterval, Value: "24"},     // 默认24小时更新一次模型信息
-		{Key: SettingKeySyncLLMInterval, Value: "24"},             // 默认24小时同步一次LLM
-		{Key: SettingKeySiteSyncInterval, Value: "12"},            // 默认12小时同步一次站点账号信息
-		{Key: SettingKeyRelayLogKeepPeriod, Value: "7"},           // 默认日志保存7天
-		{Key: SettingKeyRelayLogKeepEnabled, Value: "true"},       // 默认保留历史日志
+		{Key: SettingKeyStatsSaveInterval, Value: "10"},       // 默认10分钟保存一次统计信息
+		{Key: SettingKeyCORSAllowOrigins, Value: ""},          // CORS 默认不允许跨域，设置为 "*" 才允许所有来源
+		{Key: SettingKeyModelInfoUpdateInterval, Value: "24"}, // 默认24小时更新一次模型信息
+		{Key: SettingKeySyncLLMInterval, Value: "24"},         // 默认24小时同步一次LLM
+		{Key: SettingKeySiteSyncInterval, Value: "12"},        // 默认12小时同步一次站点账号信息
+		{Key: SettingKeyRelayLogKeepPeriod, Value: "7"},       // 默认日志保存7天
+		{Key: SettingKeyRelayLogKeepEnabled, Value: "true"},   // 默认保留历史日志
+		{Key: SettingKeyRelayLogContentEnabled, Value: "true"},
+		{Key: SettingKeyRelayLogContentKeepPeriod, Value: "7"},
+		{Key: SettingKeyRelayLogContentMaxMB, Value: "4"},
 		{Key: SettingKeyCircuitBreakerThreshold, Value: "5"},      // 默认连续失败5次触发熔断
 		{Key: SettingKeyCircuitBreakerCooldown, Value: "60"},      // 默认基础冷却60秒
 		{Key: SettingKeyCircuitBreakerMaxCooldown, Value: "600"},  // 默认最大冷却600秒（10分钟）
@@ -126,6 +132,15 @@ func DefaultSettings() []Setting {
 
 func (s *Setting) Validate() error {
 	switch s.Key {
+	case SettingKeyRelayLogContentKeepPeriod:
+		return validateIntRange(s.Value, 0, 3650)
+	case SettingKeyRelayLogContentMaxMB:
+		return validateIntRange(s.Value, 1, 64)
+	case SettingKeyRelayLogContentEnabled:
+		if s.Value != "true" && s.Value != "false" {
+			return fmt.Errorf("setting value must be true or false")
+		}
+		return nil
 	case SettingKeyChannelAffinityMode:
 		if s.Value != "off" && s.Value != "prefer" && s.Value != "strict" {
 			return fmt.Errorf("affinity mode must be off, prefer or strict")
