@@ -134,7 +134,19 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Browser regression tests
+        id: browser_tests
         run: pnpm test:e2e
+
+      - name: Upload browser regression diagnostics
+        if: ${{ failure() && steps.browser_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            web/test-results/
+            web/playwright-report/
+          retention-days: 7
+          if-no-files-found: warn
 
       - name: Build frontend
         run: pnpm build

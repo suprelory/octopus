@@ -245,14 +245,20 @@ function MorphingDialogContent({
   const lastFocusableElementRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
+    if (!isOpen) return;
+
     const handleKeyDown = (event: KeyboardEvent) => {
+      // Radix consumes Escape during capture and may unmount its portal before
+      // this bubble listener runs. The event remains consumed after DOM removal.
+      if (event.defaultPrevented || (event.key !== 'Escape' && event.key !== 'Tab')) return;
+      for (const slot of PORTAL_IGNORED_SLOTS) {
+        if (document.querySelector(`[data-slot="${slot}"]`)) return;
+      }
+
       if (event.key === 'Escape') {
-        // 与下方 useClickOutside 的忽略逻辑一致：上层 portal 内容（Select/浮层等）
-        // 打开时 Escape 只关闭上层，不连带关闭本对话框
-        for (const slot of PORTAL_IGNORED_SLOTS) {
-          if (document.querySelector(`[data-slot="${slot}"]`)) return;
-        }
+        event.preventDefault();
         setIsOpen(false);
+        return;
       }
       if (event.key === 'Tab') {
         if (!firstFocusableElementRef.current || !lastFocusableElementRef.current) return;
@@ -276,7 +282,7 @@ function MorphingDialogContent({
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [setIsOpen]);
+  }, [isOpen, setIsOpen]);
 
   useEffect(() => {
     if (isOpen) {
@@ -293,6 +299,8 @@ function MorphingDialogContent({
         if (focusableElements && focusableElements.length > 0) {
           firstFocusableElementRef.current = focusableElements[0] as HTMLElement;
           lastFocusableElementRef.current = focusableElements[focusableElements.length - 1] as HTMLElement;
+          // An upper dialog may have opened before this deferred focus scan.
+          if (PORTAL_IGNORED_SLOTS.some(slot => document.querySelector(`[data-slot="${slot}"]`))) return;
           (focusableElements[0] as HTMLElement).focus();
         }
       });

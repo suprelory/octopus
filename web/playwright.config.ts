@@ -10,7 +10,7 @@ export default defineConfig({
     workers: 2,
     timeout: 45_000,
     expect: { timeout: 10_000 },
-    reporter: 'list',
+    reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
     use: {
         baseURL,
         trace: 'retain-on-failure',

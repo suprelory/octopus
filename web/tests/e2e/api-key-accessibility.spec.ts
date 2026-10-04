@@ -79,7 +79,9 @@ test('statistics and export overlays trap focus and restore their openers', asyn
 });
 
 test('an editor inside the expanded key panel closes only its own layer', async ({ page }) => {
-    await mockApp(page, 'setting', { apiKeys: [{ id: 1, name: 'Development', api_key: 'test-only', enabled: true }] });
+    const state = await mockApp(page, 'setting', {
+        apiKeys: [{ id: 1, name: 'Development', api_key: 'test-only', enabled: true, expire_at: Date.parse('2030-01-01T00:00:00Z') / 1000 }],
+    });
     await page.goto('/');
     await page.getByRole('button', { name: '访问密钥', exact: true }).click();
     await page.getByRole('button').filter({ has: page.locator('svg.lucide-maximize2') }).click();
@@ -91,8 +93,38 @@ test('an editor inside the expanded key panel closes only its own layer', async 
     await expect(dialog).toBeVisible();
     await page.keyboard.press('Shift+Tab');
     await expectFocusInside(dialog);
+    await dialog.getByRole('button').filter({ has: page.locator('svg.lucide-calendar-days') }).click();
+    await expect(page.locator('[data-slot="popover-content"]')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('[data-slot="popover-content"]')).toHaveCount(0);
+    await expect(dialog).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
-    await expect(panel).toBeVisible();
+    await expect(panel).toHaveAttribute('data-state', 'open');
     await expect(edit).toBeFocused();
+    expect(state.pageErrors).toEqual([]);
+});
+
+test('a handled Escape keeps the expanded panel open until the next unhandled Escape', async ({ page }) => {
+    await mockApp(page, 'setting', { apiKeys: [{ id: 1, name: 'Development', api_key: 'test-only', enabled: true }] });
+    await page.goto('/');
+    await page.getByRole('button', { name: '访问密钥', exact: true }).click();
+    const expand = page.getByRole('button').filter({ has: page.locator('svg.lucide-maximize2') });
+    await expand.click();
+    const panel = page.locator('[data-slot="morphing-dialog-content"]');
+    const edit = panel.getByRole('button', { name: 'Edit', exact: true });
+    await edit.focus();
+    await edit.evaluate(async node => {
+        // A dismissed upper layer may already be unmounted by the time the
+        // same, consumed Escape reaches the outer document listener.
+        const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+        event.preventDefault();
+        node.dispatchEvent(event);
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    });
+    await expect(panel).toHaveAttribute('data-state', 'open');
+    await expect(edit).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(panel).toHaveCount(0);
+    await expect(expand).toBeFocused();
 });
