@@ -78,7 +78,15 @@ func wsResultFromAttempt(req *relayRequest, result attemptResult) wsRelayResult 
 }
 
 func finalizeWSRelay(ctx context.Context, conn *websocket.Conn, req *relayRequest, result wsRelayResult) wsRelayResult {
-	req.metrics.SaveWithChannelStats(ctx, result.Success, result.Err, req.attempts(), false)
+	if req.metrics.capture != nil {
+		ctx = context.WithValue(ctx, relayCaptureKey{}, req.metrics.capture)
+	}
+	defer func() {
+		if writer, ok := req.streamWriter.(*WSStreamWriter); ok {
+			writer.finishCapture(ctx.Err() == nil)
+		}
+		req.metrics.SaveWithChannelStats(ctx, result.Success, result.Err, req.attempts(), false)
+	}()
 	if result.Success || result.Canceled || result.Written || req.responseCommitted() {
 		return result
 	}

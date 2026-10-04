@@ -54,6 +54,7 @@ func (ra *relayAttempt) forwardViaWSPassthrough(ctx context.Context) (int, error
 		ra.metrics.SetWSRecovery(dbmodel.RelayLogWSRecoveryReconnect)
 	}
 	ra.upstreamTransport = "ws"
+	ra.startWSCapture()
 	if err := wsUpstreamPool.SendRaw(ctx, pc, payload); err != nil {
 		log.Warnf("upstream WS passthrough send failed for channel %s: %v", ra.channel.Name, err)
 		wsUpstreamPool.RemoveConn(pc)
@@ -61,6 +62,7 @@ func (ra *relayAttempt) forwardViaWSPassthrough(ctx context.Context) (int, error
 	}
 
 	ra.metrics.UsedWS = true
+	ra.observeWSRequest(payload)
 	ra.metrics.SetWSExecMode(dbmodel.RelayLogWSExecModePassthrough)
 	if ra.metrics.WSMode == nil {
 		ra.metrics.SetWSMode(defaultWSModeForRequest(ra.internalRequest))
@@ -176,10 +178,14 @@ func (ra *relayAttempt) handleWSPassthroughStream(ctx context.Context, pc *poole
 			}
 			return stats, fmt.Errorf("ws passthrough read error: %w", err)
 		}
+		ra.observeWSResponse(data, msgType == websocket.MessageBinary)
 		if msgType != websocket.MessageText {
 			continue
 		}
 		observation := observeWSPassthroughEvent(stats, data)
+		if stats.Stream.TerminalEventSeen && ra.capture != nil {
+			ra.capture.response.Finish(true)
+		}
 		if stats.Error != nil {
 			if !dropDownstream && ra.responseCommitted() {
 				out := ra.rewriteWSPassthroughDownstreamModel(observation)

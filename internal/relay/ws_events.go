@@ -16,7 +16,13 @@ func writeWSEvent(ctx context.Context, conn *websocket.Conn, event interface{}) 
 	writeCtx, cancel := context.WithTimeout(ctx, wsWriteTimeout)
 	defer cancel()
 	if err := conn.Write(writeCtx, websocket.MessageText, data); err != nil {
+		if trace := captureFromContext(ctx); trace != nil {
+			trace.client.response.Finish(false)
+		}
 		return fmt.Errorf("write ws event: %w", err)
+	}
+	if trace := captureFromContext(ctx); trace != nil {
+		trace.client.response.ObserveFrame(data, false)
 	}
 	return nil
 }

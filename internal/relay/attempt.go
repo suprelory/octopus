@@ -27,6 +27,10 @@ func (ra *relayAttempt) attempt() attemptResult {
 	statusCode, fwdErr := ra.forward()
 	if ra.capture != nil {
 		ra.capture.info.Transport = ra.upstreamTransport
+		if ra.streamDiagnostics != nil {
+			ra.capture.info.CompletionStatus = ra.streamDiagnostics.CompletionStatus
+			ra.capture.info.FinishCause = string(ra.streamDiagnostics.FinishCause)
+		}
 		if fwdErr != nil {
 			ra.capture.info.Error = capture.Text(fwdErr.Error(), ra.capture.secrets...)
 		}

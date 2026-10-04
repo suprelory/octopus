@@ -3,6 +3,7 @@ package relay
 import (
 	"context"
 	"fmt"
+	"github.com/bestruirui/octopus/internal/relay/capture"
 	"io"
 	"net/http"
 	"time"
@@ -24,6 +25,7 @@ type wsUpstreamReader struct {
 	done       bool // true after a terminal event has been returned
 	statusCode int
 	retryAt    time.Time
+	capture    *capture.Body
 }
 
 func newWSUpstreamReader(pc *pooledConn, channelID, keyID int) *wsUpstreamReader {
@@ -66,6 +68,7 @@ func (r *wsUpstreamReader) ReadSourceEvent(ctx context.Context) (model.SourceEve
 		return model.SourceEvent{}, fmt.Errorf("ws read error: %w", err)
 	}
 
+	r.capture.ObserveFrame(data, msgType == websocket.MessageBinary)
 	if msgType != websocket.MessageText {
 		return model.SourceEvent{}, fmt.Errorf("unexpected ws message type: %d", msgType)
 	}
@@ -75,6 +78,9 @@ func (r *wsUpstreamReader) ReadSourceEvent(ctx context.Context) (model.SourceEve
 		return model.SourceEvent{}, fmt.Errorf("invalid upstream Responses event: %w", parseErr)
 	}
 	r.done = observation.Terminal
+	if r.done {
+		r.capture.Finish(true)
+	}
 	if observation.Error != nil {
 		r.statusCode, r.retryAt = observation.Error.Status, observation.Error.RetryAt
 		return model.SourceEvent{}, observation.Error

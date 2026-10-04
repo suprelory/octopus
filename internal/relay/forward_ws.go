@@ -72,11 +72,16 @@ func (ra *relayAttempt) forwardViaWS(ctx context.Context) (int, error) {
 		ra.metrics.SetWSRecovery(dbmodel.RelayLogWSRecoveryReconnect)
 	}
 	ra.upstreamTransport = "ws"
+	ra.startWSCapture()
 	if err := wsUpstreamPool.SendRaw(ctx, pc, reqBody); err != nil {
 		wsUpstreamPool.RemoveConn(pc)
 		return ra.upstreamWSFailure(ctx, 0, err, true)
 	}
 	reader := newWSUpstreamReader(pc, ra.channel.ID, ra.usedKey.ID)
+	ra.observeWSRequest(reqBody)
+	if ra.capture != nil {
+		reader.capture = ra.capture.response
+	}
 	if err := ra.handleWSStreamResponseV2(ctx, reader); err != nil {
 		ra.captureRetryAt(reader.RetryAt())
 		if isUpstreamWSRequestError(err) {

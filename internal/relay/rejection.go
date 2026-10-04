@@ -36,6 +36,7 @@ func recordRelayRejection(ctx context.Context, apiKeyID int, requestModel, endpo
 	if entry.Trace != nil && entry.Trace.Client.Request != nil {
 		request := entry.Trace.Client.Request
 		request.Data, request.Body, request.CapturedBytes = nil, "", 0
+		request.Events = nil
 		request.State, request.Reason = "not_captured", "rejected_request"
 	}
 	if key, err := op.APIKeyGet(apiKeyID, ctx); err == nil {

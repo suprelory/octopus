@@ -22,14 +22,16 @@ type imagesUsage struct {
 }
 
 type imagesRelayMetrics struct {
-	execution    *relayExecution
-	affinity     balancer.AffinityOptions
-	APIKeyID     int
-	RequestModel string
-	ClientIP     string
-	ActualModel  string
-	StartTime    time.Time
-	FirstToken   time.Time
+	capture        *relayCapture
+	attemptCapture *exchangeCapture
+	execution      *relayExecution
+	affinity       balancer.AffinityOptions
+	APIKeyID       int
+	RequestModel   string
+	ClientIP       string
+	ActualModel    string
+	StartTime      time.Time
+	FirstToken     time.Time
 
 	Stats model.StatsMetrics
 
@@ -127,6 +129,7 @@ func (m *imagesRelayMetrics) saveLog(ctx context.Context, success bool, err erro
 	}
 
 	relayLog := model.RelayLog{
+		Trace:            m.capture.snapshot(ctx),
 		Time:             m.StartTime.Unix(),
 		RequestModelName: m.RequestModel,
 		RequestAPIKeyID:  m.APIKeyID,

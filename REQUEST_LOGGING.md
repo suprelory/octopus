@@ -33,3 +33,23 @@ Body search covers client and attempted upstream payloads, including new compres
 records. The existing time-window validation applies. Searches are bounded to 500
 candidate requests and 128 MiB of decoded content per call; cursor searches expose
 continuation, and overly broad page searches request a narrower filter.
+
+SSE bodies include a bounded index of up to 256 events, using protocol line
+boundaries (including CRLF split across reads), byte offsets and elapsed times
+from the start of that message. Incomplete final events and index overflow are
+explicit. Stream completion is separate from byte-capture completeness.
+
+Each WebSocket response.create is recorded separately. The original client
+message, final upstream message and actual received/delivered messages are kept
+independently, including upstream error messages before classification. WS
+bodies concatenate raw message bytes; the event index preserves message
+boundaries and text/binary type. They have no invented per-message HTTP status.
+Handshake headers are not recorded for pooled WS connections.
+
+Images and Responses compact use the same request/attempt storage and retain
+final local errors. Multipart requests store a prepared-form description with
+ordered fields and file names, MIME types and sizes; uploaded file bytes are
+omitted. The upstream description reflects model mapping, and is explicitly
+not proof of complete upload. It is bounded to 128 parts and 16 KiB per field.
+JSON image responses, including base64 image data, follow the regular body
+limits. Event and multipart representations are labeled in the viewer.

@@ -1108,6 +1108,11 @@
     },
     "log": {
         "trace": {
+            "events": "事件序列",
+            "allEvents": "全部正文",
+            "eventsTruncated": "事件索引已达上限；正文保留情况见采集状态。",
+            "multipartMetadata": "表单预备数据：包含字段和文件元信息，文件内容已省略；不代表完整上传的字节。",
+            "completion": "流结束状态",
             "clientRequest": "客户端请求",
             "upstreamRequest": "发往上游",
             "upstreamResponse": "上游响应",

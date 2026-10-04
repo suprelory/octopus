@@ -135,6 +135,9 @@ export interface RelayLogDetail extends RelayLog {
 }
 
 export interface RelayMessage {
+	 representation?: 'multipart_metadata' | 'ws_messages';
+	 events?: Array<{ sequence: number; offset: number; bytes: number; elapsed_ms: number; type: string; complete: boolean }>;
+	 events_truncated?: boolean;
     method?: string;
     url?: string;
     status_code?: number;
@@ -149,6 +152,8 @@ export interface RelayMessage {
 }
 
 export interface RelayExchange {
+	 completion_status?: string;
+	 finish_cause?: string;
     attempt_id?: string;
     channel_id?: number;
     channel_name?: string;

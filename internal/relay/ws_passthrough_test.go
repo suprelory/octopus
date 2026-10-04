@@ -86,6 +86,10 @@ func TestForwardViaWSPassthroughNormalizesPayloadAndRecordsMetrics(t *testing.T)
 		streamWriter:    NewWSStreamWriter(context.Background(), serverConn),
 	}
 	ra := &relayAttempt{relayRequest: req, outAdapter: transformer.Outbound(channel.Type), channel: channel, usedKey: channel.Keys[0]}
+	req.metrics.capture = newRelayCapture()
+	req.metrics.capture.startWSClient(rawBody)
+	req.streamWriter.(*WSStreamWriter).capture = req.metrics.capture.client.response
+	ra.capture = req.metrics.capture.beginAttempt(channel, "gpt-4o", "passthrough-key")
 
 	status, err := ra.forwardViaWS(context.Background())
 	if err != nil || status != http.StatusOK {
@@ -121,6 +125,15 @@ func TestForwardViaWSPassthroughNormalizesPayloadAndRecordsMetrics(t *testing.T)
 	}
 	if len(downstreamModels) == 0 {
 		t.Fatalf("expected at least one downstream model replacement")
+	}
+	req.streamWriter.(*WSStreamWriter).finishCapture(true)
+	upstreamCapture := ra.capture.snapshot()
+	downstreamCapture := req.metrics.capture.client.snapshot()
+	if len(upstreamCapture.Response.Events) != 3 || len(downstreamCapture.Response.Events) != 3 || upstreamCapture.Response.StatusCode != nil {
+		t.Fatal("WS message boundaries or status were not captured accurately")
+	}
+	if !strings.Contains(decodedCapture(t, upstreamCapture.Response), "gpt-4o") || strings.Contains(decodedCapture(t, downstreamCapture.Response), "gpt-4o") {
+		t.Fatal("upstream and downstream WS messages were mixed")
 	}
 	if req.metrics.WSExecMode == nil || *req.metrics.WSExecMode != model.RelayLogWSExecModePassthrough {
 		t.Fatalf("expected passthrough ws exec mode, got %#v", req.metrics.WSExecMode)

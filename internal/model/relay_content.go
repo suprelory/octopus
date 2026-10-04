@@ -4,18 +4,32 @@ package model
 // Data is gzip-compressed and is never included in list/detail JSON responses.
 // Body is populated only by the explicit content endpoint.
 type RelayMessage struct {
-	Method        string              `json:"method,omitempty"`
-	URL           string              `json:"url,omitempty"`
-	StatusCode    *int                `json:"status_code,omitempty"`
-	Headers       map[string][]string `json:"headers,omitempty"`
-	ContentType   string              `json:"content_type,omitempty"`
-	State         string              `json:"state"`
-	Reason        string              `json:"reason,omitempty"`
-	Bytes         int64               `json:"bytes"`
-	CapturedBytes int64               `json:"captured_bytes"`
-	Body          string              `json:"body,omitempty"`
-	BodyEncoding  string              `json:"body_encoding,omitempty"`
-	Data          []byte              `json:"-"`
+	Method          string              `json:"method,omitempty"`
+	URL             string              `json:"url,omitempty"`
+	StatusCode      *int                `json:"status_code,omitempty"`
+	Headers         map[string][]string `json:"headers,omitempty"`
+	ContentType     string              `json:"content_type,omitempty"`
+	State           string              `json:"state"`
+	Reason          string              `json:"reason,omitempty"`
+	Bytes           int64               `json:"bytes"`
+	CapturedBytes   int64               `json:"captured_bytes"`
+	Body            string              `json:"body,omitempty"`
+	BodyEncoding    string              `json:"body_encoding,omitempty"`
+	Data            []byte              `json:"-"`
+	Representation  string              `json:"representation,omitempty"`
+	Events          []RelayMessageEvent `json:"events,omitempty"`
+	EventsTruncated bool                `json:"events_truncated,omitempty"`
+}
+
+// Offsets address uncompressed bytes, including SSE delimiters. WS bodies are
+// concatenated application messages; boundaries remain explicit in this index.
+type RelayMessageEvent struct {
+	Sequence  int    `json:"sequence"`
+	Offset    int64  `json:"offset"`
+	Bytes     int64  `json:"bytes"`
+	ElapsedMS int64  `json:"elapsed_ms"`
+	Type      string `json:"type"`
+	Complete  bool   `json:"complete"`
 }
 
 type RelayExchange struct {
@@ -26,6 +40,8 @@ type RelayExchange struct {
 	Transport         string        `json:"transport"`
 	UpstreamRequestID string        `json:"upstream_request_id,omitempty"`
 	Error             string        `json:"error,omitempty"`
+	CompletionStatus  string        `json:"completion_status,omitempty"`
+	FinishCause       string        `json:"finish_cause,omitempty"`
 	Request           *RelayMessage `json:"request,omitempty"`
 	Response          *RelayMessage `json:"response,omitempty"`
 }

@@ -1108,6 +1108,11 @@
     },
     "log": {
         "trace": {
+            "events": "Event sequence",
+            "allEvents": "Entire body",
+            "eventsTruncated": "Event index limit reached; body availability is shown by capture state.",
+            "multipartMetadata": "Prepared form fields and file metadata. File contents are omitted; this is not evidence of a complete upload.",
+            "completion": "Stream completion",
             "clientRequest": "Client request",
             "upstreamRequest": "Upstream request",
             "upstreamResponse": "Upstream response",

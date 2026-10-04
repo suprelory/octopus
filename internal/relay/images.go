@@ -26,6 +26,7 @@ import (
 // ImagesHandler 是 OpenAI Images API 的统一 relay 入口。
 // endpoint 形如：/images/generations、/images/edits、/images/variations（不含 /v1 前缀）。
 func ImagesHandler(endpoint string, c *gin.Context) {
+	trace := startHTTPRelayCapture(c)
 	requestModel, ready := "", false
 	defer recordEarlyHTTPFailure(c, &requestModel, "images", &ready, time.Now())
 	ctx := c.Request.Context()
@@ -117,13 +118,20 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 	// 初始化 Metrics（Images 独立，避免 b64_json 内存膨胀）
 	ready = true
 	metrics := newImagesRelayMetrics(apiKeyID, requestModel, middleware.ClientIP(c))
-	metrics.RequestContent = buildImagesRequestContentForLog(isMultipart, bc, jsonPayload)
+	metrics.capture, metrics.StartTime = trace, trace.started
+	trace.client.request = trace.captureImagesRequest(c.Request, bc, boundary, "")
 
 	// === 早期心跳 ===
 	// 流式：启动早期心跳协程，覆盖前置阶段（连接慢、failover、退避）期间向客户端发 SSE 注释字节
 	// 非流式：无法发送 SSE 注释（破坏 application/json 协议），不施加本地超时
 	hb := startEarlyHeartbeat(c, stream)
 	defer hb.Stop()
+	var savedSuccess bool
+	var savedErr error
+	defer func() {
+		hb.Stop()
+		metrics.SaveWithChannelStats(ctx, savedSuccess, savedErr, iter.Attempts(), false)
+	}()
 
 	var lastErr error
 	var capabilityErr error
@@ -141,7 +149,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 		select {
 		case <-ctx.Done():
 			log.Debugf("request context canceled, stopping retry")
-			metrics.SaveWithChannelStats(ctx, false, context.Canceled, iter.Attempts(), false)
+			savedErr = context.Canceled
 			return
 		default:
 		}
@@ -207,6 +215,14 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 			var retryAt time.Time
 			statusCode, written, usage, upstreamCT, fwdErr := imagesAttempt(ctx, endpoint, c, bc, isMultipart, boundary, jsonPayload, stream, channel, usedKey.ChannelKey, group.FirstTokenTimeOut, metrics, item.ModelName, hb, &retryAt, execution)
 			releaseKey()
+			if metrics.attemptCapture != nil {
+				a := metrics.attemptCapture.snapshot()
+				var status *int
+				if a.Response != nil {
+					status = a.Response.StatusCode
+				}
+				span.SetHTTPDetails(a.AttemptID, status, a.UpstreamRequestID)
+			}
 
 			// 更新 channel key 状态
 			usedKey.StatusCode = statusCode
@@ -222,7 +238,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 				if usage != nil {
 					metrics.SetUsageFromImages(actualModel, *usage)
 				}
-				metrics.ResponseContent = buildImagesResponseContentForLog(stream, upstreamCT, usage)
+				_ = upstreamCT
 
 				op.ChannelKeyUpdateWithDelta(usedKey, metrics.Stats.InputCost+metrics.Stats.OutputCost)
 
@@ -239,7 +255,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 				// Refresh affinity only after the complete image response succeeds.
 				iter.RecordAffinity(channel.ID, usedKey.ID)
 
-				metrics.SaveWithChannelStats(ctx, true, nil, iter.Attempts(), false)
+				savedSuccess = true
 				return
 			}
 
@@ -262,7 +278,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 			}
 
 			if written {
-				metrics.SaveWithChannelStats(ctx, false, fwdErr, iter.Attempts(), false)
+				savedErr = fwdErr
 				return
 			}
 
@@ -292,7 +308,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 	if !sawSupportedCapability && capabilityErr != nil {
 		finalErr = capabilityErr
 	}
-	metrics.SaveWithChannelStats(ctx, false, finalErr, iter.Attempts(), false)
+	savedErr = finalErr
 	if !sawSupportedCapability && capabilityErrorCode != "" {
 		if hb.Handoff() {
 			hb.WriteSSEError(http.StatusBadRequest, capabilityErrorMessage)

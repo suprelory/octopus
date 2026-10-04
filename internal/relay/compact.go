@@ -17,6 +17,7 @@ import (
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/relay/balancer"
+	"github.com/bestruirui/octopus/internal/relay/capture"
 	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/server/resp"
 	"github.com/bestruirui/octopus/internal/utils/log"
@@ -44,6 +45,7 @@ type responsesCompactResponse struct {
 
 // HandleResponsesCompact proxies OpenAI-compatible /responses/compact requests upstream.
 func HandleResponsesCompact(c *gin.Context) {
+	captureTrace := startHTTPRelayCapture(c)
 	requestModel, ready := "", false
 	defer recordEarlyHTTPFailure(c, &requestModel, "responses", &ready, time.Now())
 	body, err := io.ReadAll(c.Request.Body)
@@ -101,6 +103,13 @@ func HandleResponsesCompact(c *gin.Context) {
 	metricsReq := &transformerModel.InternalLLMRequest{Model: requestModel, RawRequest: body}
 	ready = true
 	metrics := NewRelayMetrics(apiKeyID, requestModel, "responses", middleware.ClientIP(c), body, metricsReq)
+	metrics.capture, metrics.StartTime = captureTrace, captureTrace.started
+	captureTrace.recordClientRequest(body)
+	var savedSuccess bool
+	var savedErr error
+	defer func() {
+		metrics.SaveWithChannelStats(c.Request.Context(), savedSuccess, savedErr, iter.Attempts(), false)
+	}()
 
 	var lastErr error
 	var capabilityErr error
@@ -122,7 +131,7 @@ func HandleResponsesCompact(c *gin.Context) {
 		select {
 		case <-c.Request.Context().Done():
 			log.Infof("compact request context canceled, stopping retry")
-			metrics.SaveWithChannelStats(c.Request.Context(), false, context.Canceled, iter.Attempts(), false)
+			savedErr = context.Canceled
 			return
 		default:
 		}
@@ -227,7 +236,7 @@ func HandleResponsesCompact(c *gin.Context) {
 				op.StatsChannelUpdate(channel.ID, dbmodel.StatsMetrics{RequestSuccess: 1})
 				balancer.RecordSuccess(channel.ID, usedKey.ID, item.ModelName)
 				iter.RecordAffinity(channel.ID, usedKey.ID)
-				metrics.SaveWithChannelStats(c.Request.Context(), true, nil, iter.Attempts(), false)
+				savedSuccess = true
 				return
 			}
 
@@ -262,7 +271,7 @@ func HandleResponsesCompact(c *gin.Context) {
 	if !sawSupportedCapability && capabilityErr != nil {
 		finalErr = capabilityErr
 	}
-	metrics.SaveWithChannelStats(c.Request.Context(), false, finalErr, iter.Attempts(), false)
+	savedErr = finalErr
 	if !sawSupportedCapability && lastStatusCode == 0 && capabilityErrorCode != "" {
 		resp.ErrorWithCode(c, http.StatusBadRequest, capabilityErrorCode, capabilityErrorMessage)
 		return
@@ -295,11 +304,20 @@ func writeCompactFailure(c *gin.Context, result attemptResult, err error) {
 	resp.ErrorWithCode(c, responseError.StatusCode, responseError.Detail.Code, responseError.Detail.Message)
 }
 
-func forwardResponsesCompactWithRetryAt(c *gin.Context, metrics *RelayMetrics, iter *balancer.Iterator, channel *dbmodel.Channel, usedKey dbmodel.ChannelKey, mappedModel string, requestBody []byte, trace balancer.CapabilityTrace, execution *relayExecution) (int, time.Time, error) {
+func forwardResponsesCompactWithRetryAt(c *gin.Context, metrics *RelayMetrics, iter *balancer.Iterator, channel *dbmodel.Channel, usedKey dbmodel.ChannelKey, mappedModel string, requestBody []byte, trace balancer.CapabilityTrace, execution *relayExecution) (resultStatus int, resultRetry time.Time, resultErr error) {
 	ctx, cancel := execution.budget.attemptContext(c.Request.Context())
 	defer cancel()
 	span := iter.StartAttempt(channel.ID, usedKey.ID, channel.Name)
 	span.SetCapability(trace)
+	exchange := metrics.capture.beginAttempt(channel, mappedModel, usedKey.ChannelKey)
+	defer func() {
+		if exchange != nil && resultErr != nil {
+			exchange.info.Error = capture.Text(resultErr.Error(), exchange.secrets...)
+		}
+	}()
+	if exchange != nil {
+		span.SetHTTPDetails(exchange.info.AttemptID, nil, "")
+	}
 	requestBody, err := replaceRequiredJSONModel(requestBody, mappedModel)
 	if err != nil {
 		classified := classifyLocalRelayError(FailureConfiguration, fmt.Errorf("failed to apply compact model mapping: %w", err))
@@ -340,6 +358,10 @@ func forwardResponsesCompactWithRetryAt(c *gin.Context, metrics *RelayMetrics, i
 	metrics.SetTransportRequestPayload(requestBody, actualModel)
 	metrics.ActualModel = actualModel
 	copyProxyHeaders(c.Request.Header, channel, request.Header)
+	if exchange != nil {
+		exchange.info.Model = actualModel
+	}
+	metrics.capture.upstreamRequest(exchange, request)
 
 	response, err := sendCompactRequest(channel, request, func() error {
 		return execution.reserveSubmission(ctx, relayCandidate{channel.ID, usedKey.ID, mappedModel})
@@ -355,6 +377,10 @@ func forwardResponsesCompactWithRetryAt(c *gin.Context, metrics *RelayMetrics, i
 		return 0, time.Time{}, wrapped
 	}
 	defer response.Body.Close()
+	metrics.capture.upstreamResponse(exchange, response)
+	if exchange != nil {
+		span.SetHTTPDetails(exchange.info.AttemptID, &response.StatusCode, exchange.info.UpstreamRequestID)
+	}
 
 	body, readErr := httpio.ReadResponseBody(response.Body)
 	if readErr != nil {

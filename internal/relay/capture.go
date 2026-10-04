@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -156,6 +157,9 @@ func (w *captureResponseWriter) head() {
 	if w.status == nil && w.ResponseWriter.Written() {
 		status := w.ResponseWriter.Status()
 		w.status, w.headers = &status, capture.Headers(w.ResponseWriter.Header())
+		if strings.HasPrefix(strings.ToLower(w.ResponseWriter.Header().Get("Content-Type")), "text/event-stream") {
+			w.body.EnableSSE()
+		}
 	}
 }
 

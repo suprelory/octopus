@@ -16,6 +16,7 @@ import (
 	"github.com/bestruirui/octopus/internal/helper"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/relay/bodycache"
+	"github.com/bestruirui/octopus/internal/relay/capture"
 	transformerModel "github.com/bestruirui/octopus/polywire/model"
 	"github.com/gin-gonic/gin"
 )
@@ -40,6 +41,27 @@ func imagesAttempt(
 	retryAtOut *time.Time,
 	executions ...*relayExecution,
 ) (statusCode int, written bool, usage *imagesUsage, upstreamCT string, err error) {
+	var trace *relayCapture
+	var exchange *exchangeCapture
+	if metrics != nil {
+		trace = metrics.capture
+		exchange = trace.beginAttempt(channel, actualModel, channelKey)
+		metrics.attemptCapture = exchange
+	}
+	defer func() {
+		if exchange == nil {
+			return
+		}
+		if err != nil {
+			exchange.info.Error = capture.Text(err.Error(), exchange.secrets...)
+		}
+		if stream {
+			exchange.info.CompletionStatus = "completed"
+			if err != nil {
+				exchange.info.CompletionStatus = "interrupted"
+			}
+		}
+	}()
 	var execution *relayExecution
 	var budget *firstTokenBudget
 	if len(executions) > 0 {
@@ -151,7 +173,16 @@ func imagesAttempt(
 			return 0, false, nil, "", err
 		}
 	}
+	if exchange != nil {
+		exchange.info.Model = actualModel
+		if isMultipart {
+			exchange.request = trace.captureImagesRequest(req, bc, boundary, actualModel, exchange.secrets...)
+		} else {
+			trace.upstreamRequest(exchange, req)
+		}
+	}
 	respUp, err := httpClient.Do(req)
+	trace.upstreamResponse(exchange, respUp)
 	if err != nil {
 		return 0, false, nil, "", fmt.Errorf("failed to send request: %w", err)
 	}

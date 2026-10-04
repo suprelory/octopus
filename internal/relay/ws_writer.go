@@ -3,6 +3,7 @@ package relay
 import (
 	"bytes"
 	"context"
+	"github.com/bestruirui/octopus/internal/relay/capture"
 	"net/http"
 	"sync"
 
@@ -16,6 +17,8 @@ type WSStreamWriter struct {
 	ctx     context.Context
 	written bool
 	mu      sync.Mutex
+	capture *capture.Body
+	failed  bool
 }
 
 func NewWSStreamWriter(ctx context.Context, conn *websocket.Conn) *WSStreamWriter {
@@ -40,8 +43,10 @@ func (w *WSStreamWriter) Write(data []byte) (int, error) {
 		err := w.conn.Write(writeCtx, websocket.MessageText, line)
 		cancel()
 		if err != nil {
+			w.failed = true
 			return 0, err
 		}
+		w.capture.ObserveFrame(line, false)
 	}
 	return len(data), nil
 }
@@ -52,7 +57,19 @@ func (w *WSStreamWriter) writeFrame(ctx context.Context, data []byte) error {
 	w.written = true
 	writeCtx, cancel := context.WithTimeout(ctx, wsWriteTimeout)
 	defer cancel()
-	return w.conn.Write(writeCtx, websocket.MessageText, data)
+	err := w.conn.Write(writeCtx, websocket.MessageText, data)
+	if err != nil {
+		w.failed = true
+	} else {
+		w.capture.ObserveFrame(data, false)
+	}
+	return err
+}
+
+func (w *WSStreamWriter) finishCapture(complete bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.capture.Finish(complete && !w.failed)
 }
 
 func (w *WSStreamWriter) Flush() {

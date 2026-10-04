@@ -1108,6 +1108,11 @@
     },
     "log": {
         "trace": {
+            "events": "事件序列",
+            "allEvents": "全部正文",
+            "eventsTruncated": "事件索引已達上限；正文保留情況見擷取狀態。",
+            "multipartMetadata": "表單預備資料：包含欄位與檔案資訊，檔案內容已省略；不代表完整上傳的位元組。",
+            "completion": "串流結束狀態",
             "clientRequest": "用戶端請求",
             "upstreamRequest": "發往上游",
             "upstreamResponse": "上游回應",

@@ -28,10 +28,15 @@ func processWSResponseCreate(
 	conversationState *wsConversationState,
 ) *wsConversationState {
 	started := time.Now()
+	trace := newRelayCapture()
+	trace.started = started
+	trace.startWSClient(nil)
+	ctx = context.WithValue(ctx, relayCaptureKey{}, trace)
 	requestModel := ""
 	reject := func(status int, code, message string) {
-		recordRelayRejection(ctx, apiKeyID, requestModel, "responses", clientIP, status, code, message, started, true)
 		writeWSError(ctx, conn, status, code, message)
+		trace.client.response.Finish(ctx.Err() == nil)
+		recordRelayRejection(ctx, apiKeyID, requestModel, "responses", clientIP, status, code, message, started, true)
 	}
 	var reqBody map[string]json.RawMessage
 	if err := json.Unmarshal(data, &reqBody); err != nil {
@@ -142,6 +147,7 @@ func processWSResponseCreate(
 	}
 
 	requestModel = executionRequest.Model
+	trace.startWSClient(data)
 	req, group, err := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, clientIP, cloneInternalRequest(executionRequest), originalRequest, preferredSticky, bodyBytes)
 	if err != nil {
 		status := 404
@@ -268,13 +274,20 @@ func newWSRelayRequest(
 		return nil, nil, fmt.Errorf("no available channel")
 	}
 
+	metrics := NewRelayMetrics(apiKeyID, requestModel, "responses", clientIP, rawBody, metricsRequest)
+	metrics.capture = captureFromContext(ctx)
+	writer := NewWSStreamWriter(ctx, conn)
+	if metrics.capture != nil {
+		metrics.StartTime = metrics.capture.started
+		writer.capture = metrics.capture.client.response
+	}
 	return &relayRequest{
 		c:                 nil,
 		ctx:               ctx,
 		inAdapter:         inAdapter,
 		inboundType:       inbound.InboundTypeOpenAIResponse,
 		internalRequest:   executionRequest,
-		metrics:           NewRelayMetrics(apiKeyID, requestModel, "responses", clientIP, rawBody, metricsRequest),
+		metrics:           metrics,
 		apiKeyID:          apiKeyID,
 		requestModel:      requestModel,
 		groupID:           group.ID,
@@ -283,7 +296,7 @@ func newWSRelayRequest(
 		capabilityPlanner: capabilityPlanner,
 		candidateSnapshot: candidateSnapshot,
 		rawBody:           rawBody,
-		streamWriter:      NewWSStreamWriter(ctx, conn),
+		streamWriter:      writer,
 		capabilityPolicy:  getCapabilityDegradationPolicy(),
 		execution:         newRelayExecution(group, emptyResponseDetectionEnabled()),
 	}, &group, nil

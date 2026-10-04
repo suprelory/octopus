@@ -47,3 +47,31 @@ for (const width of [1440, 390]) {
         expect(state.pageErrors).toEqual([]);
     });
 }
+
+test('stream event selection uses byte offsets across Unicode messages', async ({ page }) => {
+    const first = 'data: {"delta":"你好"}\r\n\r\n';
+    const last = 'data: {"delta":"结束"}\n\n';
+    const body = first + last;
+    const firstBytes = new TextEncoder().encode(first).length;
+    const response: RelayMessage = { ...message(body), bytes: new TextEncoder().encode(body).length, captured_bytes: new TextEncoder().encode(body).length, content_type: 'text/event-stream', events: [
+        { sequence: 1, offset: 0, bytes: firstBytes, elapsed_ms: 10, type: 'sse', complete: true },
+        { sequence: 2, offset: firstBytes, bytes: new TextEncoder().encode(last).length, elapsed_ms: 30, type: 'sse', complete: true },
+    ] };
+    const streamDetail = { ...detail, trace: { ...detail.trace!, client: { ...detail.trace!.client, response } } };
+    await page.addInitScript(() => localStorage.setItem('log-ui-storage', JSON.stringify({ state: { liveEnabled: false, pageSize: 20 }, version: 0 })));
+    const state = await mockApp(page, 'log', { logs: [streamDetail] });
+    await page.route('**/api/v1/log/1', route => route.fulfill({ json: { code: 200, data: streamDetail } }));
+    await page.route('**/api/v1/log/1/content?**', route => {
+        const isResponse = new URL(route.request().url()).searchParams.get('direction') === 'response';
+        return route.fulfill({ json: { code: 200, data: isResponse ? { ...response, body } : { ...message(bodies['client/request']), body: bodies['client/request'] } } });
+    });
+    await page.goto('/');
+    await page.getByRole('button', { name: /trace-model/ }).first().click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('tab', { name: '返回客户端', exact: true }).click();
+    await dialog.getByRole('combobox', { name: '事件序列' }).selectOption('2');
+    await expect(dialog.locator('pre').last()).toHaveText(last);
+    await dialog.getByRole('combobox', { name: '事件序列' }).selectOption('1');
+    await expect(dialog.locator('pre').last()).toHaveText(first);
+    expect(state.pageErrors).toEqual([]);
+});

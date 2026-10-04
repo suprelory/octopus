@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"compress/gzip"
 	"io"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
 )
@@ -36,6 +38,13 @@ type Body struct {
 	compressed bytes.Buffer
 	writer     *gzip.Writer
 	done       bool
+	started    time.Time
+	sse        bool
+	eventStart int64
+	position   int64
+	lineBytes  int64
+	pendingCR  bool
+	boundary   bool
 }
 
 func NewBody(message model.RelayMessage, budget *Budget, limit int64) *Body {
@@ -44,7 +53,7 @@ func NewBody(message model.RelayMessage, budget *Budget, limit int64) *Body {
 		message.State = "not_captured"
 		message.Reason = "disabled"
 	}
-	return &Body{message: message, budget: budget, limit: limit}
+	return &Body{message: message, budget: budget, limit: limit, started: time.Now(), sse: strings.HasPrefix(strings.ToLower(message.ContentType), "text/event-stream")}
 }
 
 // Observe never returns an error to the forwarding path. Compression happens
@@ -55,6 +64,11 @@ func (b *Body) Observe(p []byte) {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.observe(p)
+}
+
+// observe requires mu. Event parsing sees retained bytes only.
+func (b *Body) observe(p []byte) {
 	if b.done {
 		return
 	}
@@ -69,6 +83,7 @@ func (b *Body) Observe(p []byte) {
 	if n < len(p) {
 		b.message.State = "truncated"
 		b.message.Reason = "size_limit"
+		b.message.EventsTruncated = b.sse || len(b.message.Events) > 0
 	}
 	if n == 0 {
 		return
@@ -78,6 +93,9 @@ func (b *Body) Observe(p []byte) {
 	}
 	_, _ = b.writer.Write(p[:n])
 	b.message.CapturedBytes += int64(n)
+	if b.sse {
+		b.observeSSE(p[:n])
+	}
 }
 
 func (b *Body) Finish(complete bool) {
@@ -90,6 +108,15 @@ func (b *Body) Finish(complete bool) {
 		return
 	}
 	b.done = true
+	if b.sse {
+		if b.pendingCR && b.boundary {
+			b.appendEvent(b.eventStart, b.position-b.eventStart, "sse", true)
+			b.eventStart = b.position
+		}
+		if b.position > b.eventStart {
+			b.appendEvent(b.eventStart, b.position-b.eventStart, "sse", false)
+		}
+	}
 	if b.writer != nil {
 		_ = b.writer.Close()
 	}
