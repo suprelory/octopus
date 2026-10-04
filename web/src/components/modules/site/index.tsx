@@ -70,6 +70,8 @@ export function Site({ kind = 'relay' }: { kind?: SiteKind }) {
   const view = useSiteView(sites, forcedSiteId, isCheckin ? 'checkin' : 'site');
   const {
     searchTerm,
+    siteFilterStatuses,
+    siteStatusSummary,
     checkinFilterStatuses,
     tagFilters,
     statusDayKey,
@@ -79,6 +81,7 @@ export function Site({ kind = 'relay' }: { kind?: SiteKind }) {
     visibleSites,
     hasActiveFilters,
     visibleAccountCount,
+    handleSiteFilterChange,
     handleCheckinFilterChange,
     handleTagFilterChange,
     clearFilters,
@@ -203,6 +206,9 @@ export function Site({ kind = 'relay' }: { kind?: SiteKind }) {
           onTagFilterChange={handleTagFilterChange}
         /> : <SiteOverviewPanel
           inventory={inventory}
+          statusSummary={siteStatusSummary}
+          activeFilterStatuses={siteFilterStatuses}
+          onFilterChange={handleSiteFilterChange}
           visibleSiteCount={visibleSites.length}
           visibleAccountCount={visibleAccountCount}
           allTags={allTags}

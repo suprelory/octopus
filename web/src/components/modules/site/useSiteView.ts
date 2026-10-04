@@ -8,9 +8,11 @@ import { useSiteUIStore } from "./ui-store";
 
 import { PLATFORM_LABELS, matchesSearch, normalizeSearchTerm } from "./site-display";
 import { buildSiteSummary } from "./site-summary";
+import { buildSiteStatusSummary, deriveSiteStatus, type SiteActiveFilterStatus, type SiteFilterStatus } from "./site-status";
 import { VisibleSite } from "./types";
 
 const EMPTY_CHECKIN_FILTERS: CheckinActiveFilterStatus[] = [];
+const EMPTY_SITE_FILTERS: SiteActiveFilterStatus[] = [];
 
 export function useSiteView(sites: SiteRecord[] | undefined, forcedSiteId: number | null, page: 'site' | 'checkin' = 'site') {
   const [statusDayKey, setStatusDayKey] = useState(() => {
@@ -25,6 +27,10 @@ export function useSiteView(sites: SiteRecord[] | undefined, forcedSiteId: numbe
   const siteSortField = useToolbarViewOptionsStore((state) => state.getSortField(page));
 
   const siteSortOrder = useToolbarViewOptionsStore((state) => state.getSortOrder(page));
+
+  const siteFilterStatuses = useSiteUIStore((state) => page === 'site' ? state.siteFilterStatuses : EMPTY_SITE_FILTERS);
+
+  const setSiteFilterStatuses = useSiteUIStore((state) => state.setSiteFilterStatuses);
 
   const checkinFilterStatuses = useSiteUIStore((state) => page === 'checkin' ? state.checkinFilterStatuses : EMPTY_CHECKIN_FILTERS);
 
@@ -75,12 +81,22 @@ export function useSiteView(sites: SiteRecord[] | undefined, forcedSiteId: numbe
 
   const allTagNames = useMemo(() => allTags.map((item) => item.tag), [allTags]);
 
+  const siteStatusSummary = useMemo(() => buildSiteStatusSummary(sites), [sites]);
+
   const visibleSites = useMemo<VisibleSite[]>(() => {
     const hasSearch = normalizedQuery.length > 0;
 
     const list = (sites ?? []).flatMap((site) => {
       const summary = buildSiteSummary(site);
       const isForcedTarget = forcedSiteId === site.id;
+
+      if (
+        siteFilterStatuses.length > 0 &&
+        !isForcedTarget &&
+        !siteFilterStatuses.includes(deriveSiteStatus(site))
+      ) {
+        return [];
+      }
 
       if (
         tagFilters.length > 0 &&
@@ -169,6 +185,7 @@ export function useSiteView(sites: SiteRecord[] | undefined, forcedSiteId: numbe
   }, [
     sites,
     normalizedQuery,
+    siteFilterStatuses,
     checkinFilterStatuses,
     tagFilters,
     forcedSiteId,
@@ -177,12 +194,23 @@ export function useSiteView(sites: SiteRecord[] | undefined, forcedSiteId: numbe
   ]);
 
   const hasActiveFilters =
-    normalizedQuery.length > 0 || checkinFilterStatuses.length > 0 || tagFilters.length > 0;
+    normalizedQuery.length > 0 || siteFilterStatuses.length > 0 || checkinFilterStatuses.length > 0 || tagFilters.length > 0;
 
   const visibleAccountCount = visibleSites.reduce(
     (sum, item) => sum + item.visibleAccounts.length,
     0,
   );
+
+  function handleSiteFilterChange(status: SiteFilterStatus) {
+    if (status === "all") {
+      setSiteFilterStatuses([]);
+      return;
+    }
+
+    setSiteFilterStatuses((current) =>
+      current.includes(status) ? current.filter((item) => item !== status) : [...current, status],
+    );
+  }
 
   function handleCheckinFilterChange(status: CheckinFilterStatus) {
     if (status === "all") {
@@ -204,6 +232,7 @@ export function useSiteView(sites: SiteRecord[] | undefined, forcedSiteId: numbe
   function clearFilters() {
     setSearchTerm(page, "");
     if (page === 'checkin') setCheckinFilterStatuses([]);
+    else setSiteFilterStatuses([]);
     setTagFilters([]);
   }
 
@@ -220,6 +249,8 @@ export function useSiteView(sites: SiteRecord[] | undefined, forcedSiteId: numbe
 
   return {
     searchTerm,
+    siteFilterStatuses,
+    siteStatusSummary,
     checkinFilterStatuses,
     tagFilters,
     statusDayKey,
@@ -229,6 +260,7 @@ export function useSiteView(sites: SiteRecord[] | undefined, forcedSiteId: numbe
     visibleSites,
     hasActiveFilters,
     visibleAccountCount,
+    handleSiteFilterChange,
     handleCheckinFilterChange,
     handleTagFilterChange,
     clearFilters,
