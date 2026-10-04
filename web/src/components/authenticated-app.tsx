@@ -30,6 +30,7 @@ export function AuthenticatedApp() {
     const prefetchStartedRef = useRef(false);
     const proxyPoolDialogOpen = useProxyPoolDialogStore((state) => state.isOpen);
     const showToolbar = visibleItem === 'site'
+        || visibleItem === 'checkin'
         || visibleItem === 'channel'
         || visibleItem === 'group'
         || visibleItem === 'model'
