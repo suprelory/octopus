@@ -1,5 +1,7 @@
 package model
 
+import "encoding/json"
+
 // RelayMessage describes application-level bytes observed at one transport boundary.
 // Data is gzip-compressed and is never included in list/detail JSON responses.
 // Body is populated only by the explicit content endpoint.
@@ -19,6 +21,19 @@ type RelayMessage struct {
 	Representation  string              `json:"representation,omitempty"`
 	Events          []RelayMessageEvent `json:"events,omitempty"`
 	EventsTruncated bool                `json:"events_truncated,omitempty"`
+	RawUsage        []RelayRawUsage     `json:"raw_usage,omitempty"`
+}
+
+type RelayRawUsage struct {
+	Event int             `json:"event"`
+	Path  string          `json:"path"`
+	Value json.RawMessage `json:"value"`
+}
+
+type RelayTiming struct {
+	Phase     string `json:"phase"`
+	ElapsedMS int64  `json:"elapsed_ms"`
+	Reused    bool   `json:"reused,omitempty"`
 }
 
 // Offsets address uncompressed bytes, including SSE delimiters. WS bodies are
@@ -42,14 +57,16 @@ type RelayExchange struct {
 	Error             string        `json:"error,omitempty"`
 	CompletionStatus  string        `json:"completion_status,omitempty"`
 	FinishCause       string        `json:"finish_cause,omitempty"`
+	Timings           []RelayTiming `json:"timings,omitempty"`
 	Request           *RelayMessage `json:"request,omitempty"`
 	Response          *RelayMessage `json:"response,omitempty"`
 }
 
 type RelayTrace struct {
-	ID       string          `json:"id"`
-	Client   RelayExchange   `json:"client"`
-	Attempts []RelayExchange `json:"attempts"`
+	ServingAttemptID string          `json:"serving_attempt_id,omitempty"`
+	ID               string          `json:"id"`
+	Client           RelayExchange   `json:"client"`
+	Attempts         []RelayExchange `json:"attempts"`
 }
 
 // Body columns live outside relay_logs so list queries, retention and live

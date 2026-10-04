@@ -8,17 +8,22 @@ import { getLogContent, type RelayTrace } from '@/api/endpoints/log';
 import { CopyIconButton } from '@/components/common/CopyButton';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { LogTraceActions } from './LogTraceActions';
+import { LogTraceComparison } from './LogTraceComparison';
+import { LogTraceTimeline } from './LogTraceTimeline';
+import { downloadTraceFile, messageFilename } from './trace-tools';
 
 const stages = ['clientRequest', 'upstreamRequest', 'upstreamResponse', 'clientResponse'] as const;
 type Stage = typeof stages[number];
 
 export function LogTracePanels({ id, trace }: { id: number; trace: RelayTrace }) {
     const t = useTranslations('log.trace');
-    const [attemptId, setAttemptId] = useState(trace.attempts.at(-1)?.attempt_id ?? '');
+    const [attemptId, setAttemptId] = useState(trace.serving_attempt_id ?? trace.attempts.at(-1)?.attempt_id ?? '');
     const [stage, setStage] = useState<Stage>('clientRequest');
     const [formatted, setFormatted] = useState(false);
     const [search, setSearch] = useState('');
     const [eventSelection, setEventSelection] = useState<{ key: string; sequence: number }>();
+    const [comparing, setComparing] = useState(false);
     const upstream = stage.startsWith('upstream');
     const direction = stage.endsWith('Request') ? 'request' : 'response';
     const exchange = upstream ? trace.attempts.find(attempt => attempt.attempt_id === attemptId) : trace.client;
@@ -54,12 +59,7 @@ export function LogTracePanels({ id, trace }: { id: number; trace: RelayTrace })
     const matches = useMemo(() => search ? text.toLocaleLowerCase().split(search.toLocaleLowerCase()).length - 1 : 0, [search, text]);
     const download = () => {
         const data = message?.body_encoding === 'base64' ? Uint8Array.from(atob(body), char => char.charCodeAt(0)) : body;
-        const url = URL.createObjectURL(new Blob([data], { type: 'application/octet-stream' }));
-        const anchor = document.createElement('a');
-        anchor.href = url;
-        anchor.download = `${trace.id}-${upstream ? attemptId : 'client'}-${direction}.txt`;
-        anchor.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        downloadTraceFile(`${messageFilename(trace.id, upstream ? attemptId : '', direction)}.txt`, data);
     };
 
     return (
@@ -67,10 +67,12 @@ export function LogTracePanels({ id, trace }: { id: number; trace: RelayTrace })
             <div className="flex flex-wrap items-center gap-2 text-xs">
                 <span className="truncate font-mono" title={trace.id}>{trace.id}</span>
                 <CopyIconButton text={trace.id} />
+                {trace.serving_attempt_id && <Badge variant="outline">{t('servingAttempt', { attempt: trace.serving_attempt_id })}</Badge>}
                 {trace.attempts.length > 0 && <select aria-label={t('attempt')} className="ml-auto max-w-full rounded-md border bg-background p-1.5" value={attemptId} onChange={event => setAttemptId(event.target.value)}>
                     {trace.attempts.map(attempt => <option key={attempt.attempt_id} value={attempt.attempt_id}>#{attempt.attempt_id} · {attempt.channel_name} · {attempt.model} · {attempt.response?.status_code ?? attempt.transport}</option>)}
                 </select>}
             </div>
+            <LogTraceTimeline trace={trace} />
             <div className="flex flex-wrap gap-1" role="tablist" aria-label={t('messages')}>
                 {stages.map(value => <Button key={value} size="sm" role="tab" aria-selected={stage === value} variant={stage === value ? 'secondary' : 'ghost'} onClick={() => setStage(value)}>{t(value)}</Button>)}
             </div>
@@ -89,7 +91,9 @@ export function LogTracePanels({ id, trace }: { id: number; trace: RelayTrace })
                 {exchange?.upstream_request_id && <div className="text-xs">{t('upstreamId')}: <span className="font-mono">{exchange.upstream_request_id}</span></div>}
                 {upstream && exchange?.error && <div className="max-h-20 overflow-auto break-words text-xs text-destructive">{exchange.error}</div>}
                 <details className="shrink-0 text-xs"><summary className="cursor-pointer py-1">{t('headers')}</summary><pre className="max-h-36 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted p-2">{JSON.stringify(message.headers ?? {}, null, 2)}</pre></details>
-                <div className="flex flex-wrap items-center gap-2">
+                {direction === 'response' && query.data && <details className="shrink-0 text-xs"><summary className="cursor-pointer py-1">{t('rawUsage')}</summary><p className="text-muted-foreground">{t('rawUsageHint')}</p><pre className="max-h-36 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted p-2">{message.raw_usage?.length ? JSON.stringify(message.raw_usage, null, 2) : t('noRawUsage')}</pre></details>}
+                <LogTraceActions id={id} trace={trace} attemptId={attemptId} direction={direction} upstream={upstream} exchange={exchange} message={message} pending={canFetch && (query.isPending || query.isError)} comparing={comparing} onCompare={() => setComparing(value => !value)} />
+                {!comparing && <div className="flex flex-wrap items-center gap-2">
                     {!!message.events?.length && <select aria-label={t('events')} className="max-w-full rounded-md border bg-background p-1.5 text-xs" value={event?.sequence ?? 0} onChange={e => setEventSelection({ key: selectionKey, sequence: Number(e.target.value) })}>
                         <option value={0}>{t('allEvents')}</option>
                         {message.events.map(item => <option key={item.sequence} value={item.sequence}>#{item.sequence} · +{item.elapsed_ms} ms · {item.type} · {item.bytes} B{item.complete ? '' : ` · ${t('states.partial')}`}</option>)}
@@ -99,9 +103,9 @@ export function LogTracePanels({ id, trace }: { id: number; trace: RelayTrace })
                     <Button size="sm" variant="ghost" aria-pressed={formatted} onClick={() => setFormatted(value => !value)}>{formatted ? t('raw') : t('format')}</Button>
                     <CopyIconButton text={text} />
                     <Button size="icon" variant="ghost" aria-label={t('download')} disabled={!query.data || !body} onClick={download}><Download className="size-4" /></Button>
-                </div>
+                </div>}
                 {message.events_truncated && <p className="text-xs text-muted-foreground">{t('eventsTruncated')}</p>}
-                {canFetch && query.isPending ? <p className="text-sm text-muted-foreground">{t('loading')}</p> : query.isError ? <div className="text-sm text-destructive">{query.error.message}<Button size="sm" variant="ghost" onClick={() => query.refetch()}>{t('retry')}</Button></div> : <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background p-3 font-mono text-xs">{text || t('empty')}</pre>}
+                {comparing ? <LogTraceComparison id={id} trace={trace} attemptId={attemptId} direction={direction} /> : canFetch && query.isPending ? <p className="text-sm text-muted-foreground">{t('loading')}</p> : query.isError ? <div className="text-sm text-destructive">{query.error.message}<Button size="sm" variant="ghost" onClick={() => query.refetch()}>{t('retry')}</Button></div> : <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background p-3 font-mono text-xs">{text || t('empty')}</pre>}
             </> : <p className="text-sm text-muted-foreground">{t('noMessage')}</p>}
         </div>
     );

@@ -314,6 +314,9 @@ func forwardResponsesCompactWithRetryAt(c *gin.Context, metrics *RelayMetrics, i
 		if exchange != nil && resultErr != nil {
 			exchange.info.Error = capture.Text(resultErr.Error(), exchange.secrets...)
 		}
+		if exchange != nil {
+			exchange.snapshot()
+		}
 	}()
 	if exchange != nil {
 		span.SetHTTPDetails(exchange.info.AttemptID, nil, "")
@@ -410,6 +413,7 @@ func forwardResponsesCompactWithRetryAt(c *gin.Context, metrics *RelayMetrics, i
 		contentType = "application/json"
 	}
 	execution.committed.Store(true)
+	metrics.capture.bindDownstream(exchange)
 	c.Data(response.StatusCode, contentType, body)
 
 	var compactResp responsesCompactResponse

@@ -82,6 +82,7 @@ func imagesAttempt(
 		}()
 	}
 	commit := func() {
+		trace.bindDownstream(exchange)
 		budget.stopTimer()
 		if execution != nil {
 			execution.committed.Store(true)
@@ -176,6 +177,7 @@ func imagesAttempt(
 	if exchange != nil {
 		exchange.info.Model = actualModel
 		if isMultipart {
+			exchange.traceHTTP(req)
 			exchange.request = trace.captureImagesRequest(req, bc, boundary, actualModel, exchange.secrets...)
 		} else {
 			trace.upstreamRequest(exchange, req)

@@ -26,6 +26,7 @@ type wsUpstreamReader struct {
 	statusCode int
 	retryAt    time.Time
 	capture    *capture.Body
+	firstByte  func()
 }
 
 func newWSUpstreamReader(pc *pooledConn, channelID, keyID int) *wsUpstreamReader {
@@ -68,6 +69,10 @@ func (r *wsUpstreamReader) ReadSourceEvent(ctx context.Context) (model.SourceEve
 		return model.SourceEvent{}, fmt.Errorf("ws read error: %w", err)
 	}
 
+	if r.firstByte != nil {
+		r.firstByte()
+		r.firstByte = nil
+	}
 	r.capture.ObserveFrame(data, msgType == websocket.MessageBinary)
 	if msgType != websocket.MessageText {
 		return model.SourceEvent{}, fmt.Errorf("unexpected ws message type: %d", msgType)

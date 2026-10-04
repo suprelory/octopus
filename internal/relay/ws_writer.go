@@ -13,12 +13,14 @@ import (
 // WSStreamWriter implements StreamWriter for WebSocket clients.
 // It converts SSE "data: {...}\n\n" formatted bytes to bare JSON WebSocket text frames.
 type WSStreamWriter struct {
-	conn    *websocket.Conn
-	ctx     context.Context
-	written bool
-	mu      sync.Mutex
-	capture *capture.Body
-	failed  bool
+	conn      *websocket.Conn
+	ctx       context.Context
+	written   bool
+	mu        sync.Mutex
+	capture   *capture.Body
+	failed    bool
+	trace     *relayCapture
+	firstByte bool
 }
 
 func NewWSStreamWriter(ctx context.Context, conn *websocket.Conn) *WSStreamWriter {
@@ -47,6 +49,7 @@ func (w *WSStreamWriter) Write(data []byte) (int, error) {
 			return 0, err
 		}
 		w.capture.ObserveFrame(line, false)
+		w.delivered()
 	}
 	return len(data), nil
 }
@@ -62,8 +65,20 @@ func (w *WSStreamWriter) writeFrame(ctx context.Context, data []byte) error {
 		w.failed = true
 	} else {
 		w.capture.ObserveFrame(data, false)
+		w.delivered()
 	}
 	return err
+}
+
+func (w *WSStreamWriter) delivered() {
+	if w.trace == nil {
+		return
+	}
+	w.trace.delivered()
+	if !w.firstByte {
+		w.trace.client.timing("downstream_first_byte", false)
+		w.firstByte = true
+	}
 }
 
 func (w *WSStreamWriter) finishCapture(complete bool) {

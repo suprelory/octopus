@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	dbmodel "github.com/bestruirui/octopus/internal/model"
@@ -25,12 +26,18 @@ type relayCapture struct {
 	client   *exchangeCapture
 	attempts []*exchangeCapture
 	writer   *captureResponseWriter
+	active   atomic.Pointer[exchangeCapture]
+	served   atomic.Pointer[exchangeCapture]
 }
 
 type exchangeCapture struct {
 	info              dbmodel.RelayExchange
 	request, response *capture.Body
 	secrets           []string
+	mu                sync.Mutex
+	origin            time.Time
+	timings           []dbmodel.RelayTiming
+	ended             bool
 }
 
 func newRelayCapture() *relayCapture {
@@ -44,14 +51,15 @@ func newRelayCapture() *relayCapture {
 		}
 		limit = int64(mb) << 20
 	}
-	return &relayCapture{id: "req_" + rand.Text(), started: time.Now(), limit: limit, budget: capture.NewBudget(limit * 4), client: &exchangeCapture{info: dbmodel.RelayExchange{Transport: "http"}}}
+	now := time.Now()
+	return &relayCapture{id: "req_" + rand.Text(), started: now, limit: limit, budget: capture.NewBudget(limit * 4), client: &exchangeCapture{origin: now, info: dbmodel.RelayExchange{Transport: "http"}}}
 }
 
 func startHTTPRelayCapture(c *gin.Context) *relayCapture {
 	trace := newRelayCapture()
 	trace.client.request = capture.NewBody(dbmodel.RelayMessage{Method: c.Request.Method, URL: capture.URL(c.Request.URL.String()), Headers: capture.Headers(c.Request.Header), ContentType: c.Request.Header.Get("Content-Type")}, trace.budget, trace.limit)
 	trace.client.response = capture.NewBody(dbmodel.RelayMessage{}, trace.budget, trace.limit)
-	writer := &captureResponseWriter{ResponseWriter: c.Writer, body: trace.client.response}
+	writer := &captureResponseWriter{ResponseWriter: c.Writer, body: trace.client.response, trace: trace}
 	trace.writer = writer
 	c.Writer = writer
 	c.Header("X-Octopus-Request-Id", trace.id)
@@ -80,6 +88,8 @@ func (t *relayCapture) beginAttempt(channel *dbmodel.Channel, model, secret stri
 		return nil
 	}
 	a := &exchangeCapture{info: dbmodel.RelayExchange{AttemptID: strconv.Itoa(len(t.attempts) + 1), ChannelID: channel.ID, ChannelName: channel.Name, Model: model, Transport: "http"}, secrets: []string{secret}}
+	a.origin = t.started
+	a.timing("attempt_start", false)
 	t.attempts = append(t.attempts, a)
 	return a
 }
@@ -88,6 +98,7 @@ func (t *relayCapture) upstreamRequest(a *exchangeCapture, req *http.Request) {
 	if t == nil || a == nil {
 		return
 	}
+	a.traceHTTP(req)
 	a.request = capture.NewBody(dbmodel.RelayMessage{Method: req.Method, URL: capture.URL(req.URL.String()), Headers: capture.Headers(req.Header, a.secrets...), ContentType: req.Header.Get("Content-Type")}, t.budget, t.limit)
 	if req.Body == nil {
 		a.request.Finish(true)
@@ -101,6 +112,7 @@ func (t *relayCapture) upstreamResponse(a *exchangeCapture, response *http.Respo
 		return
 	}
 	status := response.StatusCode
+	a.timing("response_headers", false)
 	a.response = capture.NewBody(dbmodel.RelayMessage{StatusCode: &status, Headers: capture.Headers(response.Header, a.secrets...), ContentType: response.Header.Get("Content-Type")}, t.budget, t.limit)
 	for _, name := range []string{"X-Request-Id", "Request-Id", "X-Amzn-Requestid", "X-Goog-Request-Id"} {
 		if value := response.Header.Get(name); value != "" {
@@ -119,6 +131,13 @@ func (a *exchangeCapture) snapshot() dbmodel.RelayExchange {
 	a.request.Finish(false)
 	a.response.Finish(false)
 	result := a.info
+	a.mu.Lock()
+	if !a.ended {
+		a.timings = append(a.timings, dbmodel.RelayTiming{Phase: "finished", ElapsedMS: time.Since(a.origin).Milliseconds()})
+		a.ended = true
+	}
+	result.Timings = append([]dbmodel.RelayTiming(nil), a.timings...)
+	a.mu.Unlock()
 	result.Request, result.Response = a.request.Snapshot(), a.response.Snapshot()
 	return result
 }
@@ -131,6 +150,9 @@ func (t *relayCapture) snapshot(ctx context.Context) *dbmodel.RelayTrace {
 		t.writer.finish(ctx == nil || ctx.Err() == nil)
 	}
 	result := &dbmodel.RelayTrace{ID: t.id, Client: t.client.snapshot(), Attempts: make([]dbmodel.RelayExchange, 0, len(t.attempts))}
+	if served := t.served.Load(); served != nil {
+		result.ServingAttemptID = served.info.AttemptID
+	}
 	if t.writer != nil && t.writer.status != nil {
 		result.Client.Response.StatusCode = t.writer.status
 		result.Client.Response.Headers = t.writer.headers
@@ -146,11 +168,13 @@ func (t *relayCapture) snapshot(ctx context.Context) *dbmodel.RelayTrace {
 // framework's status accounting. Only bytes accepted by Write are observed.
 type captureResponseWriter struct {
 	gin.ResponseWriter
-	mu      sync.Mutex
-	body    *capture.Body
-	status  *int
-	headers map[string][]string
-	failed  bool
+	mu        sync.Mutex
+	body      *capture.Body
+	status    *int
+	headers   map[string][]string
+	failed    bool
+	trace     *relayCapture
+	firstByte bool
 }
 
 func (w *captureResponseWriter) head() {
@@ -169,6 +193,13 @@ func (w *captureResponseWriter) Write(p []byte) (int, error) {
 	n, err := w.ResponseWriter.Write(p)
 	w.head()
 	w.body.Observe(p[:n])
+	if n > 0 && w.trace != nil {
+		w.trace.delivered()
+		if !w.firstByte {
+			w.trace.client.timing("downstream_first_byte", false)
+			w.firstByte = true
+		}
+	}
 	if err != nil || n != len(p) {
 		w.failed = true
 	}

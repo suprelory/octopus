@@ -280,6 +280,7 @@ func newWSRelayRequest(
 	if metrics.capture != nil {
 		metrics.StartTime = metrics.capture.started
 		writer.capture = metrics.capture.client.response
+		writer.trace = metrics.capture
 	}
 	return &relayRequest{
 		c:                 nil,

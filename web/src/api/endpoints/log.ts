@@ -135,6 +135,7 @@ export interface RelayLogDetail extends RelayLog {
 }
 
 export interface RelayMessage {
+	 raw_usage?: Array<{ event: number; path: string; value: unknown }>;
 	 representation?: 'multipart_metadata' | 'ws_messages';
 	 events?: Array<{ sequence: number; offset: number; bytes: number; elapsed_ms: number; type: string; complete: boolean }>;
 	 events_truncated?: boolean;
@@ -152,6 +153,7 @@ export interface RelayMessage {
 }
 
 export interface RelayExchange {
+	 timings?: Array<{ phase: string; elapsed_ms: number; reused?: boolean }>;
 	 completion_status?: string;
 	 finish_cause?: string;
     attempt_id?: string;
@@ -166,6 +168,7 @@ export interface RelayExchange {
 }
 
 export interface RelayTrace {
+	 serving_attempt_id?: string;
     id: string;
     client: RelayExchange;
     attempts: RelayExchange[];

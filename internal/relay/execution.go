@@ -134,6 +134,9 @@ func (r *relayRequest) responseCommitted() bool {
 }
 
 func (ra *relayAttempt) commitResponse() {
+	if ra.metrics != nil {
+		ra.metrics.capture.bindDownstream(ra.capture)
+	}
 	ra.streamPayloadWritten.Store(true)
 	if ra.execution != nil {
 		ra.execution.committed.Store(true)

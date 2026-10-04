@@ -81,6 +81,7 @@ func (ra *relayAttempt) forwardViaWS(ctx context.Context) (int, error) {
 	ra.observeWSRequest(reqBody)
 	if ra.capture != nil {
 		reader.capture = ra.capture.response
+		reader.firstByte = func() { ra.capture.timing("response_first_byte", false) }
 	}
 	if err := ra.handleWSStreamResponseV2(ctx, reader); err != nil {
 		ra.captureRetryAt(reader.RetryAt())

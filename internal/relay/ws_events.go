@@ -23,6 +23,7 @@ func writeWSEvent(ctx context.Context, conn *websocket.Conn, event interface{}) 
 	}
 	if trace := captureFromContext(ctx); trace != nil {
 		trace.client.response.ObserveFrame(data, false)
+		trace.client.timing("downstream_first_byte", false)
 	}
 	return nil
 }

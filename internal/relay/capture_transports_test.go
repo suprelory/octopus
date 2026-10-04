@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"github.com/bestruirui/octopus/internal/relay/bodycache"
 	"github.com/bestruirui/octopus/internal/relay/capture"
 	"github.com/coder/websocket"
+	"github.com/gin-gonic/gin"
 )
 
 func decodedCapture(t *testing.T, m *model.RelayMessage) string {
@@ -51,6 +53,31 @@ func TestWSWriterCapturesDeliveredJSONMessages(t *testing.T) {
 	m := w.capture.Snapshot()
 	if decodedCapture(t, m) != string(sent) || len(m.Events) != 1 || m.Events[0].Type != "ws_text" || m.StatusCode != nil {
 		t.Fatalf("bad WS capture: %+v", m)
+	}
+}
+
+type disconnectedCaptureWriter struct{ gin.ResponseWriter }
+
+func (w disconnectedCaptureWriter) Write([]byte) (int, error) { return 0, errors.New("disconnected") }
+
+func TestServingAttemptRequiresDeliveredBytes(t *testing.T) {
+	ctx := setupHTTPRelayTestDB(t)
+	for _, disconnected := range []bool{false, true} {
+		c, _ := newHTTPRelayTestContext(ctx, "")
+		if disconnected {
+			c.Writer = disconnectedCaptureWriter{c.Writer}
+		}
+		trace := startHTTPRelayCapture(c)
+		_, _ = c.Writer.Write([]byte(": heartbeat\n\n"))
+		if trace.served.Load() != nil {
+			t.Fatal("heartbeat assigned a serving attempt")
+		}
+		attempt := trace.beginAttempt(&model.Channel{ID: 1}, "model", "")
+		trace.bindDownstream(attempt)
+		_, _ = c.Writer.Write([]byte("payload"))
+		if (trace.served.Load() != nil) == disconnected {
+			t.Fatal("serving attempt did not reflect accepted bytes")
+		}
 	}
 }
 

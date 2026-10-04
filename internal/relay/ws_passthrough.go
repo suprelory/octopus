@@ -163,6 +163,7 @@ func (ra *relayAttempt) handleWSPassthroughStream(ctx context.Context, pc *poole
 		ra.streamDiagnostics = &diagnostics
 	}()
 	firstEvent := true
+	responseObserved := false
 	dropDownstream := false
 	readCtx := ctx
 	for {
@@ -179,6 +180,10 @@ func (ra *relayAttempt) handleWSPassthroughStream(ctx context.Context, pc *poole
 			return stats, fmt.Errorf("ws passthrough read error: %w", err)
 		}
 		ra.observeWSResponse(data, msgType == websocket.MessageBinary)
+		if !responseObserved {
+			ra.capture.timing("response_first_byte", false)
+			responseObserved = true
+		}
 		if msgType != websocket.MessageText {
 			continue
 		}

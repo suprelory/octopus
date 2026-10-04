@@ -53,3 +53,29 @@ omitted. The upstream description reflects model mapping, and is explicitly
 not proof of complete upload. It is bounded to 128 parts and 16 KiB per field.
 JSON image responses, including base64 image data, follow the regular body
 limits. Event and multipart representations are labeled in the viewer.
+
+The trace identifies the attempt that actually delivered downstream bytes or a
+WS message. It is separate from the last attempted route. Heartbeats emitted
+before response commitment do not assign a serving attempt. Timelines retain up
+to 32 observed milestones per exchange plus its finish time, relative to request
+ingress: connection/DNS/TLS, request sent, upstream first byte, response headers,
+and downstream delivery. HTTP connection reuse is explicit; unobserved phases
+are omitted. The first upstream HTTP byte includes response headers, while the
+first client byte may be a heartbeat. SSE/WS event offsets remain relative to
+the start of that message's capture.
+
+The response content endpoint also extracts original usage fields from retained
+JSON, SSE and concatenated WS messages. This is an on-demand inspection aid and
+does not feed billing. It retains up to 16 observations (early samples and the
+latest), each at most 64 KiB; individual SSE events over 1 MiB are skipped. Missing
+or truncated data cannot reconstruct usage that was not captured. Anthropic
+message usage and Responses response usage keep their original paths and fields.
+
+The viewer compares client and selected-attempt bodies, with bounded JSON field
+differences and raw side-by-side views. It exports one selected message as JSON
+with its capture state, transport, timings and body. These exports retain prompt
+and response content, just like body downloads. cURL templates support Bash and
+PowerShell, omit credentials/transport-managed headers, and reference the exact
+downloaded body filename. Supply valid authentication separately. Templates are
+available only for complete HTTP requests; multipart metadata, WS messages,
+binary and incomplete bodies are not executable HTTP reproductions.

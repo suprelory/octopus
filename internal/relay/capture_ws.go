@@ -6,6 +6,7 @@ import (
 )
 
 func (t *relayCapture) startWSClient(raw []byte) {
+	t.client.origin = t.started
 	t.client.info.Transport = "ws"
 	t.client.request = capture.NewBody(model.RelayMessage{ContentType: "application/json", Representation: "ws_messages"}, t.budget, t.limit)
 	t.client.response = capture.NewBody(model.RelayMessage{ContentType: "application/json", Representation: "ws_messages"}, t.budget, t.limit)
@@ -20,6 +21,7 @@ func (ra *relayAttempt) startWSCapture() {
 		return
 	}
 	t := ra.metrics.capture
+	ra.capture.timing("send_start", false)
 	ra.capture.info.Transport = "ws"
 	ra.capture.request = capture.NewBody(model.RelayMessage{ContentType: "application/json", Representation: "ws_messages"}, t.budget, t.limit)
 	ra.capture.response = capture.NewBody(model.RelayMessage{ContentType: "application/json", Representation: "ws_messages"}, t.budget, t.limit)
@@ -30,6 +32,7 @@ func (ra *relayAttempt) observeWSRequest(p []byte) {
 		return
 	}
 	ra.capture.request.ObserveFrame(p, false)
+	ra.capture.timing("request_sent", false)
 	ra.capture.request.Finish(true)
 }
 

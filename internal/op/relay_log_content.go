@@ -79,7 +79,7 @@ func persistRelayContents(tx *gorm.DB, logs []model.RelayLog) error {
 		if log.Trace == nil {
 			continue
 		}
-		metadata, err := json.Marshal(model.RelayTrace{ID: log.Trace.ID, Client: log.Trace.Client})
+		metadata, err := json.Marshal(model.RelayTrace{ID: log.Trace.ID, ServingAttemptID: log.Trace.ServingAttemptID, Client: log.Trace.Client})
 		if err != nil {
 			return err
 		}
@@ -237,6 +237,9 @@ func RelayLogContentGet(ctx context.Context, id int64, attemptID, direction stri
 	if utf8.Valid(body) {
 		result.Body = string(body)
 		result.BodyEncoding = "utf-8"
+		if direction == "response" {
+			result.RawUsage = extractRelayRawUsage(body, result.ContentType)
+		}
 	} else {
 		result.Body = base64.StdEncoding.EncodeToString(body)
 		result.BodyEncoding = "base64"

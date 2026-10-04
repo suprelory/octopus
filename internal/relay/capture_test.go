@@ -46,6 +46,23 @@ func TestHTTPLogCapturesEachAttemptAndDeliveredResponse(t *testing.T) {
 		t.Fatalf("missing trace: %+v %v", detail, err)
 	}
 	trace := detail.Trace
+	if trace.ServingAttemptID != "2" {
+		t.Fatalf("serving attempt = %q", trace.ServingAttemptID)
+	}
+	phases := map[string]bool{}
+	var last int64
+	for _, timing := range trace.Attempts[1].Timings {
+		if timing.ElapsedMS < last {
+			t.Fatal("timeline is not monotonic")
+		}
+		last = timing.ElapsedMS
+		phases[timing.Phase] = true
+	}
+	for _, phase := range []string{"attempt_start", "send_start", "connection_ready", "request_sent", "response_first_byte", "response_headers", "downstream_delivery", "finished"} {
+		if !phases[phase] {
+			t.Fatalf("missing timing %s: %+v", phase, trace.Attempts[1].Timings)
+		}
+	}
 	if trace.ID != recorder.Header().Get("X-Octopus-Request-Id") || trace.Client.Request.Headers["Authorization"][0] != "[REDACTED]" {
 		t.Fatal("request identity or redaction missing")
 	}
@@ -62,6 +79,10 @@ func TestHTTPLogCapturesEachAttemptAndDeliveredResponse(t *testing.T) {
 	}
 	if !strings.Contains(sentBody, `"temperature":0.4`) || !strings.Contains(sentBody, `"model":"model_1"`) {
 		t.Fatalf("final payload not captured: %s", sentBody)
+	}
+	usageMessage, err := op.RelayLogContentGet(ctx, entry.ID, "2", "response")
+	if err != nil || len(usageMessage.RawUsage) != 1 || !strings.Contains(string(usageMessage.RawUsage[0].Value), `"total_tokens":5`) {
+		t.Fatalf("raw usage: %+v %v", usageMessage, err)
 	}
 }
 

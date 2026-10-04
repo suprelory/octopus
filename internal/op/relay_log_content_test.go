@@ -29,6 +29,8 @@ func TestRelayContentRoundTripExpirationAndClear(t *testing.T) {
 	}
 	trace := &model.RelayTrace{ID: "req_test", Client: model.RelayExchange{Transport: "http", Request: captureTestMessage("original request"), Response: captureTestMessage("client response")}, Attempts: []model.RelayExchange{{AttemptID: "1", Request: captureTestMessage("rewritten request"), Response: captureTestMessage("provider response")}}}
 	sub := RelayLogSubscribe()
+	trace.ServingAttemptID = "1"
+	trace.Attempts[0].Timings = []model.RelayTiming{{Phase: "request_sent", ElapsedMS: 12}}
 	defer RelayLogUnsubscribe(sub)
 	if err := RelayLogAdd(model.RelayLog{Time: time.Now().Add(-48 * time.Hour).Unix(), Trace: trace}); err != nil {
 		t.Fatal(err)
@@ -50,6 +52,9 @@ func TestRelayContentRoundTripExpirationAndClear(t *testing.T) {
 		detail, err := RelayLogGet(ctx, live.ID)
 		if err != nil || detail.Trace == nil || detail.Trace.ID != "req_test" || len(detail.Trace.Client.Request.Data) != 0 || detail.Trace.Client.Request.Body != "" {
 			t.Fatalf("detail should contain metadata: %+v %v", detail, err)
+		}
+		if detail.Trace.ServingAttemptID != "1" || len(detail.Trace.Attempts[0].Timings) != 1 {
+			t.Fatal("delivery and timing metadata lost")
 		}
 		start, end := int(time.Now().Add(-72*time.Hour).Unix()), int(time.Now().Unix())
 		matches, err := RelayLogListWithFilter(ctx, RelayLogListFilter{Keyword: "rewritten", KeywordScope: RelayLogKeywordScopeContent, StartTime: &start, EndTime: &end, Page: 1, PageSize: 10, WithTotal: true})
