@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -15,7 +16,6 @@ import (
 	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/server/resp"
 	"github.com/bestruirui/octopus/internal/server/router"
-	"github.com/bestruirui/octopus/internal/task"
 	"github.com/bestruirui/octopus/internal/utils/log"
 	"github.com/bestruirui/octopus/internal/utils/safe"
 	"github.com/gin-gonic/gin"
@@ -70,45 +70,6 @@ func setSetting(c *gin.Context) {
 		return
 	}
 	switch setting.Key {
-	case model.SettingKeyTrustedProxies:
-		if err := middleware.ReloadTrustedProxies(); err != nil {
-			resp.InternalErrorWithLog(c, err)
-			return
-		}
-	case model.SettingKeyModelInfoUpdateInterval:
-		hours, err := strconv.Atoi(setting.Value)
-		if err != nil {
-			resp.Error(c, http.StatusBadRequest, err.Error())
-			return
-		}
-		task.Update(string(setting.Key), time.Duration(hours)*time.Hour)
-	case model.SettingKeySyncLLMInterval:
-		hours, err := strconv.Atoi(setting.Value)
-		if err != nil {
-			resp.Error(c, http.StatusBadRequest, err.Error())
-			return
-		}
-		task.Update(string(setting.Key), time.Duration(hours)*time.Hour)
-	case model.SettingKeySiteSyncInterval:
-		hours, err := strconv.Atoi(setting.Value)
-		if err != nil {
-			resp.Error(c, http.StatusBadRequest, err.Error())
-			return
-		}
-		task.Update(string(setting.Key), time.Duration(hours)*time.Hour)
-	case model.SettingKeyWebDAVBackupInterval:
-		hours, err := strconv.Atoi(setting.Value)
-		if err != nil {
-			resp.Error(c, http.StatusBadRequest, err.Error())
-			return
-		}
-		if hours > 0 {
-			interval := time.Duration(hours) * time.Hour
-			task.Register(string(setting.Key), interval, false, task.WebDAVBackupTask)
-			task.Update(string(setting.Key), interval)
-		} else {
-			task.Update(string(setting.Key), 0)
-		}
 	case model.SettingKeyProjectedChannelAutoGroupEnabled:
 		mode, _ := model.ParseAutoGroupSettingValue(setting.Value)
 		if mode != model.AutoGroupTypeNone && projectedAutoGroupQueued.CompareAndSwap(false, true) {
@@ -210,10 +171,8 @@ func importDB(c *gin.Context) {
 	middleware.AuditFields(c, "rows_affected", result.RowsAffected)
 
 	if err := op.RefreshCacheAfterImport(dump.IncludeStats); err != nil {
-		log.Warnf("cache refresh after import failed: %v", err)
-	} else if err := middleware.ReloadTrustedProxies(); err != nil {
-		log.Warnf("trusted proxy refresh after import failed: %v", err)
-		_ = middleware.ConfigureTrustedProxies("")
+		resp.InternalErrorWithLog(c, fmt.Errorf("database imported but runtime refresh failed: %w", err))
+		return
 	}
 
 	resp.Success(c, result)

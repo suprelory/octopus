@@ -34,12 +34,14 @@ func SettingGetString(key model.SettingKey) (string, error) {
 }
 
 func SettingSetString(key model.SettingKey, value string) error {
+	settingWriteLock.Lock()
+	defer settingWriteLock.Unlock()
 	valueCache, ok := settingCache.Get(key)
 	if !ok {
 		return fmt.Errorf("setting not found")
 	}
 	if valueCache == value {
-		return nil
+		return applySettingLocked(key, value)
 	}
 	result := db.GetDB().Model(&model.Setting{Key: key}).Update("Value", value)
 	if result.Error != nil {
@@ -49,7 +51,7 @@ func SettingSetString(key model.SettingKey, value string) error {
 		return fmt.Errorf("failed to set setting, key not found")
 	}
 	settingCache.Set(key, value)
-	return nil
+	return applySettingLocked(key, value)
 }
 
 func SettingGetInt(key model.SettingKey) (int, error) {
@@ -74,29 +76,12 @@ func SettingGetBool(key model.SettingKey) (bool, error) {
 }
 
 func SettingSetInt(key model.SettingKey, value int) error {
-	valueCache, ok := settingCache.Get(key)
-	if !ok {
-		return fmt.Errorf("setting not found")
-	}
-	valueCacheNum, err := strconv.Atoi(valueCache)
-	if err != nil {
-		return fmt.Errorf("failed to set setting: %w", err)
-	}
-	if valueCacheNum == value {
-		return nil
-	}
-	result := db.GetDB().Model(&model.Setting{Key: key}).Update("Value", value)
-	if result.Error != nil {
-		return fmt.Errorf("failed to set setting: %w", result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return fmt.Errorf("failed to set setting, key not found")
-	}
-	settingCache.Set(key, strconv.Itoa(value))
-	return nil
+	return SettingSetString(key, strconv.Itoa(value))
 }
 
 func settingRefreshCache(ctx context.Context) error {
+	settingWriteLock.Lock()
+	defer settingWriteLock.Unlock()
 	db := db.GetDB().WithContext(ctx)
 
 	var settings []model.Setting

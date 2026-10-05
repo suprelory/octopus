@@ -85,7 +85,11 @@ func StatsSaveDBTask() {
 	}()
 	if err := StatsSaveDB(ctx); err != nil {
 		log.Errorf("stats save db error: %v", err)
-		return
+	}
+	// Channel key runtime state is also deferred in memory. Persist it on every
+	// statistics tick, even if another statistics table failed to save.
+	if err := ChannelKeySaveDB(ctx); err != nil {
+		log.Errorf("channel key save db error: %v", err)
 	}
 }
 

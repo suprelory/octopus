@@ -124,7 +124,7 @@ func RestoreFromBackup(ctx context.Context, filename string) (*model.DBImportRes
 	}
 
 	if err := op.RefreshCacheAfterImport(dump.IncludeStats); err != nil {
-		log.Warnf("cache refresh after webdav restore failed: %v", err)
+		return result, fmt.Errorf("backup imported but runtime refresh failed: %w", err)
 	}
 
 	return result, nil

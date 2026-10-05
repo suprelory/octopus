@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/bestruirui/octopus/internal/clientip"
 	"github.com/bestruirui/octopus/internal/notify"
@@ -162,8 +163,11 @@ func (s *Setting) Validate() error {
 			}
 		}
 		return nil
-	case SettingKeyModelInfoUpdateInterval, SettingKeySyncLLMInterval, SettingKeySiteSyncInterval,
-		SettingKeyRelayLogKeepPeriod,
+	case SettingKeyModelInfoUpdateInterval, SettingKeySyncLLMInterval, SettingKeySiteSyncInterval, SettingKeyWebDAVBackupInterval:
+		return validateIntRange(s.Value, 0, int(math.MaxInt64/int64(time.Hour)))
+	case SettingKeyStatsSaveInterval:
+		return validateIntRange(s.Value, 0, int(math.MaxInt64/int64(time.Minute)))
+	case SettingKeyRelayLogKeepPeriod,
 		SettingKeyCircuitBreakerThreshold, SettingKeyCircuitBreakerCooldown, SettingKeyCircuitBreakerMaxCooldown:
 		_, err := strconv.Atoi(s.Value)
 		if err != nil {
@@ -192,7 +196,7 @@ func (s *Setting) Validate() error {
 		return validateIntRange(s.Value, 1, 256)
 	case SettingKeyRelayFailoverTimeoutSeconds:
 		return validateIntRange(s.Value, 1, 3600)
-	case SettingKeySSEHeartbeatInterval, SettingKeySSEPreStreamHeartbeatDelay, SettingKeyWebDAVBackupInterval:
+	case SettingKeySSEHeartbeatInterval, SettingKeySSEPreStreamHeartbeatDelay:
 		value, err := strconv.Atoi(s.Value)
 		if err != nil {
 			return fmt.Errorf("setting value must be an integer")

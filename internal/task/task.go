@@ -1,6 +1,7 @@
 package task
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,6 +18,8 @@ type taskEntry struct {
 	stopCh     chan struct{}
 	updateCh   chan struct{}
 	running    atomic.Bool
+	loopDone   chan struct{}
+	workers    sync.WaitGroup
 }
 
 var (
@@ -28,17 +31,24 @@ var (
 // Register 注册一个定时任务
 // runOnStart: 是否在启动时立即执行一次
 func Register(name string, interval time.Duration, runOnStart bool, fn func()) {
-	if interval <= 0 {
-		log.Debugf("task %s not registered: interval is 0", name)
-		return
+	if err := Configure(name, interval, runOnStart, fn); err != nil {
+		log.Warnf("task %s registration failed: %v", name, err)
 	}
+}
 
+// Configure creates or updates a task while preserving its execution guard.
+// A zero interval disables scheduling but retains the function for reactivation.
+func Configure(name string, interval time.Duration, runOnStart bool, fn func()) error {
+	if name == "" || fn == nil || interval < 0 {
+		return fmt.Errorf("task requires a name, function and non-negative interval")
+	}
 	tasksMu.Lock()
 	defer tasksMu.Unlock()
 
-	if _, exists := tasks[name]; exists {
-		log.Warnf("task %s already registered, skipping", name)
-		return
+	if entry, exists := tasks[name]; exists {
+		entry.fn, entry.runOnStart = fn, runOnStart
+		updateTaskLocked(entry, interval)
+		return nil
 	}
 
 	tasks[name] = &taskEntry{
@@ -50,33 +60,36 @@ func Register(name string, interval time.Duration, runOnStart bool, fn func()) {
 		updateCh:   make(chan struct{}, 1),
 	}
 	if tasksStarted {
-		entry := tasks[name]
-		safe.Go("task-loop:"+name, func() { runTask(entry) })
+		startTaskLocked(tasks[name])
 	}
 	log.Debugf("task %s registered with interval %v, runOnStart: %v", name, interval, runOnStart)
+	return nil
 }
 
 // Update 更新任务的执行间隔
-// 当 interval 为 0 时，删除任务
-func Update(name string, interval time.Duration) {
+// 当 interval 为 0 时停用任务，保留执行函数以便重新启用。
+func Update(name string, interval time.Duration) error {
+	if interval < 0 {
+		return fmt.Errorf("task interval must be non-negative")
+	}
 	tasksMu.Lock()
 	defer tasksMu.Unlock()
 	entry, exists := tasks[name]
 	if !exists {
-		log.Warnf("task %s not found", name)
-		return
+		return fmt.Errorf("task %s not found", name)
 	}
+	updateTaskLocked(entry, interval)
+	return nil
+}
 
-	if interval <= 0 {
-		delete(tasks, name)
-		close(entry.stopCh)
-		log.Infof("task %s removed: interval is 0", name)
+func updateTaskLocked(entry *taskEntry, interval time.Duration) {
+	if entry.interval == interval {
 		return
 	}
 	entry.interval = interval
 	select {
 	case entry.updateCh <- struct{}{}:
-		log.Infof("task %s interval updated to %v", name, interval)
+		log.Infof("task %s interval updated to %v", entry.name, interval)
 	default:
 		// A wakeup is already queued; the loop reads the latest interval.
 	}
@@ -97,33 +110,59 @@ func startTasks() {
 	}
 	tasksStarted = true
 	for _, entry := range tasks {
-		safe.Go("task-loop:"+entry.name, func() {
-			runTask(entry)
-		})
+		startTaskLocked(entry)
 	}
+}
+
+func startTaskLocked(entry *taskEntry) {
+	entry.loopDone = make(chan struct{})
+	go func() {
+		defer close(entry.loopDone)
+		safe.Run("task-loop:"+entry.name, func() { runTask(entry) })
+	}()
 }
 
 func runTask(entry *taskEntry) {
 	tasksMu.RLock()
-	interval := entry.interval
+	runOnStart := entry.runOnStart && entry.interval > 0
 	tasksMu.RUnlock()
 	// 根据配置决定是否在启动时立即执行
-	if entry.runOnStart {
+	if runOnStart {
 		triggerTask(entry, "startup")
 	}
 
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	var ticker *time.Ticker
+	var ticks <-chan time.Time
+	resetTicker := func() {
+		tasksMu.RLock()
+		interval := entry.interval
+		tasksMu.RUnlock()
+		if ticker != nil {
+			ticker.Stop()
+		}
+		ticks = nil
+		if interval > 0 {
+			if ticker == nil {
+				ticker = time.NewTicker(interval)
+			} else {
+				ticker.Reset(interval)
+			}
+			ticks = ticker.C
+		}
+	}
+	resetTicker()
+	defer func() {
+		if ticker != nil {
+			ticker.Stop()
+		}
+	}()
 
 	for {
 		select {
-		case <-ticker.C:
+		case <-ticks:
 			triggerTask(entry, "ticker")
 		case <-entry.updateCh:
-			tasksMu.RLock()
-			interval = entry.interval
-			tasksMu.RUnlock()
-			ticker.Reset(interval)
+			resetTicker()
 		case <-entry.stopCh:
 			return
 		}
@@ -134,17 +173,28 @@ func triggerTask(entry *taskEntry, trigger string) {
 	if entry == nil {
 		return
 	}
+	tasksMu.RLock()
 	select {
 	case <-entry.stopCh:
+		tasksMu.RUnlock()
 		return
 	default:
 	}
+	if entry.interval <= 0 {
+		tasksMu.RUnlock()
+		return
+	}
 	if !entry.running.CompareAndSwap(false, true) {
+		tasksMu.RUnlock()
 		log.Warnf("task %s skipped: previous run still in progress (trigger=%s)", entry.name, trigger)
 		return
 	}
-	safe.Go("task-exec:"+entry.name+":"+trigger, func() {
+	fn := entry.fn
+	entry.workers.Add(1)
+	tasksMu.RUnlock()
+	go func() {
+		defer entry.workers.Done()
 		defer entry.running.Store(false)
-		entry.fn()
-	})
+		safe.Run("task-exec:"+entry.name+":"+trigger, fn)
+	}()
 }

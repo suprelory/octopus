@@ -16,6 +16,16 @@ var activeClientIPResolver atomic.Pointer[clientipresolver.Resolver]
 func init() {
 	// Keep a no-trust resolver available before the setting cache is loaded.
 	_ = ConfigureTrustedProxies("")
+	op.RegisterSettingApplier(model.SettingKeyTrustedProxies, applyTrustedProxies)
+}
+
+func applyTrustedProxies(raw string) error {
+	if err := ConfigureTrustedProxies(raw); err != nil {
+		// A malformed restored value must never retain the previous trust set.
+		_ = ConfigureTrustedProxies("")
+		return err
+	}
+	return nil
 }
 
 // ConfigureTrustedProxies atomically replaces the resolver used by new
@@ -36,9 +46,10 @@ func ConfigureTrustedProxies(raw string) error {
 func ReloadTrustedProxies() error {
 	raw, err := op.SettingGetString(model.SettingKeyTrustedProxies)
 	if err != nil {
+		_ = ConfigureTrustedProxies("")
 		return fmt.Errorf("load trusted proxies setting: %w", err)
 	}
-	if err := ConfigureTrustedProxies(raw); err != nil {
+	if err := applyTrustedProxies(raw); err != nil {
 		return fmt.Errorf("configure trusted proxies: %w", err)
 	}
 	return nil

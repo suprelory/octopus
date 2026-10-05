@@ -2,6 +2,7 @@ package op
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -17,7 +18,8 @@ func InitCache() error {
 // requests that settled after the import returned. includeStats is retained for
 // compatibility with callers of the former two-step restore API.
 func RefreshCacheAfterImport(includeStats bool) error {
-	return refreshCache(false)
+	refreshErr := refreshCache(false)
+	return errors.Join(refreshErr, ApplyRuntimeSettings())
 }
 
 func refreshCache(includeStats bool) error {
