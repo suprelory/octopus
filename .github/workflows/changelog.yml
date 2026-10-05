@@ -1,0 +1,39 @@
+name: changelog
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-release-to-master
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync release commit to master
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      # release.yaml owns release notes, artifacts, and publishing.
+      - name: Merge released dev commit to master
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin dev master
+          release_commit="$(git rev-parse "${RELEASE_SHA}^{commit}")"
+          git merge-base --is-ancestor "$release_commit" origin/dev
+          git checkout -B master origin/master
+          git merge --no-edit "$release_commit"
+          git push origin HEAD:refs/heads/master
