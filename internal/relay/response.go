@@ -87,7 +87,7 @@ func (ra *relayAttempt) handleResponsePassthrough(ctx context.Context, response 
 func (ra *relayAttempt) handleResponse(ctx context.Context, response *http.Response) error {
 	internalResponse, err := ra.outAdapter.TransformResponse(ctx, response)
 	if err != nil {
-		log.Warnf("failed to transform response: %v", err)
+		log.Warnf("failed to transform response: %v", relayErrorDiagnostic(err))
 		return fmt.Errorf("failed to transform outbound response: %w", err)
 	}
 
@@ -102,7 +102,7 @@ func (ra *relayAttempt) handleResponse(ctx context.Context, response *http.Respo
 
 	inResponse, err := ra.inAdapter.TransformResponse(ctx, internalResponse)
 	if err != nil {
-		log.Warnf("failed to transform response: %v", err)
+		log.Warnf("failed to transform response: %v", relayErrorDiagnostic(err))
 		return fmt.Errorf("failed to transform inbound response: %w", err)
 	}
 	if ctx != nil && ctx.Err() != nil {
@@ -130,7 +130,7 @@ func (ra *relayAttempt) collectResponse() {
 		internalResponse, err = ra.inAdapter.GetInternalResponse(ra.requestContext())
 	}
 	if err != nil {
-		log.Debugf("collectResponse: failed to get internal response: %v", err)
+		log.Debugf("collectResponse: failed to get internal response: %v", relayErrorDiagnostic(err))
 		return
 	}
 	if internalResponse == nil {

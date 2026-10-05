@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -88,6 +89,20 @@ func apiKeyAuth(checkRPM bool) gin.HandlerFunc {
 		c.Set("request_type", requestType)
 		c.Set("supported_models", apiKeyObj.SupportedModels)
 		c.Set("api_key_id", apiKeyObj.ID)
+		if checkRPM && c.Request.Method == http.MethodPost {
+			reservation, authErr := auth.ReserveAPIKeyCost(apiKeyObj)
+			if authErr != nil {
+				RecordAuthEvent(c, "api_key.rejected", authErr.Code, apiKeyObj.ID)
+				if authErr.Status == http.StatusTooManyRequests {
+					c.Header("Retry-After", "1")
+				}
+				resp.ErrorWithAppError(c, authErr.Status, authErr)
+				c.Abort()
+				return
+			}
+			defer reservation.Release()
+			c.Request = c.Request.WithContext(op.WithAPIKeyCostReservation(c.Request.Context(), reservation))
+		}
 		c.Next()
 	}
 }

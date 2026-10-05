@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 
 // ValidateAPIKey is shared by HTTP requests and individual WebSocket turns.
 // The upgrade only checks permissions; each response.create consumes its RPM.
+// Billable requests must also call ReserveAPIKeyCost and release after settlement.
 func ValidateAPIKey(key model.APIKey, checkRPM bool) (*apperror.Error, int) {
 	if !key.Enabled {
 		return apperror.New(apperror.CodeAuthAPIKeyDisabled, "API key is disabled").WithStatus(http.StatusUnauthorized), 0
@@ -28,4 +30,18 @@ func ValidateAPIKey(key model.APIKey, checkRPM bool) (*apperror.Error, int) {
 		}
 	}
 	return nil, 0
+}
+
+func ReserveAPIKeyCost(key model.APIKey) (*op.APIKeyCostReservation, *apperror.Error) {
+	reservation, err := op.APIKeyReserveCost(key.ID)
+	if err == nil {
+		return reservation, nil
+	}
+	if errors.Is(err, op.ErrAPIKeyCostInFlight) {
+		return nil, apperror.New(apperror.CodeAuthAPIKeyRateLimited, err.Error()).WithStatus(http.StatusTooManyRequests)
+	}
+	if errors.Is(err, op.ErrAPIKeyCostExceeded) {
+		return nil, apperror.New(apperror.CodeAuthAPIKeyCostExceeded, err.Error()).WithStatus(http.StatusUnauthorized)
+	}
+	return nil, apperror.New(apperror.CodeAuthInvalidToken, "API key is unavailable").WithStatus(http.StatusUnauthorized)
 }

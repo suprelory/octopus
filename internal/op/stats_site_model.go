@@ -40,6 +40,12 @@ var siteModelHourlyCacheLock sync.Mutex
 // StatsSiteModelHourlyUpdate 记录一次站点渠道请求到对应小时桶。
 // 非站点渠道（无绑定）会被静默忽略。
 func StatsSiteModelHourlyUpdate(channelID int, actualModel string, metrics model.StatsMetrics) {
+	statsLifecycleLock.RLock()
+	defer statsLifecycleLock.RUnlock()
+	statsSiteModelHourlyUpdate(channelID, actualModel, metrics)
+}
+
+func statsSiteModelHourlyUpdate(channelID int, actualModel string, metrics model.StatsMetrics) {
 	actualModel = strings.TrimSpace(actualModel)
 	if channelID == 0 || actualModel == "" {
 		return
@@ -85,6 +91,12 @@ func StatsSiteModelHourlyUpdate(channelID int, actualModel string, metrics model
 // 按 (channel, attempt.modelName) 维度记录到小时桶。仅累加 request_success/request_failed，
 // 与现有 site_channel 历史计数语义一致；token/cost 等不在此处累加（已由全局 stats 处理）。
 func StatsSiteModelHourlyRecordAttempts(attempts []model.ChannelAttempt, fallbackModel string) {
+	statsLifecycleLock.RLock()
+	defer statsLifecycleLock.RUnlock()
+	statsSiteModelHourlyRecordAttempts(attempts, fallbackModel)
+}
+
+func statsSiteModelHourlyRecordAttempts(attempts []model.ChannelAttempt, fallbackModel string) {
 	for _, attempt := range attempts {
 		if attempt.ChannelID == 0 {
 			continue
@@ -105,13 +117,21 @@ func StatsSiteModelHourlyRecordAttempts(attempts []model.ChannelAttempt, fallbac
 		} else {
 			metrics.RequestFailed = 1
 		}
-		StatsSiteModelHourlyUpdate(attempt.ChannelID, modelName, metrics)
+		statsSiteModelHourlyUpdate(attempt.ChannelID, modelName, metrics)
 	}
 }
 
 // StatsSiteModelHourlySaveDB 把内存桶批量 upsert 入库。
 // 由 stats 后台任务调用。
 func StatsSiteModelHourlySaveDB(ctx context.Context) error {
+	statsLifecycleLock.RLock()
+	defer statsLifecycleLock.RUnlock()
+	statsPersistenceLock.Lock()
+	defer statsPersistenceLock.Unlock()
+	return statsSiteModelHourlySaveDB(ctx)
+}
+
+func statsSiteModelHourlySaveDB(ctx context.Context) error {
 	siteModelHourlyCacheLock.Lock()
 	if len(siteModelHourlyCache) == 0 {
 		siteModelHourlyCacheLock.Unlock()

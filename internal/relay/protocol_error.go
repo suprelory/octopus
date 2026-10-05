@@ -40,6 +40,10 @@ func protocolErrorFromError(status int, err error) *model.ResponseError {
 }
 
 func protocolErrorForAttempt(result attemptResult, err error) *model.ResponseError {
+	var budgetErr *costBudgetError
+	if errors.As(err, &budgetErr) {
+		return budgetErr.response
+	}
 	if result.Failure.Class == FailureConfiguration {
 		message := "relay configuration is invalid"
 		if err != nil && strings.TrimSpace(err.Error()) != "" {

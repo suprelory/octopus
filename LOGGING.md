@@ -10,6 +10,7 @@
 | `auth.event` | 登录成功及登录、管理员认证、API Key 认证的拒绝原因、来源 IP、已识别的凭据 ID | 成功 Info，拒绝 Warn |
 | `http.request` / `http.slow` | HTTP 错误码、安全处理后的底层原因或慢请求耗时 | HTTP 5xx Error，慢请求 Warn；普通访问按配置输出 |
 | `relay.rejected` | 模型限制、格式错误、模型不存在或没有可用渠道等转发前拒绝 | Warn |
+| `relay.upstream_error` | 本地请求 ID、渠道 ID、上游 HTTP 状态与固定错误分类 | Warn |
 | `sitesync.sync.complete` | 单账号同步、手动数据应用的来源、账号/站点 ID、状态、渠道/分组/令牌/模型数量、耗时 | 成功 Info，部分同步或失败 Warn |
 | `sitesync.<sync/checkin>.done` | 批量任务完成计数与耗时 | 定时成功 Debug，手动或导入触发成功 Info |
 | `sitesync.<sync/checkin>.summary` / `warning_summary` | 批量任务失败、部分同步、异常跳过或取消的汇总 | Warn |
@@ -22,6 +23,8 @@
 同一动作、拒绝原因和来源 IP 的认证失败最多每分钟输出一次，后续记录的 `suppressed` 表示该时间窗省略的重复次数。跟踪的来源数量有上限，超限来源共用一个限流窗口。
 
 管理日志记录变更字段名和显式摘要，不序列化请求对象。新增诊断会过滤凭据、认证头、Cookie、URL 路径及查询值；单账号同步还使用账号和本次同步取得的凭据处理上游回显。Debug 下 HTTP 日志仅记录查询参数名。
+
+中继控制台诊断不输出上游错误正文、自由文本消息或供应商自定义错误码；HTTP 访问日志也不重复记录这些内容。转换、流式响应和 WebSocket 错误仅保留固定分类及 Go 错误类型。这与正文捕获开关独立：开启正文捕获后，完整交换仍由请求记录的访问权限、大小限制和保留期管理，详见 [Request recording](REQUEST_LOGGING.md)。
 
 转发前拒绝也写入管理面板的转发日志，沿用转发日志保留设置。该记录不保存请求正文、不产生上游尝试，也不增加用量、费用或渠道失败统计。开启 HTTP 访问日志后，会同时保留独立的访问记录。
 

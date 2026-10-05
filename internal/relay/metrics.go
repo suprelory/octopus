@@ -43,6 +43,7 @@ type RelayMetrics struct {
 	WSMode      *model.RelayLogWSMode
 	WSExecMode  *model.RelayLogWSExecMode
 	WSRecovery  *model.RelayLogWSRecovery
+	costPrice   *model.LLMPrice
 
 	TransportInputTokens *int
 	BillInputTokens      *int
@@ -116,7 +117,7 @@ func (m *RelayMetrics) SetInternalResponse(resp *transformerModel.InternalLLMRes
 		m.Stats.OutputToken = usage.CompletionTokens
 		inputReported = usage.EffectiveInputTokens() > 0
 
-		if modelPrice := resolveModelPrice(m.RequestModel); modelPrice != nil {
+		if modelPrice := m.modelPrice(); modelPrice != nil {
 			m.Stats.InputCost = (float64(cacheReadTokens)*modelPrice.CacheRead +
 				float64(cacheWriteTokens)*modelPrice.CacheWrite +
 				float64(nonCachedInput)*modelPrice.Input) * 1e-6
@@ -131,7 +132,7 @@ func (m *RelayMetrics) SetInternalResponse(resp *transformerModel.InternalLLMRes
 		estimated := int64(*m.TransportInputTokens)
 		m.Stats.InputToken = estimated
 		m.BillInputTokens = intPtr(int(estimated))
-		if modelPrice := resolveModelPrice(m.RequestModel); modelPrice != nil {
+		if modelPrice := m.modelPrice(); modelPrice != nil {
 			m.Stats.InputCost = float64(estimated) * modelPrice.Input * 1e-6
 		}
 	}
@@ -155,16 +156,9 @@ func (m *RelayMetrics) SaveWithChannelStats(ctx context.Context, success bool, e
 	}
 
 	channelID, channelName := finalChannel(attempts)
-	op.StatsTotalUpdate(globalStats)
-	op.StatsHourlyUpdate(globalStats)
-	op.StatsDailyUpdate(context.Background(), globalStats)
-	op.StatsAPIKeyUpdate(m.APIKeyID, globalStats)
-	if updateChannelStats {
-		op.StatsChannelUpdate(channelID, globalStats)
-	} else {
-		updateFinalChannelUsageStats(channelID, globalStats)
+	if saveErr := op.StatsRecordRequest(context.Background(), m.APIKeyID, channelID, globalStats, updateChannelStats, attempts, m.ActualModel); saveErr != nil {
+		log.Warnf("failed to persist daily rollover: %v", saveErr)
 	}
-	op.StatsSiteModelHourlyRecordAttempts(attempts, m.ActualModel)
 
 	// 上游未上报 usage（或输入侧全为 0）时打告警，便于定位是哪个通道缺失 usage。
 	if success && (m.InternalResponse == nil || m.InternalResponse.Usage == nil ||
@@ -346,6 +340,13 @@ func intPtr(value int) *int {
 // resolveModelPrice returns the global price configured for the client-requested model.
 func resolveModelPrice(requestModel string) *model.LLMPrice {
 	return price.GetLLMPrice(requestModel)
+}
+
+func (m *RelayMetrics) modelPrice() *model.LLMPrice {
+	if m.costPrice != nil {
+		return m.costPrice
+	}
+	return resolveModelPrice(m.RequestModel)
 }
 
 func wsModePtr(value model.RelayLogWSMode) *model.RelayLogWSMode {

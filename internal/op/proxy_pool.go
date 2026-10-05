@@ -14,6 +14,8 @@ import (
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/utils/cache"
 	"golang.org/x/net/proxy"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const defaultProxyTestURL = "https://api.openai.com/v1/models"
@@ -115,17 +117,22 @@ func ProxyConfigurationUpdate(req *model.ProxyConfigurationUpdateRequest, ctx co
 }
 
 func ProxyConfigurationDelete(id int, ctx context.Context) error {
-	if _, err := ProxyConfigurationGet(id, ctx); err != nil {
-		return fmt.Errorf("proxy configuration not found")
-	}
-	count, err := ProxyConfigurationReferenceCount(id, ctx)
-	if err != nil {
-		return err
-	}
-	if count > 0 {
-		return fmt.Errorf("proxy configuration is still referenced")
-	}
-	if err := db.GetDB().WithContext(ctx).Delete(&model.ProxyConfiguration{}, id).Error; err != nil {
+	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var item model.ProxyConfiguration
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&item, id).Error; err != nil {
+			return fmt.Errorf("load proxy configuration: %w", err)
+		}
+		for _, table := range []any{&model.Site{}, &model.SiteAccount{}, &model.Channel{}} {
+			var count int64
+			if err := tx.Model(table).Where("proxy_mode = ? AND proxy_config_id = ?", model.ProxyUsageModePool, id).Count(&count).Error; err != nil {
+				return err
+			}
+			if count > 0 {
+				return fmt.Errorf("proxy configuration is still referenced")
+			}
+		}
+		return tx.Delete(&item).Error
+	}); err != nil {
 		return err
 	}
 	proxyConfigurationCache.Del(id)
@@ -288,9 +295,23 @@ func ProxyURLForConfig(id int, ctx context.Context) (string, error) {
 	item, err := ProxyConfigurationGet(id, ctx)
 	if err != nil {
 		proxyConfigurationCache.Del(id)
-		return "", fmt.Errorf("proxy configuration not found")
+		return "", fmt.Errorf("load proxy configuration: %w", err)
 	}
 	proxyConfigurationCache.Set(item.ID, *item)
+	if !item.Enabled {
+		return "", fmt.Errorf("proxy configuration is disabled")
+	}
+	return item.URL, nil
+}
+
+// Configuration writes must read through their transaction, not the runtime
+// cache/global pool. The row lock also orders binding against proxy deletion
+// on databases with multiple connections (SQLite serializes via its pool).
+func proxyURLForConfigTx(tx *gorm.DB, id int) (string, error) {
+	var item model.ProxyConfiguration
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&item, id).Error; err != nil {
+		return "", fmt.Errorf("load proxy configuration: %w", err)
+	}
 	if !item.Enabled {
 		return "", fmt.Errorf("proxy configuration is disabled")
 	}

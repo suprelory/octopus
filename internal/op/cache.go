@@ -12,10 +12,12 @@ func InitCache() error {
 	return refreshCache(true)
 }
 
-// RefreshCacheAfterImport leaves live statistics and their pending writes
-// untouched when the backup only contains configuration.
+// DBImportIncremental publishes restored statistics atomically with its commit.
+// This follow-up only refreshes configuration: reloading stats here could erase
+// requests that settled after the import returned. includeStats is retained for
+// compatibility with callers of the former two-step restore API.
 func RefreshCacheAfterImport(includeStats bool) error {
-	return refreshCache(includeStats)
+	return refreshCache(false)
 }
 
 func refreshCache(includeStats bool) error {
@@ -24,7 +26,7 @@ func refreshCache(includeStats bool) error {
 	if err := settingRefreshCache(ctx); err != nil {
 		return fmt.Errorf("setting refresh cache error: %v", err)
 	}
-	if err := channelRefreshCache(ctx); err != nil {
+	if err := refreshChannels(ctx, !includeStats); err != nil {
 		return fmt.Errorf("channel refresh cache error: %v", err)
 	}
 	if err := proxyConfigurationRefreshCache(ctx); err != nil {

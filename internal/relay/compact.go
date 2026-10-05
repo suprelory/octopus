@@ -48,6 +48,12 @@ func HandleResponsesCompact(c *gin.Context) {
 	captureTrace := startHTTPRelayCapture(c)
 	requestModel, ready := "", false
 	defer recordEarlyHTTPFailure(c, &requestModel, "responses", &ready, time.Now())
+	if op.APIKeyCostReservationFromContext(c.Request.Context()).Limited() {
+		err := newCostBudgetError("compact does not support a reliable maximum cost estimate for cost-limited API keys")
+		response := protocolErrorFromError(http.StatusBadRequest, err)
+		resp.ErrorWithCode(c, response.StatusCode, response.Detail.Code, response.Detail.Message)
+		return
+	}
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		// middleware.MaxBodySize 命中时要回 413，别把限流当成内部错误。
@@ -102,6 +108,7 @@ func HandleResponsesCompact(c *gin.Context) {
 
 	metricsReq := &transformerModel.InternalLLMRequest{Model: requestModel, RawRequest: body}
 	ready = true
+	resp.UseSafeErrorLogDetails(c, CodeRelayUpstreamFailed, "relay response details omitted from console")
 	metrics := NewRelayMetrics(apiKeyID, requestModel, "responses", middleware.ClientIP(c), body, metricsReq)
 	metrics.capture, metrics.StartTime = captureTrace, captureTrace.started
 	captureTrace.recordClientRequest(body)

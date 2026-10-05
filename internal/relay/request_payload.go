@@ -113,7 +113,7 @@ func (ra *relayAttempt) recordTransportRequestPayloadWithModelRequirement(payloa
 		}
 		ra.metrics.SetTransportRequestPayload(payload, modelName)
 	}
-	return nil
+	return ra.checkRequestCost(payload)
 }
 
 // copyHeaders 复制请求头，过滤 hop-by-hop 头

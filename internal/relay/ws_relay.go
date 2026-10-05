@@ -2,6 +2,7 @@ package relay
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -61,6 +62,11 @@ func wsResultFromAttempt(req *relayRequest, result attemptResult) wsRelayResult 
 		return wsResult
 	}
 	if result.Failure.Class == FailureBudgetExceeded {
+		return wsResult
+	}
+	var budgetErr *costBudgetError
+	if errors.As(result.Err, &budgetErr) {
+		wsResult.PublicError = &wsPublicError{Status: budgetErr.response.StatusCode, Code: budgetErr.response.Detail.Code, Message: budgetErr.response.Detail.Message}
 		return wsResult
 	}
 	if result.StatusCode == http.StatusBadRequest && result.ProtocolError != nil {

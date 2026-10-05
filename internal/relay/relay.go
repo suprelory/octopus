@@ -2,6 +2,7 @@ package relay
 
 import (
 	dbmodel "github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/server/resp"
 	"github.com/bestruirui/octopus/polywire/inbound"
 	"github.com/gin-gonic/gin"
 )
@@ -18,6 +19,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 	if relay == nil {
 		return
 	}
+	resp.UseSafeErrorLogDetails(c, CodeRelayUpstreamFailed, "relay response details omitted from console")
 	defer relay.request.heartbeat.Stop()
 	relay.run()
 }

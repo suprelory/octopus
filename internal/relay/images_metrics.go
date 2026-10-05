@@ -86,16 +86,9 @@ func (m *imagesRelayMetrics) SaveWithChannelStats(ctx context.Context, success b
 	}
 
 	channelID, channelName := finalChannel(attempts)
-	op.StatsTotalUpdate(globalStats)
-	op.StatsHourlyUpdate(globalStats)
-	op.StatsDailyUpdate(context.Background(), globalStats)
-	op.StatsAPIKeyUpdate(m.APIKeyID, globalStats)
-	if updateChannelStats {
-		op.StatsChannelUpdate(channelID, globalStats)
-	} else {
-		updateFinalChannelUsageStats(channelID, globalStats)
+	if saveErr := op.StatsRecordRequest(context.Background(), m.APIKeyID, channelID, globalStats, updateChannelStats, attempts, m.ActualModel); saveErr != nil {
+		log.Warnf("failed to persist daily rollover: %v", saveErr)
 	}
-	op.StatsSiteModelHourlyRecordAttempts(attempts, m.ActualModel)
 
 	if conf.AppConfig.Log.Relay.Summary || !success {
 		fields := []interface{}{

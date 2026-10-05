@@ -150,6 +150,8 @@ type relayAttempt struct {
 	transportRecovery      upstreamRecovery
 	upstreamTransport      string
 	protocolErrorWritten   bool
+	estimatedCost          float64
+	costChecked            bool
 }
 
 // attemptResult 封装单次尝试的结果

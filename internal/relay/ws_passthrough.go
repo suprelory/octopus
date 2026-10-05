@@ -45,7 +45,10 @@ func (ra *relayAttempt) forwardViaWSPassthrough(ctx context.Context) (int, error
 		wsUpstreamPool.Put(pc)
 		return 0, classifyLocalRelayError(FailureConfiguration, fmt.Errorf("failed to build websocket passthrough request: %w", err))
 	}
-	ra.metrics.SetTransportRequestPayload(payload, ra.internalRequest.Model)
+	if err := ra.recordTransportRequestPayload(payload); err != nil {
+		wsUpstreamPool.Put(pc)
+		return 0, err
+	}
 	if err := ra.reserveSubmission(ctx); err != nil {
 		wsUpstreamPool.Put(pc)
 		return 0, err
@@ -56,7 +59,7 @@ func (ra *relayAttempt) forwardViaWSPassthrough(ctx context.Context) (int, error
 	ra.upstreamTransport = "ws"
 	ra.startWSCapture()
 	if err := wsUpstreamPool.SendRaw(ctx, pc, payload); err != nil {
-		log.Warnf("upstream WS passthrough send failed for channel %s: %v", ra.channel.Name, err)
+		log.Warnf("upstream WS passthrough send failed for channel %s: %v", ra.channel.Name, relayErrorDiagnostic(err))
 		wsUpstreamPool.RemoveConn(pc)
 		return ra.upstreamWSFailure(ctx, 0, err, true)
 	}
@@ -196,7 +199,7 @@ func (ra *relayAttempt) handleWSPassthroughStream(ctx context.Context, pc *poole
 				out := ra.rewriteWSPassthroughDownstreamModel(observation)
 				ra.protocolErrorWritten = true
 				if writeErr := writeWSPassthroughDownstream(ctx, writer, out); writeErr != nil {
-					log.Debugf("ws passthrough: failed to forward upstream error frame downstream (channel=%d, key=%d): %v", ra.channel.ID, ra.usedKey.ID, writeErr)
+					log.Debugf("ws passthrough: failed to forward upstream error frame downstream (channel=%d, key=%d): %v", ra.channel.ID, ra.usedKey.ID, relayErrorDiagnostic(writeErr))
 				}
 			}
 			return stats, stats.Error
@@ -209,7 +212,7 @@ func (ra *relayAttempt) handleWSPassthroughStream(ctx context.Context, pc *poole
 			ra.commitResponse()
 			if writeErr := writeWSPassthroughDownstream(ctx, writer, out); writeErr != nil {
 				if isClientCancellation(ctx, writeErr) || isUpstreamWSConnectionBroken(writeErr) {
-					log.Debugf("ws passthrough downstream write failed; draining upstream (channel=%d, key=%d): %v", ra.channel.ID, ra.usedKey.ID, writeErr)
+					log.Debugf("ws passthrough downstream write failed; draining upstream (channel=%d, key=%d): %v", ra.channel.ID, ra.usedKey.ID, relayErrorDiagnostic(writeErr))
 					dropDownstream = true
 					if readCtx == ctx && isClientCancellation(ctx, writeErr) {
 						drainCtx, drainCancel := context.WithTimeout(context.Background(), wsPassthroughDrainTimeout)

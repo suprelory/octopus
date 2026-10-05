@@ -54,7 +54,7 @@ func (r *httpRelay) saveResponsesReplay(attempt *relayRequest, channel *dbmodel.
 		var err error
 		internalResponse, err = attempt.inAdapter.GetInternalResponse(req.c.Request.Context())
 		if err != nil {
-			log.Debugf("failed to get internal response for replay state save: %v", err)
+			log.Debugf("failed to get internal response for replay state save: %v", relayErrorDiagnostic(err))
 		}
 	}
 	if internalResponse == nil {

@@ -263,7 +263,7 @@ func (p *wsPool) preflightPreferredConnLocked(key wsPoolKey, entry *wsPoolEntry,
 		pc.lastUsed = time.Now()
 		return true
 	}
-	log.Debugf("upstream WS preferred connection preflight failed (channel=%d, key=%d, conn_id=%s): %v", key.channelID, key.keyID, pc.id, err)
+	log.Debugf("upstream WS preferred connection preflight failed (channel=%d, key=%d, conn_id=%s): %v", key.channelID, key.keyID, pc.id, relayErrorDiagnostic(err))
 	if entry != nil {
 		for i, existing := range entry.conns {
 			if existing == pc || (existing != nil && existing.id == pc.id) {
@@ -743,10 +743,10 @@ func TryUpstreamWSWithPreference(ctx context.Context, channel *dbmodel.Channel, 
 			pc, unsupported, err := wsUpstreamPool.Dial(ctx, poolKey, channel, baseUrl, headers)
 			if err != nil {
 				if unsupported {
-					log.Debugf("upstream WS dial failed for channel %d, marking unsupported: %v", channel.ID, err)
+					log.Debugf("upstream WS dial failed for channel %d, marking unsupported: %v", channel.ID, relayErrorDiagnostic(err))
 					wsUpstreamPool.MarkUnsupported(channel.ID)
 				} else {
-					log.Debugf("upstream WS dial failed for channel %d: %v", channel.ID, err)
+					log.Debugf("upstream WS dial failed for channel %d: %v", channel.ID, relayErrorDiagnostic(err))
 					wsUpstreamPool.RecordWSFailure(channel.ID)
 				}
 				return nil

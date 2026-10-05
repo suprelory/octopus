@@ -153,7 +153,7 @@ func isUpstreamWSConnectionBroken(err error) bool {
 func shouldReconnectUpstreamWSBeforeReplay(err error) bool {
 	// Empty stream before first event should trigger reconnect
 	if errors.Is(err, stream.ErrEmptyUpstreamStream) {
-		log.Debugf("ws continuation error marked reconnectable before replay: %v", err)
+		log.Debugf("ws continuation error marked reconnectable before replay: %v", relayErrorDiagnostic(err))
 		return true
 	}
 
@@ -164,7 +164,7 @@ func shouldReconnectUpstreamWSBeforeReplay(err error) bool {
 	shouldReconnect := isUpstreamWSConnectionBroken(err) ||
 		strings.Contains(message, "ws stream ended before first event")
 	if shouldReconnect {
-		log.Debugf("ws continuation error marked reconnectable before replay: %v", err)
+		log.Debugf("ws continuation error marked reconnectable before replay: %v", relayErrorDiagnostic(err))
 	}
 	return shouldReconnect
 }

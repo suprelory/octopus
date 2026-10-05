@@ -35,6 +35,11 @@ var statsAPIKeyCacheNeedUpdateLock sync.Mutex
 // Serialize complete snapshot writes with key deletion, including day rollover.
 var statsPersistenceLock sync.Mutex
 
+// Restore holds this exclusively from its transaction through cache publication.
+// Normal updates/flushes hold a read lock. Lock order: channelWriteLock,
+// apiKeyWriteLock, statsLifecycleLock, statsPersistenceLock, individual caches.
+var statsLifecycleLock sync.RWMutex
+
 // pendingDailyOverrides holds prev-day StatsDaily snapshots whose persistence
 // failed. Retried on the next StatsSaveDB cycle so a rollover snapshot is
 // never silently dropped after the in-memory cache has advanced.
@@ -85,6 +90,8 @@ func StatsSaveDBTask() {
 }
 
 func StatsSaveDB(ctx context.Context) error {
+	statsLifecycleLock.RLock()
+	defer statsLifecycleLock.RUnlock()
 	statsPersistenceLock.Lock()
 	defer statsPersistenceLock.Unlock()
 	if err := flushPendingDailyOverrides(ctx); err != nil {
@@ -193,7 +200,7 @@ func persistStatsSnapshots(
 		}
 	}
 
-	if err := StatsSiteModelHourlySaveDB(ctx); err != nil {
+	if err := statsSiteModelHourlySaveDB(ctx); err != nil {
 		return err
 	}
 
@@ -256,6 +263,12 @@ func restoreStatsDirtyIDs(channelIDs []int, apiKeyIDs []int) {
 }
 
 func StatsDailyUpdate(ctx context.Context, metrics model.StatsMetrics) error {
+	statsLifecycleLock.RLock()
+	defer statsLifecycleLock.RUnlock()
+	return statsDailyUpdate(ctx, metrics)
+}
+
+func statsDailyUpdate(ctx context.Context, metrics model.StatsMetrics) error {
 	today := time.Now().Format("20060102")
 
 	statsDailyCacheLock.Lock()
@@ -274,6 +287,12 @@ func StatsDailyUpdate(ctx context.Context, metrics model.StatsMetrics) error {
 }
 
 func StatsTotalUpdate(metrics model.StatsMetrics) error {
+	statsLifecycleLock.RLock()
+	defer statsLifecycleLock.RUnlock()
+	return statsTotalUpdate(metrics)
+}
+
+func statsTotalUpdate(metrics model.StatsMetrics) error {
 	statsTotalCacheLock.Lock()
 	defer statsTotalCacheLock.Unlock()
 	if statsTotalCache.ID == 0 {
@@ -284,6 +303,12 @@ func StatsTotalUpdate(metrics model.StatsMetrics) error {
 }
 
 func StatsChannelUpdate(channelID int, metrics model.StatsMetrics) error {
+	statsLifecycleLock.RLock()
+	defer statsLifecycleLock.RUnlock()
+	return statsChannelUpdate(channelID, metrics)
+}
+
+func statsChannelUpdate(channelID int, metrics model.StatsMetrics) error {
 	statsChannelCache.Update(channelID, func(current model.StatsChannel, exists bool) model.StatsChannel {
 		if !exists {
 			current.ChannelID = channelID
@@ -298,6 +323,12 @@ func StatsChannelUpdate(channelID int, metrics model.StatsMetrics) error {
 }
 
 func StatsHourlyUpdate(metrics model.StatsMetrics) error {
+	statsLifecycleLock.RLock()
+	defer statsLifecycleLock.RUnlock()
+	return statsHourlyUpdate(metrics)
+}
+
+func statsHourlyUpdate(metrics model.StatsMetrics) error {
 	now := time.Now()
 	nowHour := now.Hour()
 	todayDate := time.Now().Format("20060102")
@@ -319,6 +350,14 @@ func StatsHourlyUpdate(metrics model.StatsMetrics) error {
 func StatsAPIKeyUpdate(apiKeyID int, metrics model.StatsMetrics) error {
 	apiKeyWriteLock.RLock()
 	defer apiKeyWriteLock.RUnlock()
+	statsLifecycleLock.RLock()
+	defer statsLifecycleLock.RUnlock()
+	return statsAPIKeyUpdate(apiKeyID, metrics)
+}
+
+func statsAPIKeyUpdate(apiKeyID int, metrics model.StatsMetrics) error {
+	apiKeyCostLock.Lock()
+	defer apiKeyCostLock.Unlock()
 	// A request admitted before deletion may finish afterward. Global usage is
 	// still recorded, but it must not recreate statistics for a deleted key.
 	if _, exists := apiKeyCache.Get(apiKeyID); !exists {
@@ -337,7 +376,34 @@ func StatsAPIKeyUpdate(apiKeyID int, metrics model.StatsMetrics) error {
 	return nil
 }
 
+// StatsRecordRequest settles all usage dimensions on the same side of a restore.
+// Attempt success/failure counters may already have been recorded separately.
+func StatsRecordRequest(ctx context.Context, apiKeyID, channelID int, metrics model.StatsMetrics, includeChannelOutcome bool, attempts []model.ChannelAttempt, actualModel string) error {
+	apiKeyWriteLock.RLock()
+	defer apiKeyWriteLock.RUnlock()
+	statsLifecycleLock.RLock()
+	defer statsLifecycleLock.RUnlock()
+	statsTotalUpdate(metrics)
+	statsHourlyUpdate(metrics)
+	statsAPIKeyUpdate(apiKeyID, metrics)
+	if channelID != 0 {
+		channelMetrics := metrics
+		if !includeChannelOutcome {
+			channelMetrics.WaitTime = 0
+			channelMetrics.RequestSuccess = 0
+			channelMetrics.RequestFailed = 0
+		}
+		statsChannelUpdate(channelID, channelMetrics)
+	}
+	statsSiteModelHourlyRecordAttempts(attempts, actualModel)
+	return statsDailyUpdate(ctx, metrics)
+}
+
 func StatsChannelDel(id int) error {
+	statsLifecycleLock.RLock()
+	defer statsLifecycleLock.RUnlock()
+	statsPersistenceLock.Lock()
+	defer statsPersistenceLock.Unlock()
 	if _, ok := statsChannelCache.Get(id); !ok {
 		return nil
 	}
@@ -351,6 +417,8 @@ func StatsChannelDel(id int) error {
 func StatsAPIKeyDel(id int) error {
 	apiKeyWriteLock.Lock()
 	defer apiKeyWriteLock.Unlock()
+	statsLifecycleLock.RLock()
+	defer statsLifecycleLock.RUnlock()
 	statsPersistenceLock.Lock()
 	defer statsPersistenceLock.Unlock()
 	if err := db.GetDB().Where("api_key_id = ?", id).Delete(&model.StatsAPIKey{}).Error; err != nil {
@@ -390,6 +458,12 @@ func StatsChannelGet(id int) model.StatsChannel {
 }
 
 func StatsAPIKeyGet(id int) model.StatsAPIKey {
+	statsLifecycleLock.RLock()
+	defer statsLifecycleLock.RUnlock()
+	return statsAPIKeyGet(id)
+}
+
+func statsAPIKeyGet(id int) model.StatsAPIKey {
 	stats, ok := statsAPIKeyCache.Get(id)
 	if !ok {
 		return model.StatsAPIKey{
@@ -441,13 +515,35 @@ func StatsGetDaily(ctx context.Context) ([]model.StatsDaily, error) {
 }
 
 func statsRefreshCache(ctx context.Context) error {
-	dbConn := db.GetDB().WithContext(ctx)
+	statsLifecycleLock.Lock()
+	defer statsLifecycleLock.Unlock()
+	statsPersistenceLock.Lock()
+	defer statsPersistenceLock.Unlock()
+	snapshot, err := loadStatsCache(db.GetDB().WithContext(ctx))
+	if err != nil {
+		return err
+	}
+	snapshot.publish()
+	return nil
+}
+
+// Load every table before publishing any cache. Import can load through its
+// transaction and roll back on a query failure, then publish after commit.
+type statsCacheSnapshot struct {
+	daily    model.StatsDaily
+	total    model.StatsTotal
+	channels []model.StatsChannel
+	hourly   []model.StatsHourly
+	apiKeys  []model.StatsAPIKey
+}
+
+func loadStatsCache(dbConn *gorm.DB) (*statsCacheSnapshot, error) {
 	today := time.Now().Format("20060102")
 
 	var loadedDaily model.StatsDaily
 	result := dbConn.Last(&loadedDaily)
 	if result.Error != nil && !errors.Is(result.Error, gorm.ErrRecordNotFound) {
-		return fmt.Errorf("failed to get daily stats: %v", result.Error)
+		return nil, fmt.Errorf("failed to get daily stats: %w", result.Error)
 	}
 	if result.RowsAffected == 0 || loadedDaily.Date != today {
 		loadedDaily = model.StatsDaily{Date: today}
@@ -456,7 +552,7 @@ func statsRefreshCache(ctx context.Context) error {
 	var loadedTotal model.StatsTotal
 	result = dbConn.First(&loadedTotal)
 	if result.Error != nil && !errors.Is(result.Error, gorm.ErrRecordNotFound) {
-		return fmt.Errorf("failed to get total stats: %v", result.Error)
+		return nil, fmt.Errorf("failed to get total stats: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
 		loadedTotal = model.StatsTotal{ID: 1}
@@ -467,53 +563,60 @@ func statsRefreshCache(ctx context.Context) error {
 	var loadedChannels []model.StatsChannel
 	result = dbConn.Find(&loadedChannels)
 	if result.Error != nil {
-		return fmt.Errorf("failed to get channels: %v", result.Error)
+		return nil, fmt.Errorf("failed to get channels: %w", result.Error)
 	}
 
 	var loadedHourly []model.StatsHourly
 	result = dbConn.Find(&loadedHourly)
 	if result.Error != nil {
-		return fmt.Errorf("failed to get hourly stats: %v", result.Error)
+		return nil, fmt.Errorf("failed to get hourly stats: %w", result.Error)
 	}
+	var loadedAPIKeys []model.StatsAPIKey
+	if err := dbConn.Find(&loadedAPIKeys).Error; err != nil {
+		return nil, fmt.Errorf("failed to get api key stats: %w", err)
+	}
+	return &statsCacheSnapshot{loadedDaily, loadedTotal, loadedChannels, loadedHourly, loadedAPIKeys}, nil
+}
 
+// Requires statsLifecycleLock exclusively and statsPersistenceLock.
+func (s *statsCacheSnapshot) publish() {
 	statsDailyCacheLock.Lock()
-	statsDailyCache = loadedDaily
+	statsDailyCache = s.daily
 	statsDailyCacheLock.Unlock()
 
 	statsTotalCacheLock.Lock()
-	statsTotalCache = loadedTotal
+	statsTotalCache = s.total
 	statsTotalCacheLock.Unlock()
 
 	statsChannelCache.Clear()
 	statsChannelCacheNeedUpdateLock.Lock()
 	statsChannelCacheNeedUpdate = make(map[int]struct{})
 	statsChannelCacheNeedUpdateLock.Unlock()
-	for _, v := range loadedChannels {
+	for _, v := range s.channels {
 		statsChannelCache.Set(v.ChannelID, v)
-	}
-
-	var loadedAPIKeys []model.StatsAPIKey
-	result = dbConn.Find(&loadedAPIKeys)
-	if result.Error != nil {
-		return fmt.Errorf("failed to get api key stats: %v", result.Error)
 	}
 
 	statsAPIKeyCache.Clear()
 	statsAPIKeyCacheNeedUpdateLock.Lock()
 	statsAPIKeyCacheNeedUpdate = make(map[int]struct{})
 	statsAPIKeyCacheNeedUpdateLock.Unlock()
-	for _, v := range loadedAPIKeys {
+	for _, v := range s.apiKeys {
 		statsAPIKeyCache.Set(v.APIKeyID, v)
 	}
 
 	statsHourlyCacheLock.Lock()
 	statsHourlyCache = [24]model.StatsHourly{}
-	for _, v := range loadedHourly {
+	for _, v := range s.hourly {
 		if v.Hour >= 0 && v.Hour < 24 {
 			statsHourlyCache[v.Hour] = v
 		}
 	}
 	statsHourlyCacheLock.Unlock()
 
-	return nil
+	pendingDailyOverridesLock.Lock()
+	pendingDailyOverrides = nil
+	pendingDailyOverridesLock.Unlock()
+	siteModelHourlyCacheLock.Lock()
+	siteModelHourlyCache = make(map[siteModelHourlyKey]*model.StatsSiteModelHourly)
+	siteModelHourlyCacheLock.Unlock()
 }

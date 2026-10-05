@@ -29,6 +29,11 @@ outputs. The request ID returned in `X-Octopus-Request-Id` identifies capture fr
 ingress; the existing numeric log ID is still allocated at persistence admission,
 preserving concurrent clear semantics.
 
+Console relay diagnostics never copy provider error bodies, free-text messages,
+or provider-controlled error codes, even when body capture is enabled. HTTP access
+logs use a separate safe diagnostic for relayed failures. Use the local request ID
+to locate retained exchanges; the capture controls above govern those payloads.
+
 Body search covers client and attempted upstream payloads, including new compressed
 records. The existing time-window validation applies. Searches are bounded to 500
 candidate requests and 128 MiB of decoded content per call; cursor searches expose

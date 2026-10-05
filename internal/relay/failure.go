@@ -117,6 +117,9 @@ func classifyRelayFailureWithContext(ctx context.Context, hasRequestContext bool
 	if isLocalRelayBudgetExceeded(ctx, err) {
 		return FailureClassification{Class: FailureBudgetExceeded, StatusCode: statusCode, RetryAt: retryAt}
 	}
+	if isCostBudgetError(err) {
+		return FailureClassification{Class: FailureRequest, StatusCode: http.StatusBadRequest}
+	}
 	if hasRequestContext && ctx.Err() != nil && isClientCancellation(ctx, err) {
 		return FailureClassification{Class: FailureClientCanceled, StatusCode: statusCode, RetryAt: retryAt}
 	}

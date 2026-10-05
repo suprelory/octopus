@@ -71,7 +71,7 @@ func (ra *relayAttempt) runStreamProcessor(ctx context.Context, processor *strea
 			cause = model.StreamFinishCauseClientCancellation
 		}
 		_, _ = ra.streamConverter.Finish(ctx, cause)
-		log.Debugf("stream completion status=interrupted cause=%s: %v", cause, err)
+		log.Debugf("stream completion status=interrupted cause=%s: %v", cause, relayErrorDiagnostic(err))
 	}
 	if ra.streamConverter != nil {
 		diagnostics := ra.streamConverter.Diagnostics()
@@ -207,7 +207,7 @@ func (ra *relayAttempt) transformSourceEvent(ctx context.Context, event model.So
 	events, err := ra.ensureStreamConverter().Push(ctx, event)
 	if err != nil {
 		ra.captureStreamError(err)
-		log.Warnf("failed to transform stream events: %v", err)
+		log.Warnf("failed to transform stream events: %v", relayErrorDiagnostic(err))
 		return nil, false, err
 	}
 	if len(events) == 0 {
@@ -217,7 +217,7 @@ func (ra *relayAttempt) transformSourceEvent(ctx context.Context, event model.So
 	inStream, err := ra.inAdapter.TransformStreamEvents(ctx, events)
 	if err != nil {
 		ra.captureStreamError(err)
-		log.Warnf("failed to transform inbound stream events: %v", err)
+		log.Warnf("failed to transform inbound stream events: %v", relayErrorDiagnostic(err))
 		return nil, false, err
 	}
 	return inStream, semanticPayload, nil
@@ -249,7 +249,7 @@ func (ra *relayAttempt) finalizeStreamLifecycle(ctx context.Context, writeTail b
 	tailEvents, err := converter.Finish(ctx, converter.FinishCause())
 	if err != nil {
 		ra.captureStreamError(err)
-		log.Debugf("stream completion status=interrupted cause=%s: %v", converter.FinishCause(), err)
+		log.Debugf("stream completion status=interrupted cause=%s: %v", converter.FinishCause(), relayErrorDiagnostic(err))
 		return err
 	}
 	finalized := converter.Finalization()

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	dbmodel "github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/op"
 )
 
 const replayRecoveryTimeout = 15 * time.Second
@@ -93,7 +94,19 @@ func (e *relayExecution) wait(ctx context.Context, delay time.Duration) error {
 // reserveSubmission is called immediately before Do/SendRaw. Dial-only failures
 // do not consume generation quota; every send, including a failed send, does.
 func (ra *relayAttempt) reserveSubmission(ctx context.Context) error {
-	return ra.execution.reserveSubmission(ctx, relayCandidate{ra.channel.ID, ra.usedKey.ID, ra.internalRequest.Model})
+	if err := ra.execution.reserveSubmission(ctx, relayCandidate{ra.channel.ID, ra.usedKey.ID, ra.internalRequest.Model}); err != nil {
+		return err
+	}
+	reservation := op.APIKeyCostReservationFromContext(ctx)
+	if reservation.Limited() {
+		if !ra.costChecked {
+			return newCostBudgetError("request cost was not checked before submission")
+		}
+		if err := reservation.ReserveAttempt(ra.estimatedCost); err != nil {
+			return newCostBudgetError("request and retry costs exceed the remaining API key budget")
+		}
+	}
+	return nil
 }
 
 // reserveSubmission is shared by text, Images and Compact. Only actual sends

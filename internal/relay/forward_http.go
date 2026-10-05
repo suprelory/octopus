@@ -65,7 +65,7 @@ func (ra *relayAttempt) forwardViaHTTPPassthrough(ctx context.Context, pt model.
 		ra.internalRequest.Query,
 	)
 	if err != nil {
-		log.Warnf("failed to create passthrough request: %v", err)
+		log.Warnf("failed to create passthrough request: %v", relayErrorDiagnostic(err))
 		return 0, classifyLocalRelayError(FailureConfiguration, fmt.Errorf("failed to create request: %w", err))
 	}
 
@@ -96,7 +96,7 @@ func (ra *relayAttempt) forwardViaHTTPPassthrough(ctx context.Context, pt model.
 		if ra.upstreamError == nil {
 			ra.upstreamError = model.NormalizeHTTPError(statusCode, response.Header, body, "api_error")
 		}
-		log.Warnf("upstream error from channel %s: status=%d, body=%s", ra.channel.Name, response.StatusCode, string(body))
+		ra.logUpstreamHTTPError(response.StatusCode)
 		return statusCode, ra.upstreamError
 	}
 
@@ -121,7 +121,7 @@ func (ra *relayAttempt) forwardViaHTTPPassthrough(ctx context.Context, pt model.
 func (ra *relayAttempt) forwardViaHTTPStandard(ctx context.Context) (int, error) {
 	outboundRequest, report, err := ra.buildOutboundRequest(ctx)
 	if err != nil {
-		log.Warnf("failed to create request: %v", err)
+		log.Warnf("failed to create request: %v", relayErrorDiagnostic(err))
 		return 0, classifyLocalRelayError(FailureConfiguration, fmt.Errorf("failed to create request: %w", err))
 	}
 	ra.capabilityDecision = outbound.ApplyConversionReport(ra.capabilityDecision, report)
@@ -158,7 +158,7 @@ func (ra *relayAttempt) forwardViaHTTPStandard(ctx context.Context) (int, error)
 		if ra.upstreamError == nil {
 			ra.upstreamError = model.NormalizeHTTPError(statusCode, response.Header, body, "api_error")
 		}
-		log.Warnf("upstream error from channel %s: status=%d, body=%s", ra.channel.Name, response.StatusCode, string(body))
+		ra.logUpstreamHTTPError(response.StatusCode)
 		return statusCode, ra.upstreamError
 	}
 
@@ -180,7 +180,7 @@ func (ra *relayAttempt) forwardViaHTTPStandard(ctx context.Context) (int, error)
 func (ra *relayAttempt) sendRequest(req *http.Request) (*http.Response, error) {
 	httpClient, err := helper.ChannelHTTPClientWithContext(req.Context(), ra.channel)
 	if err != nil {
-		log.Warnf("failed to get http client: %v", err)
+		log.Warnf("failed to get http client: %v", relayErrorDiagnostic(err))
 		return nil, classifyLocalRelayError(FailureConfiguration, err)
 	}
 
@@ -199,9 +199,9 @@ func (ra *relayAttempt) sendRequest(req *http.Request) (*http.Response, error) {
 			return nil, timeoutErr
 		}
 		if isClientCancellation(req.Context(), err) {
-			log.Infof("request canceled before upstream response: %v", err)
+			log.Infof("request canceled before upstream response: %v", relayErrorDiagnostic(err))
 		} else {
-			log.Warnf("failed to send request: %v", err)
+			log.Warnf("failed to send request: %v", relayErrorDiagnostic(err))
 		}
 		ra.closeFirstTokenBudget()
 		return nil, err

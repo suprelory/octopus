@@ -86,7 +86,7 @@ func processWSResponseCreate(
 		var generate bool
 		if json.Unmarshal(genRaw, &generate) == nil && !generate {
 			if err := bestEffortWarmupUpstreamWS(ctx, apiKeyID, supportedModels, reqBody); err != nil {
-				log.Warnf("ws warmup failed (apikey=%d): %v", apiKeyID, err)
+				log.Warnf("ws warmup failed (apikey=%d): %v", apiKeyID, relayErrorDiagnostic(err))
 			} else {
 				log.Debugf("ws warmup ready (apikey=%d)", apiKeyID)
 			}
@@ -224,7 +224,7 @@ func processWSResponseCreate(
 		return conversationState
 	}
 	if result.ResetConversation {
-		log.Debugf("ws relay clearing conversation state (apikey=%d, request_model=%s, err=%v)", apiKeyID, requestModel, result.Err)
+		log.Debugf("ws relay clearing conversation state (apikey=%d, request_model=%s, err=%v)", apiKeyID, requestModel, relayErrorDiagnostic(result.Err))
 		deleteWSConversationState(apiKeyID, requestModel, downstreamSessionID)
 		return nil
 	}

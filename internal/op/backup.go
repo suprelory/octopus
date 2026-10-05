@@ -29,6 +29,17 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 	if dump.Version != dbDumpVersion {
 		return nil, fmt.Errorf("unsupported dump version: %d", dump.Version)
 	}
+	// Freeze lifecycle writers before opening the transaction. Publishing the
+	// committed snapshots under these same locks prevents stale flushes and late
+	// settlements from replacing restored data or recreating removed keys.
+	channelWriteLock.Lock()
+	defer channelWriteLock.Unlock()
+	apiKeyWriteLock.Lock()
+	defer apiKeyWriteLock.Unlock()
+	statsLifecycleLock.Lock()
+	defer statsLifecycleLock.Unlock()
+	statsPersistenceLock.Lock()
+	defer statsPersistenceLock.Unlock()
 
 	conn := db.GetDB().WithContext(ctx)
 	// MySQL DDL implicitly commits transactions, so prepare the optional legacy
@@ -39,6 +50,9 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		}
 	}
 	res := &model.DBImportResult{RowsAffected: map[string]int64{}}
+	var restoredStats *statsCacheSnapshot
+	var channels []model.Channel
+	var apiKeys []model.APIKey
 
 	err := conn.Transaction(func(tx *gorm.DB) error {
 		state := newDBImportState(tx, dump, res)
@@ -66,10 +80,31 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 				return err
 			}
 		}
-		return db.SeparateLegacySiteCheckins(tx)
+		if err := db.SeparateLegacySiteCheckins(tx); err != nil {
+			return err
+		}
+		if err := tx.Preload("Keys").Find(&channels).Error; err != nil {
+			return fmt.Errorf("load imported channels: %w", err)
+		}
+		if err := tx.Find(&apiKeys).Error; err != nil {
+			return fmt.Errorf("load imported API keys: %w", err)
+		}
+		if dump.IncludeStats {
+			var err error
+			restoredStats, err = loadStatsCache(tx)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
+	}
+	publishChannelsLocked(channels)
+	publishAPIKeysLocked(apiKeys)
+	if restoredStats != nil {
+		restoredStats.publish()
 	}
 	// The import transaction has already committed; cache refresh failures are non-fatal
 	// and can be recovered by a later InitCache/refresh cycle.

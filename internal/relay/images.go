@@ -30,6 +30,12 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 	requestModel, ready := "", false
 	defer recordEarlyHTTPFailure(c, &requestModel, "images", &ready, time.Now())
 	ctx := c.Request.Context()
+	if op.APIKeyCostReservationFromContext(ctx).Limited() {
+		err := newCostBudgetError("images do not support a reliable maximum cost estimate for cost-limited API keys")
+		response := protocolErrorFromError(http.StatusBadRequest, err)
+		resp.ErrorWithCode(c, response.StatusCode, response.Detail.Code, response.Detail.Message)
+		return
+	}
 
 	apiKeyID := c.GetInt("api_key_id")
 
@@ -117,6 +123,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 
 	// 初始化 Metrics（Images 独立，避免 b64_json 内存膨胀）
 	ready = true
+	resp.UseSafeErrorLogDetails(c, CodeRelayUpstreamFailed, "relay response details omitted from console")
 	metrics := newImagesRelayMetrics(apiKeyID, requestModel, middleware.ClientIP(c))
 	metrics.capture, metrics.StartTime = trace, trace.started
 	trace.client.request = trace.captureImagesRequest(c.Request, bc, boundary, "")

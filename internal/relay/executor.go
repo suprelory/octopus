@@ -32,7 +32,7 @@ const (
 )
 
 func decideRetry(result attemptResult, sameCandidateAvailable, fallbackAvailable bool) retryAction {
-	if result.Success || result.Written || result.Canceled || result.ResetConversation || result.Failure.Class == FailureBudgetExceeded {
+	if result.Success || result.Written || result.Canceled || result.ResetConversation || result.Failure.Class == FailureBudgetExceeded || isCostBudgetError(result.Err) {
 		return retryStop
 	}
 	if result.FirstTokenTimeout || (result.Failure.Class == FailureRateLimit && fallbackAvailable) ||

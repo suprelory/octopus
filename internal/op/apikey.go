@@ -47,6 +47,8 @@ func APIKeyUpdate(key *model.APIKey, ctx context.Context) error {
 }
 
 func APIKeyList(ctx context.Context) ([]model.APIKey, error) {
+	apiKeyWriteLock.RLock()
+	defer apiKeyWriteLock.RUnlock()
 	keys := make([]model.APIKey, 0, apiKeyCache.Len())
 	for _, apiKey := range apiKeyCache.GetAll() {
 		keys = append(keys, apiKey)
@@ -55,6 +57,12 @@ func APIKeyList(ctx context.Context) ([]model.APIKey, error) {
 }
 
 func APIKeyGet(id int, ctx context.Context) (model.APIKey, error) {
+	apiKeyWriteLock.RLock()
+	defer apiKeyWriteLock.RUnlock()
+	return apiKeyGet(id)
+}
+
+func apiKeyGet(id int) (model.APIKey, error) {
 	apiKey, ok := apiKeyCache.Get(id)
 	if !ok {
 		return model.APIKey{}, fmt.Errorf("API key not found")
@@ -63,16 +71,20 @@ func APIKeyGet(id int, ctx context.Context) (model.APIKey, error) {
 }
 
 func APIKeyGetByAPIKey(apiKey string, ctx context.Context) (model.APIKey, error) {
+	apiKeyWriteLock.RLock()
+	defer apiKeyWriteLock.RUnlock()
 	id, ok := apiKeyIDMap.Get(apiKey)
 	if !ok {
 		return model.APIKey{}, fmt.Errorf("API key not found")
 	}
-	return APIKeyGet(id, ctx)
+	return apiKeyGet(id)
 }
 
 func APIKeyDelete(id int, ctx context.Context) error {
 	apiKeyWriteLock.Lock()
 	defer apiKeyWriteLock.Unlock()
+	statsLifecycleLock.RLock()
+	defer statsLifecycleLock.RUnlock()
 	// A flush must not persist a pre-delete snapshot after the transaction.
 	statsPersistenceLock.Lock()
 	defer statsPersistenceLock.Unlock()
@@ -105,9 +117,15 @@ func apiKeyRefreshCache(ctx context.Context) error {
 	if err := db.GetDB().WithContext(ctx).Find(&apiKeys).Error; err != nil {
 		return err
 	}
+	publishAPIKeysLocked(apiKeys)
+	return nil
+}
+
+func publishAPIKeysLocked(apiKeys []model.APIKey) {
+	apiKeyCache.Clear()
+	apiKeyIDMap.Clear()
 	for _, apiKey := range apiKeys {
 		apiKeyCache.Set(apiKey.ID, apiKey)
 		apiKeyIDMap.Set(apiKey.APIKey, apiKey.ID)
 	}
-	return nil
 }

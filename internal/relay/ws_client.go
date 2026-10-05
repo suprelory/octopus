@@ -28,7 +28,7 @@ func HandleWSResponse(c *gin.Context) {
 		InsecureSkipVerify: true, // Allow cross-origin
 	})
 	if err != nil {
-		log.Warnf("websocket upgrade failed: %v", err)
+		log.Warnf("websocket upgrade failed: %v", relayErrorDiagnostic(err))
 		return
 	}
 	defer conn.CloseNow()
@@ -69,7 +69,7 @@ func HandleWSResponse(c *gin.Context) {
 			if closeStatus == websocket.StatusNormalClosure || closeStatus == websocket.StatusGoingAway {
 				log.Debugf("ws client disconnected normally (apikey=%d)", apiKeyID)
 			} else {
-				log.Warnf("ws client read error (apikey=%d): %v", apiKeyID, err)
+				log.Warnf("ws client read error (apikey=%d): %v", apiKeyID, relayErrorDiagnostic(err))
 			}
 			return
 		}
@@ -107,7 +107,17 @@ func HandleWSResponse(c *gin.Context) {
 			writeWSError(ctx, conn, authErr.Status, authErr.Code, authErr.Message, retryAt)
 			continue
 		}
-		conversationState = processWSResponseCreate(ctx, conn, data, apiKeyID, key.SupportedModels, clientIP, downstreamSessionID, conversationState)
+		reservation, authErr := auth.ReserveAPIKeyCost(key)
+		if authErr != nil {
+			middleware.RecordAuthEvent(c, "api_key.rejected", authErr.Code, apiKeyID)
+			writeWSError(ctx, conn, authErr.Status, authErr.Code, authErr.Message, time.Now().Add(time.Second))
+			continue
+		}
+		func() {
+			defer reservation.Release()
+			turnCtx := op.WithAPIKeyCostReservation(ctx, reservation)
+			conversationState = processWSResponseCreate(turnCtx, conn, data, apiKeyID, key.SupportedModels, clientIP, downstreamSessionID, conversationState)
+		}()
 	}
 }
 
@@ -118,7 +128,7 @@ func writeWSError(ctx context.Context, conn *websocket.Conn, status int, code, m
 	}
 	errEvent := buildWSErrorEvent(status, code, message, deadline, time.Now())
 	if err := writeWSEvent(ctx, conn, errEvent); err != nil {
-		log.Debugf("ws error event write failed: %v", err)
+		log.Debugf("ws error event write failed: %v", relayErrorDiagnostic(err))
 	}
 }
 
