@@ -50,6 +50,7 @@ func (ra *relayAttempt) handleTransformedStream(ctx context.Context, source stre
 		PrecommitMaxBytes:  64 * 1024,
 		AllowEmptyPayload:  ra.allowEmptyPayload(),
 		OnCommit:           ra.commitResponse,
+		ReachedTerminal:    ra.streamReachedTerminal,
 		OnFirstToken: func() {
 			ra.metrics.SetFirstTokenTime(time.Now())
 			ra.stopFirstTokenTimer()
@@ -185,6 +186,7 @@ func (ra *relayAttempt) handleStreamResponsePassthroughV2(ctx context.Context, r
 		PrecommitMaxBytes:  precommitMaxBytes,
 		AllowEmptyPayload:  ra.allowEmptyPayload(),
 		OnCommit:           ra.commitResponse,
+		ReachedTerminal:    ra.streamReachedTerminal,
 		OnFirstToken: func() {
 			ra.metrics.SetFirstTokenTime(time.Now())
 			ra.stopFirstTokenTimer()
@@ -232,6 +234,10 @@ func (ra *relayAttempt) ensureStreamConverter() *model.CanonicalStreamConverter 
 		ra.streamConverter = model.NewStreamConverter(ra.outAdapter, policy)
 	}
 	return ra.streamConverter
+}
+
+func (ra *relayAttempt) streamReachedTerminal() bool {
+	return ra.streamConverter != nil && ra.streamConverter.FinishCause() == model.StreamFinishCauseExplicitTerminal
 }
 
 func (ra *relayAttempt) captureStreamError(err error) {

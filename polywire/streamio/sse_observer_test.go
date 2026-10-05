@@ -2,6 +2,7 @@ package streamio
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -138,5 +139,39 @@ func TestIncrementalSSEObserverPreviewsCompleteJSONBeforeBlankLine(t *testing.T)
 	}
 	if observed != 1 {
 		t.Fatalf("blank line redispatched event: observed=%d", observed)
+	}
+}
+
+func TestIncrementalSSEObserverTerminalRequiresAcceptedCompleteFrame(t *testing.T) {
+	ctx := context.Background()
+	observer := NewIncrementalSourceEventObserver(1024, nil, nil)
+	observer.SetSourceInspector(&openai.ResponseOutbound{})
+	if err := observer.Observe(ctx, []byte("data: {\"type\":\"response.completed\"}\n")); err != nil {
+		t.Fatal(err)
+	}
+	if observer.ReachedTerminal() {
+		t.Fatal("unfinished frame terminated the stream")
+	}
+	// Later envelope fields still override a JSON type seen by the preview.
+	if err := observer.Observe(ctx, []byte("event: response.output_text.delta\n\n")); err != nil {
+		t.Fatal(err)
+	}
+	if observer.ReachedTerminal() {
+		t.Fatal("superseded terminal preview terminated the stream")
+	}
+	if err := observer.Observe(ctx, []byte("data: {\"type\":\"response.completed\"}\n\n")); err != nil {
+		t.Fatal(err)
+	}
+	if !observer.ReachedTerminal() {
+		t.Fatal("complete terminal frame was missed")
+	}
+
+	failure := errors.New("invalid terminal")
+	rejected := NewIncrementalSourceEventObserver(1024, map[string]struct{}{"done": {}}, func(context.Context, SourceEvent) error { return failure })
+	if err := rejected.Observe(ctx, []byte("event: done\ndata: {}\n\n")); !errors.Is(err, failure) {
+		t.Fatalf("observer error = %v", err)
+	}
+	if rejected.ReachedTerminal() {
+		t.Fatal("rejected terminal was accepted")
 	}
 }

@@ -54,6 +54,8 @@ type StreamEventTransform func(ctx context.Context, event SourceEvent) ([]byte, 
 type StreamObserver interface {
 	Observe(ctx context.Context, data []byte) error
 	Finalize(ctx context.Context) error
+	// ReachedTerminal reports an accepted, complete protocol terminal frame.
+	// A preview of an unfinished frame must not complete the stream.
 	ReachedTerminal() bool
 }
 
@@ -84,6 +86,9 @@ type StreamConfig struct {
 	OnFirstToken func()                          // Called when first payload written
 	OnCommit     func()                          // Called before payload delivery becomes uncertain
 	OnFinish     func(ctx context.Context) error // Called on stream end
+	// ReachedTerminal overrides the observer for adapters with an authoritative
+	// protocol lifecycle. Choice finish reasons alone are not stream terminals.
+	ReachedTerminal func() bool
 
 	// Precommit buffers transformed events until a semantic payload is seen.
 	// This keeps failover possible when an upstream emits headers/metadata and
@@ -278,6 +283,9 @@ func (p *StreamProcessor) Run() error {
 					firstTokenC = nil
 				}
 			}
+			if p.reachedTerminal() {
+				return p.finalize()
+			}
 		}
 	}
 }
@@ -387,8 +395,8 @@ func (p *StreamProcessor) writeHeartbeat() error {
 
 // handleDisconnect handles context cancellation or timeout.
 func (p *StreamProcessor) handleDisconnect() error {
-	if p.config.Observer != nil && p.config.Observer.ReachedTerminal() {
-		log.Debugf("client disconnected after observer reached terminal event, treating as success")
+	if p.reachedTerminal() {
+		log.Debugf("client disconnected after protocol terminal event, treating as success")
 		return p.finalize()
 	}
 
@@ -397,6 +405,13 @@ func (p *StreamProcessor) handleDisconnect() error {
 		p.payloadWritten, !p.firstToken, err)
 
 	return err
+}
+
+func (p *StreamProcessor) reachedTerminal() bool {
+	if p.config.ReachedTerminal != nil {
+		return p.config.ReachedTerminal()
+	}
+	return p.config.Observer != nil && p.config.Observer.ReachedTerminal()
 }
 
 // handleFirstTokenTimeout returns first token timeout error.

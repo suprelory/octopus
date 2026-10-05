@@ -72,13 +72,15 @@ func (o *IncrementalSSEObserver) dispatch(ctx context.Context, event SourceEvent
 		return err
 	}
 	_, terminal := o.terminal[preview.EventType]
-	o.terminalHit = o.terminalHit || terminal || preview.Terminal
 	if o.legacy {
 		event.Type = preview.EventType
 	}
 	if o.observe != nil {
-		return o.observe(ctx, event)
+		if err := o.observe(ctx, event); err != nil {
+			return err
+		}
 	}
+	o.terminalHit = o.terminalHit || terminal || preview.Terminal
 	return nil
 }
 
@@ -98,8 +100,6 @@ func (o *IncrementalSSEObserver) Observe(ctx context.Context, chunk []byte) erro
 			event, preview, err := o.inspect(ctx, pending)
 			if err == nil {
 				o.memo, o.preview = event, preview
-				_, terminal := o.terminal[preview.EventType]
-				o.preview.Terminal = o.preview.Terminal || terminal
 			}
 		}
 	}
@@ -115,6 +115,9 @@ func (o *IncrementalSSEObserver) Finalize(ctx context.Context) error {
 }
 
 func (o *IncrementalSSEObserver) HasSemanticPreview() bool { return o != nil && o.preview.Semantic }
+
+// Only complete frames accepted by the observer can terminate transport reads.
+// Semantic previews release precommit without consuming an unfinished frame.
 func (o *IncrementalSSEObserver) ReachedTerminal() bool {
-	return o != nil && (o.terminalHit || o.preview.Terminal)
+	return o != nil && o.terminalHit
 }

@@ -45,7 +45,9 @@ func TestRelayStreamDiagnosticsDistinguishEOFAndTerminal(t *testing.T) {
 				t.Fatalf("stream error = %v", err)
 			}
 			d := ra.streamDiagnostics
-			if d == nil || d.EventsReceived != tt.events || d.BytesReceived == 0 || d.LastSourceSequence != tt.events || d.SourceTransport != model.SourceTransportSSE || d.CleanEOF == tt.broken || d.TerminalEventSeen != tt.complete || d.FinishReasonSeen != tt.reason {
+			// Explicit terminals now finish before transport EOF is consumed.
+			wantEOF := !tt.broken && !tt.complete
+			if d == nil || d.EventsReceived != tt.events || d.BytesReceived == 0 || d.LastSourceSequence != tt.events || d.SourceTransport != model.SourceTransportSSE || d.CleanEOF != wantEOF || d.TerminalEventSeen != tt.complete || d.FinishReasonSeen != tt.reason {
 				t.Fatalf("diagnostics = %+v", d)
 			}
 			if tt.complete {

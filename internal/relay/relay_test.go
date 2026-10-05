@@ -234,6 +234,7 @@ func TestHandleStreamResponsePassthroughOpenAIResponsesClientCancelAfterTerminal
 		"",
 		`data: {"type":"response.completed","response":{"id":"resp_1","object":"response","model":"gpt-4o","created_at":1,"output":[],"status":"completed","usage":{"input_tokens":3,"output_tokens":5,"total_tokens":8}}}`,
 		"",
+		"", // A terminal frame needs its blank-line delimiter before cancellation.
 	}, "\n")
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -319,6 +320,7 @@ func TestHandleStreamResponsePassthroughAnthropicClientCancelAfterTerminal(t *te
 		"event: message_stop",
 		`data: {"type":"message_stop"}`,
 		"",
+		"", // An unfinished preview is not an accepted terminal frame.
 	}, "\n")
 
 	ctx, cancel := context.WithCancel(context.Background())
