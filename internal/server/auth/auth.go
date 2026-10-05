@@ -112,7 +112,12 @@ func GenerateJWTTokenForUser(expiresMin int, user model.User) (string, string, e
 }
 
 func VerifyJWTToken(token string) bool {
-	user := op.UserGet()
+	return VerifyJWTTokenForUser(token, op.UserGet())
+}
+
+// VerifyJWTTokenForUser lets middleware retain the exact authenticated
+// credential snapshot for operations that create another kind of session.
+func VerifyJWTTokenForUser(token string, user model.User) bool {
 	if user.ID == 0 || user.Password == "" {
 		return false
 	}

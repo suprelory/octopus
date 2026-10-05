@@ -195,9 +195,7 @@ func UserChangePassword(oldPassword, newPassword string) error {
 		return fmt.Errorf("failed to update password: %w", err)
 	}
 
-	userCacheLock.Lock()
-	userCache.Password = updated.Password
-	userCacheLock.Unlock()
+	setUserCache(updated)
 
 	return nil
 }
@@ -255,6 +253,9 @@ func userSnapshot() model.User {
 
 func setUserCache(user model.User) {
 	userCacheLock.Lock()
+	if userCache.ID != user.ID || userCache.Password != user.Password {
+		revokeRelayLogStreams()
+	}
 	userCache = user
 	userCacheLock.Unlock()
 }

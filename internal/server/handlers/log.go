@@ -274,8 +274,17 @@ func getLogContent(c *gin.Context) {
 }
 
 func getStreamToken(c *gin.Context) {
-	token, err := op.RelayLogStreamTokenCreate()
+	user, ok := middleware.AuthenticatedAdminUser(c)
+	if !ok {
+		resp.InvalidToken(c)
+		return
+	}
+	token, err := op.RelayLogStreamTokenCreateForUser(user)
 	if err != nil {
+		if errors.Is(err, op.ErrRelayLogSessionExpired) {
+			resp.InvalidToken(c)
+			return
+		}
 		resp.InternalErrorWithLog(c, err)
 		return
 	}
@@ -284,36 +293,45 @@ func getStreamToken(c *gin.Context) {
 
 func streamLog(c *gin.Context) {
 	token := c.Query("token")
-	if token == "" || !op.RelayLogStreamTokenVerify(token) {
+	sub, ok := op.RelayLogSubscribeWithToken(token)
+	if !ok {
 		resp.Error(c, http.StatusUnauthorized, "invalid stream token")
 		return
 	}
 
-	op.RelayLogStreamTokenRevoke(token)
+	defer sub.Close()
 
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
 
-	logChan := op.RelayLogSubscribe()
-	defer op.RelayLogUnsubscribe(logChan)
-
 	ctx := c.Request.Context()
+	c.Writer.Flush()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case log, ok := <-logChan:
+		case <-sub.Done():
+			return
+		case log, ok := <-sub.Logs():
 			if !ok {
 				return
+			}
+			// Buffered events must not keep a revoked subscription alive.
+			select {
+			case <-sub.Done():
+				return
+			default:
 			}
 			data, err := json.Marshal(log)
 			if err != nil {
 				continue
 			}
-			c.Writer.Write([]byte(fmt.Sprintf("data: %s\n\n", data)))
+			if _, err := c.Writer.Write([]byte(fmt.Sprintf("data: %s\n\n", data))); err != nil {
+				return
+			}
 			c.Writer.Flush()
 		}
 	}

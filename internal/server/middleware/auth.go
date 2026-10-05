@@ -7,11 +7,20 @@ import (
 
 	"github.com/bestruirui/octopus/internal/apperror"
 	"github.com/bestruirui/octopus/internal/conf"
+	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/server/auth"
 	"github.com/bestruirui/octopus/internal/server/resp"
 	"github.com/gin-gonic/gin"
 )
+
+const authenticatedAdminUserKey = "octopus.authenticated_admin_user"
+
+func AuthenticatedAdminUser(c *gin.Context) (model.User, bool) {
+	value, exists := c.Get(authenticatedAdminUserKey)
+	user, ok := value.(model.User)
+	return user, exists && ok
+}
 
 func Auth() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -22,13 +31,15 @@ func Auth() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		if !auth.VerifyJWTToken(strings.TrimPrefix(token, "Bearer ")) {
+		user := op.UserGet()
+		if !auth.VerifyJWTTokenForUser(strings.TrimPrefix(token, "Bearer "), user) {
 			RecordAuthEvent(c, "admin.rejected", apperror.CodeAuthInvalidToken, 0)
 			resp.InvalidToken(c)
 			c.Abort()
 			return
 		}
 		c.Set(adminAuthenticatedKey, true)
+		c.Set(authenticatedAdminUserKey, user)
 		c.Next()
 	}
 }

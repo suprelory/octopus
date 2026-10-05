@@ -3,53 +3,76 @@ package op
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"sync"
 	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
 )
 
-var relayLogSubscribers = make(map[chan model.RelayLog]struct{})
-
-var relayLogSubscribersLock sync.RWMutex
-
-// relayLogStreamTokenTTL 是 /log/stream-token 的有效期。前端 useLogStream 每次
-// 重连都会重新取一个 token，SSE 反复失败时每轮退避都会签发一个；没有 TTL 时
-// 这些 token 既是内存泄漏，也长期可用。签发和校验都顺手清理过期项。
 const relayLogStreamTokenTTL = 30 * time.Second
 
-// relayLogStreamTokens 记录 token 的签发时间。
-var relayLogStreamTokens = make(map[string]time.Time)
+var ErrRelayLogSessionExpired = errors.New("administrator session has expired")
 
-var relayLogStreamTokensLock sync.Mutex
+type relayLogStreamToken struct {
+	issuedAt   time.Time
+	generation uint64
+}
+
+// One lock covers token consumption, subscription registration and revocation.
+// When both are needed, userCacheLock must be acquired before this lock.
+var relayLogStreamsLock sync.Mutex
+var relayLogStreamGeneration uint64
+var relayLogStreamTokens = make(map[string]relayLogStreamToken)
+var relayLogSubscribers = make(map[chan model.RelayLog]*RelayLogSubscription)
+
+type RelayLogSubscription struct {
+	logs chan model.RelayLog
+	done chan struct{}
+}
+
+func (s *RelayLogSubscription) Logs() <-chan model.RelayLog { return s.logs }
+func (s *RelayLogSubscription) Done() <-chan struct{}       { return s.done }
+func (s *RelayLogSubscription) Close()                      { RelayLogUnsubscribe(s.logs) }
 
 func RelayLogStreamTokenCreate() (string, error) {
+	return RelayLogStreamTokenCreateForUser(UserGet())
+}
+
+// Use the same user snapshot that authenticated the request. An old JWT that
+// passed middleware just before a password change cannot mint a new stream.
+func RelayLogStreamTokenCreateForUser(user model.User) (string, error) {
 	bytes := make([]byte, 32)
 	if _, err := rand.Read(bytes); err != nil {
 		return "", err
 	}
 	token := hex.EncodeToString(bytes)
 
+	userCacheLock.RLock()
+	defer userCacheLock.RUnlock()
+	if user.ID == 0 || user.Password == "" || user.ID != userCache.ID || user.Password != userCache.Password {
+		return "", ErrRelayLogSessionExpired
+	}
 	now := time.Now()
-	relayLogStreamTokensLock.Lock()
+	relayLogStreamsLock.Lock()
+	defer relayLogStreamsLock.Unlock()
 	relayLogStreamTokensPruneLocked(now)
-	relayLogStreamTokens[token] = now
-	relayLogStreamTokensLock.Unlock()
-
+	relayLogStreamTokens[token] = relayLogStreamToken{issuedAt: now, generation: relayLogStreamGeneration}
 	return token, nil
 }
 
 func RelayLogStreamTokenVerify(token string) bool {
-	now := time.Now()
+	relayLogStreamsLock.Lock()
+	defer relayLogStreamsLock.Unlock()
+	return relayLogStreamTokenValidLocked(token, time.Now())
+}
 
-	relayLogStreamTokensLock.Lock()
-	defer relayLogStreamTokensLock.Unlock()
-
-	issuedAt, ok := relayLogStreamTokens[token]
+func relayLogStreamTokenValidLocked(token string, now time.Time) bool {
+	entry, ok := relayLogStreamTokens[token]
 	if !ok {
 		return false
 	}
-	if now.Sub(issuedAt) > relayLogStreamTokenTTL {
+	if entry.generation != relayLogStreamGeneration || now.Sub(entry.issuedAt) >= relayLogStreamTokenTTL {
 		delete(relayLogStreamTokens, token)
 		return false
 	}
@@ -57,39 +80,72 @@ func RelayLogStreamTokenVerify(token string) bool {
 }
 
 func RelayLogStreamTokenRevoke(token string) {
-	relayLogStreamTokensLock.Lock()
+	relayLogStreamsLock.Lock()
 	delete(relayLogStreamTokens, token)
-	relayLogStreamTokensLock.Unlock()
+	relayLogStreamsLock.Unlock()
 }
 
-// relayLogStreamTokensPruneLocked 删除已过期的 token。调用方必须持有锁。
 func relayLogStreamTokensPruneLocked(now time.Time) {
-	for token, issuedAt := range relayLogStreamTokens {
-		if now.Sub(issuedAt) > relayLogStreamTokenTTL {
-			delete(relayLogStreamTokens, token)
-		}
+	for token := range relayLogStreamTokens {
+		relayLogStreamTokenValidLocked(token, now)
 	}
 }
 
+// Consume and register atomically so a token admits only one connection and a
+// password change cannot fall between verification and subscription creation.
+func RelayLogSubscribeWithToken(token string) (*RelayLogSubscription, bool) {
+	relayLogStreamsLock.Lock()
+	defer relayLogStreamsLock.Unlock()
+	if !relayLogStreamTokenValidLocked(token, time.Now()) {
+		return nil, false
+	}
+	delete(relayLogStreamTokens, token)
+	return relayLogSubscribeLocked(), true
+}
+
+func relayLogSubscribeLocked() *RelayLogSubscription {
+	sub := &RelayLogSubscription{logs: make(chan model.RelayLog, 10), done: make(chan struct{})}
+	relayLogSubscribers[sub.logs] = sub
+	return sub
+}
+
+// RelayLogSubscribe is for trusted in-process consumers. HTTP subscriptions
+// must use RelayLogSubscribeWithToken.
 func RelayLogSubscribe() chan model.RelayLog {
-	ch := make(chan model.RelayLog, 10)
-	relayLogSubscribersLock.Lock()
-	relayLogSubscribers[ch] = struct{}{}
-	relayLogSubscribersLock.Unlock()
-	return ch
+	relayLogStreamsLock.Lock()
+	defer relayLogStreamsLock.Unlock()
+	return relayLogSubscribeLocked().logs
 }
 
 func RelayLogUnsubscribe(ch chan model.RelayLog) {
-	relayLogSubscribersLock.Lock()
-	delete(relayLogSubscribers, ch)
-	relayLogSubscribersLock.Unlock()
-	close(ch)
+	relayLogStreamsLock.Lock()
+	defer relayLogStreamsLock.Unlock()
+	relayLogUnsubscribeLocked(ch)
+}
+
+func relayLogUnsubscribeLocked(ch chan model.RelayLog) {
+	if sub, exists := relayLogSubscribers[ch]; exists {
+		delete(relayLogSubscribers, ch)
+		close(sub.done)
+		close(ch)
+	}
+}
+
+// Called while publishing changed administrator credentials, before releasing
+// userCacheLock. Revocation never waits for a client network write.
+func revokeRelayLogStreams() {
+	relayLogStreamsLock.Lock()
+	defer relayLogStreamsLock.Unlock()
+	relayLogStreamGeneration++
+	clear(relayLogStreamTokens)
+	for ch := range relayLogSubscribers {
+		relayLogUnsubscribeLocked(ch)
+	}
 }
 
 func notifySubscribers(relayLog model.RelayLog) {
-	relayLogSubscribersLock.RLock()
-	defer relayLogSubscribersLock.RUnlock()
-
+	relayLogStreamsLock.Lock()
+	defer relayLogStreamsLock.Unlock()
 	for ch := range relayLogSubscribers {
 		select {
 		case ch <- relayLog:
