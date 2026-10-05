@@ -179,32 +179,35 @@ func (n *checkinNotifier) enqueueTarget(target notify.Target, cooldown time.Dura
 	n.recent[key] = checkinNotificationReservation{inFlight: true}
 	n.mu.Unlock()
 	n.wg.Add(1)
-	safe.Go("site-checkin-notification", func() {
+	go func() {
+		// Waiters own the entire worker lifetime, including safe.Run's exit log.
 		defer n.wg.Done()
-		delivered := false
-		defer func() {
-			n.mu.Lock()
-			if delivered && cooldown > 0 {
-				n.recent[key] = checkinNotificationReservation{until: time.Now().Add(cooldown)}
-			} else {
-				delete(n.recent, key)
+		safe.Run("site-checkin-notification", func() {
+			delivered := false
+			defer func() {
+				n.mu.Lock()
+				if delivered && cooldown > 0 {
+					n.recent[key] = checkinNotificationReservation{until: time.Now().Add(cooldown)}
+				} else {
+					delete(n.recent, key)
+				}
+				n.mu.Unlock()
+				<-n.slots
+			}()
+			n.workers <- struct{}{}
+			defer func() { <-n.workers }()
+			started := time.Now()
+			if err := n.deliver(target, event); err != nil {
+				// Deliver returns sanitized errors; keep a second redaction boundary
+				// for alternate HTTP transports.
+				log.Warnw("checkin.notification.failed", "account_id", event.AccountID,
+					"event", event.Event, "channel", string(target.Kind), "error", log.SafeError(err),
+					"duration_ms", time.Since(started).Milliseconds())
+				return
 			}
-			n.mu.Unlock()
-			<-n.slots
-		}()
-		n.workers <- struct{}{}
-		defer func() { <-n.workers }()
-		started := time.Now()
-		if err := n.deliver(target, event); err != nil {
-			// Deliver returns sanitized errors; keep a second redaction boundary
-			// for alternate HTTP transports.
-			log.Warnw("checkin.notification.failed", "account_id", event.AccountID,
-				"event", event.Event, "channel", string(target.Kind), "error", log.SafeError(err),
-				"duration_ms", time.Since(started).Milliseconds())
-			return
-		}
-		delivered = true
-	})
+			delivered = true
+		})
+	}()
 	return true
 }
 

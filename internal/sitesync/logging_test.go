@@ -181,6 +181,7 @@ func TestPartialSyncLogsWarningAndBatchContinuesAfterProgressPanic(t *testing.T)
 func TestNotificationFailureLogsSafeCauseAndRemainsRetriable(t *testing.T) {
 	entries := captureSiteLogs(t)
 	n := newCheckinNotifier(nil)
+	t.Cleanup(n.wg.Wait) // Join workers before captureSiteLogs restores Logger.
 	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)
 		_, _ = w.Write([]byte("private-provider-response"))

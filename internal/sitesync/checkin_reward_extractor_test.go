@@ -2,6 +2,7 @@ package sitesync
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -83,5 +84,71 @@ func TestExtractCheckinRewardResourceLimitsAndIsolation(t *testing.T) {
 	cancel()
 	if reward, err := ExtractCheckinReward(ctx, `return 1;`, []byte(`{}`)); err == nil || reward != "" {
 		t.Fatalf("cancelled execution accepted: %q, %v", reward, err)
+	}
+}
+
+func TestExtractCheckinRewardQueueCancellationReleasesCapacity(t *testing.T) {
+	for range cap(checkinRewardExtractorSlots) {
+		checkinRewardExtractorSlots <- struct{}{}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		_, err := ExtractCheckinReward(ctx, `return 1;`, []byte(`{}`))
+		result <- err
+	}()
+	cancel()
+	var err error
+	select {
+	case err = <-result:
+	case <-time.After(2 * time.Second):
+		t.Error("queued extraction did not observe cancellation")
+	}
+	for range cap(checkinRewardExtractorSlots) {
+		<-checkinRewardExtractorSlots
+	}
+	if !errors.Is(err, errRewardExtractorTimeout) {
+		t.Fatalf("queued cancellation = %v", err)
+	}
+	if reward, err := ExtractCheckinReward(context.Background(), `return 2;`, []byte(`{}`)); err != nil || reward != "2" {
+		t.Fatalf("queue cancellation poisoned a later runtime: %q, %v", reward, err)
+	}
+}
+
+func TestExtractCheckinRewardConcurrentTimeoutIsolation(t *testing.T) {
+	type result struct {
+		reward string
+		err    error
+	}
+	results := make(chan result, 2)
+	start := make(chan struct{})
+	for _, code := range []string{`while (true) {}`, `return response.reward;`} {
+		go func() {
+			<-start
+			reward, err := ExtractCheckinReward(context.Background(), code, []byte(`{"reward":3}`))
+			results <- result{reward, err}
+		}()
+	}
+	close(start)
+	succeeded, timedOut := 0, 0
+	for range 2 {
+		select {
+		case got := <-results:
+			if got.err == nil && got.reward == "3" {
+				succeeded++
+			} else if errors.Is(got.err, errRewardExtractorTimeout) && got.reward == "" {
+				timedOut++
+			} else {
+				t.Fatalf("unexpected concurrent extraction: %q, %v", got.reward, got.err)
+			}
+		case <-time.After(7 * time.Second):
+			t.Fatal("concurrent extraction was not bounded")
+		}
+	}
+	if succeeded != 1 || timedOut != 1 {
+		t.Fatalf("independent runtimes: successes=%d timeouts=%d", succeeded, timedOut)
+	}
+	if reward, err := ExtractCheckinReward(context.Background(), `return 4;`, []byte(`{}`)); err != nil || reward != "4" {
+		t.Fatalf("timed-out runtime poisoned a later call: %q, %v", reward, err)
 	}
 }

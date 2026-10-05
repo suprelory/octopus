@@ -46,10 +46,16 @@ func ExtractCheckinReward(ctx context.Context, code string, response json.RawMes
 	case <-initCtx.Done():
 		return "", errRewardExtractorTimeout
 	}
+	if initCtx.Err() != nil {
+		return "", errRewardExtractorTimeout
+	}
 	defer func() {
 		// wazero closes timed-out modules; qjs reports calls on them as panics.
 		// Never return its stack trace or a script's thrown response data.
-		if recover() != nil && err != errRewardExtractorTimeout {
+		panicked := recover() != nil
+		if initCtx.Err() != nil {
+			reward, err = "", errRewardExtractorTimeout
+		} else if panicked {
 			reward, err = "", errRewardExtractorFailed
 		}
 	}()
@@ -65,17 +71,13 @@ func ExtractCheckinReward(ctx context.Context, code string, response json.RawMes
 	}
 	defer func() {
 		defer func() { _ = recover() }() // Already closed on cancellation.
-		runtime.Context().Context = context.Background()
 		runtime.Close()
 	}()
-	execCtx, execCancel := context.WithTimeout(initCtx, checkinRewardExtractorTimeout)
-	defer execCancel()
-	runtime.Context().Context = execCtx
-	defer func() {
-		if execCtx.Err() != nil {
-			reward, err = "", errRewardExtractorTimeout
-		}
-	}()
+	// qjs and wazero may read Context concurrently even between WASM calls.
+	// Keep the installed context immutable for the runtime's whole lifetime;
+	// tighten the execution budget by cancelling it rather than replacing it.
+	execTimer := time.AfterFunc(checkinRewardExtractorTimeout, initCancel)
+	defer execTimer.Stop()
 	// Eval is used only to compile the body and remove qjs host helpers. The
 	// body is a quoted string, so it cannot execute during this step.
 	body, _ := json.Marshal("\"use strict\";\n" + code)
