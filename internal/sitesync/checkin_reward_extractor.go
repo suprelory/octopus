@@ -15,7 +15,13 @@ import (
 	"github.com/fastschema/qjs"
 )
 
-const checkinRewardExtractorTimeout = 250 * time.Millisecond
+const (
+	checkinRewardExtractorTimeout      = 250 * time.Millisecond
+	checkinRewardExtractorQueueTimeout = 5 * time.Second
+	// The first qjs.New compiles WASM; race instrumentation and slower CPUs can
+	// push this past five seconds. User code still gets only the execution budget.
+	checkinRewardExtractorInitTimeout = 30 * time.Second
+)
 
 var (
 	checkinRewardExtractorSlots = make(chan struct{}, 2)
@@ -37,15 +43,23 @@ func ExtractCheckinReward(ctx context.Context, code string, response json.RawMes
 	if strings.TrimSpace(code) == "" {
 		return "", nil
 	}
-	// Include queueing and cold WASM compilation in a separate bounded budget.
-	initCtx, initCancel := context.WithTimeout(ctx, 5*time.Second)
-	defer initCancel()
+	// Bound queueing independently so a longer cold start does not increase the
+	// time requests can spend waiting for an execution slot.
+	queueCtx, queueCancel := context.WithTimeout(ctx, checkinRewardExtractorQueueTimeout)
+	defer queueCancel()
 	select {
 	case checkinRewardExtractorSlots <- struct{}{}:
 		defer func() { <-checkinRewardExtractorSlots }()
-	case <-initCtx.Done():
+	case <-queueCtx.Done():
 		return "", errRewardExtractorTimeout
 	}
+	if queueCtx.Err() != nil {
+		return "", errRewardExtractorTimeout
+	}
+	queueCancel()
+	// Give compilation its own budget while preserving the caller's deadline.
+	initCtx, initCancel := context.WithTimeout(ctx, checkinRewardExtractorInitTimeout)
+	defer initCancel()
 	if initCtx.Err() != nil {
 		return "", errRewardExtractorTimeout
 	}

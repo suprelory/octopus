@@ -3,12 +3,54 @@ package sitesync
 import (
 	"context"
 	"errors"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
 )
+
+func TestExtractCheckinRewardColdStart(t *testing.T) {
+	const childEnv = "OCTOPUS_TEST_CHECKIN_REWARD_COLD_START"
+	if os.Getenv(childEnv) == "1" {
+		start := time.Now()
+		reward, err := ExtractCheckinReward(context.Background(), `return response.data?.reward ?? null;`, []byte(`{"data":{"reward":0.125}}`))
+		if err != nil || reward != "0.125" {
+			t.Fatalf("cold extraction after %s: reward=%q, err=%v", time.Since(start), reward, err)
+		}
+		t.Logf("cold extraction completed in %s", time.Since(start))
+
+		// Allowing cold compilation more time must not extend the script budget.
+		start = time.Now()
+		reward, err = ExtractCheckinReward(context.Background(), `while (true) {}`, []byte(`{}`))
+		if !errors.Is(err, errRewardExtractorTimeout) || reward != "" {
+			t.Fatalf("unbounded script: reward=%q, err=%v", reward, err)
+		}
+		if elapsed := time.Since(start); elapsed > 3*time.Second {
+			t.Fatalf("script used the initialization budget: %s", elapsed)
+		}
+		return
+	}
+
+	// Each test process has a separate qjs compilation cache. Re-executing the
+	// current binary also preserves -race instrumentation and avoids test order
+	// or earlier calls hiding cold-start regressions.
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, executable, "-test.run=^TestExtractCheckinRewardColdStart$", "-test.v")
+	cmd.Env = append(os.Environ(), childEnv+"=1")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("cold-start subprocess failed: %v\n%s", err, output)
+	}
+	t.Logf("%s", output)
+}
 
 func TestExtractCheckinReward(t *testing.T) {
 	for _, tc := range []struct {
@@ -55,6 +97,8 @@ func TestExtractCheckinReward(t *testing.T) {
 }
 
 func TestExtractCheckinRewardResourceLimitsAndIsolation(t *testing.T) {
+	// These bounds cover script execution, independently of cold compilation.
+	warmCheckinRewardExtractor(t)
 	for _, code := range []string{
 		`while (true) {}`,
 		`return new ArrayBuffer(1024*1024*1024);`,
@@ -116,6 +160,7 @@ func TestExtractCheckinRewardQueueCancellationReleasesCapacity(t *testing.T) {
 }
 
 func TestExtractCheckinRewardConcurrentTimeoutIsolation(t *testing.T) {
+	warmCheckinRewardExtractor(t)
 	type result struct {
 		reward string
 		err    error
@@ -150,5 +195,12 @@ func TestExtractCheckinRewardConcurrentTimeoutIsolation(t *testing.T) {
 	}
 	if reward, err := ExtractCheckinReward(context.Background(), `return 4;`, []byte(`{}`)); err != nil || reward != "4" {
 		t.Fatalf("timed-out runtime poisoned a later call: %q, %v", reward, err)
+	}
+}
+
+func warmCheckinRewardExtractor(t *testing.T) {
+	t.Helper()
+	if reward, err := ExtractCheckinReward(t.Context(), `return 1;`, []byte(`{}`)); err != nil || reward != "1" {
+		t.Fatalf("runtime warmup failed: reward=%q, err=%v", reward, err)
 	}
 }
