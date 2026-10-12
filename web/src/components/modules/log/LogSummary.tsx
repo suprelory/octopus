@@ -7,7 +7,7 @@ import type { RelayLog } from '@/api/endpoints/log';
 import { getModelIcon } from '@/lib/model-icons';
 import { Badge } from '@/components/ui/badge';
 import type { resolveLogDisplayFields } from './display';
-import { formatTime, formatDurationCompact, formatTPS, formatCacheHitRate, sanitizeErrorMessage, formatCompactTokenCount, type TokenUsageDisplay } from './log-format';
+import { formatTime, formatDurationCompact, formatTPS, formatCacheHitRate, sanitizeErrorMessage, formatCompactTokenCount, isLogFailure, type TokenUsageDisplay } from './log-format';
 import { RetryBadgeWithTooltip, WSModeBadge } from './log-status';
 import { useLogFieldVisibility } from './ui-store';
 
@@ -20,7 +20,7 @@ export function LogSummary({ log, displayFields, tokenUsage, endpointLabel, chan
 }) {
     const t = useTranslations('log.card');
     const visibility = useLogFieldVisibility();
-    const hasError = !!log.error;
+    const hasError = isLogFailure(log);
     const hasMultipleAttempts = (log.attempts?.length ?? 0) > 1;
     const displayActualModelName = displayFields.actualModelName;
     const displayRequestModelName = displayFields.requestModelName;
@@ -115,7 +115,7 @@ export function LogSummary({ log, displayFields, tokenUsage, endpointLabel, chan
                 </div>
                 {hasError ? (
                     <div className="p-2.5 rounded-xl bg-destructive/10 border border-destructive/20 overflow-hidden">
-                        <p className="text-xs text-destructive line-clamp-2">{sanitizeErrorMessage(log.error)}</p>
+                        <p className="text-xs text-destructive line-clamp-2">{sanitizeErrorMessage(log.error) || t('failed')}</p>
                     </div>
                 ) : null}
             </div>

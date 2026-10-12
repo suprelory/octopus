@@ -107,7 +107,8 @@ type StreamContentBlock struct {
 
 // HasSemanticStreamEvents reports whether a canonical event batch contains
 // model output that makes the stream safe to commit downstream. Lifecycle and
-// accounting-only events deliberately remain precommit-buffered.
+// accounting-only events and whitespace-only text remain precommit-buffered.
+// The original text is preserved when later output commits the buffer.
 func HasSemanticStreamEvents(events []StreamEvent) bool {
 	for _, event := range events {
 		if event.Importance == StreamImportanceSemantic {
@@ -115,11 +116,11 @@ func HasSemanticStreamEvents(events []StreamEvent) bool {
 		}
 		switch event.Kind {
 		case StreamEventKindTextDelta:
-			if event.Delta != nil && (event.Delta.Text != "" || event.Delta.Refusal != "") {
+			if event.Delta != nil && (strings.TrimSpace(event.Delta.Text) != "" || strings.TrimSpace(event.Delta.Refusal) != "") {
 				return true
 			}
 		case StreamEventKindThinkingDelta, StreamEventKindSignatureDelta:
-			if event.Delta != nil && (event.Delta.Thinking != "" || event.Delta.SignatureValue() != "") {
+			if event.Delta != nil && (strings.TrimSpace(event.Delta.Thinking) != "" || event.Delta.SignatureValue() != "") {
 				return true
 			}
 		case StreamEventKindToolCallStart, StreamEventKindToolCallDelta:
@@ -127,7 +128,7 @@ func HasSemanticStreamEvents(events []StreamEvent) bool {
 				return true
 			}
 		case StreamEventKindContentBlockStart:
-			if event.ContentBlock != nil && (event.ContentBlock.Text != "" || event.ContentBlock.Data != "" || event.ContentBlock.Name != "" || len(event.ContentBlock.Input) > 0 || event.ContentBlock.ServerToolUse != nil || event.ContentBlock.ServerToolResult != nil || len(event.ContentBlock.Citations) > 0) {
+			if event.ContentBlock != nil && (strings.TrimSpace(event.ContentBlock.Text) != "" || event.ContentBlock.Data != "" || event.ContentBlock.Name != "" || len(event.ContentBlock.Input) > 0 || event.ContentBlock.ServerToolUse != nil || event.ContentBlock.ServerToolResult != nil || len(event.ContentBlock.Citations) > 0) {
 				return true
 			}
 		case StreamEventKindContentBlockDelta:

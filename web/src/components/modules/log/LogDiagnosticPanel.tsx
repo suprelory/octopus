@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 import type { RelayLog } from '@/api/endpoints/log';
 import type { LogSiteActionTarget, LogSiteActionTargets } from '@/api/endpoints/log';
 import { AttemptDisableButton } from './AttemptDisableButton';
-import { formatAttemptAdapterLabel, formatDuration, mergeAdjacentAttempts, sanitizeErrorMessage } from './log-format';
+import { formatAttemptAdapterLabel, formatDuration, mergeAdjacentAttempts, sanitizeErrorMessage, isLogFailure } from './log-format';
 import { getAttemptStatusMeta } from './log-status';
 import { RoutingDetails } from './RoutingDetails';
 
@@ -31,7 +31,7 @@ export function LogDiagnosticPanel({
     isDisablePending: (target: LogSiteActionTarget | null) => boolean;
 }) {
     const t = useTranslations('log.card');
-    const hasError = !!log.error;
+    const hasError = isLogFailure(log);
     const hasAttempts = (log.attempts?.length ?? 0) > 0;
     const forwardedAttempts = (log.attempts ?? []).filter((attempt) => attempt.status === 'success' || attempt.status === 'failed').length;
     const attemptTargets = siteTargets?.attempt_targets ?? [];
@@ -93,14 +93,14 @@ export function LogDiagnosticPanel({
                                 <div className="relative pl-1">
                                     <div className="absolute right-0 top-0">
                                         <CopyIconButton
-                                            text={log.error ?? ''}
+                                            text={log.error || t('failed')}
                                             className="p-1 rounded-md text-destructive/60 hover:text-destructive hover:bg-destructive/10 transition-colors"
                                             copyIconClassName="size-4"
                                             checkIconClassName="size-4"
                                         />
                                     </div>
                                     <p className="text-sm text-destructive whitespace-pre-wrap wrap-break-word pr-8 leading-relaxed">
-                                        {sanitizeErrorMessage(log.error)}
+                                        {sanitizeErrorMessage(log.error) || t('failed')}
                                     </p>
                                 </div>
                             ) : null}

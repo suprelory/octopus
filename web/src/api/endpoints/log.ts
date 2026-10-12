@@ -121,6 +121,7 @@ export interface RelayLog {
     request_content?: string;    // 列表接口省略，详情接口返回
     response_content?: string;   // 列表接口省略，详情接口返回
     error: string;               // 错误信息
+    success?: boolean;           // 最终请求状态；旧后端可能省略
     attempts?: ChannelAttempt[]; // 所有尝试记录
     total_attempts?: number;     // 总尝试次数
     used_ws?: boolean;           // 是否使用了上游WebSocket

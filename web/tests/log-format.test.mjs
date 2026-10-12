@@ -2,10 +2,20 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+    isLogFailure,
     makeDisableTargetKey,
     mergeAdjacentAttempts,
     resolveTokenUsageDisplay,
 } from '../src/components/modules/log/log-format.ts';
+
+test('log failure uses the final status even when the error text is empty', () => {
+    assert.equal(isLogFailure({ success: false, error: '' }), true);
+    assert.equal(isLogFailure({ success: false, error: 'empty upstream response' }), true);
+    assert.equal(isLogFailure({ success: true, error: '' }), false);
+    assert.equal(isLogFailure({ success: true, error: 'previous attempt failed' }), false);
+    assert.equal(isLogFailure({ error: 'legacy failure' }), true);
+    assert.equal(isLogFailure({ error: '' }), false);
+});
 
 function attempt(attemptNum, overrides = {}) {
     return {

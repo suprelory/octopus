@@ -19,7 +19,7 @@ import {
 import { toast } from '@/components/common/Toast';
 import { useUpdateSiteChannelModelDisabled } from '@/api/endpoints/site-channel';
 import { resolveLogDisplayFields } from './display';
-import { formatEndpointLabel, formatRequestTypeLabel, formatTime, formatDurationCompact, formatTPS, formatCacheHitRate, formatCompactTokenCount, makeDisableTargetKey, resolveTokenUsageDisplay } from './log-format';
+import { formatEndpointLabel, formatRequestTypeLabel, formatTime, formatDurationCompact, formatTPS, formatCacheHitRate, formatCompactTokenCount, makeDisableTargetKey, resolveTokenUsageDisplay, isLogFailure } from './log-format';
 import { RetryBadgeWithTooltip, WSModeBadge } from './log-status';
 import { LogContentPanels } from './LogContentPanels';
 import { LogTracePanels } from './LogTracePanels';
@@ -34,7 +34,7 @@ export type LogSiteActionTargets = ApiLogSiteActionTargets;
 export function LogCard({ log, siteTargets, channelNameById }: { log: RelayLog; siteTargets: LogSiteActionTargets | null; channelNameById?: ReadonlyMap<number, string> }) {
     const t = useTranslations('log.card');
     const tOverview = useTranslations('workspace.log');
-    const hasError = !!log.error;
+    const hasError = isLogFailure(log);
     const hasMultipleAttempts = (log.attempts?.length ?? 0) > 1;
     const [isDiagnosticExpanded, setIsDiagnosticExpanded] = useState(false);
     const [confirmDisableOpen, setConfirmDisableOpen] = useState(false);

@@ -50,6 +50,25 @@ func TestHasSemanticStreamEventsRecognizesNonChatPayloads(t *testing.T) {
 	}
 }
 
+func TestHasSemanticStreamEventsIgnoresWhitespaceText(t *testing.T) {
+	whitespace := " \n\t\u3000"
+	for _, event := range []StreamEvent{
+		{Kind: StreamEventKindTextDelta, Delta: &StreamDelta{Text: whitespace}},
+		{Kind: StreamEventKindTextDelta, Delta: &StreamDelta{Refusal: whitespace}},
+		{Kind: StreamEventKindThinkingDelta, Delta: &StreamDelta{Thinking: whitespace}},
+		{Kind: StreamEventKindContentBlockStart, ContentBlock: &StreamContentBlock{Type: "text", Text: whitespace}},
+	} {
+		events := WithStreamSource([]StreamEvent{event}, SourceEvent{}, APIFormatOpenAIChatCompletion, nil)
+		if HasSemanticStreamEvents(events) {
+			t.Fatalf("whitespace-only event was semantic: %+v", event)
+		}
+		events = append(events, StreamEvent{Kind: StreamEventKindTextDelta, Delta: &StreamDelta{Text: "answer"}})
+		if !HasSemanticStreamEvents(events) {
+			t.Fatal("later meaningful content did not make the stream semantic")
+		}
+	}
+}
+
 func TestStreamAggregatorPreservesNonChatEvents(t *testing.T) {
 	aggregator := &StreamAggregator{}
 	event := StreamEvent{Kind: StreamEventKindImageDelta, Media: &StreamMedia{Data: "AA=="}}

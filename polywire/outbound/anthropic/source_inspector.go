@@ -48,11 +48,11 @@ func (o *MessageOutbound) InspectSourceEvent(_ context.Context, source model.Sou
 	switch event.Type {
 	case "content_block_start":
 		if block := event.ContentBlock; block != nil {
-			preview.Semantic = block.Type != "text" && block.Type != "thinking" || block.Text != nil && *block.Text != "" || block.Thinking != nil && *block.Thinking != "" || len(block.Citations) > 0
+			preview.Semantic = block.Type != "text" && block.Type != "thinking" || block.Text != nil && strings.TrimSpace(*block.Text) != "" || block.Thinking != nil && strings.TrimSpace(*block.Thinking) != "" || len(block.Citations) > 0
 		}
 	case "content_block_delta":
 		if delta := event.Delta; delta != nil {
-			preview.Semantic = delta.Text != nil && *delta.Text != "" || delta.Thinking != nil && *delta.Thinking != "" || delta.Signature != nil && *delta.Signature != "" || delta.PartialJSON != nil && *delta.PartialJSON != "" || delta.Citation != nil
+			preview.Semantic = delta.Text != nil && strings.TrimSpace(*delta.Text) != "" || delta.Thinking != nil && strings.TrimSpace(*delta.Thinking) != "" || delta.Signature != nil && *delta.Signature != "" || delta.PartialJSON != nil && *delta.PartialJSON != "" || delta.Citation != nil
 		}
 	case "message_start", "message_delta", "message_stop", "content_block_stop", "ping", "error":
 	default:

@@ -1,10 +1,14 @@
 'use client';
 
-import type { ChannelAttempt, LogSiteActionTarget as ApiLogSiteActionTarget, LogSiteActionTargets as ApiLogSiteActionTargets } from '@/api/endpoints/log';
+import type { ChannelAttempt, RelayLog, LogSiteActionTarget as ApiLogSiteActionTarget, LogSiteActionTargets as ApiLogSiteActionTargets } from '@/api/endpoints/log';
 import type { useTranslations } from 'next-intl';
 
 export type LogSiteActionTarget = ApiLogSiteActionTarget;
 export type LogSiteActionTargets = ApiLogSiteActionTargets;
+
+export function isLogFailure(log: Pick<RelayLog, 'success' | 'error'>): boolean {
+    return typeof log.success === 'boolean' ? !log.success : !!log.error;
+}
 
 export function formatEndpointLabel(t: ReturnType<typeof useTranslations<'log.card'>>, value: string) {
     const key = value.trim().toLowerCase();

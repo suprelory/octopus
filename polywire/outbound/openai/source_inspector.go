@@ -59,7 +59,9 @@ func (o *ResponseOutbound) InspectSourceEvent(_ context.Context, source model.So
 	}
 	preview := model.StreamEventPreview{EventType: event.Type, EventID: responseStreamEventID(event), Terminal: IsResponseTerminalEvent(event.Type) || event.Type == "error"}
 	switch event.Type {
-	case "response.output_text.delta", "response.reasoning_summary_text.delta", "response.reasoning_text.delta", "response.function_call_arguments.delta", "response.refusal.delta", "response.audio.delta", "response.output_audio.delta", "response.audio_transcript.delta", "response.output_audio_transcript.delta":
+	case "response.output_text.delta", "response.reasoning_summary_text.delta", "response.reasoning_text.delta", "response.refusal.delta", "response.audio_transcript.delta", "response.output_audio_transcript.delta":
+		preview.Semantic = strings.TrimSpace(event.Delta) != ""
+	case "response.function_call_arguments.delta", "response.audio.delta", "response.output_audio.delta":
 		preview.Semantic = event.Delta != ""
 	case "response.function_call_arguments.done":
 		preview.Semantic = event.Arguments != ""

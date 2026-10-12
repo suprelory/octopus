@@ -363,6 +363,29 @@ func TestValidateNonStreamResponse(t *testing.T) {
 	}
 }
 
+func TestHasMessageContentIgnoresEmptyBlocks(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		message model.Message
+		want    bool
+	}{
+		{"empty text block", model.Message{Content: model.MessageContent{MultipleContent: []model.MessageContentPart{{Type: "text", Text: stringPtr("")}}}}, false},
+		{"missing text", model.Message{Content: model.MessageContent{MultipleContent: []model.MessageContentPart{{Type: "text"}}}}, false},
+		{"whitespace text blocks", model.Message{Content: model.MessageContent{MultipleContent: []model.MessageContentPart{{Type: "text", Text: stringPtr(" \n\t\u3000")}, {Type: "text", Text: stringPtr("")}}}}, false},
+		{"later text content", model.Message{Content: model.MessageContent{MultipleContent: []model.MessageContentPart{{Type: "text", Text: stringPtr("")}, {Type: "text", Text: stringPtr("answer")}}}}, true},
+		{"citation content", model.Message{Content: model.MessageContent{MultipleContent: []model.MessageContentPart{{Type: "text", Citations: []model.Citation{{}}}}}}, true},
+		{"empty thinking block", model.Message{ReasoningBlocks: []model.ReasoningBlock{{Kind: model.ReasoningBlockKindThinking, Text: " \n\t"}}}, false},
+		{"signed thinking", model.Message{ReasoningBlocks: []model.ReasoningBlock{{Kind: model.ReasoningBlockKindThinking, Signature: "opaque-signature", Provider: "anthropic"}}}, true},
+		{"redacted thinking", model.Message{ReasoningBlocks: []model.ReasoningBlock{{Kind: model.ReasoningBlockKindRedacted, Data: "opaque-data"}}}, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := hasMessageContent(&test.message); got != test.want {
+				t.Fatalf("hasMessageContent() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
 // The group-level switch must only suppress the empty-response verdict. The
 // precommit buffer itself always runs, so failover on a late upstream error
 // stays possible whether or not detection is enabled.

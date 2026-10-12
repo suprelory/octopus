@@ -58,8 +58,10 @@ func hasMessageContent(msg *model.Message) bool {
 	}
 
 	// Multiple content parts (images, text blocks, etc.)
-	if len(msg.Content.MultipleContent) > 0 {
-		return true
+	for _, part := range msg.Content.MultipleContent {
+		if part.Type != "text" || (part.Text != nil && strings.TrimSpace(*part.Text) != "") || len(part.Citations) > 0 {
+			return true
+		}
 	}
 
 	// Tool calls
@@ -76,8 +78,11 @@ func hasMessageContent(msg *model.Message) bool {
 	}
 
 	// Reasoning blocks (Anthropic extended thinking, Gemini)
-	if len(msg.ReasoningBlocks) > 0 {
-		return true
+	for _, block := range msg.ReasoningBlocks {
+		_, hasSignature := block.OpaqueSignature()
+		if strings.TrimSpace(block.Text) != "" || block.Data != "" || hasSignature {
+			return true
+		}
 	}
 
 	// Refusal messages are considered content
