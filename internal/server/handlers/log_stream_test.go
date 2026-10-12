@@ -110,3 +110,28 @@ func TestLogStreamTokenRejectsStaleAuthenticatedRequest(t *testing.T) {
 		t.Fatalf("stale request issued a token: status=%d", response.Code)
 	}
 }
+
+func TestLogStreamClosesAtAuthorizationDeadline(t *testing.T) {
+	setupLogStreamHandlerTest(t)
+	router := gin.New()
+	router.GET("/stream", streamLog)
+	server := httptest.NewServer(router)
+	defer server.Close()
+	client := server.Client()
+	client.Timeout = 5 * time.Second
+	token, err := op.RelayLogStreamTokenCreateForSession(op.UserGet(), time.Now().Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := client.Get(server.URL + "/stream?token=" + token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("stream status = %d", response.StatusCode)
+	}
+	if body, err := io.ReadAll(response.Body); err != nil || len(body) != 0 {
+		t.Fatalf("expired SSE did not finish: bytes=%d err=%v", len(body), err)
+	}
+}

@@ -93,6 +93,7 @@ export async function mockApp(page: Page, nav: NavItem, options: {
     settings?: Setting[];
     apiKeys?: APIKey[];
     auth?: 'admin' | 'apikey' | 'guest';
+    credentials?: { token: string; expireAt: string };
     bootstrapRequired?: boolean;
     apiKeyStats?: APIKeyStatsResponse;
     mutate?: (request: Mutation) => MockResponse | Promise<MockResponse>;
@@ -109,13 +110,13 @@ export async function mockApp(page: Page, nav: NavItem, options: {
         pageErrors: [] as string[],
     };
     page.on('pageerror', error => state.pageErrors.push(error.message));
-    await page.addInitScript(({ activeItem, auth }) => {
+    await page.addInitScript(({ activeItem, auth, credentials }) => {
         if (auth !== 'guest') localStorage.setItem('auth-storage', JSON.stringify({
-            state: { token: 'browser-test-token', expireAt: '2099-01-01T00:00:00Z', isAPIKeyAuth: auth === 'apikey' }, version: 0,
+            state: { token: credentials?.token ?? 'browser-test-token', expireAt: credentials?.expireAt ?? '2099-01-01T00:00:00Z', isAPIKeyAuth: auth === 'apikey' }, version: 0,
         }));
         localStorage.setItem('nav-storage', JSON.stringify({ state: { activeItem, prevItem: null, direction: 0 }, version: 0 }));
         localStorage.setItem('octopus-settings', JSON.stringify({ state: { locale: 'zh_hans' }, version: 0 }));
-    }, { activeItem: nav, auth: options.auth ?? 'admin' });
+    }, { activeItem: nav, auth: options.auth ?? 'admin', credentials: options.credentials });
     await page.route('**/api/v1/**', async route => {
         const request = route.request();
         const path = new URL(request.url()).pathname;

@@ -2,6 +2,8 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { apiClient, API_BASE_URL } from '../client';
 import { logger } from '@/lib/logger';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useAuthStore } from './user';
+import { sameAuthIdentity } from '../auth-session';
 
 /**
  * 尝试状态
@@ -295,6 +297,10 @@ export function useLogPage(params: LogListParams) {
 export function useLogStream(onLog: (log: RelayLog) => void, enabled: boolean) {
     const [isConnected, setIsConnected] = useState(false);
     const onLogRef = useRef(onLog);
+    const sessionVersion = useAuthStore((state) => state.sessionVersion);
+    const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+    const isAPIKeyAuth = useAuthStore((state) => state.isAPIKeyAuth);
+    const canConnect = enabled && isAuthenticated && !isAPIKeyAuth;
 
     useEffect(() => {
         onLogRef.current = onLog;
@@ -303,7 +309,11 @@ export function useLogStream(onLog: (log: RelayLog) => void, enabled: boolean) {
     useEffect(() => {
         // 关闭时无需复位 isConnected：返回值已与 enabled 相与，
         // 且上一次的 cleanup 会在 enabled 翻转时把状态清掉。
-        if (!enabled) return;
+        if (!canConnect) return;
+
+        const session = useAuthStore.getState();
+        const sessionActive = () => sameAuthIdentity(session, useAuthStore.getState()) &&
+            useAuthStore.getState().isAuthenticated;
 
         let cancelled = false;
         let eventSource: EventSource | null = null;
@@ -311,7 +321,7 @@ export function useLogStream(onLog: (log: RelayLog) => void, enabled: boolean) {
         let retryAttempt = 0;
 
         const scheduleReconnect = () => {
-            if (cancelled) return;
+            if (cancelled || !sessionActive()) return;
             const delay = Math.min(30000, 1000 * 2 ** retryAttempt);
             retryAttempt += 1;
             retryTimer = setTimeout(() => {
@@ -321,19 +331,25 @@ export function useLogStream(onLog: (log: RelayLog) => void, enabled: boolean) {
         };
 
         const connect = async () => {
+            if (cancelled || !sessionActive()) return;
             try {
                 const { token } = await apiClient.get<{ token: string }>('/api/v1/log/stream-token');
-                if (cancelled) return;
+                if (cancelled || !sessionActive()) return;
 
                 const source = new EventSource(`${API_BASE_URL}/api/v1/log/stream?token=${token}`);
                 eventSource = source;
 
                 source.onopen = () => {
+                    if (cancelled || !sessionActive()) {
+                        source.close();
+                        return;
+                    }
                     retryAttempt = 0;
                     setIsConnected(true);
                 };
 
                 source.onmessage = (event) => {
+                    if (cancelled || !sessionActive()) return;
                     try {
                         onLogRef.current(JSON.parse(event.data) as RelayLog);
                     } catch (e) {
@@ -342,6 +358,10 @@ export function useLogStream(onLog: (log: RelayLog) => void, enabled: boolean) {
                 };
 
                 source.onerror = () => {
+                    if (cancelled || !sessionActive()) {
+                        source.close();
+                        return;
+                    }
                     setIsConnected(false);
                     source.close();
                     if (eventSource === source) eventSource = null;
@@ -363,9 +383,9 @@ export function useLogStream(onLog: (log: RelayLog) => void, enabled: boolean) {
             eventSource = null;
             setIsConnected(false);
         };
-    }, [enabled]);
+    }, [canConnect, sessionVersion]);
 
-    return isConnected && enabled;
+    return isConnected && canConnect;
 }
 
 /**

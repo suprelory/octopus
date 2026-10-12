@@ -1,35 +1,38 @@
 import { translateApiErrorCode } from './error-i18n';
 import type { ApiError, ApiErrorParams } from './types';
 import { HttpStatus } from './types';
+import { API_BASE_URL } from './config';
+import { assertAuthIdentity, ensureFreshAuthSession, getAuthSession, rejectAuthCredential } from './auth-session';
 
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '.';
+export { API_BASE_URL } from './config';
+export { setAuthStoreGetter } from './auth-session';
 
-/**
- * 获取认证 Store（延迟导入以避免循环依赖）
- */
-type AuthSnapshot = { token: string | null; sessionVersion?: number; logout: () => void };
-let getAuthStore: (() => AuthSnapshot) | null = null;
+const publicPaths = new Set(['/api/v1/user/login', '/api/v1/user/bootstrap']);
 
-export function setAuthStoreGetter(getter: () => AuthSnapshot) {
-    getAuthStore = getter;
+// All authenticated transports share renewal and identity guards. Parsing is
+// inside the guard so a slow upload/download body cannot escape into a new login.
+export async function authenticatedFetch<T = Response>(
+    path: string,
+    init: RequestInit = {},
+    readResponse: (response: Response) => Promise<T> = async (response) => response as T,
+): Promise<T> {
+    const expected = getAuthSession();
+    const anonymous = publicPaths.has(path.split('?')[0]);
+    assertAuthIdentity(expected);
+    if (!anonymous) await ensureFreshAuthSession();
+    assertAuthIdentity(expected);
+    const session = getAuthSession();
+    const headers = new Headers(init.headers);
+    if (!anonymous && session?.token) headers.set('Authorization', `Bearer ${session.token}`);
+    else headers.delete('Authorization');
+
+    const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+    assertAuthIdentity(expected);
+    if (!anonymous && response.status === HttpStatus.UNAUTHORIZED && session) rejectAuthCredential(session);
+    const result = await readResponse(response);
+    if (response.status !== HttpStatus.UNAUTHORIZED) assertAuthIdentity(expected);
+    return result;
 }
-
-/**
- * 全局错误处理
- */
-const handleError = (error: ApiError, session?: AuthSnapshot) => {
-    console.error('API Error:', error);
-
-    // 401 未授权，调用 store 的 logout
-    if (error.code === HttpStatus.UNAUTHORIZED) {
-        if (getAuthStore && session?.token) {
-            const store = getAuthStore();
-            if (store.token === session.token && store.sessionVersion === session.sessionVersion) {
-                store.logout();
-            }
-        }
-    }
-};
 
 function isApiErrorParams(value: unknown): value is ApiErrorParams {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -47,7 +50,8 @@ function isApiErrorParams(value: unknown): value is ApiErrorParams {
 /**
  * 处理响应
  */
-async function handleResponse<T>(response: Response, session?: AuthSnapshot): Promise<T> {
+async function handleResponse<T>(response: Response): Promise<T> {
+    if (response.status === 204) return undefined as T;
     const contentType = response.headers.get('content-type');
     const isJson = contentType?.includes('application/json');
 
@@ -76,7 +80,7 @@ async function handleResponse<T>(response: Response, session?: AuthSnapshot): Pr
             message: translateApiErrorCode(errorCode, rawMessage, errorParams),
         };
 
-        handleError(error, session);
+        console.error('API Error:', error);
         throw error;
     }
 
@@ -95,13 +99,14 @@ async function request<T>(
     method: string,
     path: string,
     body?: BodyInit,
-    params?: Record<string, string | number | boolean>
+    params?: Record<string, string | number | boolean>,
+    options?: Pick<RequestInit, 'signal' | 'cache'>,
 ): Promise<T> {
     // 构建 URL
     const searchParams = params ? new URLSearchParams(
         Object.entries(params).map(([k, v]) => [k, String(v)])
     ).toString() : '';
-    const url = `${API_BASE_URL}${path}${searchParams ? `?${searchParams}` : ''}`;
+    const url = `${path}${searchParams ? `?${searchParams}` : ''}`;
 
     // 构建请求头
     const headers = new Headers();
@@ -111,27 +116,12 @@ async function request<T>(
         headers.set('Content-Type', 'application/json');
     }
 
-    // 添加 Authorization - 从 zustand store 获取 token
-    const session = typeof window !== 'undefined' ? getAuthStore?.() : undefined;
-    if (session) {
-        if (session.token) {
-            headers.set('Authorization', `Bearer ${session.token}`);
-        }
-    }
-
-    // 发送请求
-    const response = await fetch(url.toString(), {
+    return authenticatedFetch(url, {
+        ...options,
         method,
         headers,
         body,
-    });
-
-    const result = await handleResponse<T>(response, session);
-    const current = getAuthStore?.();
-    if (session && (session.token !== current?.token || session.sessionVersion !== current?.sessionVersion)) {
-        throw new Error('Authentication changed while request was in flight');
-    }
-    return result;
+    }, handleResponse<T>);
 }
 
 /**
@@ -141,8 +131,8 @@ export const apiClient = {
     /**
      * GET 请求
      */
-    get: <T>(path: string, params?: Record<string, string | number | boolean>): Promise<T> =>
-        request<T>('GET', path, undefined, params),
+    get: <T>(path: string, params?: Record<string, string | number | boolean>, options?: Pick<RequestInit, 'signal' | 'cache'>): Promise<T> =>
+        request<T>('GET', path, undefined, params, options),
 
     /**
      * POST 请求

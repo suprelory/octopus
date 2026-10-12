@@ -16,6 +16,7 @@ var ErrRelayLogSessionExpired = errors.New("administrator session has expired")
 
 type relayLogStreamToken struct {
 	issuedAt   time.Time
+	expiresAt  time.Time
 	generation uint64
 }
 
@@ -27,13 +28,18 @@ var relayLogStreamTokens = make(map[string]relayLogStreamToken)
 var relayLogSubscribers = make(map[chan model.RelayLog]*RelayLogSubscription)
 
 type RelayLogSubscription struct {
-	logs chan model.RelayLog
-	done chan struct{}
+	logs      chan model.RelayLog
+	done      chan struct{}
+	expiresAt time.Time
+	timer     *time.Timer
 }
 
 func (s *RelayLogSubscription) Logs() <-chan model.RelayLog { return s.logs }
 func (s *RelayLogSubscription) Done() <-chan struct{}       { return s.done }
 func (s *RelayLogSubscription) Close()                      { RelayLogUnsubscribe(s.logs) }
+func (s *RelayLogSubscription) Expired() bool {
+	return !s.expiresAt.IsZero() && !time.Now().Before(s.expiresAt)
+}
 
 func RelayLogStreamTokenCreate() (string, error) {
 	return RelayLogStreamTokenCreateForUser(UserGet())
@@ -42,6 +48,19 @@ func RelayLogStreamTokenCreate() (string, error) {
 // Use the same user snapshot that authenticated the request. An old JWT that
 // passed middleware just before a password change cannot mint a new stream.
 func RelayLogStreamTokenCreateForUser(user model.User) (string, error) {
+	return relayLogStreamTokenCreate(user, time.Time{})
+}
+
+// HTTP tickets must carry the verified JWT expiry, separate from the short
+// connection-admission TTL. Renewal never extends an already-open stream.
+func RelayLogStreamTokenCreateForSession(user model.User, expiresAt time.Time) (string, error) {
+	if expiresAt.IsZero() || !time.Now().Before(expiresAt) {
+		return "", ErrRelayLogSessionExpired
+	}
+	return relayLogStreamTokenCreate(user, expiresAt)
+}
+
+func relayLogStreamTokenCreate(user model.User, expiresAt time.Time) (string, error) {
 	bytes := make([]byte, 32)
 	if _, err := rand.Read(bytes); err != nil {
 		return "", err
@@ -54,10 +73,13 @@ func RelayLogStreamTokenCreateForUser(user model.User) (string, error) {
 		return "", ErrRelayLogSessionExpired
 	}
 	now := time.Now()
+	if !expiresAt.IsZero() && !now.Before(expiresAt) {
+		return "", ErrRelayLogSessionExpired
+	}
 	relayLogStreamsLock.Lock()
 	defer relayLogStreamsLock.Unlock()
 	relayLogStreamTokensPruneLocked(now)
-	relayLogStreamTokens[token] = relayLogStreamToken{issuedAt: now, generation: relayLogStreamGeneration}
+	relayLogStreamTokens[token] = relayLogStreamToken{issuedAt: now, expiresAt: expiresAt, generation: relayLogStreamGeneration}
 	return token, nil
 }
 
@@ -72,7 +94,8 @@ func relayLogStreamTokenValidLocked(token string, now time.Time) bool {
 	if !ok {
 		return false
 	}
-	if entry.generation != relayLogStreamGeneration || now.Sub(entry.issuedAt) >= relayLogStreamTokenTTL {
+	if entry.generation != relayLogStreamGeneration || now.Sub(entry.issuedAt) >= relayLogStreamTokenTTL ||
+		(!entry.expiresAt.IsZero() && !now.Before(entry.expiresAt)) {
 		delete(relayLogStreamTokens, token)
 		return false
 	}
@@ -99,8 +122,14 @@ func RelayLogSubscribeWithToken(token string) (*RelayLogSubscription, bool) {
 	if !relayLogStreamTokenValidLocked(token, time.Now()) {
 		return nil, false
 	}
+	expiresAt := relayLogStreamTokens[token].expiresAt
 	delete(relayLogStreamTokens, token)
-	return relayLogSubscribeLocked(), true
+	sub := relayLogSubscribeLocked()
+	sub.expiresAt = expiresAt
+	if !expiresAt.IsZero() {
+		sub.timer = time.AfterFunc(time.Until(expiresAt), sub.Close)
+	}
+	return sub, true
 }
 
 func relayLogSubscribeLocked() *RelayLogSubscription {
@@ -126,6 +155,9 @@ func RelayLogUnsubscribe(ch chan model.RelayLog) {
 func relayLogUnsubscribeLocked(ch chan model.RelayLog) {
 	if sub, exists := relayLogSubscribers[ch]; exists {
 		delete(relayLogSubscribers, ch)
+		if sub.timer != nil {
+			sub.timer.Stop()
+		}
 		close(sub.done)
 		close(ch)
 	}
@@ -146,7 +178,11 @@ func revokeRelayLogStreams() {
 func notifySubscribers(relayLog model.RelayLog) {
 	relayLogStreamsLock.Lock()
 	defer relayLogStreamsLock.Unlock()
-	for ch := range relayLogSubscribers {
+	for ch, sub := range relayLogSubscribers {
+		if sub.Expired() {
+			relayLogUnsubscribeLocked(ch)
+			continue
+		}
 		select {
 		case ch <- relayLog:
 		default:

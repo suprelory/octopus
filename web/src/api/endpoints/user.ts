@@ -5,6 +5,10 @@ import { persist } from 'zustand/middleware';
 import { apiClient, setAuthStoreGetter } from '../client';
 import { logger } from '@/lib/logger';
 import { clearSessionQueries } from '../query-session';
+import {
+    AUTH_STORAGE_KEY, decodeJWTSession, sameAuthCredential, sameAuthIdentity,
+    sameJWTSession, startAuthSessionListeners, type AuthSnapshot, type RenewedToken,
+} from '../auth-session';
 
 /**
  * 用户登录请求
@@ -12,7 +16,7 @@ import { clearSessionQueries } from '../query-session';
 export interface UserLoginRequest {
     username: string;
     password: string;
-    expire: number; // token 过期时间（分钟）
+    expire: number; // -1 为可续期登录；0 使用默认有效期，正数指定固定分钟数
 }
 
 /**
@@ -55,6 +59,7 @@ interface AuthState {
     sessionVersion: number;
     isAuthenticated: boolean;
     isLoading: boolean;
+    authUnavailable: boolean;
     isAPIKeyAuth: boolean;
     token: string | null;
     expireAt: string | null;
@@ -62,8 +67,28 @@ interface AuthState {
     // Actions
     setAuth: (token: string, expireAt: string) => void;
     setAPIKeyAuth: (apiKey: string) => void;
+    applyRenewedToken: (response: RenewedToken, expected: AuthSnapshot) => boolean;
+    syncAuthFromStorage: () => void;
     checkAuth: () => Promise<void>;
     logout: () => void;
+}
+
+type StoredAuth = Pick<AuthState, 'token' | 'expireAt' | 'isAPIKeyAuth'>;
+
+function readStoredAuth(): StoredAuth | undefined {
+    if (typeof localStorage === 'undefined') return undefined;
+    try {
+        const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+        if (!raw) return { token: null, expireAt: null, isAPIKeyAuth: false };
+        const state = JSON.parse(raw)?.state;
+        if (!state || (state.token !== null && typeof state.token !== 'string') ||
+            (state.expireAt !== null && typeof state.expireAt !== 'string') ||
+            typeof state.isAPIKeyAuth !== 'boolean') return undefined;
+        return { token: state.token, expireAt: state.expireAt, isAPIKeyAuth: state.isAPIKeyAuth };
+    } catch {
+        // Storage may be unavailable. Keep the in-memory login in that case.
+        return undefined;
+    }
 }
 
 /**
@@ -75,6 +100,7 @@ export const useAuthStore = create<AuthState>()(
             sessionVersion: 0,
             isAuthenticated: false,
             isLoading: true,
+            authUnavailable: false,
             isAPIKeyAuth: false,
             token: null,
             expireAt: null,
@@ -87,7 +113,8 @@ export const useAuthStore = create<AuthState>()(
                     isAPIKeyAuth: false,
                     token,
                     expireAt,
-                    isLoading: false
+                    isLoading: false,
+                    authUnavailable: false,
                 });
             },
 
@@ -99,36 +126,89 @@ export const useAuthStore = create<AuthState>()(
                     isAPIKeyAuth: true,
                     token: apiKey,
                     expireAt: null,
-                    isLoading: false
+                    isLoading: false,
+                    authUnavailable: false,
+                });
+            },
+
+            applyRenewedToken: (response, expected) => {
+                const current = get();
+                if (!sameAuthCredential(expected, current) || current.isAPIKeyAuth) return false;
+                const previous = decodeJWTSession(current.token);
+                const renewed = decodeJWTSession(response.token);
+                if (!previous?.renewable || !renewed || !sameJWTSession(previous, renewed) ||
+                    renewed.exp <= previous.exp || renewed.iat < previous.iat ||
+                    Date.parse(response.expire_at) !== renewed.exp * 1000) return false;
+
+                // A storage event can still be queued when a refresh completes.
+                // Consult persisted credentials before writing, including logout
+                // and a newer login from another tab.
+                const stored = readStoredAuth();
+                if (stored) {
+                    const persisted = !stored.isAPIKeyAuth ? decodeJWTSession(stored.token) : null;
+                    if (!sameJWTSession(previous, persisted) ||
+                        (persisted && (persisted.exp > previous.exp ||
+                            (persisted.exp === previous.exp && persisted.iat > previous.iat)))) {
+                        get().syncAuthFromStorage();
+                        return false;
+                    }
+                }
+                set({ token: response.token, expireAt: response.expire_at });
+                return true;
+            },
+
+            syncAuthFromStorage: () => {
+                const stored = readStoredAuth();
+                const current = get();
+                if (!stored || (stored.token === current.token && stored.isAPIKeyAuth === current.isAPIKeyAuth)) return;
+                const previous = !current.isAPIKeyAuth ? decodeJWTSession(current.token) : null;
+                const incoming = !stored.isAPIKeyAuth ? decodeJWTSession(stored.token) : null;
+                if (sameJWTSession(previous, incoming) && previous && incoming) {
+                    if (incoming.iat >= previous.iat && (incoming.exp > previous.exp ||
+                        (incoming.exp === previous.exp && incoming.iat > previous.iat))) {
+                        set({ token: stored.token, expireAt: new Date(incoming.exp * 1000).toISOString() });
+                    }
+                    return;
+                }
+                clearSessionQueries();
+                set({
+                    ...stored,
+                    sessionVersion: current.sessionVersion + 1,
+                    isAuthenticated: false,
+                    isLoading: !!stored.token,
+                    authUnavailable: false,
                 });
             },
 
             checkAuth: async () => {
-                const { token, expireAt, isAPIKeyAuth, sessionVersion } = get();
+                get().syncAuthFromStorage();
+                const expected = get();
+                const { token, isAPIKeyAuth } = expected;
 
                 if (!token) {
-                    set({ isAuthenticated: false, isLoading: false });
+                    set({ isAuthenticated: false, isLoading: false, authUnavailable: false });
                     return;
                 }
 
-                // API Key 不检查本地过期时间
-                if (!isAPIKeyAuth) {
-                    if (!expireAt || Date.now() >= new Date(expireAt).getTime()) {
-                        get().logout();
-                        return;
-                    }
-                }
+                set({ isLoading: true, authUnavailable: false });
 
                 try {
-                    // API Key 模式只需校验 key 是否有效即可
+                    // Browser clocks only schedule renewal; the server decides
+                    // expiry for both JWT and API key credentials.
                     const endpoint = isAPIKeyAuth ? '/api/v1/apikey/login' : '/api/v1/user/status';
-                    await apiClient.get<unknown>(endpoint);
-                    if (get().sessionVersion !== sessionVersion) return;
-                    set({ isAuthenticated: true, isLoading: false });
+                    await apiClient.get<unknown>(endpoint, undefined, { signal: AbortSignal.timeout(10_000), cache: 'no-store' });
+                    get().syncAuthFromStorage();
+                    if (!sameAuthIdentity(expected, get())) return;
+                    set({ isAuthenticated: true, isLoading: false, authUnavailable: false });
                 } catch (error) {
-                    if (get().sessionVersion !== sessionVersion) return;
+                    get().syncAuthFromStorage();
+                    if (!sameAuthIdentity(expected, get())) return;
+                    if (get().token !== expected.token) {
+                        await get().checkAuth();
+                        return;
+                    }
                     logger.error('认证验证失败:', error);
-                    get().logout();
+                    set({ isAuthenticated: false, isLoading: false, authUnavailable: true });
                 }
             },
 
@@ -140,12 +220,13 @@ export const useAuthStore = create<AuthState>()(
                     isAPIKeyAuth: false,
                     token: null,
                     expireAt: null,
-                    isLoading: false
+                    isLoading: false,
+                    authUnavailable: false,
                 });
             }
         }),
         {
-            name: 'auth-storage',
+            name: AUTH_STORAGE_KEY,
             partialize: (state) => ({
                 token: state.token,
                 expireAt: state.expireAt,
@@ -157,14 +238,7 @@ export const useAuthStore = create<AuthState>()(
 
 // 注册 auth store getter 到 apiClient
 if (typeof window !== 'undefined') {
-    setAuthStoreGetter(() => {
-        const state = useAuthStore.getState();
-        return {
-            token: state.token,
-            sessionVersion: state.sessionVersion,
-            logout: state.logout
-        };
-    });
+    setAuthStoreGetter(() => useAuthStore.getState());
 }
 
 /**
@@ -172,7 +246,7 @@ if (typeof window !== 'undefined') {
  * 
  * @example
  * const login = useLogin();
- * login.mutate({ username: 'admin', password: 'strong-password', expire: 1440 });
+ * login.mutate({ username: 'admin', password: 'strong-password', expire: -1 });
  * 
  * if (login.isPending) return <Loading />;
  * if (login.isError) return <Error message={login.error.message} />;
@@ -275,6 +349,8 @@ export function useAuth() {
     const store = useAuthStore();
     const { checkAuth, isLoading } = store;
 
+    useEffect(() => startAuthSessionListeners(), []);
+
     // 只在首次挂载时检查认证状态
     useEffect(() => {
         if (isLoading) {
@@ -287,6 +363,8 @@ export function useAuth() {
         isAuthenticated: store.isAuthenticated,
         isAPIKeyAuth: store.isAPIKeyAuth,
         isLoading: store.isLoading,
+        authUnavailable: store.authUnavailable,
+        retryAuth: store.checkAuth,
         logout: store.logout,
     };
 }

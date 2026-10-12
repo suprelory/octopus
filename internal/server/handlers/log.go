@@ -274,12 +274,14 @@ func getLogContent(c *gin.Context) {
 }
 
 func getStreamToken(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	user, ok := middleware.AuthenticatedAdminUser(c)
-	if !ok {
+	claims, claimsOK := middleware.AuthenticatedAdminClaims(c)
+	if !ok || !claimsOK {
 		resp.InvalidToken(c)
 		return
 	}
-	token, err := op.RelayLogStreamTokenCreateForUser(user)
+	token, err := op.RelayLogStreamTokenCreateForSession(user, claims.ExpiresAt.Time)
 	if err != nil {
 		if errors.Is(err, op.ErrRelayLogSessionExpired) {
 			resp.InvalidToken(c)
@@ -316,7 +318,7 @@ func streamLog(c *gin.Context) {
 		case <-sub.Done():
 			return
 		case log, ok := <-sub.Logs():
-			if !ok {
+			if !ok || sub.Expired() {
 				return
 			}
 			// Buffered events must not keep a revoked subscription alive.

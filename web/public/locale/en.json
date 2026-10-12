@@ -1,4 +1,9 @@
 {
+    "authRecovery": {
+        "title": "Unable to verify your login",
+        "description": "The server is temporarily unavailable. Your login has been saved; try again when the connection recovers.",
+        "retry": "Retry"
+    },
     "siteCheckinCapability": {
         "mode": "Site check-in capability",
         "auto": "Platform default (use site verification when available)",

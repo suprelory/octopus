@@ -133,7 +133,7 @@ for (const { width, theme } of [{ width: 1440, theme: 'light' }, { width: 390, t
         test('login methods remain usable and report failed authentication', async ({ page }, info) => {
             const state = await mockApp(page, 'home', { auth: 'guest', mutate: request => {
                 expect(request.path).toBe('/api/v1/user/login');
-                expect(request.body).toEqual({ username: 'demo-user', password: 'invalid-demo-password', expire: 1440 });
+                expect(request.body).toEqual({ username: 'demo-user', password: 'invalid-demo-password', expire: -1 });
                 return { status: 401, message: 'Invalid demo credentials' };
             } });
             await page.goto('/');

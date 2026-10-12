@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
@@ -13,6 +14,66 @@ func resetRelayLogStreamTokens() {
 	relayLogStreamsLock.Lock()
 	relayLogStreamTokens = make(map[string]relayLogStreamToken)
 	relayLogStreamsLock.Unlock()
+}
+
+func TestRelayLogTicketCannotOutliveJWT(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		setupLogStreamTokenTest(t)
+		for _, expiry := range []time.Time{{}, time.Now(), time.Now().Add(-time.Second)} {
+			if _, err := RelayLogStreamTokenCreateForSession(UserGet(), expiry); !errors.Is(err, ErrRelayLogSessionExpired) {
+				t.Fatalf("accepted expired authorization: %v", err)
+			}
+		}
+		token, err := RelayLogStreamTokenCreateForSession(UserGet(), time.Now().Add(10*time.Second))
+		if err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(10 * time.Second)
+		if RelayLogStreamTokenVerify(token) {
+			t.Fatal("ticket survived JWT expiry inside the 30-second admission TTL")
+		}
+		if sub, ok := RelayLogSubscribeWithToken(token); ok {
+			sub.Close()
+			t.Fatal("expired ticket opened a stream")
+		}
+	})
+}
+
+func TestRelayLogSubscriptionClosesAtJWTExpiry(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		setupLogStreamTokenTest(t)
+		deadline := time.Now().Add(time.Hour)
+		token, err := RelayLogStreamTokenCreateForSession(UserGet(), deadline)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sub, ok := RelayLogSubscribeWithToken(token)
+		if !ok {
+			t.Fatal("fresh ticket rejected")
+		}
+		defer sub.Close()
+		time.Sleep(time.Hour - time.Nanosecond)
+		synctest.Wait()
+		select {
+		case <-sub.Done():
+			t.Fatal("stream closed before JWT expiry")
+		default:
+		}
+		time.Sleep(time.Nanosecond)
+		synctest.Wait()
+		select {
+		case <-sub.Done():
+		default:
+			t.Fatal("stream outlived JWT expiry")
+		}
+		notifySubscribers(model.RelayLog{ID: 456})
+		if _, ok := <-sub.Logs(); ok {
+			t.Fatal("expired subscription received a new log")
+		}
+		if !sub.Expired() {
+			t.Fatal("deadline was lost after closing")
+		}
+	})
 }
 
 func setupLogStreamTokenTest(t *testing.T) {

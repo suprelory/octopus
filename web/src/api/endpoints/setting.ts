@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiClient, API_BASE_URL } from '../client';
+import { apiClient, authenticatedFetch } from '../client';
 import { logger } from '@/lib/logger';
-import { useAuthStore } from './user';
 
 /**
  * Setting 数据
@@ -177,12 +176,6 @@ function getDataField<T>(value: unknown): T | undefined {
     return (value as ApiResponse<T>).data;
 }
 
-function getAuthHeader(): string {
-    const token = useAuthStore.getState().token;
-    if (!token) throw new Error('Not authenticated');
-    return `Bearer ${token}`;
-}
-
 function parseFilename(contentDisposition: string | null): string | null {
     if (!contentDisposition) return null;
     // e.g. attachment; filename="octopus-export-20250101120000.json"
@@ -223,20 +216,18 @@ export function useExportDB() {
             params.set('include_stats', String(!!options.include_stats));
             params.set('format', format);
 
-            const res = await fetch(`${API_BASE_URL}/api/v1/setting/export?${params.toString()}`, {
+            const { blob, filename } = await authenticatedFetch(`/api/v1/setting/export?${params.toString()}`, {
                 method: 'GET',
-                headers: {
-                    Authorization: getAuthHeader(),
-                },
+            }, async (res) => {
+                if (!res.ok) {
+                    const text = await res.text();
+                    throw new Error(text || res.statusText);
+                }
+                return {
+                    blob: await res.blob(),
+                    filename: parseFilename(res.headers.get('content-disposition')) || exportFallbackFilename(format),
+                };
             });
-
-            if (!res.ok) {
-                const text = await res.text();
-                throw new Error(text || res.statusText);
-            }
-
-            const blob = await res.blob();
-            const filename = parseFilename(res.headers.get('content-disposition')) || exportFallbackFilename(format);
             await downloadBlob(blob, filename);
             return { filename };
         },
@@ -255,26 +246,20 @@ export function useImportDB() {
             const form = new FormData();
             form.append('file', file);
 
-            const res = await fetch(`${API_BASE_URL}/api/v1/setting/import`, {
+            return authenticatedFetch('/api/v1/setting/import', {
                 method: 'POST',
-                headers: {
-                    Authorization: getAuthHeader(),
-                },
                 body: form,
+            }, async (res) => {
+                const contentType = res.headers.get('content-type') || '';
+                const isJson = contentType.includes('application/json');
+                const data = isJson ? await res.json() : await res.text();
+                if (!res.ok) {
+                    const message = getMessageField(data) ?? (typeof data === 'string' ? data : res.statusText);
+                    throw new Error(message);
+                }
+                const nested = getDataField<DBImportResult>(data);
+                return nested ?? (data as DBImportResult);
             });
-
-            const contentType = res.headers.get('content-type') || '';
-            const isJson = contentType.includes('application/json');
-            const data = isJson ? await res.json() : await res.text();
-
-            if (!res.ok) {
-                const message = getMessageField(data) ?? (typeof data === 'string' ? data : res.statusText);
-                throw new Error(message);
-            }
-
-            // 支持后端标准 ApiResponse：{code,message,data:{...}}
-            const nested = getDataField<DBImportResult>(data);
-            return nested ?? (data as DBImportResult);
         },
         onError: (error) => {
             logger.error('导入数据库失败:', error);

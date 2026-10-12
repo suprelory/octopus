@@ -1,15 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { API_BASE_URL } from "../client";
+import { authenticatedFetch } from "../client";
 import { logger } from "@/lib/logger";
-import { useAuthStore } from "./user";
 import { AllAPIHubImportResult, MetAPIImportResult } from './site-types';
 import { invalidateSiteQueries } from './site-query';
-
-function getAuthHeader() {
-  const token = useAuthStore.getState().token;
-  if (!token) throw new Error("Not authenticated");
-  return `Bearer ${token}`;
-}
 
 function extractResponseMessage(payload: unknown, fallback: string) {
   if (
@@ -40,9 +33,7 @@ export function useImportAllAPIHub() {
         throw new Error("请选择 JSON 文件或粘贴导出内容");
       }
 
-      const headers: HeadersInit = {
-        Authorization: getAuthHeader(),
-      };
+      const headers: Record<string, string> = {};
       let body: BodyInit;
 
       if (payload.file) {
@@ -54,35 +45,37 @@ export function useImportAllAPIHub() {
         body = payload.text!.trim();
       }
 
-      const response = await fetch(
-        `${API_BASE_URL}/api/v1/site/import/all-api-hub`,
+      return authenticatedFetch(
+        '/api/v1/site/import/all-api-hub',
         {
           method: "POST",
           headers,
           body,
         },
+        async (response) => {
+          const contentType = response.headers.get("content-type") || "";
+          const data = contentType.includes("application/json")
+            ? await response.json()
+            : await response.text();
+
+          if (!response.ok) {
+            throw new Error(
+              extractResponseMessage(
+                data,
+                typeof data === "string" ? data : response.statusText,
+              ),
+            );
+          }
+
+          const result =
+            extractResponseData<AllAPIHubImportResult>(data) ??
+            (data as AllAPIHubImportResult);
+          return {
+            ...result,
+            warnings: result.warnings ?? [],
+          };
+        },
       );
-      const contentType = response.headers.get("content-type") || "";
-      const data = contentType.includes("application/json")
-        ? await response.json()
-        : await response.text();
-
-      if (!response.ok) {
-        throw new Error(
-          extractResponseMessage(
-            data,
-            typeof data === "string" ? data : response.statusText,
-          ),
-        );
-      }
-
-      const result =
-        extractResponseData<AllAPIHubImportResult>(data) ??
-        (data as AllAPIHubImportResult);
-      return {
-        ...result,
-        warnings: result.warnings ?? [],
-      };
     },
     onSuccess: () => invalidateSiteQueries(queryClient),
     onError: (error) => logger.error("导入 All API Hub 账号失败:", error),
@@ -99,9 +92,7 @@ export function useImportMetAPI() {
         throw new Error("请选择 JSON 文件或粘贴导出内容");
       }
 
-      const headers: HeadersInit = {
-        Authorization: getAuthHeader(),
-      };
+      const headers: Record<string, string> = {};
       let body: BodyInit;
 
       if (payload.file) {
@@ -113,32 +104,33 @@ export function useImportMetAPI() {
         body = payload.text!.trim();
       }
 
-      const response = await fetch(`${API_BASE_URL}/api/v1/site/import/metapi`, {
+      return authenticatedFetch('/api/v1/site/import/metapi', {
         method: "POST",
         headers,
         body,
+      }, async (response) => {
+        const contentType = response.headers.get("content-type") || "";
+        const data = contentType.includes("application/json")
+          ? await response.json()
+          : await response.text();
+
+        if (!response.ok) {
+          throw new Error(
+            extractResponseMessage(
+              data,
+              typeof data === "string" ? data : response.statusText,
+            ),
+          );
+        }
+
+        const result =
+          extractResponseData<MetAPIImportResult>(data) ??
+          (data as MetAPIImportResult);
+        return {
+          ...result,
+          warnings: result.warnings ?? [],
+        };
       });
-      const contentType = response.headers.get("content-type") || "";
-      const data = contentType.includes("application/json")
-        ? await response.json()
-        : await response.text();
-
-      if (!response.ok) {
-        throw new Error(
-          extractResponseMessage(
-            data,
-            typeof data === "string" ? data : response.statusText,
-          ),
-        );
-      }
-
-      const result =
-        extractResponseData<MetAPIImportResult>(data) ??
-        (data as MetAPIImportResult);
-      return {
-        ...result,
-        warnings: result.warnings ?? [],
-      };
     },
     onSuccess: () => invalidateSiteQueries(queryClient),
     onError: (error) => logger.error("导入 metapi 站点失败:", error),

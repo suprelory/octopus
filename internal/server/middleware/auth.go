@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -15,11 +16,18 @@ import (
 )
 
 const authenticatedAdminUserKey = "octopus.authenticated_admin_user"
+const authenticatedAdminClaimsKey = "octopus.authenticated_admin_claims"
 
 func AuthenticatedAdminUser(c *gin.Context) (model.User, bool) {
 	value, exists := c.Get(authenticatedAdminUserKey)
 	user, ok := value.(model.User)
 	return user, exists && ok
+}
+
+func AuthenticatedAdminClaims(c *gin.Context) (*auth.SessionClaims, bool) {
+	value, exists := c.Get(authenticatedAdminClaimsKey)
+	claims, ok := value.(*auth.SessionClaims)
+	return claims, exists && ok && claims != nil
 }
 
 func Auth() gin.HandlerFunc {
@@ -32,14 +40,21 @@ func Auth() gin.HandlerFunc {
 			return
 		}
 		user := op.UserGet()
-		if !auth.VerifyJWTTokenForUser(strings.TrimPrefix(token, "Bearer "), user) {
-			RecordAuthEvent(c, "admin.rejected", apperror.CodeAuthInvalidToken, 0)
-			resp.InvalidToken(c)
+		claims, err := auth.ParseJWTTokenForUser(strings.TrimPrefix(token, "Bearer "), user)
+		if err != nil {
+			if errors.Is(err, auth.ErrExpiredToken) {
+				RecordAuthEvent(c, "admin.rejected", apperror.CodeAuthExpiredToken, 0)
+				resp.ExpiredToken(c)
+			} else {
+				RecordAuthEvent(c, "admin.rejected", apperror.CodeAuthInvalidToken, 0)
+				resp.InvalidToken(c)
+			}
 			c.Abort()
 			return
 		}
 		c.Set(adminAuthenticatedKey, true)
 		c.Set(authenticatedAdminUserKey, user)
+		c.Set(authenticatedAdminClaimsKey, claims)
 		c.Next()
 	}
 }

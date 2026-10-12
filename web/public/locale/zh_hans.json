@@ -1,4 +1,9 @@
 {
+    "authRecovery": {
+        "title": "暂时无法验证登录状态",
+        "description": "服务器暂时无法连接，已保留你的登录信息。连接恢复后可以重试。",
+        "retry": "重新验证"
+    },
     "siteCheckinCapability": {
         "mode": "站点签到能力",
         "auto": "平台默认（优先采用本站验证结果）",

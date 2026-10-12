@@ -94,6 +94,10 @@ func InvalidToken(c *gin.Context) {
 	ErrorWithAppError(c, http.StatusUnauthorized, apperror.New(apperror.CodeAuthInvalidToken, ErrUnauthorized).WithStatus(http.StatusUnauthorized))
 }
 
+func ExpiredToken(c *gin.Context) {
+	ErrorWithAppError(c, http.StatusUnauthorized, apperror.New(apperror.CodeAuthExpiredToken, "administrator token has expired").WithStatus(http.StatusUnauthorized))
+}
+
 func InvalidCredentials(c *gin.Context) {
 	ErrorWithAppError(c, http.StatusUnauthorized, apperror.New(apperror.CodeAuthInvalidCredentials, ErrUnauthorized).WithStatus(http.StatusUnauthorized))
 }

@@ -2,6 +2,12 @@ import type { QueryClient } from '@tanstack/react-query';
 
 const clients = new Set<QueryClient>();
 
+export function shouldRetrySessionQuery(failureCount: number, error: unknown): boolean {
+    // Authentication failures are final for that request, including a late
+    // 401 from a token replaced by renewal. Transient query failures may retry.
+    return failureCount < 3 && !(error && typeof error === 'object' && 'code' in error && error.code === 401);
+}
+
 export function registerSessionQueryClient(client: QueryClient) {
     clients.add(client);
     return () => {

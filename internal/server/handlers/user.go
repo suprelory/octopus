@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -16,6 +17,7 @@ import (
 
 func init() {
 	router.NewGroupRouter("/api/v1/user").
+		Use(noStoreUserResponse).
 		Use(middleware.RequireJSON()).
 		AddRoute(
 			router.NewRoute("/login", http.MethodPost).
@@ -30,8 +32,13 @@ func init() {
 				Handle(bootstrap),
 		)
 	router.NewGroupRouter("/api/v1/user").
+		Use(noStoreUserResponse).
 		Use(middleware.Auth()).
 		Use(middleware.RequireJSON()).
+		AddRoute(
+			router.NewRoute("/refresh", http.MethodPost).
+				Handle(refresh),
+		).
 		AddRoute(
 			router.NewRoute("/change-password", http.MethodPost).
 				Handle(changePassword),
@@ -46,7 +53,13 @@ func init() {
 		)
 }
 
+func noStoreUserResponse(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	c.Next()
+}
+
 func login(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	var user model.UserLogin
 	if err := c.ShouldBindJSON(&user); err != nil {
 		resp.InvalidJSON(c)
@@ -89,6 +102,33 @@ func login(c *gin.Context) {
 		return
 	}
 	middleware.RecordAuthEvent(c, "login.succeeded", "", 0)
+	resp.Success(c, model.UserLoginResponse{Token: token, ExpireAt: expire})
+}
+
+func refresh(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	user, ok := middleware.AuthenticatedAdminUser(c)
+	claims, claimsOK := middleware.AuthenticatedAdminClaims(c)
+	if !ok || !claimsOK {
+		resp.InvalidToken(c)
+		return
+	}
+	token, expire, err := auth.RenewJWTTokenForUser(claims, user)
+	if err != nil {
+		switch {
+		case errors.Is(err, auth.ErrExpiredToken):
+			resp.ExpiredToken(c)
+		case errors.Is(err, auth.ErrInvalidToken):
+			resp.InvalidToken(c)
+		default:
+			resp.InternalErrorWithLog(c, err)
+		}
+		return
+	}
+	if token == "" {
+		c.Status(http.StatusNoContent)
+		return
+	}
 	resp.Success(c, model.UserLoginResponse{Token: token, ExpireAt: expire})
 }
 

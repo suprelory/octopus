@@ -8,6 +8,9 @@ import { useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { logger } from '@/lib/logger';
 import { lazyWithPreload } from '@/route/lazy-with-preload';
+import { useTranslations } from 'next-intl';
+import { AuthShell } from '@/components/common/AuthShell';
+import { Button } from '@/components/ui/button';
 
 const LoginForm = lazyWithPreload(() =>
     import('@/components/modules/login').then((module) => ({ default: module.LoginForm }))
@@ -65,7 +68,8 @@ function AuthFormSkeleton() {
 }
 
 export function AppContainer() {
-    const { isAuthenticated, isAPIKeyAuth, isLoading: authLoading } = useAuth();
+    const { isAuthenticated, isAPIKeyAuth, isLoading: authLoading, authUnavailable, retryAuth } = useAuth();
+    const tAuth = useTranslations('authRecovery');
     const storedToken = useAuthStore((state) => state.token);
     const storedAPIKeyAuth = useAuthStore((state) => state.isAPIKeyAuth);
     const queryClient = useQueryClient();
@@ -96,7 +100,7 @@ export function AppContainer() {
     }, []);
 
     useEffect(() => {
-        if (authLoading || isAuthenticated) {
+        if (authLoading || isAuthenticated || authUnavailable) {
             setBootstrapLoading(false);
             setBootstrapRequired(false);
             return;
@@ -118,7 +122,7 @@ export function AppContainer() {
         return () => {
             active = false;
         };
-    }, [authLoading, isAuthenticated]);
+    }, [authLoading, isAuthenticated, authUnavailable]);
 
     // 后台预取数据 — 不阻塞内容渲染，React Query 缓存就绪后自动触发组件重渲染
     useEffect(() => {
@@ -152,8 +156,16 @@ export function AppContainer() {
         return <AppShellSkeleton />;
     }
 
+    if (authUnavailable) {
+        return (
+            <AuthShell title={tAuth('title')} description={tAuth('description')}>
+                <Button className="w-full" onClick={() => void retryAuth()}>{tAuth('retry')}</Button>
+            </AuthShell>
+        );
+    }
+
     // API Key 认证模式 - 显示 API Key Dashboard
-    if (isAPIKeyAuth) {
+    if (isAPIKeyAuth && isAuthenticated) {
         return (
             <Suspense fallback={<AppShellSkeleton />}>
                 <AnimatePresence mode="wait">

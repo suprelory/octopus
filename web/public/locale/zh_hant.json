@@ -1,4 +1,9 @@
 {
+    "authRecovery": {
+        "title": "暫時無法驗證登入狀態",
+        "description": "伺服器暫時無法連線，已保留你的登入資訊。連線恢復後可以重試。",
+        "retry": "重新驗證"
+    },
     "siteCheckinCapability": {
         "mode": "站點簽到能力",
         "auto": "平台預設（優先採用本站驗證結果）",
