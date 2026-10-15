@@ -70,7 +70,10 @@ type checkinNotifier struct {
 	wg      sync.WaitGroup
 }
 
-var checkinNotifications = newCheckinNotifier(loadCheckinNotificationConfig)
+var (
+	checkinNotificationLocation = time.FixedZone("UTC+8", 8*60*60)
+	checkinNotifications        = newCheckinNotifier(loadCheckinNotificationConfig)
+)
 
 func newCheckinNotifier(config func() checkinNotificationConfig) *checkinNotifier {
 	return &checkinNotifier{
@@ -212,6 +215,7 @@ func (n *checkinNotifier) enqueueTarget(target notify.Target, cooldown time.Dura
 }
 
 func (n *checkinNotifier) deliver(target notify.Target, event checkinNotification) error {
+	event.OccurredAt = event.OccurredAt.In(checkinNotificationLocation)
 	source := "定时签到"
 	if event.Source == SiteBatchTriggerManual {
 		source = "手动签到"

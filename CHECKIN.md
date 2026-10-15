@@ -96,6 +96,8 @@ Markdown 支持标题、强调、链接、代码、列表、表格等常见语�
 
 通知只在签到结果写入日志后发送，跳过的任务不通知。成功结果可包含奖励和本次刷新所得的余额。低余额提醒只使用本次成功刷新并保存的余额，不使用过期余额；触发低余额提醒时只发送这一条提醒，不再重复发送成功通知。自定义 HTTP 签到选择余额账号且本次刷新成功时，同样可包含余额并触发低余额提醒。
 
+签到结果通知的默认正文时间、模板变量 `{{time}}` 和 Webhook 的 `occurred_at` 均使用 UTC+8，采用带 `+08:00` 偏移的 RFC3339 格式，不受服务器时区影响。
+
 Webhook 接收端支持 `site_checkin_failed`、`site_checkin_low_balance` 和 `site_checkin_success` 三个事件。原有字段保持兼容，并新增标题、等级、触发来源和可选奖励。例如：
 
 ```json
@@ -113,7 +115,7 @@ Webhook 接收端支持 `site_checkin_failed`、`site_checkin_low_balance` 和 `
   "reason": "upstream_http_error",
   "message": "HTTP 401 Unauthorized",
   "failure_count": 3,
-  "occurred_at": "2026-09-27T11:00:00Z"
+  "occurred_at": "2026-09-27T19:00:00+08:00"
 }
 ```
 
