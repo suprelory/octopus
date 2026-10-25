@@ -110,7 +110,7 @@ type relayRequest struct {
 	// streamWriter allows overriding the response writer (nil = use c.Writer)
 	streamWriter StreamWriter
 
-	// heartbeat 管理可选的上游流建立前延迟心跳；默认 no-op。
+	// heartbeat shares the HTTP keep-alive schedule across all attempts.
 	heartbeat *earlyHeartbeat
 
 	streamPayloadWritten atomic.Bool

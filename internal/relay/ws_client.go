@@ -35,9 +35,15 @@ func HandleWSResponse(c *gin.Context) {
 
 	conn.SetReadLimit(wsClientReadLimit)
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), wsClientMaxAge)
-	defer cancel()
+	lifetimeCtx, cancelLifetime := context.WithTimeout(c.Request.Context(), wsClientMaxAge)
+	defer cancelLifetime()
+	ctx, cancelSession := context.WithCancelCause(lifetimeCtx)
+	defer cancelSession(nil)
 	ctx = context.WithValue(ctx, affinityHeadersKey{}, c.Request.Header.Clone())
+	reader := newWSClientReader(ctx, conn, cancelSession)
+	defer reader.Close()
+	stopKeepAlive := startWSKeepAlive(ctx, conn, streamHeartbeatInterval(), cancelSession)
+	defer stopKeepAlive()
 
 	apiKeyID := c.GetInt("api_key_id")
 	apiKey := c.GetString("authenticated_api_key")
@@ -54,17 +60,15 @@ func HandleWSResponse(c *gin.Context) {
 
 	// Message loop
 	for {
-		select {
-		case <-ctx.Done():
-			writeWSError(ctx, conn, 400, "websocket_connection_limit_reached",
-				"Responses websocket connection limit reached (60 minutes). Create a new websocket connection to continue.")
-			conn.Close(websocket.StatusNormalClosure, "connection limit reached")
-			return
-		default:
-		}
-
-		msgType, data, err := conn.Read(ctx)
+		msgType, data, err := reader.Read(ctx)
 		if err != nil {
+			if lifetimeCtx.Err() == context.DeadlineExceeded {
+				writeCtx, cancelWrite := context.WithTimeout(context.WithoutCancel(ctx), wsWriteTimeout)
+				writeWSError(writeCtx, conn, 400, "websocket_connection_limit_reached",
+					"Responses websocket connection limit reached (60 minutes). Create a new websocket connection to continue.")
+				cancelWrite()
+				return
+			}
 			closeStatus := websocket.CloseStatus(err)
 			if closeStatus == websocket.StatusNormalClosure || closeStatus == websocket.StatusGoingAway {
 				log.Debugf("ws client disconnected normally (apikey=%d)", apiKeyID)

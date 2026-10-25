@@ -34,7 +34,7 @@ func (ra *relayAttempt) handleTransformedStream(ctx context.Context, source stre
 	if ra.firstTokenTimeOutSec > 0 && ra.firstTokenBudget == nil {
 		firstTokenTimeout = time.Duration(ra.firstTokenTimeOutSec) * time.Second
 	}
-	processor := stream.NewStreamProcessor(stream.StreamConfig{
+	processor := stream.NewStreamProcessor(ra.heartbeat.streamConfig(stream.StreamConfig{
 		Source: source,
 		TransformEvent: func(ctx context.Context, event stream.SourceEvent) ([]byte, error) {
 			output, semantic, err := ra.transformSourceEvent(ctx, event)
@@ -58,7 +58,7 @@ func (ra *relayAttempt) handleTransformedStream(ctx context.Context, source stre
 		OnFinish: func(context.Context) error {
 			return ra.finalizeStreamLifecycle(ctx, true)
 		},
-	})
+	}))
 	return ra.runStreamProcessor(ctx, processor, timeoutCloser)
 }
 
@@ -173,7 +173,7 @@ func (ra *relayAttempt) handleStreamResponsePassthroughV2(ctx context.Context, r
 	}
 
 	// Create StreamProcessor
-	processor := stream.NewStreamProcessor(stream.StreamConfig{
+	processor := stream.NewStreamProcessor(ra.heartbeat.streamConfig(stream.StreamConfig{
 		Source:             stream.NewRawSource(response.Body, 32*1024),
 		Transform:          nil, // Passthrough: no transformation
 		Observer:           observer,
@@ -198,7 +198,7 @@ func (ra *relayAttempt) handleStreamResponsePassthroughV2(ctx context.Context, r
 			log.Debugf("passthrough stream end")
 			return nil
 		},
-	})
+	}))
 
 	return ra.runStreamProcessor(ctx, processor, response.Body)
 }

@@ -36,6 +36,7 @@ export const SettingKey = {
     ResponsesWSDefaultMode: 'responses_ws_default_mode',
     SSEHeartbeatInterval: 'sse_heartbeat_interval',
     SSEPreStreamHeartbeatDelay: 'sse_pre_stream_heartbeat_delay',
+    NonStreamKeepAliveInterval: 'nonstream_keepalive_interval',
     ProjectedChannelAutoGroupEnabled: 'projected_channel_auto_group_enabled',
     ApiBaseUrl: 'api_base_url',
     WebDAVURL: 'webdav_url',

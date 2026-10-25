@@ -591,9 +591,19 @@
             }
         },
         "sseHeartbeat": {
-            "label": "SSE 心跳间隔（秒）",
-            "description": "同时作为流中心跳间隔与上游流建立前的首次心跳延迟；设置为 0 禁用。Cloudflare 反代场景建议 30-60 秒。",
+            "label": "流式保活间隔（秒）",
+            "description": "用于 SSE 心跳和 WebSocket Ping，覆盖流传输、重试及 WebSocket 轮次间等待；0 禁用。反代场景建议 30-60 秒。",
             "compatibility": "部分客户端可能错误处理 SSE 注释，如遇兼容问题可关闭。",
+            "placeholder": "0 = 禁用，建议 30-60"
+        },
+        "preStreamHeartbeat": {
+            "label": "建流前首次心跳延迟（秒）",
+            "description": "等待上游建立 SSE 流时，延迟指定时间发送首次心跳；需同时开启流式保活，0 禁用建流前心跳。发出心跳后 HTTP 状态固定为 200，后续错误通过 SSE 事件返回。",
+            "placeholder": "0 = 禁用，建议 30-60"
+        },
+        "nonStreamKeepAlive": {
+            "label": "非流式保活间隔（秒）",
+            "description": "等待 JSON 响应时定时发送前导空白，0 禁用。发出保活字节后 HTTP 状态固定为 200，后续错误仍通过 JSON 响应体返回；适用于普通请求、图片和 compact。",
             "placeholder": "0 = 禁用，建议 30-60"
         },
         "emptyResponseDetection": {

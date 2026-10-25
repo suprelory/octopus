@@ -215,6 +215,11 @@ func (r *relayExecutor) runChannelAttempts(channel *dbmodel.Channel, key dbmodel
 		}
 		result = attempt.attempt()
 		cancel()
+		if !result.Success && !result.Canceled && !result.Written {
+			// Closing a failed stream cancels its attempt budget. The shared
+			// request heartbeat must resume using the still-live inbound context.
+			req.heartbeat.Resume()
+		}
 		lastAttempt = attemptRequest
 		fallback := !requiresUpstreamWSContinuation(req.internalRequest) &&
 			!result.Written && result.Failure.Class == FailureRateLimit &&

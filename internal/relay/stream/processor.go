@@ -81,6 +81,10 @@ type StreamConfig struct {
 	// Timeout & heartbeat
 	FirstTokenTimeout time.Duration // 0 to disable
 	HeartbeatInterval time.Duration // 0 to disable
+	// HeartbeatC transfers a request-owned schedule across retries. When set,
+	// OnHeartbeat advances that schedule after a successful heartbeat write.
+	HeartbeatC  <-chan time.Time
+	OnHeartbeat func()
 
 	// Callbacks
 	OnFirstToken func()                          // Called when first payload written
@@ -111,12 +115,16 @@ type StreamProcessor struct {
 	config StreamConfig
 
 	// State
-	pendingBuffer  bytes.Buffer
-	pendingEvents  int
-	payloadWritten bool
-	firstToken     bool
-	committed      bool
-	cleanEOF       bool
+	pendingBuffer    bytes.Buffer
+	pendingEvents    int
+	payloadWritten   bool
+	firstToken       bool
+	committed        bool
+	cleanEOF         bool
+	heartbeatPending bool
+	sseBoundary      bool
+	sseLineHasData   bool
+	sseAfterCR       bool
 }
 
 // NewStreamProcessor creates a processor from config.
@@ -130,8 +138,9 @@ func NewStreamProcessor(config StreamConfig) *StreamProcessor {
 		}
 	}
 	return &StreamProcessor{
-		config:     config,
-		firstToken: true,
+		config:      config,
+		firstToken:  true,
+		sseBoundary: true,
 	}
 }
 
@@ -146,8 +155,8 @@ func (p *StreamProcessor) Run() error {
 
 	// Setup heartbeat ticker
 	var heartbeatTicker *time.Ticker
-	var heartbeatC <-chan time.Time
-	if p.config.HeartbeatInterval > 0 {
+	heartbeatC := p.config.HeartbeatC
+	if heartbeatC == nil && p.config.HeartbeatInterval > 0 {
 		heartbeatTicker = time.NewTicker(p.config.HeartbeatInterval)
 		heartbeatC = heartbeatTicker.C
 		defer heartbeatTicker.Stop()
@@ -381,15 +390,53 @@ func (p *StreamProcessor) writeOutput(output []byte) error {
 		return fmt.Errorf("%w: %w", ErrDownstreamWrite, err)
 	}
 	p.config.Writer.Flush()
+	if p.config.HeartbeatC != nil || p.config.HeartbeatInterval > 0 {
+		p.observeSSEBoundary(output)
+		if p.heartbeatPending && p.sseBoundary {
+			return p.writeHeartbeat()
+		}
+	}
 	return nil
+}
+
+// Raw passthrough reads can split an SSE frame anywhere, including inside JSON.
+// Only inject comments between complete events; otherwise defer until the next
+// event boundary without changing any upstream bytes.
+func (p *StreamProcessor) observeSSEBoundary(output []byte) {
+	for _, b := range output {
+		if b == '\n' && p.sseAfterCR {
+			p.sseAfterCR = false
+			continue
+		}
+		p.sseAfterCR = b == '\r'
+		if b == '\r' || b == '\n' {
+			p.sseBoundary = !p.sseLineHasData
+			p.sseLineHasData = false
+		} else {
+			p.sseLineHasData = true
+			p.sseBoundary = false
+		}
+	}
 }
 
 // writeHeartbeat sends SSE heartbeat (comment line).
 func (p *StreamProcessor) writeHeartbeat() error {
-	if _, err := p.config.Writer.Write([]byte(":\n\n")); err != nil {
+	if !p.sseBoundary {
+		p.heartbeatPending = true
+		return nil
+	}
+	n, err := p.config.Writer.Write([]byte(":\n\n"))
+	if err == nil && n != 3 {
+		err = io.ErrShortWrite
+	}
+	if err != nil {
 		return fmt.Errorf("%w: %w", ErrDownstreamWrite, err)
 	}
 	p.config.Writer.Flush()
+	p.heartbeatPending = false
+	if p.config.OnHeartbeat != nil {
+		p.config.OnHeartbeat()
+	}
 	return nil
 }
 

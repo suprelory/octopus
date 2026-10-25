@@ -128,10 +128,10 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 	metrics.capture, metrics.StartTime = trace, trace.started
 	trace.client.request = trace.captureImagesRequest(c.Request, bc, boundary, "")
 
-	// === 早期心跳 ===
-	// 流式：启动早期心跳协程，覆盖前置阶段（连接慢、failover、退避）期间向客户端发 SSE 注释字节
-	// 非流式：无法发送 SSE 注释（破坏 application/json 协议），不施加本地超时
+	// Keep the downstream alive during connection setup and retries. JSON
+	// responses use leading whitespace when non-streaming keep-alives are enabled.
 	hb := startEarlyHeartbeat(c, stream)
+	ctx = c.Request.Context()
 	defer hb.Stop()
 	var savedSuccess bool
 	var savedErr error
@@ -268,6 +268,9 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 
 			// ====== 失败 ======
 			failure := classifyRelayFailureContext(ctx, statusCode, fwdErr, retryAt)
+			if !written && failure.Class != FailureClientCanceled {
+				hb.Resume()
+			}
 			op.ChannelKeyUpdateWithDelta(usedKey, 0)
 			span.SetFailure(string(failure.Class), failure.Retryable, failure.RetryAt, failure.Scope)
 			span.End(model.AttemptFailed, statusCode, fwdErr.Error())
@@ -316,6 +319,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 		finalErr = capabilityErr
 	}
 	savedErr = finalErr
+	hb.Hand()
 	if !sawSupportedCapability && capabilityErrorCode != "" {
 		if hb.Handoff() {
 			hb.WriteSSEError(http.StatusBadRequest, capabilityErrorMessage)

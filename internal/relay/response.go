@@ -73,6 +73,7 @@ func (ra *relayAttempt) handleResponsePassthrough(ctx context.Context, response 
 	}
 	ra.collectResponse()
 
+	ra.heartbeat.Stop()
 	contentType := response.Header.Get("Content-Type")
 	if contentType == "" {
 		contentType = "application/json"
@@ -109,6 +110,7 @@ func (ra *relayAttempt) handleResponse(ctx context.Context, response *http.Respo
 		return contextError(ctx)
 	}
 
+	ra.heartbeat.Stop()
 	ra.commitResponse()
 	ra.c.Data(http.StatusOK, "application/json", inResponse)
 	return nil
@@ -148,6 +150,7 @@ func (ra *relayAttempt) collectResponse() {
 // writeFinalError preserves upstream Retry-After after all candidates fail.
 func (r *httpRelay) writeFinalError(result attemptResult, err error, lastAttempt *relayRequest) {
 	req := r.request
+	req.heartbeat.Hand()
 	errorAdapter := req.inAdapter
 	if lastAttempt != nil {
 		errorAdapter = lastAttempt.inAdapter

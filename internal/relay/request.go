@@ -70,7 +70,7 @@ func prepareHTTPRelay(inboundType inbound.InboundType, c *gin.Context) *httpRela
 	}
 
 	// Start before forwarding or backoff so slow connection setup is covered.
-	// Non-streaming requests are bounded by the failover budget instead.
+	// JSON requests can independently enable whitespace keep-alives.
 	isStream := internalRequest.Stream != nil && *internalRequest.Stream
 	heartbeat := startEarlyHeartbeat(c, isStream)
 	ready = true

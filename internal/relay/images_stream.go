@@ -36,7 +36,7 @@ func proxySSE(ctx context.Context, c *gin.Context, respUp *http.Response, firstT
 		return nil
 	})
 	committed := false
-	processor := stream.NewStreamProcessor(stream.StreamConfig{
+	processor := stream.NewStreamProcessor(hb.streamConfig(stream.StreamConfig{
 		Source: stream.NewRawSource(respUp.Body, 32*1024), Observer: observer,
 		Writer: c.Writer, Context: ctx,
 		FirstTokenTimeout:  time.Duration(firstTokenTimeOutSec) * time.Second,
@@ -51,7 +51,7 @@ func proxySSE(ctx context.Context, c *gin.Context, respUp *http.Response, firstT
 			}
 		},
 		OnFirstToken: func() { metrics.SetFirstTokenTime(time.Now()) },
-	})
+	}))
 	err := processor.Run()
 	if err != nil && context.Cause(ctx) != nil {
 		err = context.Cause(ctx)

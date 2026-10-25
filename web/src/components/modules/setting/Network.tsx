@@ -11,9 +11,6 @@ import { toast } from '@/components/common/Toast';
 import type { ApiError } from '@/api/types';
 import { SETTING_CONTROL_WIDTH, SettingCard, SettingRow, useSettingField } from './shared';
 
-// SSE 心跳间隔与流建立前首次心跳延迟统一为一个值（通常配置相同），回显以心跳间隔为准
-const SSE_MIRROR_KEYS = [SettingKey.SSEPreStreamHeartbeatDelay] as const;
-
 // enabled + defaultMode 两个 key 收敛为四个有效状态：
 // enabled=false 时 mode 无意义；enabled=true 时 mode 为渠道未覆盖时的默认值
 const WS_MODES = ['disabled', 'defaultOff', 'passthrough', 'transform'] as const;
@@ -86,7 +83,9 @@ export function SettingNetwork() {
     const trustedProxies = useSettingField(SettingKey.TrustedProxies);
     const apiBaseUrl = useSettingField(SettingKey.ApiBaseUrl);
     const cors = useSettingField(SettingKey.CORSAllowOrigins);
-    const sseHeartbeat = useSettingField(SettingKey.SSEHeartbeatInterval, SSE_MIRROR_KEYS);
+    const sseHeartbeat = useSettingField(SettingKey.SSEHeartbeatInterval);
+    const preStreamHeartbeat = useSettingField(SettingKey.SSEPreStreamHeartbeatDelay);
+    const nonStreamKeepAlive = useSettingField(SettingKey.NonStreamKeepAliveInterval);
     const responsesWS = useResponsesWSMode();
 
     const [corsInputValue, setCorsInputValue] = useState('');
@@ -302,7 +301,7 @@ export function SettingNetwork() {
                 </Popover>
             </SettingRow>
 
-            {/* SSE 心跳：同一个值写入流中心跳间隔与流建立前首次心跳延迟 */}
+            {/* Streaming and JSON keep-alives are independently configurable. */}
             <SettingRow
                 icon={Activity}
                 label={t('sseHeartbeat.label')}
@@ -316,6 +315,30 @@ export function SettingNetwork() {
                     onBlur={sseHeartbeat.save}
                     placeholder={t('sseHeartbeat.placeholder')}
                     className={`${SETTING_CONTROL_WIDTH} rounded-xl`}
+                />
+            </SettingRow>
+
+            <SettingRow icon={Activity} label={t('preStreamHeartbeat.label')} tooltip={t('preStreamHeartbeat.description')}>
+                <Input
+                    type="number"
+                    min="0"
+                    value={preStreamHeartbeat.value}
+                    onChange={(e) => preStreamHeartbeat.setValue(e.target.value)}
+                    onBlur={preStreamHeartbeat.save}
+                    placeholder={t('preStreamHeartbeat.placeholder')}
+                    className={[SETTING_CONTROL_WIDTH, 'rounded-xl'].join(' ')}
+                />
+            </SettingRow>
+
+            <SettingRow icon={Activity} label={t('nonStreamKeepAlive.label')} tooltip={t('nonStreamKeepAlive.description')}>
+                <Input
+                    type="number"
+                    min="0"
+                    value={nonStreamKeepAlive.value}
+                    onChange={(e) => nonStreamKeepAlive.setValue(e.target.value)}
+                    onBlur={nonStreamKeepAlive.save}
+                    placeholder={t('nonStreamKeepAlive.placeholder')}
+                    className={[SETTING_CONTROL_WIDTH, 'rounded-xl'].join(' ')}
                 />
             </SettingRow>
 

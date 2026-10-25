@@ -112,9 +112,12 @@ func HandleResponsesCompact(c *gin.Context) {
 	metrics := NewRelayMetrics(apiKeyID, requestModel, "responses", middleware.ClientIP(c), body, metricsReq)
 	metrics.capture, metrics.StartTime = captureTrace, captureTrace.started
 	captureTrace.recordClientRequest(body)
+	hb := startEarlyHeartbeat(c, false)
+	defer hb.Stop()
 	var savedSuccess bool
 	var savedErr error
 	defer func() {
+		hb.Stop()
 		metrics.SaveWithChannelStats(c.Request.Context(), savedSuccess, savedErr, iter.Attempts(), false)
 	}()
 
@@ -219,6 +222,7 @@ func HandleResponsesCompact(c *gin.Context) {
 					body,
 					capabilityTrace(decision, capabilityPolicy, channel.Type.String()),
 					execution,
+					hb,
 				)
 				if attemptErr == nil {
 					success = true
@@ -279,6 +283,7 @@ func HandleResponsesCompact(c *gin.Context) {
 		finalErr = capabilityErr
 	}
 	savedErr = finalErr
+	hb.Hand()
 	if !sawSupportedCapability && lastStatusCode == 0 && capabilityErrorCode != "" {
 		resp.ErrorWithCode(c, http.StatusBadRequest, capabilityErrorCode, capabilityErrorMessage)
 		return
@@ -311,7 +316,7 @@ func writeCompactFailure(c *gin.Context, result attemptResult, err error) {
 	resp.ErrorWithCode(c, responseError.StatusCode, responseError.Detail.Code, responseError.Detail.Message)
 }
 
-func forwardResponsesCompactWithRetryAt(c *gin.Context, metrics *RelayMetrics, iter *balancer.Iterator, channel *dbmodel.Channel, usedKey dbmodel.ChannelKey, mappedModel string, requestBody []byte, trace balancer.CapabilityTrace, execution *relayExecution) (resultStatus int, resultRetry time.Time, resultErr error) {
+func forwardResponsesCompactWithRetryAt(c *gin.Context, metrics *RelayMetrics, iter *balancer.Iterator, channel *dbmodel.Channel, usedKey dbmodel.ChannelKey, mappedModel string, requestBody []byte, trace balancer.CapabilityTrace, execution *relayExecution, hb *earlyHeartbeat) (resultStatus int, resultRetry time.Time, resultErr error) {
 	ctx, cancel := execution.budget.attemptContext(c.Request.Context())
 	defer cancel()
 	span := iter.StartAttempt(channel.ID, usedKey.ID, channel.Name)
@@ -414,6 +419,7 @@ func forwardResponsesCompactWithRetryAt(c *gin.Context, metrics *RelayMetrics, i
 		return statusCode, retryAt, responseErr
 	}
 
+	hb.Stop()
 	copyProxyResponseHeaders(c.Writer.Header(), response.Header)
 	contentType := response.Header.Get("Content-Type")
 	if strings.TrimSpace(contentType) == "" {

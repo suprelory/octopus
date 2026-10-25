@@ -591,9 +591,19 @@
             }
         },
         "sseHeartbeat": {
-            "label": "SSE Heartbeat Interval (seconds)",
-            "description": "Applies to both the in-stream heartbeat interval and the first heartbeat delay before the upstream stream is established; 0 disables. 30-60 seconds is recommended behind Cloudflare.",
+            "label": "Streaming Keep-alive Interval (seconds)",
+            "description": "Controls SSE heartbeats and WebSocket Ping during streaming, retries, and between WebSocket turns; 0 disables. 30-60 seconds is recommended behind a reverse proxy.",
             "compatibility": "Some clients may mishandle SSE comments, so disable it if compatibility issues occur.",
+            "placeholder": "0 = disabled, recommend 30-60"
+        },
+        "preStreamHeartbeat": {
+            "label": "First Pre-stream Heartbeat Delay (seconds)",
+            "description": "Delay before the first heartbeat while waiting for an upstream SSE stream. Requires streaming keep-alives; 0 disables pre-stream heartbeats. After a heartbeat is sent, HTTP status stays 200 and later errors are returned as SSE events.",
+            "placeholder": "0 = disabled, recommend 30-60"
+        },
+        "nonStreamKeepAlive": {
+            "label": "Non-streaming Keep-alive Interval (seconds)",
+            "description": "Sends leading whitespace while waiting for JSON responses; 0 disables. After a keep-alive byte is sent, HTTP status stays 200 and later errors remain in the JSON body. Applies to regular requests, images, and compact.",
             "placeholder": "0 = disabled, recommend 30-60"
         },
         "emptyResponseDetection": {

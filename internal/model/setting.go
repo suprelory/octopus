@@ -48,8 +48,9 @@ const (
 	SettingKeyCapabilityDegradationPolicy      SettingKey = "capability_degradation_policy"        // 能力降级策略：allow/warn/strict
 	SettingKeyResponsesWSEnabled               SettingKey = "responses_ws_enabled"                 // 是否启用 OpenAI Responses WS 上游能力（仅客户端 WS 入站）
 	SettingKeyResponsesWSDefaultMode           SettingKey = "responses_ws_default_mode"            // OpenAI Responses WS 默认模式：off/transform/passthrough
-	SettingKeySSEHeartbeatInterval             SettingKey = "sse_heartbeat_interval"               // SSE 流式心跳间隔（秒），0 表示禁用
+	SettingKeySSEHeartbeatInterval             SettingKey = "sse_heartbeat_interval"               // SSE/WS 流式保活间隔（秒），0 表示禁用
 	SettingKeySSEPreStreamHeartbeatDelay       SettingKey = "sse_pre_stream_heartbeat_delay"       // SSE 上游流建立前心跳首次延迟（秒），0 表示禁用
+	SettingKeyNonStreamKeepAliveInterval       SettingKey = "nonstream_keepalive_interval"         // 非流式 JSON 保活间隔（秒），0 表示禁用
 	SettingKeyProjectedChannelAutoGroupEnabled SettingKey = "projected_channel_auto_group_enabled" // 全局站点投影渠道自动分组模式（0关闭/1模糊/2精确/3正则）
 	SettingKeyJWTSecret                        SettingKey = "jwt_secret"                           // JWT 签名密钥（自动生成）
 	SettingKeyApiBaseUrl                       SettingKey = "api_base_url"                         // 对外服务基础地址，用于一键导出客户端配置，为空时不显示导出入口
@@ -111,6 +112,7 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyResponsesWSDefaultMode, Value: "passthrough"}, // 启用后默认使用协议保真的 passthrough
 		{Key: SettingKeySSEHeartbeatInterval, Value: "0"},             // 默认禁用 SSE 流式心跳
 		{Key: SettingKeySSEPreStreamHeartbeatDelay, Value: "0"},       // 默认禁用 SSE 上游流建立前心跳
+		{Key: SettingKeyNonStreamKeepAliveInterval, Value: "0"},       // 默认禁用非流式保活
 		{Key: SettingKeyProjectedChannelAutoGroupEnabled, Value: "0"}, // 默认不强制站点投影渠道自动分组
 		{Key: SettingKeyJWTSecret, Value: ""},                         // 为空时自动生成
 		{Key: SettingKeyApiBaseUrl, Value: ""},                        // 默认为空，不显示客户端导出入口
@@ -196,7 +198,7 @@ func (s *Setting) Validate() error {
 		return validateIntRange(s.Value, 1, 256)
 	case SettingKeyRelayFailoverTimeoutSeconds:
 		return validateIntRange(s.Value, 1, 3600)
-	case SettingKeySSEHeartbeatInterval, SettingKeySSEPreStreamHeartbeatDelay:
+	case SettingKeySSEHeartbeatInterval, SettingKeySSEPreStreamHeartbeatDelay, SettingKeyNonStreamKeepAliveInterval:
 		value, err := strconv.Atoi(s.Value)
 		if err != nil {
 			return fmt.Errorf("setting value must be an integer")

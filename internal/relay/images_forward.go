@@ -82,6 +82,9 @@ func imagesAttempt(
 		}()
 	}
 	commit := func() {
+		if !stream {
+			hb.Stop()
+		}
 		trace.bindDownstream(exchange)
 		budget.stopTimer()
 		if execution != nil {
@@ -230,10 +233,8 @@ func proxyNonStream(c *gin.Context, respUp *http.Response, onCommit ...func()) (
 	if ct == "" {
 		ct = "application/json"
 	}
-	c.Header("Content-Type", ct)
-	c.Status(respUp.StatusCode)
-
 	scanner := newUsageScanner()
+	written := false
 
 	buf := make([]byte, 32*1024)
 	for {
@@ -241,6 +242,11 @@ func proxyNonStream(c *gin.Context, respUp *http.Response, onCommit ...func()) (
 		if n > 0 {
 			for _, commit := range onCommit {
 				commit()
+			}
+			if !written {
+				c.Header("Content-Type", ct)
+				c.Status(respUp.StatusCode)
+				written = true
 			}
 			chunk := buf[:n]
 			scanner.Feed(chunk)
@@ -252,11 +258,11 @@ func proxyNonStream(c *gin.Context, respUp *http.Response, onCommit ...func()) (
 			if errors.Is(rerr, io.EOF) {
 				break
 			}
-			return scanner.Usage(), c.Writer.Written(), rerr
+			return scanner.Usage(), written, rerr
 		}
 	}
 
-	return scanner.Usage(), c.Writer.Written(), nil
+	return scanner.Usage(), written, nil
 }
 
 func executionKeyID(channel *model.Channel, value string) int {
