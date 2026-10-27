@@ -63,6 +63,17 @@
         "thresholdHint": "签到成功后，刷新所得余额低于此值时通知。0 表示关闭低余额提醒。",
         "deliveryHint": "请先配置统一通知渠道。此处修改自动保存；发送失败不会影响签到结果。"
     },
+    "turnstileSolver": {
+        "title": "签到 Turnstile 求解",
+        "description": "站点的签到接口要求 Cloudflare Turnstile 验证时，通过求解平台获取 token 后重试一次签到。",
+        "enabled": "启用 Turnstile 求解",
+        "enabledHint": "总开关。关闭时不请求任何求解平台，签到遇到 Turnstile 仍按原样记录失败。",
+        "platformEnabled": "启用 {name}",
+        "platformAPIKey": "{name} API 令牌",
+        "showAPIKey": "显示令牌",
+        "hideAPIKey": "隐藏令牌",
+        "orderHint": "仅用于 NewAPI、OneAPI、OneHub、DoneHub 内置签到。两个平台都启用时先尝试 Cloudflare Solver，失败后使用 SolverQ；未填写令牌的平台不会使用。每次求解按平台规则计费，Cloudflare 5 秒盾质询不会触发求解。此处修改自动保存。"
+    },
     "notificationChannels": {
         "templateTitle": "通知模板",
         "templateReset": "恢复默认",

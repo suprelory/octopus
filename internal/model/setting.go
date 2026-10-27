@@ -68,6 +68,11 @@ const (
 	SettingKeyCheckinNotifyWebhookURL          SettingKey = "checkin_notify_webhook_url"           // 签到异常通知 Webhook
 	SettingKeyCheckinNotifyCooldownSeconds     SettingKey = "checkin_notify_cooldown_seconds"      // 同一账号/原因通知冷却时间（秒）
 	SettingKeyCheckinLowBalanceThreshold       SettingKey = "checkin_low_balance_threshold"        // 低余额通知阈值，0 表示关闭
+	SettingKeyTurnstileSolverEnabled           SettingKey = "turnstile_solver_enabled"             // 签到 Turnstile 求解总开关
+	SettingKeyTurnstileCloudflareSolverEnabled SettingKey = "turnstile_cloudflare_solver_enabled"  // 是否使用 Cloudflare Solver 平台
+	SettingKeyTurnstileCloudflareSolverAPIKey  SettingKey = "turnstile_cloudflare_solver_api_key"  // Cloudflare Solver 令牌
+	SettingKeyTurnstileSolverQEnabled          SettingKey = "turnstile_solverq_enabled"            // 是否使用 SolverQ 平台
+	SettingKeyTurnstileSolverQAPIKey           SettingKey = "turnstile_solverq_api_key"            // SolverQ 令牌
 )
 
 type Setting struct {
@@ -130,6 +135,11 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyCheckinNotifyWebhookURL, Value: ""},           // 默认不发送通知
 		{Key: SettingKeyCheckinNotifyCooldownSeconds, Value: "3600"},  // 默认同一账号/原因冷却1小时
 		{Key: SettingKeyCheckinLowBalanceThreshold, Value: "0"},       // 默认关闭低余额通知
+		{Key: SettingKeyTurnstileSolverEnabled, Value: "false"},       // 默认不求解签到 Turnstile
+		{Key: SettingKeyTurnstileCloudflareSolverEnabled, Value: "false"},
+		{Key: SettingKeyTurnstileCloudflareSolverAPIKey, Value: ""},
+		{Key: SettingKeyTurnstileSolverQEnabled, Value: "false"},
+		{Key: SettingKeyTurnstileSolverQAPIKey, Value: ""},
 	}
 }
 
@@ -207,9 +217,18 @@ func (s *Setting) Validate() error {
 			return fmt.Errorf("setting value must be non-negative")
 		}
 		return nil
-	case SettingKeyRelayLogKeepEnabled, SettingKeyResponsesWSEnabled, SettingKeyWebDAVIncludeStats, SettingKeyChannelAffinityEnabled, SettingKeyEmptyResponseDetectionEnabled, SettingKeyCheckinNotifyEnabled, SettingKeyCheckinNotifySuccessEnabled, SettingKeyCheckinNotifyManualEnabled:
+	case SettingKeyRelayLogKeepEnabled, SettingKeyResponsesWSEnabled, SettingKeyWebDAVIncludeStats, SettingKeyChannelAffinityEnabled, SettingKeyEmptyResponseDetectionEnabled, SettingKeyCheckinNotifyEnabled, SettingKeyCheckinNotifySuccessEnabled, SettingKeyCheckinNotifyManualEnabled,
+		SettingKeyTurnstileSolverEnabled, SettingKeyTurnstileCloudflareSolverEnabled, SettingKeyTurnstileSolverQEnabled:
 		if s.Value != "true" && s.Value != "false" {
 			return fmt.Errorf("setting value must be true or false")
+		}
+		return nil
+	case SettingKeyTurnstileCloudflareSolverAPIKey, SettingKeyTurnstileSolverQAPIKey:
+		// Keys are sent in a request header or JSON body; reject anything that
+		// cannot be a single token instead of failing on every check-in.
+		s.Value = strings.TrimSpace(s.Value)
+		if len(s.Value) > 512 || strings.ContainsFunc(s.Value, func(r rune) bool { return r <= ' ' || r == 0x7f }) {
+			return fmt.Errorf("solver API key must be a single token of at most 512 characters")
 		}
 		return nil
 	case SettingKeyCapabilityDegradationPolicy:

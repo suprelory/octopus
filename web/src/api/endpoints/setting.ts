@@ -53,6 +53,11 @@ export const SettingKey = {
     CheckinNotifyWebhookURL: 'checkin_notify_webhook_url',
     CheckinNotifyCooldownSeconds: 'checkin_notify_cooldown_seconds',
     CheckinLowBalanceThreshold: 'checkin_low_balance_threshold',
+    TurnstileSolverEnabled: 'turnstile_solver_enabled',
+    TurnstileCloudflareSolverEnabled: 'turnstile_cloudflare_solver_enabled',
+    TurnstileCloudflareSolverAPIKey: 'turnstile_cloudflare_solver_api_key',
+    TurnstileSolverQEnabled: 'turnstile_solverq_enabled',
+    TurnstileSolverQAPIKey: 'turnstile_solverq_api_key',
 } as const;
 
 /**

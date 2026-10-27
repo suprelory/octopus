@@ -91,12 +91,22 @@ func checkinAccountState(ctx context.Context, siteRecord *model.Site, account *m
 				return nil, accessToken, err
 			}
 		}
-		payload, err := requestJSONWithManagedAccessToken(ctx, siteRecord, http.MethodPost, buildSiteURL(siteRecord.BaseURL, "/api/user/checkin"), nil, accessToken, account)
+		checkinURL := buildSiteURL(siteRecord.BaseURL, "/api/user/checkin")
+		payload, err := requestJSONWithManagedAccessToken(ctx, siteRecord, http.MethodPost, checkinURL, nil, accessToken, account)
+		var turnstileFailure string
+		if err == nil {
+			payload, turnstileFailure, err = retryCheckinWithTurnstile(ctx, siteRecord, account, checkinURL, accessToken, payload)
+		}
 		if err != nil {
 			if isUnsupportedCheckinError(err) {
 				return newUnsupportedCheckinResult(""), accessToken, nil
 			}
 			return nil, accessToken, err
+		}
+		if turnstileFailure != "" {
+			// An explicit reason keeps solver error codes in the message from being
+			// classified as site timeouts or HTTP errors.
+			return &model.SiteCheckinResult{Status: model.SiteExecutionStatusFailed, Reason: string(SiteBatchReasonUpstreamBusinessError), Message: turnstileFailure}, accessToken, nil
 		}
 		success := jsonBool(payload["success"])
 		message := extractSiteResponseMessage(payload)

@@ -184,3 +184,25 @@ Webhook 接收端应返回 2xx；Bark、Server酱和 Telegram 还会检查业务
 验证只影响当前站点。在默认模式下，确认支持会开启该站点签到，确认不可用会停止自动任务并清空待执行时间；仍可手动重试验证。无法判断的响应不会覆盖以前的明确证据。站点响应及单账号签到结果包含是否启用、是否可验证、策略来源、支持状态和最后验证时间。
 
 证据绑定平台、站点 URL、自定义签到方法 / 路径 / 请求体 / 请求头、站点请求头和代理选择。修改这些配置后旧证据失效，修改前已发出的请求也不能为新配置写入验证结果。模式或时间窗口调整不改变证据。配置和证据随站点备份保存；新建和更新接口不接受客户端伪造的验证结果。
+
+## Turnstile 验证求解
+
+站点开启 Cloudflare Turnstile 后，签到接口会拒绝没有验证 token 的请求，例如返回 `Turnstile token 为空`。在“设置 → 连接与任务 → 签到 Turnstile 求解”开启总开关，再启用 Cloudflare Solver 或 SolverQ 并填写对应平台的 API 令牌，签到遇到这类提示时会自动求解并重试一次。
+
+签到响应不成功且提示包含 “Turnstile”（不区分大小写）时，Octopus 从站点公开的 `/api/status` 读取 `turnstile_site_key`，以站点根地址作为页面地址提交求解，再把 token 作为 `turnstile` 查询参数重新提交签到。两个平台都启用时先使用 Cloudflare Solver，失败后使用 SolverQ；未填写令牌的平台不参与。token 只能使用一次，每次签到单独求解。重试成功后，奖励、余额刷新和通知沿用正常的签到流程。
+
+求解只用于 NewAPI、OneAPI、OneHub、DoneHub 的内置签到，包括使用关联订阅账号的签到；不用于用户名密码账号登录时的 Turnstile 校验、自定义 HTTP 签到和 AnyRouter。Cloudflare 5 秒盾质询仍记录为 `cloudflare_protection` 并按原规则退避，不调用求解平台。
+
+总开关关闭时不请求 `/api/status` 和求解平台，Turnstile 提示与以前一样记录为失败。开启后，没有可用平台、无法读取或站点未提供 site key、求解失败或站点拒绝求解所得的 token 时，签到记录为 `failed / upstream_business_error`，并在原提示后附加原因，例如 `Turnstile token 为空 (Turnstile solver: solving failed: Cloudflare Solver: ERROR_ZERO_BALANCE)`。附加的原因由固定说明、平台名称和错误码或 HTTP 状态码组成，不包含令牌、token、平台的错误描述或原始响应。读取 `/api/status` 或重试签到时出现的网络错误、超时和 Cloudflare 质询仍按原有原因记录。
+
+每个平台单次求解最多等待 90 秒。求解请求使用服务端网络连接，不经过签到代理，也不跟随重定向。批量签到时每个账号单独求解，耗时和平台额度消耗随账号数量增加。
+
+| 设置 | 默认值 | 行为 |
+| --- | --- | --- |
+| `turnstile_solver_enabled` | `false` | 签到 Turnstile 求解总开关 |
+| `turnstile_cloudflare_solver_enabled` | `false` | 使用 Cloudflare Solver |
+| `turnstile_cloudflare_solver_api_key` | 空 | Cloudflare Solver 令牌 |
+| `turnstile_solverq_enabled` | `false` | 使用 SolverQ |
+| `turnstile_solverq_api_key` | 空 | SolverQ 令牌 |
+
+令牌保存时去除首尾空白，不能包含空白或控制字符，最长 512 个字符。开关和令牌沿用现有设置接口与备份，无需新增数据库表；令牌与 WebDAV 密码一样以明文保存，设置列表和备份中都包含它。

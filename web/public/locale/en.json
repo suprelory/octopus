@@ -63,6 +63,17 @@
         "thresholdHint": "Notify when the refreshed balance after a successful check-in falls below this value. Use 0 to disable low balance alerts.",
         "deliveryHint": "Configure notification channels first. Changes here save automatically. Delivery failures do not affect check-in results."
     },
+    "turnstileSolver": {
+        "title": "Check-in Turnstile solving",
+        "description": "When a site's check-in endpoint requires Cloudflare Turnstile, get a token from a solving platform and retry the check-in once.",
+        "enabled": "Enable Turnstile solving",
+        "enabledHint": "Master switch. While off, no solving platform is called and Turnstile rejections are recorded as failures as before.",
+        "platformEnabled": "Enable {name}",
+        "platformAPIKey": "{name} API token",
+        "showAPIKey": "Show token",
+        "hideAPIKey": "Hide token",
+        "orderHint": "Applies to built-in NewAPI, OneAPI, OneHub and DoneHub check-ins. With both platforms enabled, Cloudflare Solver is tried first and SolverQ second; platforms without a token are skipped. Each solve is billed under the platform's rules. Cloudflare challenge pages do not trigger solving. Changes here save automatically."
+    },
     "notificationChannels": {
         "templateTitle": "Notification template",
         "templateReset": "Restore defaults",

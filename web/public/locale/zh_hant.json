@@ -63,6 +63,17 @@
         "thresholdHint": "簽到成功後，重新整理所得餘額低於此值時通知。0 表示關閉低餘額提醒。",
         "deliveryHint": "請先設定統一通知渠道。此處修改自動儲存；傳送失敗不會影響簽到結果。"
     },
+    "turnstileSolver": {
+        "title": "簽到 Turnstile 求解",
+        "description": "站點的簽到介面要求 Cloudflare Turnstile 驗證時，透過求解平台取得 token 後重試一次簽到。",
+        "enabled": "啟用 Turnstile 求解",
+        "enabledHint": "總開關。關閉時不呼叫任何求解平台，簽到遇到 Turnstile 仍照原樣記錄失敗。",
+        "platformEnabled": "啟用 {name}",
+        "platformAPIKey": "{name} API 金鑰",
+        "showAPIKey": "顯示金鑰",
+        "hideAPIKey": "隱藏金鑰",
+        "orderHint": "僅用於 NewAPI、OneAPI、OneHub、DoneHub 內建簽到。兩個平台都啟用時先嘗試 Cloudflare Solver，失敗後使用 SolverQ；未填寫金鑰的平台不會使用。每次求解依平台規則計費，Cloudflare 5 秒盾質詢不會觸發求解。此處修改自動儲存。"
+    },
     "notificationChannels": {
         "templateTitle": "通知範本",
         "templateReset": "恢復預設",

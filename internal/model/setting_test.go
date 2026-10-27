@@ -1,6 +1,9 @@
 package model
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestCheckinNotificationSettings(t *testing.T) {
 	for _, tc := range []struct {
@@ -44,6 +47,39 @@ func TestNotificationDefaultsPreserveExistingBehavior(t *testing.T) {
 	}
 	if value, exists := defaults[SettingKeyNotificationChannels]; !exists || value != "" {
 		t.Fatal("new channel configuration must start unset to preserve the legacy webhook")
+	}
+}
+
+func TestTurnstileSolverSettings(t *testing.T) {
+	for _, tc := range []struct {
+		key   SettingKey
+		value string
+		valid bool
+	}{
+		{SettingKeyTurnstileSolverEnabled, "true", true}, {SettingKeyTurnstileSolverEnabled, "yes", false},
+		{SettingKeyTurnstileCloudflareSolverEnabled, "false", true}, {SettingKeyTurnstileCloudflareSolverEnabled, "1", false},
+		{SettingKeyTurnstileSolverQEnabled, "true", true}, {SettingKeyTurnstileSolverQEnabled, "", false},
+		{SettingKeyTurnstileCloudflareSolverAPIKey, "", true}, {SettingKeyTurnstileSolverQAPIKey, "sk-abc_123", true},
+		{SettingKeyTurnstileSolverQAPIKey, "sk-abc\r\nX-Injected: 1", false}, {SettingKeyTurnstileCloudflareSolverAPIKey, "sk abc", false},
+		{SettingKeyTurnstileCloudflareSolverAPIKey, strings.Repeat("a", 513), false},
+	} {
+		setting := Setting{Key: tc.key, Value: tc.value}
+		if err := setting.Validate(); (err == nil) != tc.valid {
+			t.Errorf("%s = %q: %v", tc.key, tc.value, err)
+		}
+	}
+	trimmed := Setting{Key: SettingKeyTurnstileSolverQAPIKey, Value: "  sk-abc  "}
+	if err := trimmed.Validate(); err != nil || trimmed.Value != "sk-abc" {
+		t.Fatalf("key was not trimmed: %q, %v", trimmed.Value, err)
+	}
+	defaults := make(map[SettingKey]string)
+	for _, setting := range DefaultSettings() {
+		defaults[setting.Key] = setting.Value
+	}
+	for _, key := range []SettingKey{SettingKeyTurnstileSolverEnabled, SettingKeyTurnstileCloudflareSolverEnabled, SettingKeyTurnstileSolverQEnabled} {
+		if defaults[key] != "false" {
+			t.Fatalf("%s is not disabled by default", key)
+		}
 	}
 }
 
