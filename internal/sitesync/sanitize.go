@@ -20,7 +20,7 @@ const maxSiteStatusMessageRunes = 300
 var (
 	bearerTokenPattern     = regexp.MustCompile(`(?i)Bearer\s+[A-Za-z0-9._~+/=-]+`)
 	openAITokenPattern     = regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{8,}\b`)
-	sensitiveKVPattern     = regexp.MustCompile(`(?i)\b(access_token|api_key|refresh_token|token|authorization|cookie)=([^\s&;]+)`)
+	sensitiveKVPattern     = regexp.MustCompile(`(?i)\b(access_token|api_key|refresh_token|token|turnstile|authorization|cookie)=([^\s&;]+)`)
 	htmlTitlePattern       = regexp.MustCompile(`(?is)<title>\s*([^<]+?)\s*</title>`)
 	multiWhitespacePattern = regexp.MustCompile(`\s+`)
 	likelyHTMLPattern      = regexp.MustCompile(`(?is)<\s*!doctype\s+html|<\s*html\b|<\s*body\b|<\s*script\b`)

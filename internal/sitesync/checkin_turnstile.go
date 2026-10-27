@@ -46,9 +46,10 @@ func loadTurnstileSolverSettings() turnstileSolverConfig {
 	return config
 }
 
-// isTurnstileRequiredMessage recognizes new-api's TurnstileCheck rejections
-// ("Turnstile token 为空", "Turnstile 校验失败，请刷新重试！"), which run
-// before the check-in handler.
+// isTurnstileRequiredMessage recognizes new-api's TurnstileCheck rejections,
+// which run before the check-in handler and answer HTTP 200 with
+// success=false: "Turnstile token is empty" and "Turnstile verification
+// failed, please refresh and try again!" (Chinese text in older releases).
 func isTurnstileRequiredMessage(message string) bool {
 	return strings.Contains(strings.ToLower(message), "turnstile")
 }
@@ -74,11 +75,13 @@ func retryCheckinWithTurnstile(ctx context.Context, siteRecord *model.Site, acco
 	}
 	siteKey, err := fetchTurnstileSiteKey(ctx, siteRecord, account)
 	if err != nil {
-		// A missing status route is not evidence that check-in is unsupported.
-		if isUnsupportedCheckinError(err) {
-			return fail("could not read the site key")
+		// Only an unreachable site keeps the request's own reason. Any other
+		// answer, such as a 403 or a missing status route, means the key is
+		// unavailable, not that the login expired or check-in is unsupported.
+		if isSiteUnreachable(err) {
+			return nil, "", err
 		}
-		return nil, "", err
+		return fail("could not read the site key")
 	}
 	if siteKey == "" {
 		return fail("the site did not publish a Turnstile site key")
@@ -117,4 +120,16 @@ func fetchTurnstileSiteKey(ctx context.Context, siteRecord *model.Site, account 
 		return "", err
 	}
 	return jsonString(nestedValue(payload, "data", "turnstile_site_key")), nil
+}
+
+// isSiteUnreachable reports network errors, timeouts, Cloudflare challenges
+// and cancellation, classified the same way the check-in records them.
+func isSiteUnreachable(err error) bool {
+	switch siteBatchReason(sanitizeSiteError(err)) {
+	case SiteBatchReasonNetworkError, SiteBatchReasonTimeout, SiteBatchReasonCloudflareProtection,
+		SiteBatchReasonContextCanceled, SiteBatchReasonContextDeadlineExceeded:
+		return true
+	default:
+		return false
+	}
 }
