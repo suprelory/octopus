@@ -45,12 +45,14 @@ import { SiteLayout } from "./useSiteLayout";
 export function SiteAccountRow({
   site,
   account,
+  statusNow,
   actions,
   editors,
   layout,
 }: {
   site: SiteRecord;
   account: SiteAccount;
+  statusNow: Date;
   actions: SiteActions;
   editors: SiteEditorActions;
   layout: SiteLayout;
@@ -72,7 +74,7 @@ export function SiteAccountRow({
   } = actions;
   const { openEditAccountDialog, openManualSyncDialog } = editors;
   const { setAccountElementRef, highlightedAccountId } = layout;
-  const accountFailed = accountHasHealthFailure(site, account);
+  const accountFailed = accountHasHealthFailure(site, account, statusNow);
   const accountPartial = siteAccountHasActivePartialSync(site, account);
   const accountTone: HealthTone = accountFailed
     ? "danger"

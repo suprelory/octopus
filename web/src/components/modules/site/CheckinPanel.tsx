@@ -72,7 +72,7 @@ function formatCurrency(value: number) {
 export function CheckinPanel({
   sites,
   inventory,
-  statusDayKey,
+  statusNow,
   visibleSiteCount,
   visibleAccountCount,
   searchTerm,
@@ -91,7 +91,7 @@ export function CheckinPanel({
     enabledAccounts: number;
     totalAccounts: number;
   };
-  statusDayKey: string;
+  statusNow: Date;
   visibleSiteCount: number;
   visibleAccountCount: number;
   searchTerm: string;
@@ -106,15 +106,9 @@ export function CheckinPanel({
   const t = useTranslations('workspace.checkin');
   const historyT = useTranslations('siteCheckinHistory');
   const [historyOpen, setHistoryOpen] = useState(false);
-  const summaryNow = useMemo(() => {
-    const [year = "", month = "", day = ""] = statusDayKey.split("-");
-    const parsed = new Date(Number(year), Number(month), Number(day));
-    return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
-  }, [statusDayKey]);
-
   const summary = useMemo(
-    () => buildCheckinSummary(sites, summaryNow),
-    [sites, summaryNow],
+    () => buildCheckinSummary(sites, statusNow),
+    [sites, statusNow],
   );
   const hasContextBadges = Boolean(searchTerm);
 

@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test';
 import { SiteCredentialType, SitePlatform, type SiteAccount, type SiteCheckinCapability } from '../../src/api/endpoints/site-types';
 import { makeCheckinSite, mockApp } from './fixtures';
 
+test.use({ timezoneId: 'UTC' });
+
 function account(id: number, siteID: number, auto = true): SiteAccount {
     return {
         id, site_id: siteID, name: 'Account ' + id, credential_type: SiteCredentialType.AccessToken,
@@ -20,8 +22,11 @@ const doneHubDefault: SiteCheckinCapability = {
 };
 
 test('DoneHub can verify through the account endpoint even with automatic check-in off', async ({ page }) => {
+    // Reproduce CI #166: Shanghai is already on the next day while the browser is in UTC.
+    const now = new Date('2026-10-27T17:33:00Z');
+    await page.clock.setFixedTime(now);
     const verified: SiteCheckinCapability = {
-        ...doneHubDefault, enabled: true, source: 'verified', support: 'supported', verified_at: new Date().toISOString(),
+        ...doneHubDefault, enabled: true, source: 'verified', support: 'supported', verified_at: now.toISOString(),
     };
     const state = await mockApp(page, 'checkin', {
         sites: [
@@ -57,12 +62,12 @@ test('DoneHub can verify through the account endpoint even with automatic check-
 
 for (const status of ['success', 'failed', 'skipped'] as const) {
     test(`manual check-in ${status} updates the site badge, summary and filters with automatic check-in off`, async ({ page }) => {
-        const now = new Date('2026-09-29T04:00:00Z');
+        const now = new Date('2026-09-29T17:33:00Z');
         await page.clock.setFixedTime(now);
         const state = await mockApp(page, 'checkin', {
             sites: [{ ...makeCheckinSite(1, 'Manual rewards'), accounts: [{
-                ...account(11, 1, false), last_checkin_at: '2026-09-28T04:00:00Z',
-                last_checkin_success_at: '2026-09-28T04:00:00Z', last_checkin_status: 'success',
+                ...account(11, 1, false), last_checkin_at: '2026-09-28T17:33:00Z',
+                last_checkin_success_at: '2026-09-28T17:33:00Z', last_checkin_status: 'success',
             }] }],
             mutate: request => {
                 expect(request).toEqual({ method: 'POST', path: '/api/v1/site/account/checkin/11', body: {} });

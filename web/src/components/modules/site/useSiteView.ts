@@ -15,10 +15,7 @@ const EMPTY_CHECKIN_FILTERS: CheckinActiveFilterStatus[] = [];
 const EMPTY_SITE_FILTERS: SiteActiveFilterStatus[] = [];
 
 export function useSiteView(sites: SiteRecord[] | undefined, forcedSiteId: number | null, page: 'site' | 'checkin' = 'site') {
-  const [statusDayKey, setStatusDayKey] = useState(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
-  });
+  const [statusNow, setStatusNow] = useState(() => new Date());
 
   const searchTerm = useSearchStore((state) => state.getSearchTerm(page));
 
@@ -87,7 +84,7 @@ export function useSiteView(sites: SiteRecord[] | undefined, forcedSiteId: numbe
     const hasSearch = normalizedQuery.length > 0;
 
     const list = (sites ?? []).flatMap((site) => {
-      const summary = buildSiteSummary(site);
+      const summary = buildSiteSummary(site, statusNow);
       const isForcedTarget = forcedSiteId === site.id;
 
       if (
@@ -126,7 +123,7 @@ export function useSiteView(sites: SiteRecord[] | undefined, forcedSiteId: numbe
 
       if (hasCheckinFilters && !isForcedTarget) {
         visibleAccounts = visibleAccounts.filter((account) =>
-          accountMatchesCheckinFilters(site, account, checkinFilterStatuses),
+          accountMatchesCheckinFilters(site, account, checkinFilterStatuses, statusNow),
         );
       }
 
@@ -191,6 +188,7 @@ export function useSiteView(sites: SiteRecord[] | undefined, forcedSiteId: numbe
     forcedSiteId,
     siteSortField,
     siteSortOrder,
+    statusNow,
   ]);
 
   const hasActiveFilters =
@@ -237,15 +235,13 @@ export function useSiteView(sites: SiteRecord[] | undefined, forcedSiteId: numbe
   }
 
   useEffect(() => {
-    const updateDayKey = () => {
-      const now = new Date();
-      setStatusDayKey(`${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`);
-    };
+    // Keep one current instant for all statuses; each site determines its own local day.
+    const updateStatusNow = () => setStatusNow(new Date());
 
-    updateDayKey();
-    const timer = window.setInterval(updateDayKey, 60_000);
+    updateStatusNow();
+    const timer = window.setInterval(updateStatusNow, 60_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [sites]);
 
   return {
     searchTerm,
@@ -253,7 +249,7 @@ export function useSiteView(sites: SiteRecord[] | undefined, forcedSiteId: numbe
     siteStatusSummary,
     checkinFilterStatuses,
     tagFilters,
-    statusDayKey,
+    statusNow,
     inventory,
     allTags,
     allTagNames,

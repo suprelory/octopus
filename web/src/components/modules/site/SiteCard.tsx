@@ -36,6 +36,7 @@ import { SiteLayout } from "./useSiteLayout";
 
 export function SiteCard({
   item,
+  statusNow,
   actions,
   editors,
   layout,
@@ -44,6 +45,7 @@ export function SiteCard({
   linkedSiteName,
 }: {
   item: VisibleSite;
+  statusNow: Date;
   actions: SiteActions;
   editors: SiteEditorActions;
   layout: SiteLayout;
@@ -319,6 +321,7 @@ export function SiteCard({
                           key={account.id}
                           site={site}
                           account={account}
+                          statusNow={statusNow}
                           actions={actions}
                           editors={editors}
                           layout={layout}

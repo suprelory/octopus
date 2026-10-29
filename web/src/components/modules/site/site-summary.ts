@@ -4,17 +4,17 @@ import { normalizedStatus } from "./site-display";
 import { siteAccountHasActiveSyncFailure } from "./sync-health";
 import { SiteSummary, VisibleSite } from "./types";
 
-export function accountHasCheckinFailure(site: SiteRecord, account: SiteAccount) {
-  return deriveCheckinStatus(site, account) === "failed";
+export function accountHasCheckinFailure(site: SiteRecord, account: SiteAccount, now = new Date()) {
+  return deriveCheckinStatus(site, account, now) === "failed";
 }
 
-export function accountHasHealthFailure(site: SiteRecord, account: SiteAccount) {
+export function accountHasHealthFailure(site: SiteRecord, account: SiteAccount, now = new Date()) {
   return site.kind === 'checkin'
-    ? accountHasCheckinFailure(site, account)
+    ? accountHasCheckinFailure(site, account, now)
     : siteAccountHasActiveSyncFailure(site, account);
 }
 
-export function buildSiteSummary(site: SiteRecord): SiteSummary {
+export function buildSiteSummary(site: SiteRecord, now = new Date()): SiteSummary {
   let keyCount = 0;
   let modelCount = 0;
   let groupCount = 0;
@@ -34,7 +34,7 @@ export function buildSiteSummary(site: SiteRecord): SiteSummary {
     if (account.enabled) enabledAccountCount += 1;
     else disabledAccountCount += 1;
 
-    if (accountHasHealthFailure(site, account)) {
+    if (accountHasHealthFailure(site, account, now)) {
       failedAccountCount += 1;
     }
   }
@@ -108,7 +108,7 @@ export function buildSiteSummary(site: SiteRecord): SiteSummary {
     (account) => {
       if (!account.enabled) return false;
       if (site.kind === 'checkin') {
-        const status = deriveCheckinStatus(site, account);
+        const status = deriveCheckinStatus(site, account, now);
         return status === null || status === "idle";
       }
       return normalizedStatus(account.last_sync_status) === "idle";

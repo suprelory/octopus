@@ -74,7 +74,7 @@ export function Site({ kind = 'relay' }: { kind?: SiteKind }) {
     siteStatusSummary,
     checkinFilterStatuses,
     tagFilters,
-    statusDayKey,
+    statusNow,
     inventory,
     allTags,
     allTagNames,
@@ -193,7 +193,7 @@ export function Site({ kind = 'relay' }: { kind?: SiteKind }) {
         {isCheckin ? <CheckinPanel
           sites={sites}
           inventory={inventory}
-          statusDayKey={statusDayKey}
+          statusNow={statusNow}
           visibleSiteCount={visibleSites.length}
           visibleAccountCount={visibleAccountCount}
           searchTerm={searchTerm.trim()}
@@ -277,6 +277,7 @@ export function Site({ kind = 'relay' }: { kind?: SiteKind }) {
                 <div key={item.site.id} ref={getSiteCardMeasureRef(item.site.id)}>
                   <SiteCard
                     item={item}
+                    statusNow={statusNow}
                     linkedSiteName={item.site.linked_site_id ? linkedSiteNames.get(item.site.linked_site_id) : undefined}
                     actions={actions}
                     editors={editors}
@@ -293,6 +294,7 @@ export function Site({ kind = 'relay' }: { kind?: SiteKind }) {
                   <div key={item.site.id} ref={getSiteCardMeasureRef(item.site.id)}>
                     <SiteCard
                       item={item}
+                      statusNow={statusNow}
                       linkedSiteName={item.site.linked_site_id ? linkedSiteNames.get(item.site.linked_site_id) : undefined}
                       actions={actions}
                       editors={editors}
@@ -308,6 +310,7 @@ export function Site({ kind = 'relay' }: { kind?: SiteKind }) {
                   <div key={item.site.id} ref={getSiteCardMeasureRef(item.site.id)}>
                     <SiteCard
                       item={item}
+                      statusNow={statusNow}
                       linkedSiteName={item.site.linked_site_id ? linkedSiteNames.get(item.site.linked_site_id) : undefined}
                       actions={actions}
                       editors={editors}
