@@ -16,7 +16,8 @@ type StatsTotal struct {
 }
 
 type StatsHourly struct {
-	Hour int    `json:"hour" gorm:"primaryKey"`
+	// Zero is midnight, not an unset database-generated ID.
+	Hour int    `json:"hour" gorm:"primaryKey;autoIncrement:false"`
 	Date string `json:"date" gorm:"not null"` // 记录最后更新日期，格式：20060102
 	StatsMetrics
 }

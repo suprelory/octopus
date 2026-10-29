@@ -60,8 +60,8 @@ func InitDB(dbType, dsn string, debug bool) error {
 	return initializeSchema(db)
 }
 
-// Existing installations already use the current schema. Only create missing
-// tables, avoiding schema rewrites and full-table copies during startup.
+// Create missing tables and apply only targeted compatibility migrations to
+// existing schemas.
 func initializeSchema(db *gorm.DB) error {
 	models := []interface{}{
 		&model.User{},
@@ -99,6 +99,9 @@ func initializeSchema(db *gorm.DB) error {
 				return err
 			}
 		}
+	}
+	if err := ensureStatsHourlyHourKey(db); err != nil {
+		return err
 	}
 	if err := ensureSiteCheckinHTTPColumns(db); err != nil {
 		return err

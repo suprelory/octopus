@@ -157,19 +157,8 @@ func persistStatsSnapshots(
 	}
 
 	todayDate := time.Now().Format("20060102")
-	hourlyStats := make([]model.StatsHourly, 0, 24)
-	for hour := 0; hour < 24; hour++ {
-		if hourlyAll[hour].Date == todayDate {
-			hourlyStats = append(hourlyStats, hourlyAll[hour])
-		}
-	}
-	if len(hourlyStats) > 0 {
-		if result := dbConn.Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "hour"}},
-			UpdateAll: true,
-		}).Create(&hourlyStats); result.Error != nil {
-			return result.Error
-		}
+	if err := persistStatsHourlySnapshot(dbConn, hourlyAll, todayDate); err != nil {
+		return err
 	}
 
 	channelRows := make([]model.StatsChannel, 0, len(channelIDs))
@@ -209,6 +198,22 @@ func persistStatsSnapshots(
 	}
 
 	return nil
+}
+
+func persistStatsHourlySnapshot(dbConn *gorm.DB, hourlyAll [24]model.StatsHourly, todayDate string) error {
+	hourlyStats := make([]model.StatsHourly, 0, 24)
+	for hour := 0; hour < 24; hour++ {
+		if hourlyAll[hour].Date == todayDate {
+			hourlyStats = append(hourlyStats, hourlyAll[hour])
+		}
+	}
+	if len(hourlyStats) == 0 {
+		return nil
+	}
+	return dbConn.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "hour"}},
+		UpdateAll: true,
+	}).Create(&hourlyStats).Error
 }
 
 func statsSaveDBWithDailyOverride(ctx context.Context, dailyOverride model.StatsDaily) error {
