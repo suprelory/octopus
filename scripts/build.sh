@@ -83,7 +83,8 @@ cp "${OUTPUT_DIR}/bin/${APP_NAME}-linux-arm64" "${OUTPUT_DIR}/docker/linux/arm64
 # 每个平台只替换可执行文件名，许可证报告和发布文档保持一致。
 GOFLAGS="-tags=jsoniter" go run github.com/google/go-licenses/v2@v2.0.1 report . \
     --ignore "${MODULE_PATH}" >"${OUTPUT_DIR}/THIRD_PARTY_LICENSES.csv"
-cp README.md LICENSE "${OUTPUT_DIR}/THIRD_PARTY_LICENSES.csv" "${OUTPUT_DIR}/archives/"
+readonly -a RELEASE_DOCS=(README.md README_zh.md CHECKIN.md RELEASING.md LICENSE)
+cp "${RELEASE_DOCS[@]}" "${OUTPUT_DIR}/THIRD_PARTY_LICENSES.csv" "${OUTPUT_DIR}/archives/"
 for file in "${OUTPUT_DIR}"/bin/"${APP_NAME}"-*; do
     archive_name="$(basename "${file}").zip"
     executable_name="${APP_NAME}"
@@ -91,10 +92,11 @@ for file in "${OUTPUT_DIR}"/bin/"${APP_NAME}"-*; do
         executable_name="${APP_NAME}.exe"
     fi
     cp "${file}" "${OUTPUT_DIR}/archives/${executable_name}"
-    (cd "${OUTPUT_DIR}/archives" && zip -q "${archive_name}" "${executable_name}" README.md LICENSE THIRD_PARTY_LICENSES.csv)
+    (cd "${OUTPUT_DIR}/archives" && zip -q "${archive_name}" "${executable_name}" "${RELEASE_DOCS[@]}" THIRD_PARTY_LICENSES.csv)
     rm -f "${OUTPUT_DIR:?}/archives/${executable_name}"
 done
-rm -f "${OUTPUT_DIR:?}/archives/README.md" "${OUTPUT_DIR}/archives/LICENSE" \
-    "${OUTPUT_DIR}/archives/THIRD_PARTY_LICENSES.csv"
+for doc in "${RELEASE_DOCS[@]}" THIRD_PARTY_LICENSES.csv; do
+    rm -f "${OUTPUT_DIR:?}/archives/${doc}"
+done
 (cd "${OUTPUT_DIR}/archives" && sha256sum ./*.zip >SHA256SUMS)
 echo "Artifacts: ${OUTPUT_DIR}/archives"
