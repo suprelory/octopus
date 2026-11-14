@@ -53,7 +53,7 @@ func PrintBanner() {
 	printInfo("Commit", Commit[:min(8, len(Commit))], Yellow)
 	printInfo("Build Time", formatDate(BuildTime), Blue)
 	printInfo("Built By", Author, Purple)
-	printInfo("Repo", Repo, Cyan)
+	printInfo("Repo", RepositoryURL(), Cyan)
 
 	fmt.Print(Dim)
 	fmt.Println(strings.Repeat("═", 60))

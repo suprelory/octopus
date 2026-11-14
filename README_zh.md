@@ -10,6 +10,8 @@
 
 </div>
 
+本仓库为 [suprelory/octopus](https://github.com/suprelory/octopus)，基于 [bestruirui/octopus](https://github.com/bestruirui/octopus) fork，新增独立签到模块。程序更新、安装包及容器镜像由本仓库独立发布，保留上游来源说明及许可证。
+
 
 ## ✨ 特性
 
@@ -29,25 +31,27 @@
 
 ## 🚀 快速开始
 
+如果本仓库尚无正式发布版本，请先使用下方源码运行方式。安装包和容器镜像在首次发布后提供，详见[发布与更新说明](RELEASING.md)。
+
 ### 🐳 Docker 运行
 
 直接运行
 
 ```bash
-docker run -d --name octopus -v /path/to/data:/app/data -p 8080:8080 bestrui/octopus
+docker run -d --name octopus -v /path/to/data:/app/data -p 8080:8080 ghcr.io/suprelory/octopus:latest
 ```
 
 或者使用 docker compose 运行
 
 ```bash
-wget https://raw.githubusercontent.com/bestruirui/octopus/refs/heads/master/docker-compose.yml
+wget https://raw.githubusercontent.com/suprelory/octopus/refs/heads/master/docker-compose.yml
 docker compose up -d
 ```
 
 
 ### 📦 从 Release 下载
 
-从 [Releases](https://github.com/bestruirui/octopus/releases) 下载对应平台的二进制文件，然后运行：
+从 [Releases](https://github.com/suprelory/octopus/releases) 下载对应平台的二进制文件，然后运行：
 
 ```bash
 ./octopus start
@@ -56,16 +60,17 @@ docker compose up -d
 ### 🛠️ 源码运行
 
 **环境要求：**
-- Go 1.24.4
-- Node.js 18+
-- pnpm
+- Go 1.26.10（以 `go.mod` 为准）
+- Node.js 24.11+ 或 22.18+（22.x）
+- pnpm 11.10.0
 
 ```bash
 # 克隆项目
-git clone https://github.com/bestruirui/octopus.git
+git clone https://github.com/suprelory/octopus.git
 cd octopus
 # 构建前端
-cd web && pnpm install && pnpm run build
+pnpm --dir web install --frozen-lockfile
+pnpm --dir web run build
 # 启动后端服务
 go run main.go start 
 ```
@@ -369,5 +374,5 @@ experimental_bearer_token = "sk-octopus-"
 
 - 🙏 [looplj/axonhub](https://github.com/looplj/axonhub) - 本项目的 LLM API 适配模块直接源自该仓库的实现
 - 📊 [sst/models.dev](https://github.com/sst/models.dev) - AI 模型数据库，提供模型价格数据
-- 🇨🇳 [AtomGit](https://atomgit.com/bestruirui/octopus) - 国内代码托管
+- 🇨🇳 [上游 AtomGit 镜像](https://atomgit.com/bestruirui/octopus) - 托管上游代码，不提供本 fork 的发布版本
 - 💬 [Linux.do](https://linux.do/)

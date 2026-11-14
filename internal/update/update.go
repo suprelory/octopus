@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,21 +18,40 @@ import (
 	"github.com/bestruirui/octopus/internal/conf"
 	"github.com/bestruirui/octopus/internal/rhttp"
 	"github.com/charmbracelet/log"
-)
-
-const (
-	updateUrl    = "https://github.com/bestruirui/octopus/releases/latest/download"
-	updateApiUrl = "https://api.github.com/repos/bestruirui/octopus/releases/latest"
+	"golang.org/x/mod/semver"
 )
 
 type LatestInfo struct {
+	TagName         string `json:"tag_name"`
+	PublishedAt     string `json:"published_at"`
+	Body            string `json:"body"`
+	HTMLURL         string `json:"html_url"`
+	Status          string `json:"status"`
+	UpdateAvailable bool   `json:"update_available"`
+}
+
+type githubRelease struct {
 	TagName     string `json:"tag_name"`
 	PublishedAt string `json:"published_at"`
 	Body        string `json:"body"`
-	Message     string `json:"message"`
+	Draft       bool   `json:"draft"`
+	Prerelease  bool   `json:"prerelease"`
+	Assets      []struct {
+		Name string `json:"name"`
+	} `json:"assets"`
 }
 
-var github_pat = os.Getenv(strings.ToUpper(conf.APP_NAME) + "_GITHUB_PAT")
+type httpStatusError struct {
+	StatusCode int
+}
+
+func (err *httpStatusError) Error() string {
+	return fmt.Sprintf("GitHub request failed: HTTP %d (%s)", err.StatusCode, http.StatusText(err.StatusCode))
+}
+
+var ErrUpdateUnavailable = errors.New("update unavailable")
+
+type releaseRequest func(string) ([]byte, error)
 
 // doRequestWithFallback performs an HTTP GET request, first without proxy, then with proxy if failed.
 func doRequestWithFallback(url string) ([]byte, error) {
@@ -38,8 +59,16 @@ func doRequestWithFallback(url string) ([]byte, error) {
 	if err == nil {
 		return data, nil
 	}
+	var statusError *httpStatusError
+	if errors.As(err, &statusError) && statusError.StatusCode < 500 {
+		return nil, err
+	}
 	log.Warnf("direct request failed, trying with proxy: %v", err)
-	return doRequest(url, true)
+	data, proxyErr := doRequest(url, true)
+	if proxyErr != nil {
+		return nil, errors.Join(err, proxyErr)
+	}
+	return data, nil
 }
 
 func doRequest(url string, useProxy bool) ([]byte, error) {
@@ -63,9 +92,10 @@ func doRequest(url string, useProxy bool) ([]byte, error) {
 		return nil, err
 	}
 
-	if github_pat != "" {
-		req.Header.Set("Authorization", "Bearer "+github_pat)
+	if token := os.Getenv(strings.ToUpper(conf.APP_NAME) + "_GITHUB_PAT"); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
+	req.Header.Set("User-Agent", conf.APP_NAME+"/"+conf.Version)
 
 	resp, err := hc.Do(req)
 	if err != nil {
@@ -73,6 +103,9 @@ func doRequest(url string, useProxy bool) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, &httpStatusError{StatusCode: resp.StatusCode}
+	}
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -83,20 +116,96 @@ func doRequest(url string, useProxy bool) ([]byte, error) {
 }
 
 func GetLatestInfo() (*LatestInfo, error) {
-	body, err := doRequestWithFallback(updateApiUrl)
+	return getLatestInfo(conf.Version, doRequestWithFallback)
+}
+
+func getLatestInfo(currentVersion string, request releaseRequest) (*LatestInfo, error) {
+	release, err := fetchRelease(conf.ReleasesAPIURL()+"/latest", request)
+	var statusError *httpStatusError
+	if errors.As(err, &statusError) && statusError.StatusCode == http.StatusNotFound {
+		return &LatestInfo{Status: "no_release"}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
+	if release.Draft || release.Prerelease {
+		return &LatestInfo{Status: "no_release"}, nil
+	}
+	if !isStableVersion(release.TagName) {
+		return nil, fmt.Errorf("invalid stable release version: %q", release.TagName)
+	}
+	info := &LatestInfo{
+		TagName:     release.TagName,
+		PublishedAt: release.PublishedAt,
+		Body:        release.Body,
+		HTMLURL:     conf.RepositoryURL() + "/releases/tag/" + url.PathEscape(release.TagName),
+		Status:      "up_to_date",
+	}
+	if !isStableVersion(currentVersion) {
+		info.Status = "development"
+		return info, nil
+	}
+	if semver.Compare(release.TagName, currentVersion) <= 0 {
+		return info, nil
+	}
+	filename, err := getDownloadFilename()
+	if err != nil {
+		info.Status = "unsupported_platform"
+	} else if !release.hasAsset(filename) {
+		info.Status = "asset_missing"
+	} else {
+		info.Status = "update_available"
+		info.UpdateAvailable = true
+	}
+	return info, nil
+}
 
-	var latestInfo LatestInfo
-	if err := json.Unmarshal(body, &latestInfo); err != nil {
-		log.Debugf("unmarshal body failed: %v", err)
+func fetchRelease(endpoint string, request releaseRequest) (*githubRelease, error) {
+	body, err := request(endpoint)
+	if err != nil {
 		return nil, err
 	}
-	if latestInfo.Message != "" {
-		return nil, fmt.Errorf("failed to get latest info: %s", latestInfo.Message)
+	var release githubRelease
+	if err := json.Unmarshal(body, &release); err != nil {
+		return nil, fmt.Errorf("decode GitHub release: %w", err)
 	}
-	return &latestInfo, nil
+	return &release, nil
+}
+
+func isStableVersion(version string) bool {
+	return semver.IsValid(version) && semver.Prerelease(version) == ""
+}
+
+func (release *githubRelease) hasAsset(filename string) bool {
+	for _, asset := range release.Assets {
+		if asset.Name == filename {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveDownloadURL rechecks the selected release, so a later publication cannot
+// change the version installed by an already-open settings page.
+func resolveDownloadURL(tag, currentVersion string, request releaseRequest) (string, error) {
+	if !isStableVersion(currentVersion) || !isStableVersion(tag) || semver.Compare(tag, currentVersion) <= 0 {
+		return "", fmt.Errorf("%w: select a newer stable release from a stable installation", ErrUpdateUnavailable)
+	}
+	release, err := fetchRelease(conf.ReleasesAPIURL()+"/tags/"+url.PathEscape(tag), request)
+	if err != nil {
+		return "", err
+	}
+	if release.TagName != tag || release.Draft || release.Prerelease {
+		return "", fmt.Errorf("%w: the selected stable release is no longer available", ErrUpdateUnavailable)
+	}
+	filename, err := getDownloadFilename()
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrUpdateUnavailable, err)
+	}
+	if !release.hasAsset(filename) {
+		return "", fmt.Errorf("%w: the selected release has no archive for this platform", ErrUpdateUnavailable)
+	}
+	return conf.RepositoryURL() + "/releases/download/" + url.PathEscape(tag) + "/" + filename, nil
 }
 
 func unzip(data []byte, dest string) error {
