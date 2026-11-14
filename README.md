@@ -10,6 +10,8 @@
 
 </div>
 
+This repository is [suprelory/octopus](https://github.com/suprelory/octopus), a fork of [bestruirui/octopus](https://github.com/bestruirui/octopus) with an independent check-in module. Updates, downloads and container images are published by this fork; upstream attribution and licenses are retained.
+
 
 ## ✨ Features
 
@@ -29,25 +31,27 @@
 
 ## 🚀 Quick Start
 
+If this fork has no published release yet, use the source instructions below. Binary downloads and container images become available after its first release. See [release and update instructions](RELEASING.md).
+
 ### 🐳 Docker
 
 Run directly:
 
 ```bash
-docker run -d --name octopus -v /path/to/data:/app/data -p 8080:8080 bestrui/octopus
+docker run -d --name octopus -v /path/to/data:/app/data -p 8080:8080 ghcr.io/suprelory/octopus:latest
 ```
 
 Or use docker compose:
 
 ```bash
-wget https://raw.githubusercontent.com/bestruirui/octopus/refs/heads/master/docker-compose.yml
+wget https://raw.githubusercontent.com/suprelory/octopus/refs/heads/master/docker-compose.yml
 docker compose up -d
 ```
 
 
 ### 📦 Download from Release
 
-Download the binary for your platform from [Releases](https://github.com/bestruirui/octopus/releases), then run:
+Download the binary for your platform from [Releases](https://github.com/suprelory/octopus/releases), then run:
 
 ```bash
 ./octopus start
@@ -56,16 +60,17 @@ Download the binary for your platform from [Releases](https://github.com/bestrui
 ### 🛠️ Build from Source
 
 **Requirements:**
-- Go 1.24.4
-- Node.js 18+
-- pnpm
+- Go 1.26.10 (see `go.mod`)
+- Node.js 24.11+ or 22.18+ (22.x)
+- pnpm 11.10.0
 
 ```bash
 # Clone the repository
-git clone https://github.com/bestruirui/octopus.git
+git clone https://github.com/suprelory/octopus.git
 cd octopus
 # Build frontend
-cd web && pnpm install && pnpm run build
+pnpm --dir web install --frozen-lockfile
+pnpm --dir web run build
 # Start the backend service
 go run main.go start 
 ```
@@ -367,5 +372,5 @@ Edit `~/.codex/auth.json`
 
 - 🙏 [looplj/axonhub](https://github.com/looplj/axonhub) - The LLM API adaptation module in this project is directly derived from this repository
 - 📊 [sst/models.dev](https://github.com/sst/models.dev) - AI model database providing model pricing data
-- 🇨🇳 [AtomGit](https://atomgit.com/bestruirui/octopus) - China-based code hosting
+- 🇨🇳 [Upstream AtomGit mirror](https://atomgit.com/bestruirui/octopus) - Hosts upstream code, not this fork's releases
 - 💬 [Linux.do](https://linux.do/)

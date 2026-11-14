@@ -32,18 +32,15 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm run build
 
-      - name: Lint check-in module
+      - name: Lint changed modules
         working-directory: web
-        run: pnpm exec eslint src/api/checkin.ts src/components/modules/checkin src/provider/locale.tsx src/components/app.tsx src/components/app-shell.tsx src/lib/page-preload.ts src/stores/app.ts
+        run: pnpm exec eslint src/api/update.ts src/components/modules/setting/Info.tsx src/api/checkin.ts src/components/modules/checkin src/provider/locale.tsx src/components/app.tsx src/components/app-shell.tsx src/lib/page-preload.ts src/stores/app.ts
 
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
-
-      - name: Test backend
-        run: go test -race ./...
 
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -52,6 +49,11 @@ jobs:
 
       - name: Update price
         run: python3 scripts/updatePrice.py
+
+      - name: Test backend
+        run: |
+          go test -race ./...
+          go vet ./...
 
       - name: Build backend
         run: go build -trimpath -tags=jsoniter .

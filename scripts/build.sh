@@ -3,13 +3,19 @@ set -euo pipefail
 
 readonly APP_NAME="octopus" # 发布产物和容器内的可执行文件名。
 readonly OUTPUT_DIR="build" # 所有构建、归档和容器输入的根目录。
-readonly VERSION="$(git describe --tags --abbrev=0 2>/dev/null || echo 'dev')" # 当前发布版本。
+readonly VERSION="${BUILD_VERSION:-dev}" # 发布流程显式传入；源码构建不继承上游标签。
 readonly COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')" # 当前提交短哈希。
-readonly LDFLAGS="-X 'github.com/bestruirui/${APP_NAME}/internal/conf.Version=${VERSION}' \
-                  -X 'github.com/bestruirui/${APP_NAME}/internal/conf.BuildTime=$(TZ='Asia/Shanghai' date +'%F %T %z')' \
-                  -X 'github.com/bestruirui/${APP_NAME}/internal/conf.Author=bestrui' \
-                  -X 'github.com/bestruirui/${APP_NAME}/internal/conf.Commit=${COMMIT}' \
-                  -s -w" # 注入版本信息并缩小发布二进制。
+readonly MODULE_PATH="$(go list -m)" # 模块路径与运行时更新仓库独立。
+LDFLAGS="-X '${MODULE_PATH}/internal/conf.Version=${VERSION}' \
+         -X '${MODULE_PATH}/internal/conf.BuildTime=$(date -u +'%Y-%m-%dT%H:%M:%SZ')' \
+         -X '${MODULE_PATH}/internal/conf.Commit=${COMMIT}' -s -w"
+if [ -n "${BUILD_REPOSITORY:-}" ]; then
+    LDFLAGS+=" -X '${MODULE_PATH}/internal/conf.Repository=${BUILD_REPOSITORY}'"
+fi
+if [ -n "${BUILD_AUTHOR:-}" ]; then
+    LDFLAGS+=" -X '${MODULE_PATH}/internal/conf.Author=${BUILD_AUTHOR}'"
+fi
+readonly LDFLAGS # 未覆盖的仓库和构建者使用 conf 中的统一默认值。
 
 build_standard() {
     # 标准矩阵直接使用 GOOS/GOARCH，arm 固定输出 ARMv7 指令集。
@@ -76,8 +82,9 @@ cp "${OUTPUT_DIR}/bin/${APP_NAME}-linux-arm64" "${OUTPUT_DIR}/docker/linux/arm64
 
 # 每个平台只替换可执行文件名，许可证报告和发布文档保持一致。
 GOFLAGS="-tags=jsoniter" go run github.com/google/go-licenses/v2@v2.0.1 report . \
-    --ignore "github.com/bestruirui/${APP_NAME}" >"${OUTPUT_DIR}/THIRD_PARTY_LICENSES.csv"
-cp README.md LICENSE "${OUTPUT_DIR}/THIRD_PARTY_LICENSES.csv" "${OUTPUT_DIR}/archives/"
+    --ignore "${MODULE_PATH}" >"${OUTPUT_DIR}/THIRD_PARTY_LICENSES.csv"
+readonly -a RELEASE_DOCS=(README.md README_zh.md CHECKIN.md RELEASING.md LICENSE)
+cp "${RELEASE_DOCS[@]}" "${OUTPUT_DIR}/THIRD_PARTY_LICENSES.csv" "${OUTPUT_DIR}/archives/"
 for file in "${OUTPUT_DIR}"/bin/"${APP_NAME}"-*; do
     archive_name="$(basename "${file}").zip"
     executable_name="${APP_NAME}"
@@ -85,10 +92,11 @@ for file in "${OUTPUT_DIR}"/bin/"${APP_NAME}"-*; do
         executable_name="${APP_NAME}.exe"
     fi
     cp "${file}" "${OUTPUT_DIR}/archives/${executable_name}"
-    (cd "${OUTPUT_DIR}/archives" && zip -q "${archive_name}" "${executable_name}" README.md LICENSE THIRD_PARTY_LICENSES.csv)
+    (cd "${OUTPUT_DIR}/archives" && zip -q "${archive_name}" "${executable_name}" "${RELEASE_DOCS[@]}" THIRD_PARTY_LICENSES.csv)
     rm -f "${OUTPUT_DIR:?}/archives/${executable_name}"
 done
-rm -f "${OUTPUT_DIR:?}/archives/README.md" "${OUTPUT_DIR}/archives/LICENSE" \
-    "${OUTPUT_DIR}/archives/THIRD_PARTY_LICENSES.csv"
+for doc in "${RELEASE_DOCS[@]}" THIRD_PARTY_LICENSES.csv; do
+    rm -f "${OUTPUT_DIR:?}/archives/${doc}"
+done
 (cd "${OUTPUT_DIR}/archives" && sha256sum ./*.zip >SHA256SUMS)
 echo "Artifacts: ${OUTPUT_DIR}/archives"

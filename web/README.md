@@ -22,3 +22,5 @@ pnpm build
 ```
 
 构建产物直接输出到 `static/out`，供 Go 二进制文件嵌入。
+
+普通开发构建的前后端版本均为 `dev`。发布构建通过 `VITE_APP_VERSION` 注入版本，须与后端 `BUILD_VERSION` 一致；正式发布流程会统一设置这两个值。设置页的仓库链接来自后端 `/api/v1/update/metadata`，与更新源共享配置，无需设置 `VITE_GITHUB_REPO`。

@@ -7,24 +7,36 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"syscall"
 
+	"github.com/bestruirui/octopus/internal/conf"
 	"github.com/bestruirui/octopus/internal/utils/shutdown"
 	"github.com/charmbracelet/log"
 )
 
-func UpdateCore() error {
+var updateLock sync.Mutex
+
+func UpdateCore(tag string) error {
+	if !updateLock.TryLock() {
+		return fmt.Errorf("%w: an update is already running", ErrUpdateUnavailable)
+	}
+	restarting := false
+	defer func() {
+		if !restarting {
+			updateLock.Unlock()
+		}
+	}()
 	log.Infof("start update core")
 
-	filename, err := getDownloadFilename()
+	downloadURL, err := resolveDownloadURL(tag, conf.Version, doRequestWithFallback)
 	if err != nil {
 		log.Warnf("update core failed: %v", err)
 		return err
 	}
 
-	downloadUrl := updateUrl + "/" + filename
-	log.Infof("download url: %s", downloadUrl)
-	data, err := doRequestWithFallback(downloadUrl)
+	log.Infof("download url: %s", downloadURL)
+	data, err := doRequestWithFallback(downloadURL)
 	if err != nil {
 		log.Warnf("download failed: %v", err)
 		return err
@@ -75,6 +87,7 @@ func UpdateCore() error {
 	_ = os.RemoveAll(oldPath)
 
 	log.Infof("update core success")
+	restarting = true // Keep other requests out until the old process exits.
 	go restartExecutable(execPath)
 	return nil
 }

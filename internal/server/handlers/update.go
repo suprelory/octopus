@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/bestruirui/octopus/internal/conf"
@@ -23,6 +24,10 @@ func init() {
 				Handle(getNowVersion),
 		).
 		AddRoute(
+			router.NewRoute("/metadata", http.MethodGet).
+				Handle(getBuildInfo),
+		).
+		AddRoute(
 			router.NewRoute("", http.MethodPost).
 				Handle(updateFunc),
 		)
@@ -41,9 +46,31 @@ func getNowVersion(c *gin.Context) {
 	resp.Success(c, conf.Version)
 }
 
+func getBuildInfo(c *gin.Context) {
+	resp.Success(c, gin.H{
+		"version":        conf.Version,
+		"commit":         conf.Commit,
+		"build_time":     conf.BuildTime,
+		"author":         conf.Author,
+		"repository":     conf.Repository,
+		"repository_url": conf.RepositoryURL(),
+	})
+}
+
 func updateFunc(c *gin.Context) {
-	err := update.UpdateCore()
+	var request struct {
+		TagName string `json:"tag_name" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		resp.Error(c, http.StatusBadRequest, "select a release version before updating")
+		return
+	}
+	err := update.UpdateCore(request.TagName)
 	if err != nil {
+		if errors.Is(err, update.ErrUpdateUnavailable) {
+			resp.Error(c, http.StatusConflict, err.Error())
+			return
+		}
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}

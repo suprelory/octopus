@@ -1,27 +1,28 @@
 import { useTranslations } from 'use-intl';
 import { Info, Tag, AlertTriangle, Download, Loader2 } from 'lucide-react';
 import Github from '@thesvg/react/github';
-import { useLatestInfo, useNowVersion, useUpdateCore } from '@/api/update';
+import { useLatestInfo, useBuildInfo, useUpdateCore } from '@/api/update';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 
-const APP_VERSION = import.meta.env.VITE_APP_VERSION || 'unknown'; // 当前前端构建对应的应用版本。
-const GITHUB_REPO = import.meta.env.VITE_GITHUB_REPO || 'https://github.com/bestruirui/octopus'; // 项目仓库地址。
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || 'dev'; // 与普通 Go 构建的默认版本一致。
 
 // SettingInfo 展示版本信息，并在更新后清理本项目的浏览器缓存。
 export function SettingInfo() {
     const t = useTranslations('setting');
     const latestInfoQuery = useLatestInfo();
-    const nowVersionQuery = useNowVersion();
+    const buildInfoQuery = useBuildInfo();
     const updateCore = useUpdateCore();
 
-    const backendNowVersion = nowVersionQuery.data || '';
+    const backendNowVersion = buildInfoQuery.data?.version || '';
     const latestVersion = latestInfoQuery.data?.tag_name || '';
+    const repositoryURL = buildInfoQuery.data?.repository_url;
+    const releaseStatus = latestInfoQuery.data?.status;
 
     // 前端版本与后端当前版本不一致 → 浏览器缓存问题
     const isCacheMismatch = !!backendNowVersion && backendNowVersion !== APP_VERSION;
-    // 最新版本与后端当前版本不一致 → 有新版本可更新
-    const hasNewVersion = latestVersion && backendNowVersion && latestVersion !== backendNowVersion;
+    // 由后端统一比较版本和检查平台发布包，避免降级或覆盖开发版本。
+    const hasNewVersion = latestInfoQuery.data?.update_available === true && !latestInfoQuery.isError;
 
     // clearCacheAndReload 清理当前应用目录的缓存和 Service Worker 注册后刷新页面。
     const clearCacheAndReload = async () => {
@@ -46,7 +47,8 @@ export function SettingInfo() {
 
     // handleUpdate 更新服务端程序，成功后清理旧前端缓存。
     const handleUpdate = () => {
-        updateCore.mutate(undefined, {
+        if (!hasNewVersion || !latestVersion) return;
+        updateCore.mutate(latestVersion, {
             onSuccess: () => {
                 toast.success(t('info.updateSuccess'));
                 // 更新成功后清理缓存并刷新
@@ -72,14 +74,14 @@ export function SettingInfo() {
                     <Github variant="mono" className="h-5 w-5 text-muted-foreground" />
                     <span className="text-sm font-medium">{t('info.github')}</span>
                 </div>
-                <a
-                    href={GITHUB_REPO}
+                {repositoryURL ? <a
+                    href={repositoryURL}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-sm text-primary hover:underline"
                 >
-                    {GITHUB_REPO.replace('https://github.com/', '')}
-                </a>
+                    {buildInfoQuery.data?.repository}
+                </a> : <span className="text-sm text-muted-foreground">{t('info.unknown')}</span>}
             </div>
             {/* 当前版本 */}
             <div className="flex items-center justify-between gap-4">
@@ -88,7 +90,7 @@ export function SettingInfo() {
                     <span className="text-sm font-medium">{t('info.currentVersion')}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                    {nowVersionQuery.isLoading ? (
+                    {buildInfoQuery.isLoading ? (
                         <Loader2 className="size-4 animate-spin text-muted-foreground" />
                     ) : (
                         <code className="text-sm font-mono text-muted-foreground">
@@ -109,11 +111,22 @@ export function SettingInfo() {
                         <Loader2 className="size-4 animate-spin text-muted-foreground" />
                     ) : (
                         <code className="text-sm font-mono text-muted-foreground">
-                            {latestVersion || t('info.unknown')}
+                            {latestInfoQuery.isError ? t('info.checkFailed') : releaseStatus === 'no_release' ? t('info.noRelease') : latestVersion || t('info.unknown')}
                         </code>
                     )}
                 </div>
             </div>
+
+            {(releaseStatus === 'development' || releaseStatus === 'unsupported_platform' || releaseStatus === 'asset_missing') && (
+                <p className="text-sm text-muted-foreground">
+                    {releaseStatus === 'development' ? t('info.developmentBuild') : t('info.noPlatformAsset')}
+                </p>
+            )}
+            {latestInfoQuery.isError && (
+                <Button variant="outline" size="sm" onClick={() => void latestInfoQuery.refetch()} disabled={latestInfoQuery.isFetching}>
+                    {t('info.retryCheck')}
+                </Button>
+            )}
 
             {/* 浏览器缓存问题警告 */}
             {isCacheMismatch && (
