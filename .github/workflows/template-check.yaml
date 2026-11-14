@@ -4,7 +4,7 @@ on:
   issues:
     types: [opened]
   pull_request_target:
-    types: [opened]
+    types: [opened, edited, reopened]
 
 permissions: {}
 
@@ -118,8 +118,8 @@ jobs:
             const requiredLines = [
               '## 提交前检查 | Pre-submission Checklist',
               '- [x] 本次 PR 仅包含一个变更主题 | This PR contains only one change topic',
-              '- [x] 本次 PR 不包含测试文件 | This PR contains no test files',
-              '- [x] AI 参与的内容已完成人工审查 | AI-assisted content has been manually reviewed',
+              '- [x] 已完成适用测试并记录结果，允许保留回归测试 | Applicable tests have been run and documented; regression tests are welcome',
+              '- [x] AI 参与的内容将在合并前完成人工审查 | AI-assisted content will be manually reviewed before merge',
             ];
 
             if (!requiredLines.every((line) => lines.has(line))) {
