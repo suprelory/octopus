@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/bestruirui/octopus/internal/checkin"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/price"
@@ -17,6 +18,13 @@ const (
 )
 
 func Init() {
+	Register("checkin_scan", time.Minute, true, func() {
+		if checkin.Default != nil {
+			if err := checkin.Default.Scan(context.Background()); err != nil {
+				log.Warn("checkin scan deferred")
+			}
+		}
+	})
 	priceUpdateIntervalHours, err := op.SettingGetInt(model.SettingKeyModelInfoUpdateInterval)
 	if err != nil {
 		log.Errorf("failed to get model info update interval: %v", err)

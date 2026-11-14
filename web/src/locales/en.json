@@ -39,6 +39,7 @@
         "supportedModels": "Supported Models"
     },
     "navbar": {
+        "checkin": "Check-in",
         "home": "Home",
         "channel": "Channel",
         "group": "Group",

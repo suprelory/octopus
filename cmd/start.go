@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"github.com/bestruirui/octopus/internal/checkin"
 	"github.com/bestruirui/octopus/internal/conf"
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/server"
 	"github.com/bestruirui/octopus/internal/task"
+	"github.com/bestruirui/octopus/internal/utils/checkinsecret"
 	"github.com/bestruirui/octopus/internal/utils/shutdown"
 	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
@@ -41,6 +43,15 @@ var startCmd = &cobra.Command{
 			log.Errorf("user init error: %v", err)
 			return
 		}
+
+		vault, err := checkinsecret.Open()
+		if err != nil {
+			log.Errorf("checkin credential store init error: %v", err)
+			return
+		}
+		checkin.Default = checkin.New(op.NewCheckinStore(db.GetDB()), vault)
+		checkin.Default.Start()
+		shutdown.Register(checkin.Default.Close)
 
 		if err := server.Start(); err != nil {
 			log.Errorf("server start error: %v", err)

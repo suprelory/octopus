@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bestruirui/octopus/internal/checkin"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/server/middleware"
@@ -75,7 +76,14 @@ func setSetting(c *gin.Context) {
 }
 
 func exportDB(c *gin.Context) {
-	dump, err := op.DBExportAll(c.Request.Context())
+	var dump *model.DBDump
+	export := func() error { var err error; dump, err = op.DBExportAll(c.Request.Context()); return err }
+	var err error
+	if checkin.Default != nil {
+		err = checkin.Default.Exclusive(c.Request.Context(), export)
+	} else {
+		err = export()
+	}
 	if err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
@@ -147,14 +155,23 @@ func importDB(c *gin.Context) {
 		}
 	}
 
-	result, err := op.DBImportIncremental(c.Request.Context(), &dump)
+	var result *model.DBImportResult
+	importData := func() error {
+		var err error
+		result, err = op.DBImportIncremental(c.Request.Context(), &dump)
+		if err != nil {
+			return err
+		}
+		return op.InitCache()
+	}
+	var err error
+	if checkin.Default != nil {
+		err = checkin.Default.Exclusive(c.Request.Context(), importData)
+	} else {
+		err = importData()
+	}
 	if err != nil {
 		resp.Error(c, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	if err := op.InitCache(); err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -171,6 +188,7 @@ func decodeDBDump(body []byte, dump *model.DBDump) error {
 	}
 
 	if dump.Version == 0 &&
+		dump.Checkin == nil &&
 		len(dump.Channels) == 0 &&
 		len(dump.Groups) == 0 &&
 		len(dump.ChannelModels) == 0 &&

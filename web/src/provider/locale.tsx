@@ -6,10 +6,14 @@ import zh_hansMessages from '@/locales/zh_hans.json';
 import zh_hantMessages from '@/locales/zh_hant.json';
 import enMessages from '@/locales/en.json';
 
-const messages: Record<Locale, typeof zh_hansMessages> = {
-    zh_hans: zh_hansMessages,
-    zh_hant: zh_hantMessages,
-    en: enMessages,
+import checkinZhHans from '@/locales/checkin/zh_hans.json';
+import checkinZhHant from '@/locales/checkin/zh_hant.json';
+import checkinEn from '@/locales/checkin/en.json';
+
+const messages: Record<Locale, typeof zh_hansMessages & { checkin: typeof checkinZhHans }> = {
+    zh_hans: { ...zh_hansMessages, checkin: checkinZhHans },
+    zh_hant: { ...zh_hantMessages, checkin: checkinZhHant },
+    en: { ...enMessages, checkin: checkinEn },
 };
 
 const languageTags: Record<Locale, string> = {

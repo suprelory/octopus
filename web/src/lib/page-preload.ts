@@ -7,6 +7,7 @@ export const pageImports = {
     group: () => import('@/components/modules/group'),
     model: () => import('@/components/modules/model'),
     log: () => import('@/components/modules/log'),
+    checkin: () => import('@/components/modules/checkin'),
     setting: () => import('@/components/modules/setting'),
 };
 

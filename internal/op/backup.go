@@ -2,6 +2,7 @@ package op
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -9,11 +10,13 @@ import (
 	"github.com/bestruirui/octopus/internal/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	"gorm.io/gorm/logger"
 )
 
 // 渠道拆分为渠道, 凭据, 模型与渠道授权后导出结构变化, 版本随之递增;
 // 版本 5 起 api_keys.supported_models 由逗号分隔字符串改为 JSON 数组。
-const dbDumpVersion = 5
+// 版本 6 增加完全独立的签到配置、加密凭据、每日记录和任务。
+const dbDumpVersion = 6
 
 // DBExportAll 导出完整数据库内容，包括所有统计数据。
 func DBExportAll(ctx context.Context) (*model.DBDump, error) {
@@ -23,6 +26,11 @@ func DBExportAll(ctx context.Context) (*model.DBDump, error) {
 		Version:    dbDumpVersion,
 		ExportedAt: time.Now().UTC(),
 	}
+	checkinDump, err := exportCheckin(ctx, conn)
+	if err != nil {
+		return nil, fmt.Errorf("export checkin: %w", err)
+	}
+	d.Checkin = checkinDump
 
 	if err := conn.Find(&d.Channels).Error; err != nil {
 		return nil, fmt.Errorf("export channels: %w", err)
@@ -73,8 +81,19 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		return nil, fmt.Errorf("empty dump")
 	}
 
-	if dump.Version != 0 && dump.Version != dbDumpVersion {
+	if dump.Version != 0 && dump.Version != 5 && dump.Version != dbDumpVersion {
 		return nil, fmt.Errorf("unsupported dump version: %d", dump.Version)
+	}
+	if err := validateCheckinDump(dump.Checkin); err != nil {
+		return nil, err
+	}
+	for _, setting := range dump.Settings {
+		if setting.Key == CheckinSettingKey {
+			var config model.CheckinSettings
+			if json.Unmarshal([]byte(setting.Value), &config) != nil || config.Validate() != nil {
+				return nil, fmt.Errorf("invalid checkin settings in backup")
+			}
+		}
 	}
 
 	// 导入也是写入边界, 渠道配置须与接口提交走同一套规范化: 手改过的备份文件同样可能带空白,
@@ -90,6 +109,9 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 	conn := db.GetDB().WithContext(ctx)
 	res := &model.DBImportResult{RowsAffected: map[string]int64{}}
 	err := conn.Transaction(func(tx *gorm.DB) error {
+		if err := importCheckin(tx.Session(&gorm.Session{Logger: logger.Discard}), dump.Checkin, res); err != nil {
+			return fmt.Errorf("checkin import failed; check record identities and references")
+		}
 		// base tables
 		if n, err := createDoNothing(tx, dump.Channels); err != nil {
 			return fmt.Errorf("import channels: %w", err)
