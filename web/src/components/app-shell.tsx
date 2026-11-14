@@ -25,17 +25,17 @@ export function AppShell({ children, actions }: { children: ReactNode; actions?:
                 <nav
                     aria-label="Main Navigation"
                     className={cn(
-                        'fixed bottom-6 left-1/2 isolate -translate-x-1/2 flex animate-in items-center gap-1 p-3 fade-in zoom-in-95 duration-300',
-                        'md:sticky md:top-30 md:left-auto md:bottom-auto md:translate-x-0 md:flex-col md:gap-3',
+                        'fixed bottom-6 left-1/2 isolate -translate-x-1/2 flex animate-in items-center gap-0.5 p-2 fade-in zoom-in-95 duration-300',
+                        'md:sticky md:top-30 md:left-auto md:bottom-auto md:translate-x-0 md:flex-col md:gap-3 md:p-3',
                         'bg-sidebar text-sidebar-foreground border border-sidebar-border rounded-3xl',
                     )}
                     onMouseLeave={() => setIsNavHovered(false)}
                 >
                     <span
                         aria-hidden="true"
-                        className="pointer-events-none absolute left-3 top-3 z-10 size-10 rounded-2xl bg-sidebar-primary transition-transform duration-300 ease-out [transform:translateX(var(--nav-offset-x))] md:size-12 md:[transform:translateY(var(--nav-offset-y))]"
+                        className="pointer-events-none absolute left-2 top-2 md:left-3 md:top-3 z-10 size-10 rounded-2xl bg-sidebar-primary transition-transform duration-300 ease-out [transform:translateX(var(--nav-offset-x))] md:size-12 md:[transform:translateY(var(--nav-offset-y))]"
                         style={{
-                            '--nav-offset-x': `${activeIndex * 2.75}rem`,
+                            '--nav-offset-x': `${activeIndex * 2.625}rem`,
                             '--nav-offset-y': `${activeIndex * 3.75}rem`,
                         } as CSSProperties}
                     />
@@ -43,11 +43,11 @@ export function AppShell({ children, actions }: { children: ReactNode; actions?:
                         ref={hoverIndicatorRef}
                         aria-hidden="true"
                         className={cn(
-                            'pointer-events-none absolute left-3 top-3 z-0 size-10 [transform:translateX(var(--nav-offset-x))] md:size-12 md:[transform:translateY(var(--nav-offset-y))]',
+                            'pointer-events-none absolute left-2 top-2 md:left-3 md:top-3 z-0 size-10 [transform:translateX(var(--nav-offset-x))] md:size-12 md:[transform:translateY(var(--nav-offset-y))]',
                             isNavHovered ? 'transition-transform duration-300 ease-out' : 'transition-none',
                         )}
                         style={{
-                            '--nav-offset-x': `${(hoveredIndex ?? activeIndex) * 2.75}rem`,
+                            '--nav-offset-x': `${(hoveredIndex ?? activeIndex) * 2.625}rem`,
                             '--nav-offset-y': `${(hoveredIndex ?? activeIndex) * 3.75}rem`,
                         } as CSSProperties}
                     >

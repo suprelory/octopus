@@ -39,6 +39,7 @@
         "supportedModels": "支援的模型"
     },
     "navbar": {
+        "checkin": "簽到",
         "home": "主頁",
         "channel": "供應源",
         "group": "分組",

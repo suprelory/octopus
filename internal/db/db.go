@@ -54,6 +54,12 @@ func InitDB(dbType, dsn string, debug bool) error {
 	}
 	if err := db.AutoMigrate(
 		&model.User{},
+		&model.CheckinSite{},
+		&model.CheckinAccount{},
+		&model.CheckinRun{},
+		&model.CheckinAttempt{},
+		&model.CheckinJob{},
+		&model.CheckinJobItem{},
 		&model.Channel{},
 		&model.ChannelKey{},
 		&model.ChannelModel{},

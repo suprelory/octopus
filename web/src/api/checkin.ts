@@ -1,0 +1,210 @@
+import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { apiRequest } from './client';
+
+export type Match = { path: string; value: string | number | boolean };
+export type CheckinRequest = {
+    method: 'GET' | 'POST';
+    path: string;
+    body: string;
+    headers: { name: string; value: string }[];
+};
+export type SiteConfig = {
+    name: string;
+    base_url: string;
+    adapter: string;
+    enabled: boolean;
+    timezone: string;
+    window_start: string;
+    window_end: string;
+    jitter_minutes: number;
+    proxy_url: string;
+    manual_url: string;
+    submit: CheckinRequest;
+    success?: Match;
+    already?: Match;
+    status?: { request: CheckinRequest; checked: Match; unchecked: Match; date_path: string };
+    reward: { source: 'submit' | 'status'; path: string; unit: string; multiplier: string };
+};
+export type CheckinSite = {
+    id: string;
+    config: SiteConfig;
+    revision: number;
+    support: string;
+    support_revision: number;
+    verified_at?: string;
+};
+export type CheckinAccount = {
+    id: string;
+    site_id: string;
+    name: string;
+    enabled: boolean;
+    auto_checkin: boolean;
+    proxy_mode: 'inherit' | 'direct' | 'custom';
+    proxy_url: string;
+    credential_type: 'cookie' | 'bearer';
+    credential_version: number;
+    revision: number;
+    next_run_at?: string;
+    last_run_id: string;
+    last_status: string;
+    last_success_date: string;
+    failure_count: number;
+    user_id?: string;
+};
+export type AccountWrite = Partial<
+    Pick<CheckinAccount, 'name' | 'enabled' | 'auto_checkin' | 'proxy_mode' | 'proxy_url'>
+> & {
+    revision: number;
+    credential_version: number;
+    credentials?: {
+        type: 'cookie' | 'bearer';
+        cookie?: string;
+        access_token?: string;
+        user_id: string;
+    };
+};
+export type CheckinRun = {
+    id: string;
+    site_id: string;
+    account_id: string;
+    site_name: string;
+    account_name: string;
+    checkin_date: string;
+    timezone: string;
+    phase: string;
+    status: string;
+    reason: string;
+    source: string;
+    submit_intent_at?: string;
+    next_confirm_at?: string;
+    confirm_deadline?: string;
+    reward_micros?: string;
+    reward_unit: string;
+    reward_state: string;
+    created_at: string;
+    updated_at: string;
+};
+export type CheckinAttempt = {
+    id: string;
+    stage: string;
+    http_status: number;
+    reason: string;
+    message: string;
+    duration_ms: number;
+    created_at: string;
+};
+export type Scope = { kind: 'all' | 'sites' | 'accounts'; ids: string[]; only_auto?: boolean };
+export type CheckinJob = {
+    id: string;
+    scope: Scope;
+    source: string;
+    status: string;
+    total: number;
+    completed: number;
+    success: number;
+    already: number;
+    failed: number;
+    pending: number;
+    skipped: number;
+    created_at: string;
+};
+export type JobItem = {
+    id: string;
+    site_id: string;
+    account_id: string;
+    site_name?: string;
+    account_name?: string;
+    checkin_date: string;
+    state: string;
+    outcome: string;
+    run_id: string;
+};
+export type CheckinStats = {
+    total: number;
+    success: number;
+    already: number;
+    failed: number;
+    pending: number;
+    today_completed: number;
+    unknown_reward: number;
+    invalid_reward: number;
+    rewards: {
+        key: string;
+        unit: string;
+        site_name?: string;
+        today: string;
+        days_7: string;
+        days_30: string;
+        total: string;
+    }[];
+};
+export type CheckinSettings = {
+    concurrency: number;
+    site_interval_seconds: number;
+    http_timeout_seconds: number;
+    confirm_attempts: number;
+    confirm_interval_seconds: number;
+    confirm_timeout_minutes: number;
+};
+export type Capability = { id: string; name: string; path: string; credential_types: string[] };
+export type RunPage = { items: CheckinRun[]; next_before: string };
+export const checkinPath = '/api/v1/checkin';
+
+export function useCheckinQuery<T>(path: string, enabled = true) {
+    return useQuery({
+        queryKey: ['checkin', path],
+        queryFn: ({ signal }) => apiRequest<T>(`${checkinPath}${path}`, { signal }),
+        enabled,
+        refetchInterval: 30_000,
+    });
+}
+
+export function useCheckinMutation<T = unknown>() {
+    const client = useQueryClient();
+    return useMutation({
+        mutationFn: ({
+            path,
+            method = 'POST',
+            body,
+        }: {
+            path: string;
+            method?: 'POST' | 'PATCH' | 'PUT' | 'DELETE';
+            body?: unknown;
+        }) => apiRequest<T>(`${checkinPath}${path}`, { method, body }),
+        onSuccess: () => {
+            void client.invalidateQueries({ queryKey: ['checkin'] });
+        },
+    });
+}
+
+export function useCheckinEvents() {
+    const client = useQueryClient();
+    const [connected, setConnected] = useState(false);
+    useEffect(() => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const source = new EventSource(new URL(`.${checkinPath}/events`, document.baseURI), {
+            withCredentials: true,
+        });
+        source.onopen = () => setConnected(true);
+        source.onerror = () => setConnected(false);
+        source.addEventListener('checkin', () => {
+            if (timer) return;
+            timer = setTimeout(() => {
+                timer = undefined;
+                void client.invalidateQueries({ queryKey: ['checkin'] });
+            }, 250);
+        });
+        return () => {
+            source.close();
+            clearTimeout(timer);
+        };
+    }, [client]);
+    return connected;
+}
+
+export function rewardText(micros?: string) {
+    if (micros === undefined) return '—';
+    const digits = micros.padStart(7, '0');
+    return `${digits.slice(0, -6)}.${digits.slice(-6)}`.replace(/\.?0+$/, '') || '0';
+}

@@ -24,6 +24,7 @@ const Channel = lazy(() => pageImports.channel().then((module) => ({ default: mo
 const Group = lazy(() => pageImports.group().then((module) => ({ default: module.Group })));
 const Model = lazy(() => pageImports.model().then((module) => ({ default: module.Model })));
 const Log = lazy(() => pageImports.log().then((module) => ({ default: module.Log })));
+const Checkin = lazy(() => pageImports.checkin().then((module) => ({ default: module.Checkin })));
 const Setting = lazy(() => pageImports.setting().then((module) => ({ default: module.Setting })));
 const HomeActions = lazy(() => pageImports.home().then((module) => ({ default: module.HomeActions })));
 const ChannelActions = lazy(() => pageImports.channel().then((module) => ({ default: module.ChannelActions })));
@@ -149,6 +150,7 @@ export function AppContainer() {
                             {visibleItem === 'group' && <Group />}
                             {visibleItem === 'model' && <Model />}
                             {visibleItem === 'log' && <Log />}
+                            {visibleItem === 'checkin' && <Checkin />}
                             {visibleItem === 'setting' && <Setting />}
                         </motion.div>
                     </AnimatePresence>

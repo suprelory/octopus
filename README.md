@@ -21,6 +21,7 @@
 - 🔍 **Real-Time End-to-End Request Visualization** - Watch the complete request path in the frontend from the moment the client sends it
 - 🚧 **Upstream Error Shielding** - Intercept all upstream errors to keep agent tasks running without interruption
 - 📊 **Analytics** - Comprehensive request statistics, token consumption, and cost tracking
+- 📅 **[Independent Check-in](CHECKIN.md)** - Dedicated website accounts, scheduled check-ins, history, and reward tracking
 - 🎨 **Elegant UI** - Clean and beautiful web management panel
 - 📦 **Lightweight Single-Binary Deployment** - Run as a single binary with no external runtime dependencies
 - 🗄️ **Multi-Database Support** - Support for SQLite, MySQL, PostgreSQL

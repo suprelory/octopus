@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -15,7 +16,7 @@ const (
 	SettingKeyStatsSaveInterval       SettingKey = "stats_save_interval"        // 将统计信息写入数据库的周期(分钟)
 	SettingKeyModelInfoUpdateInterval SettingKey = "model_info_update_interval" // 模型信息更新间隔(小时)
 	SettingKeyCORSAllowOrigins        SettingKey = "cors_allow_origins"         // 跨域白名单(逗号分隔, 如 "example.com,example2.com"). 为空不允许跨域, "*"允许所有
-	SettingKeyModelFilter             SettingKey = "model_filter"              // 渠道获取模型时的全局过滤表达式; 留空表示不过滤
+	SettingKeyModelFilter             SettingKey = "model_filter"               // 渠道获取模型时的全局过滤表达式; 留空表示不过滤
 )
 
 type Setting struct {
@@ -35,6 +36,12 @@ func DefaultSettings() []Setting {
 
 func (s *Setting) Validate() error {
 	switch s.Key {
+	case SettingKey("checkin_settings"):
+		var config CheckinSettings
+		if err := json.Unmarshal([]byte(s.Value), &config); err != nil {
+			return fmt.Errorf("invalid checkin settings")
+		}
+		return config.Validate()
 	case SettingKeyModelInfoUpdateInterval:
 		_, err := strconv.Atoi(s.Value)
 		if err != nil {
