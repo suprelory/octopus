@@ -112,6 +112,25 @@ func (s *CheckinStore) BeginRun(ctx context.Context, item model.CheckinJobItem, 
 	return run, err
 }
 
+func (s *CheckinStore) SaveRunProxy(ctx context.Context, item model.CheckinJobItem, run model.CheckinRun, now time.Time) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var account model.CheckinAccount
+		if err := tx.First(&account, "id = ? AND lease_owner = ? AND lease_until > ? AND deleted_at IS NULL AND enabled = ?", item.AccountID, item.LeaseOwner, now, true).Error; err != nil {
+			return err
+		}
+		result := tx.Model(&model.CheckinRun{}).Where("id = ? AND account_id = ?", run.ID, item.AccountID).Updates(map[string]any{"fingerprint": run.Fingerprint, "proxy_fingerprint": run.ProxyFingerprint, "before_unchecked": run.BeforeUnchecked})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrCheckinConflict
+		}
+		return nil
+	})
+}
+
 func (s *CheckinStore) MarkSubmitted(ctx context.Context, item model.CheckinJobItem, run *model.CheckinRun, now time.Time) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -122,7 +141,7 @@ func (s *CheckinStore) MarkSubmitted(ctx context.Context, item model.CheckinJobI
 		}
 		// This write and its check must succeed before any side-effecting request.
 		result := tx.Model(&model.CheckinRun{}).Where("id = ? AND (submit_intent_at IS NULL OR safe_to_retry = ?)", run.ID, true).
-			Updates(map[string]any{"submit_intent_at": now, "safe_to_retry": false, "before_unchecked": run.BeforeUnchecked, "phase": "submit_intent", "status": "running", "fingerprint": run.Fingerprint, "confirm_deadline": run.ConfirmDeadline})
+			Updates(map[string]any{"submit_intent_at": now, "safe_to_retry": false, "before_unchecked": run.BeforeUnchecked, "phase": "submit_intent", "status": "running", "fingerprint": run.Fingerprint, "proxy_fingerprint": run.ProxyFingerprint, "confirm_deadline": run.ConfirmDeadline})
 		if result.Error != nil {
 			return result.Error
 		}
@@ -161,7 +180,7 @@ func (s *CheckinStore) Complete(ctx context.Context, item model.CheckinJobItem, 
 				return err
 			}
 			if previous.Status != "success" && previous.Status != "already_checked_in" {
-				if err := tx.Model(&model.CheckinRun{}).Where("id = ?", run.ID).Select("Phase", "Status", "Reason", "Fingerprint", "SubmitIntentAt", "SafeToRetry", "BeforeUnchecked", "NextConfirmAt", "ConfirmDeadline", "RewardMicros", "RewardUnit", "RewardState", "UpdatedAt").Updates(run).Error; err != nil {
+				if err := tx.Model(&model.CheckinRun{}).Where("id = ?", run.ID).Select("Phase", "Status", "Reason", "Fingerprint", "ProxyFingerprint", "SubmitIntentAt", "SafeToRetry", "BeforeUnchecked", "NextConfirmAt", "ConfirmDeadline", "RewardMicros", "RewardUnit", "RewardState", "UpdatedAt").Updates(run).Error; err != nil {
 					return err
 				}
 				account.LastRunID, account.LastStatus = run.ID, run.Status

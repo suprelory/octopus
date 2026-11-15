@@ -134,10 +134,21 @@ func NormalizeCheckinSite(c *CheckinSiteConfig) error {
 	if c.JitterMinutes < 0 || c.JitterMinutes > 1440 {
 		return InvalidCheckin("jitter must be between 0 and 1440 minutes")
 	}
-	if c.ProxyURL != "" {
+	selection, err := NormalizeProxySelection(c.ProxySelection(), false)
+	if err != nil {
+		return InvalidCheckin(err.Error())
+	}
+	if selection.Mode == "custom" {
 		if err := ValidateCheckinURL(c.ProxyURL, true); err != nil {
 			return err
 		}
+	} else {
+		c.ProxyURL = ""
+	}
+	c.ProxyConfigID = selection.ConfigID
+	// Omitted legacy modes stay omitted so pending runs retain their fingerprint.
+	if c.ProxyMode != "" {
+		c.ProxyMode = selection.Mode
 	}
 	if c.ManualURL != "" {
 		u, err := url.Parse(c.ManualURL)

@@ -265,6 +265,7 @@ type AccountWrite struct {
 	AutoCheckin       *bool                     `json:"auto_checkin"`
 	ProxyMode         *string                   `json:"proxy_mode"`
 	ProxyURL          *string                   `json:"proxy_url"`
+	ProxyConfigID     *int                      `json:"proxy_config_id"`
 	Revision          int64                     `json:"revision"`
 	CredentialVersion int64                     `json:"credential_version"`
 	Credentials       *model.CheckinCredentials `json:"credentials"`
@@ -296,6 +297,9 @@ func (s *Service) SaveAccount(ctx context.Context, siteID, id string, input Acco
 	}
 	if input.ProxyURL != nil {
 		account.ProxyURL = *input.ProxyURL
+	}
+	if input.ProxyConfigID != nil {
+		account.ProxyConfigID = input.ProxyConfigID
 	}
 	if input.Credentials != nil {
 		site, err := s.Store.Site(ctx, account.SiteID)
@@ -404,7 +408,13 @@ func (s *Service) Confirm(ctx context.Context, runID, key string, automatic bool
 
 func fingerprint(site model.CheckinSite, account model.CheckinAccount) string {
 	// The opaque ciphertext is never included in logs or returned to clients.
-	data, _ := json.Marshal([]any{site.Config, account.ID, account.IdentityVersion(), account.ProxyMode, account.ProxyURL})
+	// Pool routes have their own fingerprint based on stable node identities.
+	// Exclude local numeric IDs, which can change when a backup is imported.
+	config := site.Config
+	if config.ProxyMode == "pool" {
+		config.ProxyConfigID = nil
+	}
+	data, _ := json.Marshal([]any{config, account.ID, account.IdentityVersion(), account.ProxyMode, account.ProxyURL})
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:])
 }

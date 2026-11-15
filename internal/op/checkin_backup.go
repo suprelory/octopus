@@ -15,7 +15,7 @@ import (
 )
 
 func exportCheckin(ctx context.Context, conn *gorm.DB) (*model.CheckinDump, error) {
-	dump := &model.CheckinDump{Version: 3}
+	dump := &model.CheckinDump{Version: 4}
 	var accounts []model.CheckinAccount
 	for _, target := range []any{&dump.Sites, &accounts, &dump.Runs, &dump.Attempts, &dump.Jobs, &dump.Items} {
 		if err := conn.WithContext(ctx).Find(target).Error; err != nil {
@@ -32,7 +32,7 @@ func validateCheckinDump(dump *model.CheckinDump) error {
 	if dump == nil {
 		return nil
 	}
-	if dump.Version < 1 || dump.Version > 3 {
+	if dump.Version < 1 || dump.Version > 4 {
 		return errors.New("unsupported checkin backup version")
 	}
 	if len(dump.Sites) > 10000 || len(dump.Accounts) > 100000 || len(dump.Runs) > 1000000 || len(dump.Attempts) > 2000000 || len(dump.Jobs) > 1000000 || len(dump.Items) > 1000000 {
@@ -53,6 +53,7 @@ func validateCheckinDump(dump *model.CheckinDump) error {
 		if err := model.NormalizeCheckinSite(&dump.Sites[i].Config); err != nil {
 			return fmt.Errorf("invalid checkin site: %w", err)
 		}
+		dump.Sites[i].ProxyConfigID = dump.Sites[i].Config.ProxyConfigID
 		sites[dump.Sites[i].ID] = dump.Sites[i]
 	}
 	for i := range dump.Accounts {
@@ -78,13 +79,8 @@ func validateCheckinDump(dump *model.CheckinDump) error {
 		if account.RefreshRetryAt != nil && (account.RefreshPending || account.RefreshError != "sub2api_refresh_deferred") {
 			return errors.New("invalid checkin refresh retry")
 		}
-		if account.ProxyMode != "inherit" && account.ProxyMode != "direct" && account.ProxyMode != "custom" {
-			return errors.New("invalid checkin account proxy mode")
-		}
-		if account.ProxyMode == "custom" {
-			if err := model.ValidateCheckinURL(account.ProxyURL, true); err != nil {
-				return err
-			}
+		if err := model.NormalizeCheckinAccountProxy(&account.CheckinAccount); err != nil {
+			return err
 		}
 		if account.DeletedAt == nil {
 			if vault == nil {

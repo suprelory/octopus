@@ -47,6 +47,8 @@ type CheckinSiteConfig struct {
 	WindowEnd     string             `json:"window_end"`
 	JitterMinutes int                `json:"jitter_minutes"`
 	ProxyURL      string             `json:"proxy_url"`
+	ProxyMode     string             `json:"proxy_mode,omitempty"`
+	ProxyConfigID *int               `json:"proxy_config_id,omitempty"`
 	ManualURL     string             `json:"manual_url"`
 	UserAgent     string             `json:"user_agent,omitempty"`
 	Submit        CheckinRequest     `json:"submit"`
@@ -58,15 +60,18 @@ type CheckinSiteConfig struct {
 }
 
 type CheckinSite struct {
-	ID              string            `json:"id" gorm:"type:varchar(36);primaryKey"`
-	Config          CheckinSiteConfig `json:"config" gorm:"type:text;serializer:json"`
-	Revision        int64             `json:"revision"`
-	Support         string            `json:"support"`
-	SupportRevision int64             `json:"support_revision"`
-	VerifiedAt      *time.Time        `json:"verified_at,omitempty"`
-	CreatedAt       time.Time         `json:"created_at"`
-	UpdatedAt       time.Time         `json:"updated_at"`
-	DeletedAt       *time.Time        `json:"deleted_at,omitempty" gorm:"index"`
+	ID     string            `json:"id" gorm:"type:varchar(36);primaryKey"`
+	Config CheckinSiteConfig `json:"config" gorm:"type:text;serializer:json"`
+	// Indexed projection of Config.ProxyConfigID, maintained at every write boundary.
+	ProxyConfigID      *int                `json:"-" gorm:"index"`
+	ProxyConfiguration *ProxyConfiguration `json:"-" gorm:"foreignKey:ProxyConfigID;constraint:OnDelete:RESTRICT"`
+	Revision           int64               `json:"revision"`
+	Support            string              `json:"support"`
+	SupportRevision    int64               `json:"support_revision"`
+	VerifiedAt         *time.Time          `json:"verified_at,omitempty"`
+	CreatedAt          time.Time           `json:"created_at"`
+	UpdatedAt          time.Time           `json:"updated_at"`
+	DeletedAt          *time.Time          `json:"deleted_at,omitempty" gorm:"index"`
 }
 
 type CheckinCredentials struct {
@@ -100,66 +105,69 @@ type CheckinLoginSession struct {
 }
 
 type CheckinAccount struct {
-	ID                        string       `json:"id" gorm:"type:varchar(36);primaryKey"`
-	SiteID                    string       `json:"site_id" gorm:"type:varchar(36);not null;index"`
-	Site                      *CheckinSite `json:"-" gorm:"foreignKey:SiteID;constraint:OnDelete:RESTRICT"`
-	Name                      string       `json:"name"`
-	Enabled                   bool         `json:"enabled"`
-	AutoCheckin               bool         `json:"auto_checkin"`
-	ProxyMode                 string       `json:"proxy_mode"`
-	ProxyURL                  string       `json:"proxy_url"`
-	CredentialType            string       `json:"credential_type"`
-	CredentialUserID          string       `json:"user_id" gorm:"size:64"`
-	CredentialCipher          string       `json:"-" gorm:"type:text"`
-	CredentialVersion         int64        `json:"credential_version"`
-	CredentialIdentityVersion int64        `json:"-"`
-	HasRefreshToken           bool         `json:"has_refresh_token"`
-	TokenExpiresAt            *time.Time   `json:"token_expires_at,omitempty"`
-	TokenRefreshedAt          *time.Time   `json:"token_refreshed_at,omitempty"`
-	RefreshPending            bool         `json:"refresh_pending,omitempty"`
-	RefreshError              string       `json:"refresh_error,omitempty" gorm:"size:64"`
-	RefreshRetryAt            *time.Time   `json:"refresh_retry_at,omitempty"`
-	HasSession                bool         `json:"has_session"`
-	SessionSavedAt            *time.Time   `json:"session_saved_at,omitempty"`
-	Revision                  int64        `json:"revision"`
-	NextRunAt                 *time.Time   `json:"next_run_at,omitempty" gorm:"index"`
-	LastRunID                 string       `json:"last_run_id" gorm:"type:varchar(36)"`
-	LastStatus                string       `json:"last_status"`
-	LastSuccessDate           string       `json:"last_success_date" gorm:"size:10"`
-	FailureCount              int          `json:"failure_count"`
-	LeaseOwner                string       `json:"-" gorm:"size:36"`
-	LeaseUntil                *time.Time   `json:"-"`
-	CreatedAt                 time.Time    `json:"created_at"`
-	UpdatedAt                 time.Time    `json:"updated_at"`
-	DeletedAt                 *time.Time   `json:"deleted_at,omitempty" gorm:"index"`
+	ID                        string              `json:"id" gorm:"type:varchar(36);primaryKey"`
+	SiteID                    string              `json:"site_id" gorm:"type:varchar(36);not null;index"`
+	Site                      *CheckinSite        `json:"-" gorm:"foreignKey:SiteID;constraint:OnDelete:RESTRICT"`
+	Name                      string              `json:"name"`
+	Enabled                   bool                `json:"enabled"`
+	AutoCheckin               bool                `json:"auto_checkin"`
+	ProxyMode                 string              `json:"proxy_mode"`
+	ProxyURL                  string              `json:"proxy_url"`
+	ProxyConfigID             *int                `json:"proxy_config_id,omitempty" gorm:"index"`
+	ProxyConfiguration        *ProxyConfiguration `json:"-" gorm:"foreignKey:ProxyConfigID;constraint:OnDelete:RESTRICT"`
+	CredentialType            string              `json:"credential_type"`
+	CredentialUserID          string              `json:"user_id" gorm:"size:64"`
+	CredentialCipher          string              `json:"-" gorm:"type:text"`
+	CredentialVersion         int64               `json:"credential_version"`
+	CredentialIdentityVersion int64               `json:"-"`
+	HasRefreshToken           bool                `json:"has_refresh_token"`
+	TokenExpiresAt            *time.Time          `json:"token_expires_at,omitempty"`
+	TokenRefreshedAt          *time.Time          `json:"token_refreshed_at,omitempty"`
+	RefreshPending            bool                `json:"refresh_pending,omitempty"`
+	RefreshError              string              `json:"refresh_error,omitempty" gorm:"size:64"`
+	RefreshRetryAt            *time.Time          `json:"refresh_retry_at,omitempty"`
+	HasSession                bool                `json:"has_session"`
+	SessionSavedAt            *time.Time          `json:"session_saved_at,omitempty"`
+	Revision                  int64               `json:"revision"`
+	NextRunAt                 *time.Time          `json:"next_run_at,omitempty" gorm:"index"`
+	LastRunID                 string              `json:"last_run_id" gorm:"type:varchar(36)"`
+	LastStatus                string              `json:"last_status"`
+	LastSuccessDate           string              `json:"last_success_date" gorm:"size:10"`
+	FailureCount              int                 `json:"failure_count"`
+	LeaseOwner                string              `json:"-" gorm:"size:36"`
+	LeaseUntil                *time.Time          `json:"-"`
+	CreatedAt                 time.Time           `json:"created_at"`
+	UpdatedAt                 time.Time           `json:"updated_at"`
+	DeletedAt                 *time.Time          `json:"deleted_at,omitempty" gorm:"index"`
 }
 
 // One run is the durable ledger for one account and one business date. Attempts
 // are append-only; polling and retries can never create another reward ledger.
 type CheckinRun struct {
-	ID              string          `json:"id" gorm:"type:varchar(36);primaryKey"`
-	SiteID          string          `json:"site_id" gorm:"type:varchar(36);index"`
-	AccountID       string          `json:"account_id" gorm:"type:varchar(36);uniqueIndex:idx_checkin_account_date,priority:1"`
-	Account         *CheckinAccount `json:"-" gorm:"foreignKey:AccountID;constraint:OnDelete:RESTRICT"`
-	CheckinDate     string          `json:"checkin_date" gorm:"size:10;uniqueIndex:idx_checkin_account_date,priority:2;index"`
-	SiteName        string          `json:"site_name"`
-	AccountName     string          `json:"account_name"`
-	Timezone        string          `json:"timezone"`
-	Fingerprint     string          `json:"fingerprint" gorm:"size:64"`
-	Phase           string          `json:"phase"`
-	Status          string          `json:"status" gorm:"size:32;index"`
-	Reason          string          `json:"reason" gorm:"size:64"`
-	Source          string          `json:"source"`
-	SubmitIntentAt  *time.Time      `json:"submit_intent_at,omitempty"`
-	BeforeUnchecked bool            `json:"before_unchecked"`
-	SafeToRetry     bool            `json:"safe_to_retry"`
-	NextConfirmAt   *time.Time      `json:"next_confirm_at,omitempty" gorm:"index"`
-	ConfirmDeadline *time.Time      `json:"confirm_deadline,omitempty"`
-	RewardMicros    *int64          `json:"reward_micros,omitempty,string"`
-	RewardUnit      string          `json:"reward_unit"`
-	RewardState     string          `json:"reward_state"`
-	CreatedAt       time.Time       `json:"created_at"`
-	UpdatedAt       time.Time       `json:"updated_at"`
+	ID               string          `json:"id" gorm:"type:varchar(36);primaryKey"`
+	SiteID           string          `json:"site_id" gorm:"type:varchar(36);index"`
+	AccountID        string          `json:"account_id" gorm:"type:varchar(36);uniqueIndex:idx_checkin_account_date,priority:1"`
+	Account          *CheckinAccount `json:"-" gorm:"foreignKey:AccountID;constraint:OnDelete:RESTRICT"`
+	CheckinDate      string          `json:"checkin_date" gorm:"size:10;uniqueIndex:idx_checkin_account_date,priority:2;index"`
+	SiteName         string          `json:"site_name"`
+	AccountName      string          `json:"account_name"`
+	Timezone         string          `json:"timezone"`
+	Fingerprint      string          `json:"fingerprint" gorm:"size:64"`
+	ProxyFingerprint string          `json:"proxy_fingerprint,omitempty" gorm:"size:64"`
+	Phase            string          `json:"phase"`
+	Status           string          `json:"status" gorm:"size:32;index"`
+	Reason           string          `json:"reason" gorm:"size:64"`
+	Source           string          `json:"source"`
+	SubmitIntentAt   *time.Time      `json:"submit_intent_at,omitempty"`
+	BeforeUnchecked  bool            `json:"before_unchecked"`
+	SafeToRetry      bool            `json:"safe_to_retry"`
+	NextConfirmAt    *time.Time      `json:"next_confirm_at,omitempty" gorm:"index"`
+	ConfirmDeadline  *time.Time      `json:"confirm_deadline,omitempty"`
+	RewardMicros     *int64          `json:"reward_micros,omitempty,string"`
+	RewardUnit       string          `json:"reward_unit"`
+	RewardState      string          `json:"reward_state"`
+	CreatedAt        time.Time       `json:"created_at"`
+	UpdatedAt        time.Time       `json:"updated_at"`
 }
 
 type CheckinAttempt struct {

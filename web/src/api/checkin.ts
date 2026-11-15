@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from './client';
+import type { ProxyMode } from './proxy-pool';
 
 export type Match = { path: string; value: string | number | boolean };
 export type CheckinRequest = {
@@ -19,6 +20,8 @@ export type SiteConfig = {
     window_end: string;
     jitter_minutes: number;
     proxy_url: string;
+    proxy_mode?: ProxyMode;
+    proxy_config_id?: number | null;
     manual_url: string;
     user_agent?: string;
     submit: CheckinRequest;
@@ -43,7 +46,8 @@ export type CheckinAccount = {
     name: string;
     enabled: boolean;
     auto_checkin: boolean;
-    proxy_mode: 'inherit' | 'direct' | 'custom';
+    proxy_mode: ProxyMode;
+    proxy_config_id?: number | null;
     proxy_url: string;
     credential_type: CredentialType;
     credential_version: number;
@@ -64,7 +68,7 @@ export type CheckinAccount = {
     user_id?: string;
 };
 export type AccountWrite = Partial<
-    Pick<CheckinAccount, 'name' | 'enabled' | 'auto_checkin' | 'proxy_mode' | 'proxy_url'>
+    Pick<CheckinAccount, 'name' | 'enabled' | 'auto_checkin' | 'proxy_mode' | 'proxy_url' | 'proxy_config_id'>
 > & {
     revision: number;
     credential_version: number;
@@ -199,6 +203,8 @@ export function useCheckinMutation<T = unknown>() {
         }) => apiRequest<T>(`${checkinPath}${path}`, { method, body }),
         onSuccess: () => {
             void client.invalidateQueries({ queryKey: ['checkin'] });
+            void client.invalidateQueries({ queryKey: ['proxy-pool'] });
+            void client.invalidateQueries({ queryKey: ['proxy-references'] });
         },
     });
 }

@@ -9,6 +9,9 @@ import (
 func InitCache() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	if err := proxyRefreshCache(ctx); err != nil {
+		return fmt.Errorf("proxy refresh cache error: %w", err)
+	}
 	if err := settingRefreshCache(ctx); err != nil {
 		return fmt.Errorf("setting refresh cache error: %v", err)
 	}

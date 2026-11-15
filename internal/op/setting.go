@@ -47,6 +47,9 @@ func SettingSetString(key model.SettingKey, value string) error {
 		return fmt.Errorf("failed to set setting, key not found")
 	}
 	settingCache.Set(key, value)
+	if key == model.SettingKeyProxyURL {
+		invalidateProxies()
+	}
 	return nil
 }
 

@@ -24,6 +24,7 @@ This repository is [suprelory/octopus](https://github.com/suprelory/octopus), a 
 - 🚧 **Upstream Error Shielding** - Intercept all upstream errors to keep agent tasks running without interruption
 - 📊 **Analytics** - Comprehensive request statistics, token consumption, and cost tracking
 - 📅 **[Independent Check-in](CHECKIN.md)** - Dedicated website accounts, scheduled check-ins, history, and reward tracking
+- 🌐 **[Proxy Pool](PROXY.md)** - Shared authenticated proxy nodes with channel and check-in bindings, connectivity tests, and reference tracking
 - 🎨 **Elegant UI** - Clean and beautiful web management panel
 - 📦 **Lightweight Single-Binary Deployment** - Run as a single binary with no external runtime dependencies
 - 🗄️ **Multi-Database Support** - Support for SQLite, MySQL, PostgreSQL

@@ -2,6 +2,8 @@ import { useState, type FormEvent } from 'react';
 import { useTranslations } from 'use-intl';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ProxySelector } from '../proxy-pool/ProxySelector';
+import { siteProxySelection } from '@/api/proxy-pool';
 import {
     type AccountWrite,
     type Capability,
@@ -47,6 +49,7 @@ export function AccountForm({
     const [userID, setUserID] = useState(account?.user_id ?? '');
     const [proxyMode, setProxyMode] = useState(account?.proxy_mode ?? 'inherit');
     const [proxyURL, setProxyURL] = useState(account?.proxy_url ?? '');
+    const [proxyConfigID, setProxyConfigID] = useState(account?.proxy_config_id);
     const [error, setError] = useState<unknown>(null);
     const save = useCheckinMutation();
 
@@ -71,6 +74,7 @@ export function AccountForm({
                 auto_checkin: automatic,
                 proxy_mode: proxyMode,
                 proxy_url: proxyURL,
+                proxy_config_id: proxyMode === 'pool' ? proxyConfigID : null,
                 revision: account?.revision ?? 0,
                 credential_version: account?.credential_version ?? 0,
             };
@@ -253,29 +257,7 @@ export function AccountForm({
                 >
                     <Input value={userID} onChange={(event) => setUserID(event.target.value)} />
                 </CheckinField>
-                <div className="grid gap-3 sm:grid-cols-2">
-                    <CheckinField label={t('proxy')}>
-                        <CheckinSelect
-                            value={proxyMode}
-                            onChange={(event) =>
-                                setProxyMode(event.target.value as CheckinAccount['proxy_mode'])
-                            }
-                        >
-                            <option value="inherit">{t('inherit')}</option>
-                            <option value="direct">{t('direct')}</option>
-                            <option value="custom">{t('custom')}</option>
-                        </CheckinSelect>
-                    </CheckinField>
-                    {proxyMode === 'custom' && (
-                        <CheckinField label={t('proxyURL')} hint={t('directHint')}>
-                            <Input
-                                required
-                                value={proxyURL}
-                                onChange={(event) => setProxyURL(event.target.value)}
-                            />
-                        </CheckinField>
-                    )}
-                </div>
+                <ProxySelector allowInherit parent={siteProxySelection(site.config)} value={{ proxy_mode: proxyMode, proxy_config_id: proxyConfigID, proxy_url: proxyURL }} onChange={(value) => { setProxyMode(value.proxy_mode); setProxyConfigID(value.proxy_config_id); setProxyURL(value.proxy_url ?? ''); }} />
                 <CheckinError error={error} />
                 <CheckinError error={capabilities.error} />
                 <div className="flex justify-end gap-2 border-t pt-4">

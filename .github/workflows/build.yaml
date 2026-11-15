@@ -34,7 +34,7 @@ jobs:
 
       - name: Lint changed modules
         working-directory: web
-        run: pnpm exec eslint src/api/update.ts src/components/modules/setting/Info.tsx src/api/checkin.ts src/components/modules/checkin src/provider/locale.tsx src/components/app.tsx src/components/app-shell.tsx src/lib/page-preload.ts src/stores/app.ts
+        run: pnpm exec eslint src/api/update.ts src/components/modules/setting/Info.tsx src/components/modules/setting/index.tsx src/api/checkin.ts src/components/modules/checkin src/api/channel.ts src/components/modules/channel/Form.tsx src/components/modules/channel/state.ts src/api/proxy-pool.ts src/components/modules/proxy-pool src/provider/locale.tsx src/components/app.tsx src/components/app-shell.tsx src/lib/page-preload.ts src/stores/app.ts
 
       - name: Setup Go
         uses: actions/setup-go@v6

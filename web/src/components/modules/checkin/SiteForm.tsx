@@ -3,6 +3,8 @@ import { useTranslations } from 'use-intl';
 import { FlaskConical, LoaderCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ProxySelector } from '../proxy-pool/ProxySelector';
+import { siteProxySelection } from '@/api/proxy-pool';
 import {
     type Capability,
     type CheckinRequest,
@@ -685,15 +687,7 @@ export function SiteForm({ site, onClose }: { site?: CheckinSite; onClose: () =>
                             {t('advanced')}
                         </summary>
                         <div className="mt-4 space-y-3">
-                            <CheckinField label={t('proxyURL')} hint={t('directHint')}>
-                                <Input
-                                    value={config.proxy_url}
-                                    onChange={(event) =>
-                                        setConfig({ ...config, proxy_url: event.target.value })
-                                    }
-                                    placeholder="http://127.0.0.1:7890"
-                                />
-                            </CheckinField>
+                            <ProxySelector value={siteProxySelection(config)} onChange={(value) => setConfig({ ...config, ...value, proxy_url: value.proxy_url ?? '' })} />
                             <CheckinField label={t('manualURL')}>
                                 <Input
                                     type="url"

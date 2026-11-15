@@ -5,9 +5,10 @@ import "time"
 // DBDump is a full-database JSON export format for Octopus.
 // Import uses incremental semantics (insert new rows, and upsert on tables with natural keys).
 type DBDump struct {
-	Version    int          `json:"version"`
-	ExportedAt time.Time    `json:"exported_at"`
-	Checkin    *CheckinDump `json:"checkin,omitempty"`
+	Version             int                        `json:"version"`
+	ExportedAt          time.Time                  `json:"exported_at"`
+	Checkin             *CheckinDump               `json:"checkin,omitempty"`
+	ProxyConfigurations []ProxyConfigurationBackup `json:"proxy_configurations,omitempty"`
 
 	Channels      []Channel      `json:"channels,omitempty"`       // 渠道数据。
 	ChannelKeys   []ChannelKey   `json:"channel_keys,omitempty"`   // 渠道凭据数据。

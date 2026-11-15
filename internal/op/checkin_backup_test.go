@@ -196,9 +196,9 @@ func TestRouterBackupPreservesEncryptedLoginAndDisablesReplay(t *testing.T) {
 	}
 }
 
-func TestCheckinBackupStillAcceptsBothEarlierSubversions(t *testing.T) {
+func TestCheckinBackupStillAcceptsEarlierSubversions(t *testing.T) {
 	_, dump := checkinBackupFixture(t)
-	for _, version := range []int{1, 2} {
+	for _, version := range []int{1, 2, 3} {
 		dump.Version = version
 		if err := validateCheckinDump(dump); err != nil {
 			t.Fatalf("version %d rejected: %v", version, err)
@@ -312,14 +312,14 @@ func TestCheckinBackupKeepsDeletedTombstonesAndHistory(t *testing.T) {
 	}
 }
 
-func TestDatabaseBackupVersionFiveAndSixRemainCompatible(t *testing.T) {
+func TestDatabaseBackupVersionsRemainCompatible(t *testing.T) {
 	t.Setenv("OCTOPUS_CHECKIN_MASTER_KEY", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{9}, 32)))
 	if err := db.InitDB("sqlite", filepath.ToSlash(filepath.Join(t.TempDir(), "legacy.db")), false); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	ctx := context.Background()
-	for _, version := range []int{0, 5, 6} {
+	for _, version := range []int{0, 5, 6, 7} {
 		if _, err := DBImportIncremental(ctx, &model.DBDump{Version: version}); err != nil {
 			t.Fatalf("version %d rejected: %v", version, err)
 		}
@@ -328,7 +328,7 @@ func TestDatabaseBackupVersionFiveAndSixRemainCompatible(t *testing.T) {
 		t.Fatal("unknown backup version accepted")
 	}
 	dump, err := DBExportAll(ctx)
-	if err != nil || dump.Version != 6 || dump.Checkin == nil || dump.Checkin.Version != 3 {
+	if err != nil || dump.Version != 7 || dump.Checkin == nil || dump.Checkin.Version != 4 {
 		t.Fatalf("new export missing versioned checkin data: %+v %v", dump, err)
 	}
 }

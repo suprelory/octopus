@@ -43,11 +43,22 @@ func (s *CheckinStore) Site(ctx context.Context, id string) (model.CheckinSite, 
 func (s *CheckinStore) SaveSite(ctx context.Context, id string, revision int64, config model.CheckinSiteConfig) (model.CheckinSite, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	proxyWriteMu.Lock()
+	defer proxyWriteMu.Unlock()
 	if err := model.NormalizeCheckinSite(&config); err != nil {
 		return model.CheckinSite{}, err
 	}
-	row := model.CheckinSite{ID: id, Config: config, Revision: revision + 1, Support: "unknown"}
+	row := model.CheckinSite{ID: id, Config: config, ProxyConfigID: config.ProxyConfigID, Revision: revision + 1, Support: "unknown"}
 	err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var previous model.CheckinSite
+		if id != "" {
+			if err := tx.First(&previous, "id = ?", id).Error; err != nil {
+				return err
+			}
+		}
+		if err := ValidateProxyBindingTx(tx, config.ProxySelection(), !sameProxyID(previous.ProxyConfigID, config.ProxyConfigID)); err != nil {
+			return model.InvalidCheckin(err.Error())
+		}
 		if id == "" {
 			row.ID = uuid.NewString()
 			row.Revision = 1
@@ -81,7 +92,7 @@ func (s *CheckinStore) SaveSite(ctx context.Context, id string, revision int64, 
 				return model.InvalidCheckin("replace router session credentials before changing the platform")
 			}
 		}
-		result := tx.Model(&model.CheckinSite{}).Where("id = ? AND revision = ? AND deleted_at IS NULL", id, revision).Select("Config", "Revision", "Support", "SupportRevision", "VerifiedAt", "UpdatedAt").Updates(&row)
+		result := tx.Model(&model.CheckinSite{}).Where("id = ? AND revision = ? AND deleted_at IS NULL", id, revision).Select("Config", "ProxyConfigID", "Revision", "Support", "SupportRevision", "VerifiedAt", "UpdatedAt").Updates(&row)
 		if result.Error != nil {
 			return result.Error
 		}
@@ -115,22 +126,14 @@ func (s *CheckinStore) Account(ctx context.Context, id string) (model.CheckinAcc
 func (s *CheckinStore) SaveAccount(ctx context.Context, row model.CheckinAccount, expectedRevision, expectedCredentials int64, replaceCredentials bool) (model.CheckinAccount, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	proxyWriteMu.Lock()
+	defer proxyWriteMu.Unlock()
 	row.Name = strings.TrimSpace(row.Name)
 	if row.Name == "" || len(row.Name) > 128 {
 		return row, model.InvalidCheckin("account name is required (maximum 128 bytes)")
 	}
-	if row.ProxyMode == "" {
-		row.ProxyMode = "inherit"
-	}
-	if row.ProxyMode != "inherit" && row.ProxyMode != "direct" && row.ProxyMode != "custom" {
-		return row, model.InvalidCheckin("invalid proxy mode")
-	}
-	if row.ProxyMode == "custom" {
-		if err := model.ValidateCheckinURL(row.ProxyURL, true); err != nil {
-			return row, err
-		}
-	} else {
-		row.ProxyURL = ""
+	if err := model.NormalizeCheckinAccountProxy(&row); err != nil {
+		return row, err
 	}
 	site, err := s.Site(ctx, row.SiteID)
 	if err != nil {
@@ -140,19 +143,36 @@ func (s *CheckinStore) SaveAccount(ctx context.Context, row model.CheckinAccount
 		return row, model.InvalidCheckin("credential type is not supported by this platform")
 	}
 	row.Revision = expectedRevision + 1
+	err = s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var previous model.CheckinAccount
+		if expectedRevision != 0 {
+			if err := tx.First(&previous, "id = ?", row.ID).Error; err != nil {
+				return err
+			}
+		}
+		selection := model.ProxySelection{Mode: row.ProxyMode, ConfigID: row.ProxyConfigID, URL: row.ProxyURL}
+		if err := ValidateProxyBindingTx(tx, selection, !sameProxyID(previous.ProxyConfigID, row.ProxyConfigID)); err != nil {
+			return model.InvalidCheckin(err.Error())
+		}
+		return saveCheckinAccountTx(tx, &row, expectedRevision, expectedCredentials, replaceCredentials)
+	})
+	if err != nil {
+		return row, err
+	}
+	return s.Account(ctx, row.ID)
+}
+
+func saveCheckinAccountTx(tx *gorm.DB, row *model.CheckinAccount, expectedRevision, expectedCredentials int64, replaceCredentials bool) error {
 	if expectedRevision == 0 {
 		if row.CredentialCipher == "" {
-			return row, model.InvalidCheckin("account credentials are required")
+			return model.InvalidCheckin("account credentials are required")
 		}
 		row.CredentialVersion = 1
 		row.CredentialIdentityVersion = 1
-		if err := s.DB.WithContext(ctx).Create(&row).Error; err != nil {
-			return row, err
-		}
-		return row, nil
+		return tx.Create(row).Error
 	}
-	columns := []string{"Name", "Enabled", "AutoCheckin", "ProxyMode", "ProxyURL", "Revision", "NextRunAt", "UpdatedAt"}
-	q := s.DB.WithContext(ctx).Model(&model.CheckinAccount{}).Where("id = ? AND revision = ? AND deleted_at IS NULL AND (lease_until IS NULL OR lease_until <= ?)", row.ID, expectedRevision, time.Now().UTC())
+	columns := []string{"Name", "Enabled", "AutoCheckin", "ProxyMode", "ProxyURL", "ProxyConfigID", "Revision", "NextRunAt", "UpdatedAt"}
+	q := tx.Model(&model.CheckinAccount{}).Where("id = ? AND revision = ? AND deleted_at IS NULL AND (lease_until IS NULL OR lease_until <= ?)", row.ID, expectedRevision, time.Now().UTC())
 	if replaceCredentials {
 		q = q.Where("credential_version = ?", expectedCredentials)
 		row.CredentialIdentityVersion = row.IdentityVersion() + 1
@@ -160,19 +180,21 @@ func (s *CheckinStore) SaveAccount(ctx context.Context, row model.CheckinAccount
 		columns = append(columns, "CredentialCipher", "CredentialType", "CredentialUserID", "CredentialVersion", "CredentialIdentityVersion", "HasRefreshToken", "TokenExpiresAt", "TokenRefreshedAt", "RefreshPending", "RefreshError", "RefreshRetryAt", "HasSession", "SessionSavedAt")
 	}
 	row.NextRunAt = nil
-	result := q.Select(columns).Updates(&row)
+	result := q.Select(columns).Updates(row)
 	if result.Error != nil {
-		return row, result.Error
+		return result.Error
 	}
 	if result.RowsAffected != 1 {
-		return row, ErrCheckinConflict
+		return ErrCheckinConflict
 	}
-	return s.Account(ctx, row.ID)
+	return nil
 }
 
 func (s *CheckinStore) Delete(ctx context.Context, siteID, accountID string) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	proxyWriteMu.Lock()
+	defer proxyWriteMu.Unlock()
 	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		q := tx.Model(&model.CheckinAccount{}).Where("deleted_at IS NULL")
 		if accountID != "" {
@@ -188,11 +210,17 @@ func (s *CheckinStore) Delete(ctx context.Context, siteID, accountID string) err
 			return ErrCheckinConflict
 		}
 		now := time.Now().UTC()
-		if err := q.Updates(map[string]any{"deleted_at": now, "enabled": false, "auto_checkin": false, "credential_cipher": "", "next_run_at": nil, "has_refresh_token": false, "token_expires_at": nil, "token_refreshed_at": nil, "refresh_pending": false, "refresh_error": "", "refresh_retry_at": nil, "has_session": false, "session_saved_at": nil}).Error; err != nil {
+		if err := q.Updates(map[string]any{"deleted_at": now, "enabled": false, "auto_checkin": false, "credential_cipher": "", "next_run_at": nil, "has_refresh_token": false, "token_expires_at": nil, "token_refreshed_at": nil, "refresh_pending": false, "refresh_error": "", "refresh_retry_at": nil, "has_session": false, "session_saved_at": nil, "proxy_config_id": nil, "proxy_mode": "direct", "proxy_url": ""}).Error; err != nil {
 			return err
 		}
 		if siteID != "" {
-			return tx.Model(&model.CheckinSite{}).Where("id = ? AND deleted_at IS NULL", siteID).Update("deleted_at", now).Error
+			var site model.CheckinSite
+			if err := tx.First(&site, "id = ? AND deleted_at IS NULL", siteID).Error; err != nil {
+				return err
+			}
+			site.DeletedAt, site.ProxyConfigID = &now, nil
+			site.Config.ProxyMode, site.Config.ProxyConfigID, site.Config.ProxyURL = "direct", nil, ""
+			return tx.Model(&site).Select("Config", "ProxyConfigID", "DeletedAt").Updates(&site).Error
 		}
 		return nil
 	})

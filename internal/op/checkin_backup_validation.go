@@ -58,7 +58,7 @@ func validateCheckinGraph(d *model.CheckinDump) error {
 		if _, err := time.LoadLocation(run.Timezone); err != nil {
 			return fail()
 		}
-		if len(run.SiteName) > 128 || len(run.AccountName) > 128 || len(run.Fingerprint) != 64 || strings.Trim(run.Fingerprint, "0123456789abcdef") != "" {
+		if len(run.SiteName) > 128 || len(run.AccountName) > 128 || len(run.Fingerprint) != 64 || strings.Trim(run.Fingerprint, "0123456789abcdef") != "" || (run.ProxyFingerprint != "" && (len(run.ProxyFingerprint) != 64 || strings.Trim(run.ProxyFingerprint, "0123456789abcdef") != "")) {
 			return fail()
 		}
 		if run.RewardMicros != nil && (run.Status != "success" || run.RewardState != "known" || run.RewardUnit == "") {

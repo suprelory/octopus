@@ -1,5 +1,6 @@
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from './client';
+import type { ProxyMode } from './proxy-pool';
 import { channelStatsQueryOptions, groupListQueryOptions, modelListQueryOptions } from './queries';
 import { formatStatsMetrics, type StatsMetrics, type StatsMetricsFormatted } from './stats';
 
@@ -69,6 +70,8 @@ export type ChannelDetail = {
     models: string[]; // 上游模型名称；模型除名称外没有界面用得上的字段。
     grants: ChannelGrant[];
     proxy: boolean;
+    proxy_mode?: ProxyMode;
+    proxy_config_id?: number | null;
     custom_header: CustomHeader[];
     param_override: string;
     channel_proxy: string;
@@ -204,6 +207,8 @@ export function useCreateChannel() {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['channels'] });
             queryClient.invalidateQueries({ queryKey: modelListQueryOptions.queryKey });
+            queryClient.invalidateQueries({ queryKey: ['proxy-pool'] });
+            queryClient.invalidateQueries({ queryKey: ['proxy-references'] });
         },
     });
 }
@@ -228,6 +233,8 @@ export function useUpdateChannel() {
             queryClient.invalidateQueries({ queryKey: ['channels'] });
             queryClient.invalidateQueries({ queryKey: modelListQueryOptions.queryKey });
             queryClient.invalidateQueries({ queryKey: groupListQueryOptions.queryKey });
+            queryClient.invalidateQueries({ queryKey: ['proxy-pool'] });
+            queryClient.invalidateQueries({ queryKey: ['proxy-references'] });
         },
     });
 }
@@ -250,6 +257,8 @@ export function useDeleteChannel() {
             queryClient.invalidateQueries({ queryKey: ['channels'] });
             queryClient.invalidateQueries({ queryKey: modelListQueryOptions.queryKey });
             queryClient.invalidateQueries({ queryKey: groupListQueryOptions.queryKey });
+            queryClient.invalidateQueries({ queryKey: ['proxy-pool'] });
+            queryClient.invalidateQueries({ queryKey: ['proxy-references'] });
         },
     });
 }

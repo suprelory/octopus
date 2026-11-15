@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/url"
 	"sync"
 	"time"
 
@@ -108,9 +107,9 @@ func newCustomProxyClient(proxyURLStr string) (*http.Client, error) {
 		return nil, err
 	}
 
-	proxyURL, err := url.Parse(proxyURLStr)
+	proxyURL, err := model.ParseProxyURL(proxyURLStr)
 	if err != nil {
-		return nil, fmt.Errorf("invalid proxy url: %w", err)
+		return nil, err
 	}
 
 	switch proxyURL.Scheme {

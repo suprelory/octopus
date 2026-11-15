@@ -188,6 +188,7 @@ func decodeDBDump(body []byte, dump *model.DBDump) error {
 	}
 
 	if dump.Version == 0 &&
+		len(dump.ProxyConfigurations) == 0 &&
 		dump.Checkin == nil &&
 		len(dump.Channels) == 0 &&
 		len(dump.Groups) == 0 &&

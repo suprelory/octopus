@@ -53,6 +53,7 @@ func InitDB(dbType, dsn string, debug bool) error {
 		return err
 	}
 	if err := db.AutoMigrate(
+		&model.ProxyConfiguration{},
 		&model.User{},
 		&model.CheckinSite{},
 		&model.CheckinAccount{},

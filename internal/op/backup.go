@@ -16,15 +16,26 @@ import (
 // 渠道拆分为渠道, 凭据, 模型与渠道授权后导出结构变化, 版本随之递增;
 // 版本 5 起 api_keys.supported_models 由逗号分隔字符串改为 JSON 数组。
 // 版本 6 增加完全独立的签到配置、加密凭据、每日记录和任务。
-const dbDumpVersion = 6
+// Version 7 adds shared proxy configurations and their encrypted credentials.
+const dbDumpVersion = 7
 
 // DBExportAll 导出完整数据库内容，包括所有统计数据。
 func DBExportAll(ctx context.Context) (*model.DBDump, error) {
+	// Keep new bindings and their nodes in the same export snapshot.
+	proxyWriteMu.Lock()
+	defer proxyWriteMu.Unlock()
 	conn := db.GetDB().WithContext(ctx)
 
 	d := &model.DBDump{
 		Version:    dbDumpVersion,
 		ExportedAt: time.Now().UTC(),
+	}
+	var proxies []model.ProxyConfiguration
+	if err := conn.Find(&proxies).Error; err != nil {
+		return nil, fmt.Errorf("export proxies: %w", err)
+	}
+	for _, row := range proxies {
+		d.ProxyConfigurations = append(d.ProxyConfigurations, model.ProxyConfigurationBackup{ProxyConfiguration: row, Identity: row.UID, Cipher: row.AuthCipher})
 	}
 	checkinDump, err := exportCheckin(ctx, conn)
 	if err != nil {
@@ -77,14 +88,19 @@ func DBExportAll(ctx context.Context) (*model.DBDump, error) {
 }
 
 func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImportResult, error) {
+	proxyWriteMu.Lock()
+	defer proxyWriteMu.Unlock()
 	if dump == nil {
 		return nil, fmt.Errorf("empty dump")
 	}
 
-	if dump.Version != 0 && dump.Version != 5 && dump.Version != dbDumpVersion {
+	if dump.Version != 0 && dump.Version != 5 && dump.Version != 6 && dump.Version != dbDumpVersion {
 		return nil, fmt.Errorf("unsupported dump version: %d", dump.Version)
 	}
 	if err := validateCheckinDump(dump.Checkin); err != nil {
+		return nil, err
+	}
+	if err := validateProxyDump(dump.ProxyConfigurations); err != nil {
 		return nil, err
 	}
 	for _, setting := range dump.Settings {
@@ -109,6 +125,9 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 	conn := db.GetDB().WithContext(ctx)
 	res := &model.DBImportResult{RowsAffected: map[string]int64{}}
 	err := conn.Transaction(func(tx *gorm.DB) error {
+		if err := importProxies(tx.Session(&gorm.Session{Logger: logger.Discard}), dump, res); err != nil {
+			return err
+		}
 		if err := importCheckin(tx.Session(&gorm.Session{Logger: logger.Discard}), dump.Checkin, res); err != nil {
 			return fmt.Errorf("checkin import failed; check record identities and references")
 		}
@@ -194,6 +213,7 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 	if err != nil {
 		return nil, err
 	}
+	invalidateProxies()
 	return res, nil
 }
 

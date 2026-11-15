@@ -18,6 +18,7 @@ import { FormGrants } from './FormGrants';
 import { FormKeys } from './FormKeys';
 import { IconButton } from '@/components/common/IconButton';
 import { useSettingStore } from '@/stores/setting';
+import { ProxySelector } from '../proxy-pool/ProxySelector';
 import {
     emptyFormState,
     fromChannel,
@@ -204,7 +205,7 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
                                 </div>
                             ))}
                             <div className="flex flex-wrap items-center gap-6">
-                                {([['enabled', t('enabled')], ['proxy', t('proxy')]] as const).map(([field, label]) => (
+                                {([['enabled', t('enabled')]] as const).map(([field, label]) => (
                                     <label key={field} className="flex items-center gap-2 cursor-pointer">
                                         <Switch
                                             checked={state[field]}
@@ -214,6 +215,7 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
                                     </label>
                                 ))}
                             </div>
+                            <ProxySelector value={{ proxy_mode: state.proxy_mode, proxy_config_id: state.proxy_config_id, proxy_url: state.channel_proxy }} onChange={(value) => setState({ ...state, proxy_mode: value.proxy_mode, proxy_config_id: value.proxy_config_id, channel_proxy: value.proxy_url ?? '' })} />
                         </div>
                     )}
 
@@ -223,7 +225,6 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
                     {step === 'advanced' && (
                         <div className="space-y-4 pt-2">
                             {([
-                                ['channel_proxy', t('channelProxy')],
                                 ['match_regex', t('matchRegex')],
                             ] as const).map(([field, label]) => (
                                 <div key={field} className="space-y-2">

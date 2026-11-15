@@ -207,20 +207,7 @@ func fetchModel(c *gin.Context) {
 		return
 	}
 
-	var httpClient *http.Client
-	var err error
-	switch {
-	case !target.Proxy:
-		httpClient, err = rhttp.Direct()
-	case target.ChannelProxy == "":
-		httpClient, err = rhttp.Proxy()
-	default:
-		httpClient, err = rhttp.New(target.ChannelProxy)
-		// 渠道专用代理的客户端不再共享, 探测完就得关掉空闲连接; 探测收的是未落库的输入, 留着也无从复用。
-		if httpClient != nil {
-			defer httpClient.CloseIdleConnections()
-		}
-	}
+	httpClient, err := rhttp.ForSelection(ctx, target.ProxySelection())
 	if err != nil {
 		resp.Error(c, http.StatusBadGateway, err.Error())
 		return

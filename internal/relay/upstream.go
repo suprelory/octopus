@@ -37,22 +37,10 @@ type upstreamResponse struct {
 }
 
 // resolveUpstreamClient 按渠道代理配置取得本轮上游请求使用的客户端。
-// 第二个返回值非 nil 时说明客户端是为渠道专用代理新建的独占实例, 不进共享连接池, 用完须调用它归还空闲连接。
-func resolveUpstreamClient(channel model.Channel) (*http.Client, func(), error) {
-	switch {
-	case !channel.Proxy:
-		client, err := rhttp.Direct()
-		return client, nil, err
-	case channel.ChannelProxy == "":
-		client, err := rhttp.Proxy()
-		return client, nil, err
-	default:
-		client, err := rhttp.New(channel.ChannelProxy)
-		if err != nil {
-			return nil, nil, err
-		}
-		return client, client.CloseIdleConnections, nil
-	}
+// 渠道客户端统一缓存; 缓存淘汰只关闭空闲连接, 不打断正在消费的流。
+func resolveUpstreamClient(ctx context.Context, channel model.Channel) (*http.Client, func(), error) {
+	client, err := rhttp.ForSelection(ctx, channel.ProxySelection())
+	return client, nil, err
 }
 
 // sendPassthrough 以同协议透传方式请求上游, 取得的响应无需转换即可回给客户端。
@@ -61,7 +49,7 @@ func sendPassthrough(ctx context.Context, format llm.APIFormat, raw *httpclient.
 	if err != nil {
 		return nil, err
 	}
-	httpClient, closeIdle, err := resolveUpstreamClient(channel)
+	httpClient, closeIdle, err := resolveUpstreamClient(ctx, channel)
 	if err != nil {
 		return nil, err
 	}
@@ -319,7 +307,7 @@ func sendConverted(ctx context.Context, format llm.APIFormat, raw *httpclient.Re
 		inbound = openai.NewInboundTransformer()
 	}
 
-	httpClient, closeIdle, err := resolveUpstreamClient(channel)
+	httpClient, closeIdle, err := resolveUpstreamClient(ctx, channel)
 	if err != nil {
 		return nil, err
 	}

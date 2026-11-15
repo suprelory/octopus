@@ -8,6 +8,8 @@ export type ChannelFormState = {
     base_url: string;
     enabled: boolean;
     proxy: boolean;
+    proxy_mode: NonNullable<ChannelDetail['proxy_mode']>;
+    proxy_config_id?: number | null;
     openai_chat_completion_path: string;
     openai_response_path: string;
     anthropic_message_path: string;
@@ -31,6 +33,8 @@ export const emptyFormState: ChannelFormState = {
     base_url: '',
     enabled: true,
     proxy: false,
+    proxy_mode: 'direct',
+    proxy_config_id: null,
     openai_chat_completion_path: '/v1/chat/completions',
     openai_response_path: '/v1/responses',
     anthropic_message_path: '/v1/messages',
@@ -51,6 +55,8 @@ export function fromChannel(channel: ChannelDetail): ChannelFormState {
         base_url: channel.base_url,
         enabled: channel.enabled,
         proxy: channel.proxy,
+        proxy_mode: channel.proxy_mode || (channel.proxy ? (channel.channel_proxy ? 'custom' : 'system') : 'direct'),
+        proxy_config_id: channel.proxy_config_id,
         openai_chat_completion_path: channel.openai_chat_completion_path,
         openai_response_path: channel.openai_response_path,
         anthropic_message_path: channel.anthropic_message_path,
@@ -75,7 +81,9 @@ export function toChannelConfig(state: ChannelFormState) {
         openai_chat_completion_path: state.openai_chat_completion_path.trim(),
         openai_response_path: state.openai_response_path.trim(),
         anthropic_message_path: state.anthropic_message_path.trim(),
-        proxy: state.proxy,
+        proxy: state.proxy_mode !== 'direct',
+        proxy_mode: state.proxy_mode,
+        proxy_config_id: state.proxy_mode === 'pool' ? state.proxy_config_id : null,
         custom_header: state.custom_header.filter((h) => h.header_key.trim() && h.header_value !== ''),
         channel_proxy: state.channel_proxy.trim(),
         param_override: state.param_override.trim(),

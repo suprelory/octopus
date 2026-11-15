@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/op"
 )
 
 func waitContext(ctx context.Context, duration time.Duration) bool {
@@ -104,7 +105,11 @@ func (s *Service) execute(ctx context.Context, item model.CheckinJobItem, settin
 		return err
 	}
 	currentFingerprint := fingerprint(site, account)
-	if run.Fingerprint != currentFingerprint {
+	resolvedProxy, err := op.ResolveProxy(ctx, s.Store.DB, account.ProxySelection(site.Config))
+	if err != nil {
+		return finish("failed", "invalid_proxy")
+	}
+	if run.Fingerprint != currentFingerprint || (run.ProxyFingerprint != "" && run.ProxyFingerprint != resolvedProxy.Fingerprint) {
 		if run.SubmitIntentAt == nil || run.SafeToRetry {
 			run.Fingerprint = currentFingerprint
 		} else if item.ConfirmOnly && job.Source == "confirmation" {
@@ -114,6 +119,10 @@ func (s *Service) execute(ctx context.Context, item model.CheckinJobItem, settin
 		} else {
 			return finish("manual_required", "config_changed")
 		}
+	}
+	run.ProxyFingerprint = resolvedProxy.Fingerprint
+	if err := s.Store.SaveRunProxy(ctx, item, run, s.Now()); err != nil {
+		return err
 	}
 	if run.ConfirmDeadline == nil || (run.SubmitIntentAt == nil && (run.Status == "failed" || job.Source == "manual")) {
 		deadline := s.Now().Add(time.Duration(settings.ConfirmTimeoutMinutes) * time.Minute)
@@ -130,14 +139,7 @@ func (s *Service) execute(ctx context.Context, item model.CheckinJobItem, settin
 	if json.Unmarshal(plain, &credentials) != nil || model.ValidateCheckinCredentials(credentials) != nil || !model.CheckinCredentialSupported(site.Config.Adapter, credentials.Type) {
 		return finish("manual_required", "invalid_credentials")
 	}
-	proxy := site.Config.ProxyURL
-	if account.ProxyMode == "direct" {
-		proxy = ""
-	}
-	if account.ProxyMode == "custom" {
-		proxy = account.ProxyURL
-	}
-	client, err := newHTTPClient(proxy, time.Duration(settings.HTTPTimeoutSeconds)*time.Second)
+	client, err := newHTTPClient(resolvedProxy.URL, time.Duration(settings.HTTPTimeoutSeconds)*time.Second)
 	if err != nil {
 		return finish("failed", "invalid_proxy")
 	}
