@@ -17,7 +17,8 @@ import (
 // 版本 5 起 api_keys.supported_models 由逗号分隔字符串改为 JSON 数组。
 // 版本 6 增加完全独立的签到配置、加密凭据、每日记录和任务。
 // Version 7 adds shared proxy configurations and their encrypted credentials.
-const dbDumpVersion = 7
+// Version 8 includes encrypted Turnstile solver settings in the check-in dump.
+const dbDumpVersion = 8
 
 // DBExportAll 导出完整数据库内容，包括所有统计数据。
 func DBExportAll(ctx context.Context) (*model.DBDump, error) {
@@ -94,7 +95,7 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		return nil, fmt.Errorf("empty dump")
 	}
 
-	if dump.Version != 0 && dump.Version != 5 && dump.Version != 6 && dump.Version != dbDumpVersion {
+	if dump.Version != 0 && dump.Version != 5 && dump.Version != 6 && dump.Version != 7 && dump.Version != dbDumpVersion {
 		return nil, fmt.Errorf("unsupported dump version: %d", dump.Version)
 	}
 	if err := validateCheckinDump(dump.Checkin); err != nil {

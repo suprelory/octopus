@@ -163,14 +163,16 @@ func validateCheckinGraph(d *model.CheckinDump) error {
 			return fail()
 		}
 		switch attempt.Stage {
-		case "precheck", "submit", "confirm", "refresh", "authenticate":
+		case "precheck", "submit", "confirm", "refresh", "authenticate", "turnstile_discover", "turnstile_cloudflare_solver", "turnstile_solverq":
 		default:
 			return fail()
 		}
 		switch attempt.Reason {
 		case "response_received", "network_error":
 		default:
-			return fail()
+			if !model.IsTurnstileReason(attempt.Reason) {
+				return fail()
+			}
 		}
 	}
 	return nil
@@ -236,17 +238,19 @@ func validateCheckinObservation(balance *model.CheckinBalanceSnapshot, inspectio
 	if inspection.StartedAt.IsZero() || (inspection.Status == "running") != (inspection.FinishedAt == nil) ||
 		(inspection.Status == "running") != (inspection.Reason == "") ||
 		(inspection.FinishedAt != nil && inspection.FinishedAt.Before(inspection.StartedAt)) ||
-		(inspection.BalanceUpdated && balance == nil) || len(inspection.Steps) > 8 {
+		(inspection.BalanceUpdated && balance == nil) || len(inspection.Steps) > 32 {
 		return fail()
 	}
 	switch inspection.Reason {
 	case "", "account_verified", "balance_unknown", "balance_invalid", "inspection_unsupported", "inspection_interrupted", "inspection_failed", "account_response_invalid", "account_identity_mismatch", "account_unavailable", "checkin_status_unknown", "checkin_disabled", "credential_unavailable", "invalid_credentials", "invalid_proxy", "network_error", "rate_limited", "upstream_http_error", "verification_required", "unsupported_endpoint", "config_changed", "sub2api_refresh_required", "sub2api_refresh_deferred", "sub2api_refresh_uncertain", "sub2api_refresh_rejected", "sub2api_auth_rejected", "sub2api_session_revoked", "sub2api_session_binding_mismatch", "sub2api_account_unavailable", "sub2api_refresh_identity_mismatch", "sub2api_refresh_save_failed":
 	default:
-		return fail()
+		if !model.IsTurnstileReason(inspection.Reason) {
+			return fail()
+		}
 	}
 	for _, step := range inspection.Steps {
-		if !slices.Contains([]string{"account", "refresh", "detect_status"}, step.Stage) || (step.Stage == "detect_status" && inspection.Kind != "detect") ||
-			!slices.Contains([]string{"response_received", "network_error"}, step.Reason) || step.HTTPStatus < 0 || step.HTTPStatus > 599 || step.DurationMS < 0 || step.CreatedAt.IsZero() {
+		if !slices.Contains([]string{"account", "refresh", "detect_status", "turnstile_discover", "turnstile_cloudflare_solver", "turnstile_solverq"}, step.Stage) || (step.Stage == "detect_status" && inspection.Kind != "detect") ||
+			(!slices.Contains([]string{"response_received", "network_error"}, step.Reason) && !model.IsTurnstileReason(step.Reason)) || step.HTTPStatus < 0 || step.HTTPStatus > 599 || step.DurationMS < 0 || step.CreatedAt.IsZero() {
 			return fail()
 		}
 	}

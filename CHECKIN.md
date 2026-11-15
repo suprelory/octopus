@@ -18,9 +18,10 @@
 - 共享代理池、站点与账号固定绑定、系统代理及账号继承展示。
 - New API / Sub2API 余额查询、只读账号检测、最近检测结果与请求阶段。
 - 自定义多平台通知、消息模板、事件/站点筛选、低余额阈值、冷却、测试发送与持久化投递记录。
+- 所有站点类型共用的 Turnstile 检测、Cloudflare Solver / SolverQ 解码与一次受控重试。
 - 简体中文、繁体中文、英文管理界面。
 
-当前不包含余额差估算、JavaScript/WASM 提取器和验证码处理。Refresh Token 自动续期用于 Sub2API 的 Bearer 账号；账号密码登录用于 AnyRouter 和 AgentRouter。
+当前不包含余额差估算、JavaScript/WASM 提取器和 Cloudflare WAF / cf_clearance 质询处理。Refresh Token 自动续期用于 Sub2API 的 Bearer 账号；账号密码登录用于 AnyRouter 和 AgentRouter。
 
 ## 使用方式
 
@@ -31,6 +32,7 @@
 5. New API / Sub2API 账号可先使用“刷新余额”或“只读检测”，通过“最近结果”查看登录状态和请求阶段。
 6. 使用“签到”“批量签到”或“全量签到”执行，打开任务查看进度，通过记录查看结果与请求阶段。
 7. 打开签到工具栏的“通知”，添加通知目标、保存连接信息并测试发送，再按需开启自动通知。新目标默认关闭自动通知，显式测试发送不受此开关限制。
+8. 需要处理 Turnstile 时，打开“签到设置 → Turnstile”，启用总开关和至少一个解码服务，填写 API 密钥。站点表单的“Turnstile 参数”可补充自动发现不到的 sitekey 或覆盖 token 提交方式。
 
 手动签到选择启用站点中的启用账号，不要求账号开启自动签到。自动提交要求账号开启自动签到，并处于站点的执行窗口内。停用站点或账号会停止后续网络操作；已经开始的请求按本轮超时收尾。
 
@@ -91,7 +93,7 @@ checkin_date 是站点时区下本条记录固定的 YYYY-MM-DD 日期。user_id
 
 SQLite 的提交意图事务临时使用 FULL 同步并占用独立连接，提交完成后恢复连接原同步设置。其他数据库使用其事务持久性配置。
 
-没有状态接口且提交结果不明时，记录为“需人工处理”。明确返回 404/405，或结构明确的凭据拒绝响应，才可能允许再次提交；其他不明确的失败保持提交标记。已验证当前配置的接口不可用时，自动调度暂停尝试；修改站点配置会清除能力结论，手动执行也可以重新验证。
+没有状态接口且提交结果不明时，记录为“需人工处理”。明确返回 404/405、结构明确的凭据拒绝或 Turnstile 验证拒绝响应，才可能允许再次提交；其他不明确的失败保持提交标记。已验证当前配置的接口不可用时，自动调度暂停尝试；修改站点配置会清除能力结论，手动执行也可以重新验证。
 
 后台扫描每分钟运行：
 
@@ -103,7 +105,7 @@ SQLite 的提交意图事务临时使用 FULL 同步并占用独立连接，提�
 
 时间窗口必须位于同一天，可使用 24:00 作为结束时间。随机延迟不会越过窗口；计算后的下次时间写入数据库，重启不会重新抽取。自然日和夏令时按站点 IANA 时区计算。
 
-任务取消只取消等待项，已执行中的请求完成本轮收尾。任务计数表示该任务当轮的执行结果；后续确认以最新签到记录为准。
+任务取消会取消等待项，已执行中的请求完成本轮收尾；Turnstile 解码后会再次检查取消状态，不再发送重试请求。任务计数表示该任务当轮的执行结果；后续确认以最新签到记录为准。
 
 ## 收益
 
@@ -132,9 +134,39 @@ New API 可自行修改奖励路径及单位；例如确认站点采用 500000 q
 
 余额与消耗均使用整数微单位，API 返回字符串以保留浏览器精度，最多 6 位小数；按十进制绝对值四舍五入后恢复符号，超出 int64 范围标记无效。余额允许负数，累计消耗不能为负。零、缺失和非法数值分别记录为 known、unknown、invalid。New API 保留 quota，不套用奖励配置的单位/倍率；Sub2API 不从充值总额或余额差推算累计消费。
 
-账号的 balance 保存最近一次通过身份验证的余额响应及原时间；查询发生网络、鉴权或协议错误时保留上次快照，界面标注“上次已知余额”。有效账号响应缺少余额时，新快照显示未知，不继续展示旧值为当前余额。inspection 保存最近一轮的类型、登录状态、固定原因、业务日期、结果及最多 8 条脱敏请求阶段。替换账号凭据或更换站点地址/平台会清除旧余额；修改站点配置或账号代理绑定会清除最近检测结果。仅保留最近一轮检测阶段，不增加每日签到记录或历史任务。
+账号的 balance 保存最近一次通过身份验证的余额响应及原时间；查询发生网络、鉴权或协议错误时保留上次快照，界面标注“上次已知余额”。有效账号响应缺少余额时，新快照显示未知，不继续展示旧值为当前余额。inspection 保存最近一轮的类型、登录状态、固定原因、业务日期、结果及最多 32 条脱敏请求阶段。替换账号凭据或更换站点地址/平台会清除旧余额；修改站点配置或账号代理绑定会清除最近检测结果。仅保留最近一轮检测阶段，不增加每日签到记录或历史任务。
 
 只读操作与签到、令牌续期共用账号租约，运行期间不能编辑同账号或其站点。Sub2API 按现有规则提前续期，或在明确可恢复的 401 后刷新并重查一次；单轮最多一次成功轮换。网络或保存失败仍保留刷新意图和加密令牌重试结果。AgentRouter 登录不会被调用，检测不会更新每日签到状态、收益、提交标记、调度或站点自动签到支持结论。进程中断后的检测在租约到期时标记为已中断，不自动重放请求。
+
+## Cloudflare Turnstile
+
+协议参考 `octopus-plus/internal/turnstile` 及 `docs/turnstile-solvers.md`。总开关和两个服务开关默认关闭，优先使用 Cloudflare Solver，失败后使用已启用的 SolverQ。配置位于“签到设置 → Turnstile”，与普通应用 Setting 分开存储。
+
+| 服务 | 默认 API 地址 | 提交 / 轮询 |
+| --- | --- | --- |
+| Cloudflare Solver | https://cloudflare.pigeonw.com | GET /turnstile、GET /result；Bearer API 密钥 |
+| SolverQ | https://solver.000.moe | POST /createTask、POST /getTaskResult；clientKey 与 TurnstileTaskProxyless |
+
+所有八种站点类型均通过公共请求层接入，不按 adapter 白名单筛选；适用于签到、前置/后置状态、适配器登录和已经支持的只读账号/余额查询。Sub2API 刷新另行复用相同求解逻辑，保留先保存新令牌、后保存审计的顺序。此功能不会为原本不支持账号检测的平台增加登录或探测操作。
+
+只有明确拒绝的响应才允许求解并重试：JSON 失败或拒绝状态中的 Turnstile 错误，或拒绝状态中的实际 Turnstile HTML 组件。成功响应提到 Turnstile、普通 403、网络错误、限流及含 Cloudflare 品牌文字的页面不构成重试依据。`Cf-Mitigated: challenge`、Cloudflare WAF / JS 质询不使用此 token 流程。
+
+站点的“Turnstile 参数”支持：
+
+- site_key：可选覆盖值；留空时依次读取当前挑战中的 sitekey、匿名 GET /api/status 的 data.turnstile_site_key、验证码页面的 data-sitekey 或静态 turnstile.render 配置。不执行远端 JavaScript；不会把站点配置的 GET 签到接口作为发现接口调用。
+- page_path：默认 `/`，支持 `/login` 等本站路径，保留站点基础地址的路径前缀；拒绝跨站 URL、查询串、片段和模板。传给解码服务的是这个公开页面地址，不是原始请求 URL。
+- action / cdata：可选组件参数；明确填写时覆盖页面参数。
+- token_location / token_field：默认 query / turnstile，也可选择 json 请求体字段或 header 请求头，适用于不同平台的验证码协议。JSON 模式要求原请求体为对象；token 不允许覆盖用户名、密码、Refresh Token 或身份/连接控制头。
+
+每次请求只求解一枚新 token，最多携带它重试一次，不缓存或复用 token。原请求的 GET/POST、JSON、业务头、账号身份、代理和 User-Agent 保留；验证码响应下发的 Cookie 仅按 Domain / Path / Secure 等作用域用于重试。SolverQ 返回的 User-Agent 不会自动替换登录会话的 User-Agent，强制绑定该值或出口 IP 的站点可能仍需人工处理。
+
+签到被验证码明确拒绝时，先持久化 safe_to_retry；解码完成后检查取消、业务日期及自动窗口，再重新持久化提交意图后重发。再次收到验证码时停止本轮，保留明确的可重试证据；带 token 的请求超时、断连或响应不明时保留提交标记，只允许后续确认。关闭服务、sitekey 缺失、密钥/余额错误等会显示固定原因；修复后可手动发起签到。令牌刷新被验证码明确拒绝时不会将旧 Refresh Token 标记为已消费，重发前仍需重新保存轮换意图。
+
+每轮签到或检测使用固定的求解配置快照，修改配置对后续轮次生效。所有求解共享 60 秒预算，包含参数发现；两服务同时启用时为备用服务预留时间。单次求解 HTTP 请求最多 30 秒、返回数据最多 64 KiB，轮询遵守取消和总预算，禁用重定向。签到/检测整轮上限 140 秒，另为已经发出的令牌轮换及数据库收尾保留时间，仍小于 3 分钟账号租约。确认查询与 AgentRouter 的辅助日志查询仅在启用解码时增加剩余求解预算。
+
+API 密钥使用签到主密钥加密，并绑定服务类型与 API 地址。查询仅返回密钥是否已保存，不返回密钥明文或密文；编辑时省略 cloudflare_key / solverq_key 保留原值，显式空字符串清除。修改服务地址时必须重新提供或清除密钥。调用使用独立直连客户端，仅向解码方发送公开页面、sitekey 和可选 action / cdata，不发送网站 Cookie、登录令牌、密码或账号代理凭据。服务调用可能产生费用，测试使用本地模拟接口。
+
+阶段记录增加 turnstile_discover、turnstile_cloudflare_solver、turnstile_solverq，以及固定的成功/失败原因，不保存解码 token、任务 ID、上游错误正文或包含密钥的 URL。导入新的求解配置时总开关强制关闭，已有本地配置和密钥不被备份覆盖。
 
 ## 自定义多平台通知
 
@@ -198,7 +230,7 @@ Cookie、Access Token、Refresh Token、用户名、密码和派生登录会话�
 
 站点支持直连、系统代理、自定义 HTTP(S)/SOCKS5/SOCKS5H 地址及代理池节点；账号还可继承站点。系统代理仅在明确选择时读取应用设置中的 `proxy_url`，签到不自动继承渠道或环境代理。每轮认证、刷新、提交和确认固定使用同一代理快照；节点停用或解析失败时不会改为直连。地址或认证变化会改变已提交记录的有效代理指纹，进入原有人工确认流程，保留提交意图与令牌轮换状态。代理池认证使用独立的 `data/proxy.key`，完整配置和备份方式见 [PROXY.md](PROXY.md)。
 
-全库备份版本为 7，仍接受版本 6、5 和历史未标记版本。签到数据位于 checkin 字段，当前子版本为 6，仍接受子版本 1–5；包含全部八张表及删除标记。子版本 2 增加令牌续期元数据和稳定的凭据身份版本；子版本 3 增加平台能力、加密登录会话和 authenticate 请求阶段；子版本 4 增加代理池引用与运行时代理指纹；子版本 5 增加账号余额快照和最近只读检测；子版本 6 增加加密通知目标与投递记录。启动时自动添加新表及可空观测字段，旧账号保持未查询状态。恢复时：
+全库备份版本为 8，仍接受版本 7、6、5 和历史未标记版本。签到数据位于 checkin 字段，当前子版本为 7，仍接受子版本 1–6；包含全部九张表及删除标记。子版本 2 增加令牌续期元数据和稳定的凭据身份版本；子版本 3 增加平台能力、加密登录会话和 authenticate 请求阶段；子版本 4 增加代理池引用与运行时代理指纹；子版本 5 增加账号余额快照和最近只读检测；子版本 6 增加加密通知目标与投递记录；子版本 7 增加加密 Turnstile 服务配置与通用站点参数。启动时自动添加新表及可空观测字段，旧账号保持未查询状态。恢复时：
 
 - 校验密钥、字段、重复 ID、每日唯一性和完整引用关系。
 - 先导入公共代理节点，再重映射站点、账号和通知目标绑定；节点数字 ID 冲突不会改变有效代理身份。
@@ -210,6 +242,7 @@ Cookie、Access Token、Refresh Token、用户名、密码和派生登录会话�
 - 保留余额原值、未知状态及获取时间；运行中的检测转为已中断，不重放查询或续期。
 - 新账号导入已有站点时，若该站点的现有地址或平台与备份不同，清除来自旧站点的观测快照。
 - 新通知目标强制关闭自动通知，保留已加密连接；queued / sending 消息转为 skipped，不重放投递。已有本地通知配置与密文保持原值。
+- 新 Turnstile 配置关闭自动解码，校验密钥与服务地址的加密绑定；已有本地配置和密钥保持原值。
 - 每日记录冲突时复用现有记录并重映射历史引用，重复导入不重复累计收益。
 
 导出/导入期间暂停签到模块的写操作并等待活动签到、检测和通知发送收尾；导入后在恢复调度前刷新设置缓存。当前支持单个应用实例运行签到调度；不提供多个实例共享数据库的完整高可用协调。
@@ -264,6 +297,7 @@ AgentRouter 协议参考 `octopus-plus/internal/sitesync/agentrouter.go`。登�
 | internal/checkin/inspection.go、internal/op/checkin_inspection.go | 余额与只读账号检测、共享租约、独立快照与恢复 |
 | internal/checkin/notification.go、internal/op/checkin_notification*.go | 通知事件、加密目标、持久化投递队列、租约与备份 |
 | internal/notify/ | 通知配置校验、模板、9 种平台协议与脱敏结果 |
+| internal/turnstile/、internal/checkin/turnstile*.go | 求解平台协议、通用验证码发现、加密设置与受控重试 |
 | internal/checkin/executor.go | 统一的持久化提交边界与恢复状态机 |
 | internal/checkin/ 其他文件 | HTTP、安全规则、调度、收益、事件 |
 | internal/utils/checkinsecret/ | 主密钥和凭据加解密 |
@@ -272,7 +306,7 @@ AgentRouter 协议参考 `octopus-plus/internal/sitesync/agentrouter.go`。登�
 | web/src/components/modules/checkin/ | 站点、账号、任务、记录、收益界面 |
 | web/src/locales/checkin/ | 三种语言文案 |
 
-八张表为 checkin_sites、checkin_accounts、checkin_runs、checkin_attempts、checkin_jobs、checkin_job_items、checkin_notification_targets、checkin_notification_deliveries。账号属于签到站点；任务项关联账号和每日记录；投递记录属于通知目标。不存在渠道或订阅业务外键。
+九张表为 checkin_sites、checkin_accounts、checkin_runs、checkin_attempts、checkin_jobs、checkin_job_items、checkin_notification_targets、checkin_notification_deliveries、checkin_turnstile_settings。账号属于签到站点；任务项关联账号和每日记录；投递记录属于通知目标；Turnstile 服务配置为单例。不存在渠道或订阅业务外键。
 
 ## 接口
 
@@ -298,6 +332,7 @@ AgentRouter 协议参考 `octopus-plus/internal/sitesync/agentrouter.go`。登�
 | GET | /stats | 记录计数与收益 |
 | GET | /capabilities | 平台凭据、执行方式、状态查询、只读检测/余额查询及可编辑能力 |
 | GET / PATCH | /settings | 执行参数 |
+| GET / PATCH | /turnstile | 求解服务配置，写入带 revision，密钥只写不读 |
 | POST | /rules/test | 离线样例测试 |
 | GET / POST | /notifications | 通知目标列表、创建 |
 | PATCH / DELETE | /notifications/:id | 带 revision 编辑、删除目标 |
@@ -317,13 +352,15 @@ kind 支持 all、sites、accounts。all 不允许携带 IDs；无效 ID 或空�
 
 余额/检测接口接受空请求体或 {}，拒绝额外字段。请求完成返回 200；上游失败记录在 inspection.status/reason，不泄露原始错误或响应。运行冲突返回 409，并发或站点间隔限制返回 503。查询账号列表只读取缓存快照，不主动请求上游。平台能力增加 account_detection、balance_query 两个布尔字段。
 
-默认并发 4（上限 8），同站账号串行，相邻账号任务间隔 2 秒；队列最多 2000 项，单任务最多 1000 个账号。默认 HTTP 超时 30 秒，单轮最多 90 秒，确认查询最多占用 30 秒；每轮默认确认 3 次、间隔 2 秒、总确认期限 60 分钟。账户租约 3 分钟，长于单轮执行上限。
+默认并发 4（上限 8），同站账号串行，相邻账号任务间隔 2 秒；队列最多 2000 项，单任务最多 1000 个账号。默认 HTTP 超时 30 秒，单轮最多 140 秒；确认查询基础上限 30 秒，开启 Turnstile 时可加上本轮剩余求解预算（最多 60 秒），仍受整轮期限限制。每轮默认确认 3 次、间隔 2 秒、总确认期限 60 分钟。账号租约 3 分钟，长于单轮执行及收尾上限。
 
 ## 验证
 
 使用临时 SQLite 数据库和 httptest 本地服务覆盖独立运行、加密、并发入口、提交持久性、恢复、状态规则、精度、时区、取消、编辑冲突、备份和管理员权限。不会在测试中调用真实签到站点。
 
 通知协议使用模拟 HTTP transport、本地 HTTP / SMTP 服务验证签名、JSON 转义、Unicode 限制、明确成功标记、SMTP TLS 要求与 DATA 接受边界。集成测试覆盖事件去重、冷却、失败隔离、低余额新鲜度/单位、并发重试、租约恢复、代理引用和备份不重放。无需配置真实推送凭据。
+
+Turnstile 使用本地 HTTP 服务覆盖两个求解协议、回退、响应校验、错误脱敏、取消与重定向；集成测试覆盖八种平台、三种 token 位置、多阶段新 token、匿名页面发现、Cookie 作用域、只读检测、跨日与取消后的停止、二次提交标记失败，以及取消或审计失败时仍保存已轮换的令牌。API 和备份验证密钥加密、地址绑定及恢复默认关闭。不会调用真实收费解码服务。
 
 ~~~text
 go test ./...

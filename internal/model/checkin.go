@@ -38,25 +38,26 @@ type CheckinRewardRule struct {
 }
 
 type CheckinSiteConfig struct {
-	Name          string             `json:"name"`
-	BaseURL       string             `json:"base_url"`
-	Adapter       string             `json:"adapter"`
-	Enabled       bool               `json:"enabled"`
-	Timezone      string             `json:"timezone"`
-	WindowStart   string             `json:"window_start"`
-	WindowEnd     string             `json:"window_end"`
-	JitterMinutes int                `json:"jitter_minutes"`
-	ProxyURL      string             `json:"proxy_url"`
-	ProxyMode     string             `json:"proxy_mode,omitempty"`
-	ProxyConfigID *int               `json:"proxy_config_id,omitempty"`
-	ManualURL     string             `json:"manual_url"`
-	UserAgent     string             `json:"user_agent,omitempty"`
-	Submit        CheckinRequest     `json:"submit"`
-	Success       *CheckinMatch      `json:"success,omitempty"`
-	Already       *CheckinMatch      `json:"already,omitempty"`
-	Status        *CheckinStatusRule `json:"status,omitempty"`
-	StatusMode    string             `json:"status_mode,omitempty"`
-	Reward        CheckinRewardRule  `json:"reward"`
+	Name          string                `json:"name"`
+	BaseURL       string                `json:"base_url"`
+	Adapter       string                `json:"adapter"`
+	Enabled       bool                  `json:"enabled"`
+	Timezone      string                `json:"timezone"`
+	WindowStart   string                `json:"window_start"`
+	WindowEnd     string                `json:"window_end"`
+	JitterMinutes int                   `json:"jitter_minutes"`
+	ProxyURL      string                `json:"proxy_url"`
+	ProxyMode     string                `json:"proxy_mode,omitempty"`
+	ProxyConfigID *int                  `json:"proxy_config_id,omitempty"`
+	ManualURL     string                `json:"manual_url"`
+	UserAgent     string                `json:"user_agent,omitempty"`
+	Turnstile     *CheckinTurnstileSite `json:"turnstile,omitempty"`
+	Submit        CheckinRequest        `json:"submit"`
+	Success       *CheckinMatch         `json:"success,omitempty"`
+	Already       *CheckinMatch         `json:"already,omitempty"`
+	Status        *CheckinStatusRule    `json:"status,omitempty"`
+	StatusMode    string                `json:"status_mode,omitempty"`
+	Reward        CheckinRewardRule     `json:"reward"`
 }
 
 type CheckinSite struct {
@@ -271,4 +272,5 @@ type CheckinDump struct {
 
 	NotificationTargets    []CheckinNotificationBackup   `json:"notification_targets,omitempty"`
 	NotificationDeliveries []CheckinNotificationDelivery `json:"notification_deliveries,omitempty"`
+	Turnstile              *CheckinTurnstileBackup       `json:"turnstile,omitempty"`
 }

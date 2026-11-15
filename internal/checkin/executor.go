@@ -150,7 +150,11 @@ func (s *Service) execute(ctx context.Context, item model.CheckinJobItem, settin
 		return finish("failed", "invalid_proxy")
 	}
 	defer client.CloseIdleConnections()
-	adapter, err := newPlatformAdapter(&adapterRuntime{s: s, client: client, site: site, item: item, account: &account, credentials: &credentials, run: &run, source: job.Source})
+	runtime := &adapterRuntime{s: s, client: client, site: site, item: item, account: &account, credentials: &credentials, run: &run, source: job.Source}
+	if err := runtime.initTurnstile(ctx); err != nil {
+		return err
+	}
+	adapter, err := newPlatformAdapter(runtime)
 	if err != nil {
 		return authFailure(err)
 	}
@@ -223,7 +227,7 @@ func (s *Service) execute(ctx context.Context, item model.CheckinJobItem, settin
 	if businessDate(site.Config, s.Now()) != run.CheckinDate && !policy.DateAware {
 		return finish("manual_required", "date_evidence_required")
 	}
-	queryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	queryCtx, cancel := context.WithTimeout(ctx, runtime.turnstileQueryTimeout(30*time.Second))
 	defer cancel()
 	for attempt := 0; attempt < settings.ConfirmAttempts; attempt++ {
 		if attempt > 0 && !waitContext(queryCtx, time.Duration(settings.ConfirmIntervalSeconds)*time.Second) {

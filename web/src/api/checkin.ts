@@ -24,6 +24,7 @@ export type SiteConfig = {
     proxy_config_id?: number | null;
     manual_url: string;
     user_agent?: string;
+    turnstile?: TurnstileSiteOptions;
     submit: CheckinRequest;
     success?: Match;
     already?: Match;
@@ -38,6 +39,26 @@ export type CheckinSite = {
     support: string;
     support_revision: number;
     verified_at?: string;
+};
+export type TurnstileSiteOptions = {
+    site_key: string;
+    page_path: string;
+    action: string;
+    cdata: string;
+    token_location: 'query' | 'json' | 'header';
+    token_field: string;
+};
+export type TurnstileConfig = {
+    enabled: boolean;
+    cloudflare_solver: { enabled: boolean; base_url: string };
+    solverq: { enabled: boolean; base_url: string };
+};
+export type TurnstileSettings = {
+    config: TurnstileConfig;
+    revision: number;
+    has_cloudflare_key: boolean;
+    has_solverq_key: boolean;
+    updated_at: string;
 };
 export type CredentialType = 'cookie' | 'bearer' | 'password';
 export type CheckinBalance = {

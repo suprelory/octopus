@@ -17,6 +17,7 @@ import {
     useCheckinQuery,
 } from '@/api/checkin';
 import { CheckinDialog, CheckinError, CheckinField, CheckinSelect, CheckinStatus } from './common';
+import { TurnstileSettingsForm } from './TurnstileSettings';
 
 export type CheckinFilter = { siteID: string; accountID: string };
 
@@ -456,14 +457,34 @@ function SettingsForm({ settings, onClose }: { settings: CheckinSettings; onClos
 
 export function SettingsPanel({ onClose }: { onClose: () => void }) {
     const t = useTranslations('checkin');
+    const [tab, setTab] = useState<'execution' | 'turnstile'>('execution');
     const query = useCheckinQuery<CheckinSettings>('/settings');
     return (
         <CheckinDialog title={t('settings')} onClose={onClose}>
-            <CheckinError error={query.error} />
-            {query.data ? (
-                <SettingsForm settings={query.data} onClose={onClose} />
+            <div className="mb-5 flex flex-wrap gap-2">
+                {(['execution', 'turnstile'] as const).map((key) => (
+                    <Button
+                        key={key}
+                        size="sm"
+                        variant={tab === key ? 'default' : 'ghost'}
+                        aria-pressed={tab === key}
+                        onClick={() => setTab(key)}
+                    >
+                        {t(key === 'execution' ? 'turnstile.execution' : 'turnstile.title')}
+                    </Button>
+                ))}
+            </div>
+            {tab === 'turnstile' ? (
+                <TurnstileSettingsForm onClose={onClose} />
             ) : (
-                <p>{t('loading')}</p>
+                <>
+                    <CheckinError error={query.error} />
+                    {query.data ? (
+                        <SettingsForm settings={query.data} onClose={onClose} />
+                    ) : (
+                        <p>{t('loading')}</p>
+                    )}
+                </>
             )}
         </CheckinDialog>
     );

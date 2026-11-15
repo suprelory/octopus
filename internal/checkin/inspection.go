@@ -31,7 +31,7 @@ func (s *Service) InspectAccount(parent context.Context, accountID, kind string)
 		s.Notify("account")
 		s.wg.Done()
 	}()
-	ctx, cancel := context.WithTimeout(parent, 90*time.Second)
+	ctx, cancel := context.WithTimeout(parent, checkinOperationTimeout)
 	defer cancel()
 	stop := context.AfterFunc(s.ctx, cancel)
 	defer stop()
@@ -44,6 +44,9 @@ func (s *Service) InspectAccount(parent context.Context, accountID, kind string)
 	balance, operationErr := s.inspect(ctx, runtime, settings)
 	if operationErr != nil {
 		inspection.Status, inspection.Reason = "failed", "inspection_failed"
+		if balance != nil {
+			inspection.Status = "partial"
+		}
 		if _, reason, recognized := adapterErrorState(operationErr); recognized {
 			inspection.Reason = reason
 			operationErr = nil // An upstream failure is a saved diagnostic result.

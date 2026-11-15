@@ -49,6 +49,7 @@ type adapterRuntime struct {
 	run         *model.CheckinRun
 	inspection  *model.CheckinInspection
 	source      string
+	turnstile   *turnstileSession
 }
 
 func (r *adapterRuntime) request(ctx context.Context, stage string, config model.CheckinRequest, auth model.CheckinCredentials) (HTTPResult, error) {
@@ -56,19 +57,69 @@ func (r *adapterRuntime) request(ctx context.Context, stage string, config model
 }
 
 func (r *adapterRuntime) requestBody(ctx context.Context, stage string, config model.CheckinRequest, auth model.CheckinCredentials, expand bool) (HTTPResult, error) {
+	if err := r.initTurnstile(ctx); err != nil {
+		return HTTPResult{}, err
+	}
 	started := time.Now()
 	date := r.item.CheckinDate
 	if r.run != nil {
 		date = r.run.CheckinDate
 	}
 	result := doRequestHTTP(ctx, r.client, r.site.Config, config, auth, date, expand)
+	if r.turnstileChallenge(result) {
+		if err := r.markTurnstileRejection(ctx, stage); err != nil {
+			return result, err
+		}
+		if err := r.auditReason(ctx, stage, result, time.Since(started), "turnstile_required"); err != nil {
+			return result, err
+		}
+		if err := r.turnstileRetryAllowed(ctx, stage == "submit"); err != nil {
+			return result, err
+		}
+		token, err := r.solveTurnstile(ctx, result)
+		if err != nil {
+			return result, err
+		}
+		if err := r.turnstileRetryAllowed(ctx, stage == "submit"); err != nil {
+			return result, err
+		}
+		if stage == "submit" && r.run != nil {
+			if err := r.s.Store.MarkSubmitted(ctx, r.item, r.run, r.s.Now()); err != nil {
+				return result, err
+			}
+		}
+		token.cookies = result.Cookies
+		started = time.Now()
+		result = doRequestHTTPWithToken(ctx, r.client, r.site.Config, config, auth, date, expand, token)
+		result.Cookies = append(token.cookies, result.Cookies...)
+		if r.turnstileChallenge(result) {
+			if err := r.markTurnstileRejection(ctx, stage); err != nil {
+				return result, err
+			}
+			if err := r.auditReason(ctx, stage, result, time.Since(started), "turnstile_rejected"); err != nil {
+				return result, err
+			}
+			return result, needsAttention("turnstile_rejected")
+		}
+	}
 	return result, r.audit(ctx, stage, result, time.Since(started))
 }
 
 func (r *adapterRuntime) audit(ctx context.Context, stage string, result HTTPResult, duration time.Duration) error {
-	reason, message := "response_received", "Upstream response received"
+	reason := "response_received"
 	if result.Err != nil {
-		reason, message = "network_error", "Request failed, timed out, or exceeded the response limit"
+		reason = "network_error"
+	}
+	return r.auditReason(ctx, stage, result, duration, reason)
+}
+
+func (r *adapterRuntime) auditReason(ctx context.Context, stage string, result HTTPResult, duration time.Duration, reason string) error {
+	message := "Upstream response received"
+	if reason == "network_error" {
+		message = "Request failed, timed out, or exceeded the response limit"
+	}
+	if model.IsTurnstileReason(reason) {
+		message = "Turnstile verification step completed"
 	}
 	// Never persist bodies, headers, URLs or credential-derived text.
 	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)

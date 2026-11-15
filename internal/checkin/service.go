@@ -254,7 +254,7 @@ func (s *Service) work(parent context.Context, item model.CheckinJobItem, settin
 		s.gate.RUnlock()
 		s.Notify("progress")
 	}()
-	ctx, cancel := context.WithTimeout(parent, 90*time.Second)
+	ctx, cancel := context.WithTimeout(parent, checkinOperationTimeout)
 	defer cancel()
 	if err := s.execute(ctx, item, settings); err != nil {
 		log.Warn("checkin state could not be persisted; its lease will be recovered", "job_id", item.JobID)

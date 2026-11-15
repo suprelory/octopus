@@ -46,7 +46,7 @@ func testCheckinEngine(t *testing.T) *gin.Engine {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := conn.AutoMigrate(&model.CheckinSite{}, &model.CheckinAccount{}, &model.CheckinRun{}, &model.CheckinAttempt{}, &model.CheckinJob{}, &model.CheckinJobItem{}, &model.CheckinNotificationTarget{}, &model.CheckinNotificationDelivery{}, &model.Setting{}); err != nil {
+	if err := conn.AutoMigrate(&model.CheckinSite{}, &model.CheckinAccount{}, &model.CheckinRun{}, &model.CheckinAttempt{}, &model.CheckinJob{}, &model.CheckinJobItem{}, &model.CheckinNotificationTarget{}, &model.CheckinNotificationDelivery{}, &model.CheckinTurnstileSettings{}, &model.Setting{}); err != nil {
 		t.Fatal(err)
 	}
 	vault, _ := checkinsecret.New(bytes.Repeat([]byte{2}, 32))

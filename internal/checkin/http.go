@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"strings"
 	"time"
@@ -17,11 +18,12 @@ import (
 )
 
 type HTTPResult struct {
-	StatusCode int
-	Body       []byte
-	Err        error
-	Cookies    []*http.Cookie
-	URL        *url.URL
+	StatusCode          int
+	Body                []byte
+	Err                 error
+	Cookies             []*http.Cookie
+	URL                 *url.URL
+	CloudflareChallenge bool
 }
 type SubmitResult struct {
 	Status, Reason string
@@ -61,6 +63,10 @@ func requestHTTP(ctx context.Context, client *http.Client, site model.CheckinSit
 }
 
 func doRequestHTTP(ctx context.Context, client *http.Client, site model.CheckinSiteConfig, config model.CheckinRequest, credentials model.CheckinCredentials, date string, expand bool) HTTPResult {
+	return doRequestHTTPWithToken(ctx, client, site, config, credentials, date, expand, nil)
+}
+
+func doRequestHTTPWithToken(ctx context.Context, client *http.Client, site model.CheckinSiteConfig, config model.CheckinRequest, credentials model.CheckinCredentials, date string, expand bool, token *requestToken) HTTPResult {
 	base, err := checkinRequestURL(site.BaseURL, config.Path, date)
 	if err != nil {
 		return HTTPResult{Err: errors.New("invalid site URL")}
@@ -74,6 +80,22 @@ func doRequestHTTP(ctx context.Context, client *http.Client, site model.CheckinS
 	}
 	if body != "" && !json.Valid([]byte(body)) {
 		return HTTPResult{Err: errors.New("invalid expanded JSON body")}
+	}
+	if token != nil {
+		switch token.location {
+		case "query":
+			query := base.Query()
+			query.Set(token.field, token.value)
+			base.RawQuery = query.Encode()
+		case "json":
+			object := map[string]json.RawMessage{}
+			if body != "" && (json.Unmarshal([]byte(body), &object) != nil || object == nil) {
+				return HTTPResult{Err: errors.New("Turnstile requires a JSON object body")}
+			}
+			object[token.field], _ = json.Marshal(token.value)
+			encoded, _ := json.Marshal(object)
+			body = string(encoded)
+		}
 	}
 	req, err := http.NewRequestWithContext(ctx, config.Method, base.String(), bytes.NewBufferString(body))
 	if err != nil {
@@ -99,6 +121,27 @@ func doRequestHTTP(ctx context.Context, client *http.Client, site model.CheckinS
 	if credentials.UserID != "" {
 		req.Header.Set("New-Api-User", credentials.UserID)
 	}
+	if token != nil && token.location == "header" {
+		req.Header.Set(token.field, token.value)
+	}
+	if token != nil && len(token.cookies) > 0 {
+		// Keep cookies issued with the refusal only for this same-origin retry;
+		// cookiejar enforces Domain, Path, Secure and deletion/expiry semantics.
+		jar, _ := cookiejar.New(nil)
+		jar.SetCookies(base, req.Cookies())
+		for _, cookie := range token.cookies {
+			// Some Go versions treat loopback HTTP as a secure context; keep the
+			// same strict HTTPS requirement used by persisted router sessions.
+			if cookie.Secure && base.Scheme != "https" {
+				continue
+			}
+			jar.SetCookies(base, []*http.Cookie{cookie})
+		}
+		req.Header.Del("Cookie")
+		for _, cookie := range jar.Cookies(base) {
+			req.AddCookie(cookie)
+		}
+	}
 	response, err := client.Do(req)
 	if err != nil {
 		return HTTPResult{Err: errors.New("checkin request failed or timed out")}
@@ -108,7 +151,7 @@ func doRequestHTTP(ctx context.Context, client *http.Client, site model.CheckinS
 	if err != nil || len(raw) > 1<<20 {
 		return HTTPResult{StatusCode: response.StatusCode, Cookies: response.Cookies(), URL: base, Err: errors.New("checkin response could not be read within its limit")}
 	}
-	return HTTPResult{StatusCode: response.StatusCode, Body: raw, Cookies: response.Cookies(), URL: base}
+	return HTTPResult{StatusCode: response.StatusCode, Body: raw, Cookies: response.Cookies(), URL: base, CloudflareChallenge: strings.EqualFold(response.Header.Get("Cf-Mitigated"), "challenge")}
 }
 
 func checkinRequestURL(baseURL, requestPath, date string) (*url.URL, error) {

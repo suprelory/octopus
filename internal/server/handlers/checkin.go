@@ -50,6 +50,8 @@ func init() {
 	add("/capabilities", http.MethodGet, func(c *gin.Context) { resp.Success(c, checkin.Capabilities()) })
 	add("/settings", http.MethodGet, checkinSettings)
 	add("/settings", http.MethodPatch, checkinSaveSettings)
+	add("/turnstile", http.MethodGet, checkinTurnstileSettings)
+	add("/turnstile", http.MethodPatch, checkinSaveTurnstile)
 	add("/rules/test", http.MethodPost, checkinRules)
 	add("/events", http.MethodGet, checkinEvents)
 	add("/notifications", http.MethodGet, checkinNotifications)

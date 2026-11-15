@@ -41,7 +41,7 @@ func (a *agentRouterAdapter) Submit(ctx context.Context) (submission, error) {
 	}
 	// Earlier logs distinguish an already granted allowance. Missing logs cannot
 	// undo explicit, same-day checked_in evidence in this login response.
-	queryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	queryCtx, cancel := context.WithTimeout(ctx, a.r.turnstileQueryTimeout(5*time.Second))
 	defer cancel()
 	status, err := a.Query(queryCtx, "confirm")
 	if err != nil {

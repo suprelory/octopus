@@ -15,7 +15,7 @@ import (
 )
 
 func exportCheckin(ctx context.Context, conn *gorm.DB) (*model.CheckinDump, error) {
-	dump := &model.CheckinDump{Version: 6}
+	dump := &model.CheckinDump{Version: 7}
 	var accounts []model.CheckinAccount
 	var notifications []model.CheckinNotificationTarget
 	for _, target := range []any{&dump.Sites, &accounts, &dump.Runs, &dump.Attempts, &dump.Jobs, &dump.Items, &notifications, &dump.NotificationDeliveries} {
@@ -29,6 +29,13 @@ func exportCheckin(ctx context.Context, conn *gorm.DB) (*model.CheckinDump, erro
 	for _, target := range notifications {
 		dump.NotificationTargets = append(dump.NotificationTargets, model.CheckinNotificationBackup{CheckinNotificationTarget: target, Cipher: target.ConnectionCipher})
 	}
+	turnstile, err := readTurnstileSettings(conn.WithContext(ctx))
+	if err != nil {
+		return nil, err
+	}
+	if turnstile.Revision > 0 {
+		dump.Turnstile = &model.CheckinTurnstileBackup{CheckinTurnstileSettings: turnstile, CloudflareCipher: turnstile.CloudflareKeyCipher, SolverQCipher: turnstile.SolverQKeyCipher}
+	}
 	return dump, nil
 }
 
@@ -36,7 +43,7 @@ func validateCheckinDump(dump *model.CheckinDump) error {
 	if dump == nil {
 		return nil
 	}
-	if dump.Version < 1 || dump.Version > 6 {
+	if dump.Version < 1 || dump.Version > 7 {
 		return errors.New("unsupported checkin backup version")
 	}
 	if len(dump.Sites) > 10000 || len(dump.Accounts) > 100000 || len(dump.Runs) > 1000000 || len(dump.Attempts) > 2000000 || len(dump.Jobs) > 1000000 || len(dump.Items) > 1000000 {
@@ -165,7 +172,10 @@ func validateCheckinDump(dump *model.CheckinDump) error {
 	if err := validateCheckinGraph(dump); err != nil {
 		return err
 	}
-	return validateNotificationDump(dump)
+	if err := validateNotificationDump(dump); err != nil {
+		return err
+	}
+	return validateTurnstileDump(dump)
 }
 
 func importCheckin(tx *gorm.DB, dump *model.CheckinDump, result *model.DBImportResult) error {
@@ -333,6 +343,9 @@ func importCheckin(tx *gorm.DB, dump *model.CheckinDump, result *model.DBImportR
 		if attempt.Reason == "network_error" {
 			attempt.Message = "Request failed, timed out, or exceeded the response limit"
 		}
+		if model.IsTurnstileReason(attempt.Reason) {
+			attempt.Message = "Turnstile verification step completed"
+		}
 		if err := insert("checkin_attempts", &attempt); err != nil {
 			return err
 		}
@@ -342,5 +355,8 @@ func importCheckin(tx *gorm.DB, dump *model.CheckinDump, result *model.DBImportR
 			return err
 		}
 	}
-	return importNotifications(tx, dump, runIDs, result)
+	if err := importNotifications(tx, dump, runIDs, result); err != nil {
+		return err
+	}
+	return importTurnstile(tx, dump, result)
 }

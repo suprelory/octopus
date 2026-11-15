@@ -110,6 +110,9 @@ func NormalizeCheckinSite(c *CheckinSiteConfig) error {
 	if err := ValidateCheckinURL(c.BaseURL, false); err != nil {
 		return err
 	}
+	if err := NormalizeCheckinTurnstileSite(c.Turnstile); err != nil {
+		return err
+	}
 	platform, ok := CheckinPlatformByID(c.Adapter)
 	if !ok {
 		return InvalidCheckin("unsupported checkin adapter")
@@ -271,6 +274,21 @@ func NormalizeCheckinSite(c *CheckinSiteConfig) error {
 	m, err := strconv.ParseFloat(c.Reward.Multiplier, 64)
 	if err != nil || !(m > 0 && m <= 1e12) {
 		return InvalidCheckin("reward multiplier must be positive and finite")
+	}
+	if c.Turnstile != nil && c.Turnstile.TokenLocation == "json" {
+		requests := []CheckinRequest{c.Submit}
+		if c.Status != nil {
+			requests = append(requests, c.Status.Request)
+		}
+		for _, request := range requests {
+			if request.Body == "" {
+				continue
+			}
+			var object map[string]json.RawMessage
+			if json.Unmarshal([]byte(request.Body), &object) != nil || object == nil {
+				return InvalidCheckin("Turnstile JSON token injection requires object request bodies")
+			}
+		}
 	}
 	return nil
 }

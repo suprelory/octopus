@@ -4,6 +4,7 @@ import { FlaskConical, LoaderCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ProxySelector } from '../proxy-pool/ProxySelector';
+import { TurnstileSiteFields } from './TurnstileSiteFields';
 import { siteProxySelection } from '@/api/proxy-pool';
 import {
     type Capability,
@@ -396,6 +397,10 @@ export function SiteForm({ site, onClose }: { site?: CheckinSite; onClose: () =>
                             </CheckinField>
                         </div>
                     </fieldset>
+                    <TurnstileSiteFields
+                        value={config.turnstile}
+                        onChange={(turnstile) => setConfig({ ...config, turnstile })}
+                    />
                     {platform?.custom_request !== false && (
                         <>
                             <fieldset className="space-y-3 rounded-2xl border p-4">
@@ -687,7 +692,16 @@ export function SiteForm({ site, onClose }: { site?: CheckinSite; onClose: () =>
                             {t('advanced')}
                         </summary>
                         <div className="mt-4 space-y-3">
-                            <ProxySelector value={siteProxySelection(config)} onChange={(value) => setConfig({ ...config, ...value, proxy_url: value.proxy_url ?? '' })} />
+                            <ProxySelector
+                                value={siteProxySelection(config)}
+                                onChange={(value) =>
+                                    setConfig({
+                                        ...config,
+                                        ...value,
+                                        proxy_url: value.proxy_url ?? '',
+                                    })
+                                }
+                            />
                             <CheckinField label={t('manualURL')}>
                                 <Input
                                     type="url"

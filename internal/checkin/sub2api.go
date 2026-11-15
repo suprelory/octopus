@@ -254,6 +254,9 @@ func (r *adapterRuntime) ensureSub2APISession(ctx context.Context, force bool) (
 	if account.RefreshRetryAt != nil && s.Now().Before(*account.RefreshRetryAt) {
 		return fallback(&sub2APIAuthError{reason: "sub2api_refresh_deferred", temporary: true, fallback: true})
 	}
+	if err := r.initTurnstile(ctx); err != nil {
+		return false, err
+	}
 	if err := s.Store.MarkSessionRefresh(ctx, item, *account, s.Now()); err != nil {
 		return false, err
 	}
@@ -263,9 +266,46 @@ func (r *adapterRuntime) ensureSub2APISession(ctx context.Context, force bool) (
 	refreshCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
 	defer cancel()
 	body, _ := json.Marshal(map[string]string{"refresh_token": credentials.RefreshToken})
+	request := model.CheckinRequest{Method: "POST", Path: "/api/v1/auth/refresh", Body: string(body)}
 	started := time.Now()
-	response := doRequestHTTP(refreshCtx, client, site.Config, model.CheckinRequest{Method: "POST", Path: "/api/v1/auth/refresh", Body: string(body)}, model.CheckinCredentials{}, "", false)
+	response := doRequestHTTP(refreshCtx, client, site.Config, request, model.CheckinCredentials{}, "", false)
 	duration := time.Since(started)
+	if isTurnstileChallenge(response) {
+		// A definite captcha refusal did not consume the refresh token. Clear the
+		// rotation marker before solving, and persist it again before replaying.
+		if err := r.clearRejectedRefresh(ctx); err != nil {
+			return false, err
+		}
+		if err := r.auditReason(ctx, "refresh", response, duration, "turnstile_required"); err != nil {
+			return false, err
+		}
+		token, err := r.solveTurnstile(ctx, response)
+		if err != nil {
+			return false, err
+		}
+		if err := r.turnstileRetryAllowed(ctx, false); err != nil {
+			return false, err
+		}
+		if err := s.Store.MarkSessionRefresh(ctx, item, *account, s.Now()); err != nil {
+			return false, err
+		}
+		account.RefreshPending = true
+		token.cookies = response.Cookies
+		retryCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
+		started = time.Now()
+		response = doRequestHTTPWithToken(retryCtx, client, site.Config, request, model.CheckinCredentials{}, "", false, token)
+		duration = time.Since(started)
+		stop()
+		if isTurnstileChallenge(response) {
+			if err := r.clearRejectedRefresh(ctx); err != nil {
+				return false, err
+			}
+			if err := r.auditReason(ctx, "refresh", response, duration, "turnstile_rejected"); err != nil {
+				return false, err
+			}
+			return false, needsAttention("turnstile_rejected")
+		}
+	}
 	next, valid := sub2APIRefreshCredentials(response, *credentials, s.Now())
 	identityChanged := valid && !sameSub2APISession(credentials.AccessToken, next.AccessToken)
 	valid = valid && !identityChanged
@@ -311,6 +351,16 @@ func (r *adapterRuntime) ensureSub2APISession(ctx context.Context, force bool) (
 		return valid, err
 	}
 	return valid, authErr
+}
+
+func (r *adapterRuntime) clearRejectedRefresh(ctx context.Context) error {
+	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := r.s.Store.FailSessionRefresh(saveCtx, r.item, *r.account, false, "", nil, r.s.Now()); err != nil {
+		return err
+	}
+	r.account.RefreshPending, r.account.RefreshError, r.account.RefreshRetryAt = false, "", nil
+	return nil
 }
 
 func sub2APIErrorState(err error) (status, reason string, recognized bool) {
