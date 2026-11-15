@@ -28,6 +28,7 @@ type ProxyConfiguration struct {
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 	HasAuth        bool      `json:"has_auth" gorm:"-"`
+	DisplayURL     string    `json:"display_url,omitempty" gorm:"-"`
 	ReferenceCount int       `json:"reference_count" gorm:"-"`
 }
 

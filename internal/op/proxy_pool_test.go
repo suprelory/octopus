@@ -39,8 +39,15 @@ func TestProxyCredentialsReferencesAndLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, _ := json.Marshal(node)
-	if !node.HasAuth || node.AuthCipher == "" || strings.Contains(node.URL, "@") || bytes.Contains(raw, []byte("alice")) || bytes.Contains(raw, []byte("proxy-private-password")) || bytes.Contains(raw, []byte("AuthCipher")) {
-		t.Fatal("proxy API exposes authentication")
+	if !node.HasAuth || node.AuthCipher == "" || strings.Contains(node.URL, "@") || bytes.Contains(raw, []byte("proxy-private-password")) || bytes.Contains(raw, []byte("auth_cipher")) {
+		t.Fatal("proxy API exposes credentials or omits authentication state")
+	}
+	if node.DisplayURL != "socks5h://alice:***@localhost:1080" {
+		t.Fatal("proxy API did not preserve the username and mask the password")
+	}
+	var stored model.ProxyConfiguration
+	if err := conn.First(&stored, node.ID).Error; err != nil || stored.DisplayURL != "" {
+		t.Fatal("display URL was persisted", err)
 	}
 	selection := model.ProxySelection{Mode: "pool", ConfigID: &node.ID}
 	resolved, err := ResolveProxy(ctx, conn, selection)
@@ -52,7 +59,7 @@ func TestProxyCredentialsReferencesAndLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	after, _ := ResolveProxy(ctx, conn, selection)
-	if after.Fingerprint != resolved.Fingerprint || updated.AuthCipher != node.AuthCipher {
+	if after.Fingerprint != resolved.Fingerprint || after.URL != resolved.URL || updated.AuthCipher != node.AuthCipher || updated.DisplayURL != node.DisplayURL {
 		t.Fatal("metadata edit changed route or lost credentials")
 	}
 	if _, err := ProxySave(ctx, conn, node.ID, model.ProxyWrite{Name: "stale", URL: node.URL, Revision: node.Revision}); !errors.Is(err, ErrProxyConflict) {
@@ -84,6 +91,9 @@ func TestProxyCredentialsReferencesAndLifecycle(t *testing.T) {
 	if err != nil || len(list) != 1 || list[0].ReferenceCount != 3 {
 		t.Fatal("inherited account double-counted", list, err)
 	}
+	if list[0].DisplayURL != node.DisplayURL || list[0].URL != node.URL {
+		t.Fatal("proxy list changed the endpoint or masked display URL")
+	}
 	if err := ProxyDelete(ctx, conn, node.ID); !errors.Is(err, ErrProxyConflict) {
 		t.Fatal("referenced proxy deleted", err)
 	}
@@ -94,8 +104,8 @@ func TestProxyCredentialsReferencesAndLifecycle(t *testing.T) {
 	if _, err := ResolveProxy(ctx, conn, selection); err == nil {
 		t.Fatal("disabled proxy fell back to direct")
 	}
-	if _, err := ProxyURLForTest(ctx, conn, node.ID); err != nil {
-		t.Fatal("disabled node cannot be tested", err)
+	if probeURL, err := ProxyURLForTest(ctx, conn, node.ID); err != nil || probeURL != resolved.URL || updated.DisplayURL != node.DisplayURL {
+		t.Fatal("disabling the node changed its credentials or display URL", err)
 	}
 	if _, err := store.SaveSite(ctx, "", 0, proxySiteConfig(node.ID)); err == nil {
 		t.Fatal("new binding to disabled node accepted")
@@ -109,8 +119,65 @@ func TestProxyCredentialsReferencesAndLifecycle(t *testing.T) {
 	if err := store.Delete(ctx, site.ID, ""); err != nil {
 		t.Fatal(err)
 	}
+	updated, err = ProxySave(ctx, conn, node.ID, model.ProxyWrite{Name: updated.Name, URL: updated.URL, Revision: updated.Revision, ClearAuth: true})
+	if err != nil || updated.HasAuth || updated.DisplayURL != updated.URL {
+		t.Fatal("cleared credentials remain in the display URL", err)
+	}
 	if err := ProxyDelete(ctx, conn, node.ID); err != nil {
 		t.Fatal("soft-deleted sites retained proxy bindings", err)
+	}
+}
+
+func TestProxyDisplayURL(t *testing.T) {
+	for _, test := range []struct {
+		name, input, display string
+	}{
+		{"no authentication", "http://proxy.example:8080", "http://proxy.example:8080"},
+		{"HTTPS", "https://alice:private-password@proxy.example:8443", "https://alice:***@proxy.example:8443"},
+		{"encoded credentials", "http://alice%40example.com%3Aops:private%40password%3A%2F%3F%23@proxy.example:8080", "http://alice%40example.com%3Aops:***@proxy.example:8080"},
+		{"SOCKS IPv6", "socks5://alice:private-password@[2001:db8::1]:1080", "socks5://alice:***@[2001:db8::1]:1080"},
+		{"IPv6 zone", "http://alice:private-password@[fe80::1%25eth0]:8080", "http://alice:***@[fe80::1%25eth0]:8080"},
+		{"username only", "http://alice@proxy.example:8080", "http://alice@proxy.example:8080"},
+		{"empty password", "http://alice:@proxy.example:8080", "http://alice@proxy.example:8080"},
+		{"empty username", "http://:private-password@proxy.example:8080", "http://:***@proxy.example:8080"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, conn := context.Background(), proxyTestDB(t)
+			node, err := ProxySave(ctx, conn, 0, model.ProxyWrite{Name: test.name, URL: test.input, Enabled: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if node.DisplayURL != test.display || strings.Contains(node.URL, "@") {
+				t.Fatalf("unexpected proxy display URL: %q (endpoint %q)", node.DisplayURL, node.URL)
+			}
+			list, err := ProxyList(ctx, conn)
+			if err != nil || len(list) != 1 || list[0].DisplayURL != test.display || list[0].URL != node.URL {
+				t.Fatal("list did not return the masked display URL and credential-free endpoint", err)
+			}
+		})
+	}
+}
+
+func TestProxyDisplayURLWithUnavailableCredentials(t *testing.T) {
+	ctx, conn := context.Background(), proxyTestDB(t)
+	node, err := ProxySave(ctx, conn, 0, model.ProxyWrite{Name: "Unavailable credentials", URL: "http://alice:private-password@proxy.example:8080", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct{ name, key string }{
+		{"wrong key", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{9}, 32))},
+		{"invalid key", "invalid-base64"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("OCTOPUS_PROXY_MASTER_KEY", test.key)
+			list, err := ProxyList(ctx, conn)
+			if err != nil || len(list) != 1 || !list[0].HasAuth || list[0].DisplayURL != node.URL {
+				t.Fatal("proxy list did not fall back to the endpoint", err)
+			}
+			if _, err := ResolveProxy(ctx, conn, model.ProxySelection{Mode: "pool", ConfigID: &node.ID}); err == nil {
+				t.Fatal("unavailable credentials silently fell back to unauthenticated traffic")
+			}
+		})
 	}
 }
 

@@ -150,6 +150,29 @@ func proxyURL(row model.ProxyConfiguration) (string, error) {
 	return u.String(), nil
 }
 
+func proxyDisplayURL(row model.ProxyConfiguration) string {
+	if row.AuthCipher == "" {
+		return row.URL
+	}
+	value, err := proxyURL(row)
+	if err != nil {
+		return row.URL
+	}
+	u, err := url.Parse(value)
+	if err != nil || u.User == nil {
+		return row.URL
+	}
+	password, _ := u.User.Password()
+	u.User = url.User(u.User.Username())
+	display := u.String()
+	if password != "" {
+		// Encode the username first, then add literal stars instead of %2A.
+		at := strings.LastIndex(display, "@")
+		display = display[:at] + ":***" + display[at:]
+	}
+	return display
+}
+
 // Disabled nodes may be tested before they are enabled for business traffic.
 func ProxyURLForTest(ctx context.Context, conn *gorm.DB, id int) (string, error) {
 	row, err := proxyConfiguration(ctx, conn, id)
@@ -276,6 +299,7 @@ func ProxySave(ctx context.Context, conn *gorm.DB, id int, input model.ProxyWrit
 	}
 	invalidateProxies()
 	row.HasAuth = row.AuthCipher != ""
+	row.DisplayURL = proxyDisplayURL(row)
 	return row, nil
 }
 
@@ -342,6 +366,7 @@ func ProxyList(ctx context.Context, conn *gorm.DB) ([]model.ProxyConfiguration, 
 	}
 	for i := range rows {
 		rows[i].HasAuth = rows[i].AuthCipher != ""
+		rows[i].DisplayURL = proxyDisplayURL(rows[i])
 		rows[i].ReferenceCount = counts[rows[i].ID]
 	}
 	return rows, nil

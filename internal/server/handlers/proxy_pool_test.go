@@ -64,7 +64,7 @@ func TestProxyAPIAuthenticationPrivacyAndChannelModelProbe(t *testing.T) {
 	}))
 	defer proxy.Close()
 	response := call("POST", "/api/v1/proxy-pool", model.ProxyWrite{Name: "API proxy", URL: strings.Replace(proxy.URL, "http://", "http://api-user:api-proxy-secret@", 1), Enabled: true})
-	if response.Code != 200 || strings.Contains(response.Body.String(), "api-proxy-secret") || strings.Contains(response.Body.String(), "api-user") {
+	if response.Code != 200 || strings.Contains(response.Body.String(), "api-proxy-secret") || strings.Contains(response.Body.String(), "auth_cipher") {
 		t.Fatal("proxy create failed or leaked credentials", response.Code)
 	}
 	var envelope struct{ Data model.ProxyConfiguration }
@@ -75,10 +75,32 @@ func TestProxyAPIAuthenticationPrivacyAndChannelModelProbe(t *testing.T) {
 	if node.ID == 0 || !node.HasAuth {
 		t.Fatal("proxy API omitted state")
 	}
+	displayURL := strings.Replace(proxy.URL, "http://", "http://api-user:***@", 1)
+	if node.URL != proxy.URL || node.DisplayURL != displayURL {
+		t.Fatal("proxy API did not separate the endpoint and masked display URL")
+	}
 	response = call("GET", "/api/v1/proxy-pool", nil)
 	if response.Code != 200 || strings.Contains(response.Body.String(), "auth_cipher") || strings.Contains(response.Body.String(), "api-proxy-secret") {
 		t.Fatal("proxy list exposes secrets")
 	}
+	var list struct{ Data []model.ProxyConfiguration }
+	if err := json.Unmarshal(response.Body.Bytes(), &list); err != nil || len(list.Data) != 1 || list.Data[0].DisplayURL != displayURL || list.Data[0].URL != proxy.URL {
+		t.Fatal("proxy list omitted the username or changed the endpoint", err)
+	}
+	response = call("PATCH", "/api/v1/proxy-pool/1", map[string]any{
+		"name": node.Name, "url": node.URL, "enabled": true, "revision": node.Revision, "display_url": node.DisplayURL,
+	})
+	if response.Code != 400 {
+		t.Fatal("proxy API accepted the read-only display URL", response.Code)
+	}
+	response = call("PATCH", "/api/v1/proxy-pool/1", model.ProxyWrite{Name: "Renamed API proxy", URL: node.URL, Enabled: true, Revision: node.Revision})
+	if response.Code != 200 || strings.Contains(response.Body.String(), "api-proxy-secret") {
+		t.Fatal("proxy edit failed or leaked credentials", response.Code)
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil || envelope.Data.DisplayURL != displayURL || !envelope.Data.HasAuth {
+		t.Fatal("proxy edit lost the masked display URL", err)
+	}
+	node = envelope.Data
 	config := model.ChannelConfig{Name: "Pool channel", BaseURL: "http://upstream.invalid", ProxyMode: "pool", ProxyConfigID: &node.ID}
 	response = call("POST", "/api/v1/channel/fetch-model", model.ChannelFetchModelRequest{Channel: config, Key: "upstream-test-key"})
 	if response.Code != 200 || probes.Load() != 2 || !strings.Contains(response.Body.String(), "test-model") {

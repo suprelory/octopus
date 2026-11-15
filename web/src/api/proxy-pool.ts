@@ -4,7 +4,7 @@ import { apiRequest } from './client';
 export type ProxyMode = 'direct' | 'system' | 'custom' | 'pool' | 'inherit';
 export type ProxySelection = { proxy_mode: ProxyMode; proxy_config_id?: number | null; proxy_url?: string };
 export type ProxyNode = {
-    id: number; name: string; url: string; enabled: boolean; remark: string;
+    id: number; name: string; url: string; display_url?: string; enabled: boolean; remark: string;
     revision: number; route_revision: number; has_auth: boolean; reference_count: number;
 };
 export type ProxyWrite = Pick<ProxyNode, 'name' | 'url' | 'enabled' | 'remark' | 'revision'> & { clear_auth?: boolean };
