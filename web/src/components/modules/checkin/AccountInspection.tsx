@@ -40,7 +40,7 @@ export function AccountInspection({
     }
 
     return (
-        <div className="space-y-2 rounded-xl border bg-background/50 p-3">
+        <div className="space-y-2 border-t pt-3">
             <dl className="grid gap-2 text-xs sm:grid-cols-2">
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                     <dt className="text-muted-foreground">{t('inspection.balance')}</dt>

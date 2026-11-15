@@ -210,6 +210,10 @@
         }
     },
     "usernamePassword": "用户名和密码",
+    "cookieCredential": "Cookie",
+    "accountActions": "账号操作",
+    "sessionInfo": "会话与令牌信息",
+    "lastSuccess": "上次成功签到",
     "username": "用户名或邮箱",
     "password": "密码",
     "loginCredentialsHint": "用户名和密码均加密保存，账号查询不会返回原文。",

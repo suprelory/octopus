@@ -210,6 +210,10 @@
         }
     },
     "usernamePassword": "Username and password",
+    "cookieCredential": "Cookie",
+    "accountActions": "Account actions",
+    "sessionInfo": "Session and token details",
+    "lastSuccess": "Last successful check-in",
     "username": "Username or email",
     "password": "Password",
     "loginCredentialsHint": "Both fields are encrypted and are never returned by account queries.",

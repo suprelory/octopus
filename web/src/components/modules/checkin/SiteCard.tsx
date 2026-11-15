@@ -11,7 +11,7 @@ import {
     useCheckinQuery,
 } from '@/api/checkin';
 import { CheckinError, CheckinStatus, CheckinToggle } from './common';
-import { AccountInspection } from './AccountInspection';
+import { CheckinAccountCard } from './CheckinAccountCard';
 
 type Props = {
     site: CheckinSite;
@@ -147,134 +147,30 @@ export function SiteCard({
                 <div className="border-t bg-muted/20 px-5">
                     <CheckinError error={accounts.error} />
                     <CheckinError error={capabilities.error} />
-                    {accounts.data?.map((account) => (
-                        <div key={account.id} className="space-y-2 border-b py-4 last:border-b-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                                <span className="font-medium text-sm">{account.name}</span>
-                                <span className="text-xs text-muted-foreground">
-                                    {account.credential_type === 'cookie'
-                                        ? 'Cookie'
-                                        : t(
-                                              account.credential_type === 'password'
-                                                  ? 'usernamePassword'
-                                                  : 'accessToken',
-                                          )}
-                                </span>
-                                <CheckinStatus value={account.last_status} />
-                                {!account.enabled && (
-                                    <span className="text-xs text-muted-foreground">
-                                        {t('disabled')}
-                                    </span>
-                                )}
-                            </div>
-                            <p className="text-xs text-muted-foreground">
-                                {account.next_run_at
-                                    ? `${t('nextRun')}: ${new Date(account.next_run_at).toLocaleString()}`
-                                    : t(account.auto_checkin ? 'waitingSchedule' : 'manualOnly')}
-                            </p>
-                            {account.has_session && account.session_saved_at && (
-                                <p className="text-xs text-muted-foreground">
-                                    {t('sessionSavedAt')}:{' '}
-                                    {new Date(account.session_saved_at).toLocaleString()}
-                                </p>
-                            )}
-                            {site.config.adapter === 'sub2api' &&
-                                account.credential_type === 'bearer' && (
-                                    <div className="space-y-1 text-xs text-muted-foreground">
-                                        <p>
-                                            {t(
-                                                account.has_refresh_token
-                                                    ? 'sessionRefreshEnabled'
-                                                    : 'sessionRefreshDisabled',
-                                            )}
-                                        </p>
-                                        {account.token_expires_at && (
-                                            <p>
-                                                {t('tokenExpiry')}:{' '}
-                                                {new Date(
-                                                    account.token_expires_at,
-                                                ).toLocaleString()}
-                                            </p>
-                                        )}
-                                        {account.token_refreshed_at && (
-                                            <p>
-                                                {t('tokenRefreshedAt')}:{' '}
-                                                {new Date(
-                                                    account.token_refreshed_at,
-                                                ).toLocaleString()}
-                                            </p>
-                                        )}
-                                        {(account.refresh_error || account.refresh_pending) && (
-                                            <p className="text-amber-600 dark:text-amber-400">
-                                                {account.refresh_error &&
-                                                t.has(`reasons.${account.refresh_error}`)
-                                                    ? t(`reasons.${account.refresh_error}`)
-                                                    : t('sessionRefreshPending')}
-                                            </p>
-                                        )}
-                                    </div>
-                                )}
-                            <AccountInspection account={account} site={site} capability={capability} />
-                            <div className="flex flex-wrap items-center gap-2">
-                                <CheckinToggle
-                                    label={t('autoCheckin')}
-                                    checked={account.auto_checkin}
-                                    onChange={(auto_checkin) =>
-                                        mutate.mutate({
-                                            path: `/accounts/${account.id}`,
-                                            method: 'PATCH',
-                                            body: { auto_checkin, revision: account.revision },
-                                        })
+                    {accounts.data?.length ? (
+                        <div className="space-y-3 py-4">
+                            {accounts.data.map((account) => (
+                                <CheckinAccountCard
+                                    key={account.id}
+                                    account={account}
+                                    site={site}
+                                    capability={capability}
+                                    checkinPending={run.isPending}
+                                    onCheckin={() =>
+                                        run.mutate(
+                                            { path: `/accounts/${account.id}/checkin` },
+                                            { onSuccess: (job) => onJob(job.id) },
+                                        )
                                     }
+                                    onEdit={() => onAccount(account)}
+                                    onDelete={() => onDelete(account)}
+                                    onHistory={() => onHistory(account)}
                                 />
-                                <div className="ml-auto flex flex-wrap gap-1">
-                                    <Button
-                                        size="sm"
-                                        variant="outline"
-                                        disabled={
-                                            !site.config.enabled ||
-                                            !account.enabled ||
-                                            run.isPending
-                                        }
-                                        onClick={() =>
-                                            run.mutate(
-                                                { path: `/accounts/${account.id}/checkin` },
-                                                { onSuccess: (job) => onJob(job.id) },
-                                            )
-                                        }
-                                    >
-                                        {t('checkin')}
-                                    </Button>
-                                    <Button
-                                        size="icon"
-                                        variant="ghost"
-                                        aria-label={t('editAccount')}
-                                        onClick={() => onAccount(account)}
-                                    >
-                                        <Pencil className="size-3.5" />
-                                    </Button>
-                                    <Button
-                                        size="icon"
-                                        variant="ghost"
-                                        aria-label={t('history')}
-                                        onClick={() => onHistory(account)}
-                                    >
-                                        <History className="size-3.5" />
-                                    </Button>
-                                    <Button
-                                        size="icon"
-                                        variant="ghost"
-                                        aria-label={t('deleteAccount')}
-                                        onClick={() => onDelete(account)}
-                                    >
-                                        <Trash2 className="size-3.5" />
-                                    </Button>
-                                </div>
-                            </div>
+                            ))}
                         </div>
-                    ))}
+                    ) : null}
                     {!accounts.data?.length && (
-                        <p className="py-5 text-center text-sm text-muted-foreground">
+                        <p className="my-3 rounded-xl border border-dashed px-4 py-5 text-center text-sm text-muted-foreground">
                             {t(accounts.isPending ? 'loading' : 'noAccounts')}
                         </p>
                     )}

@@ -210,6 +210,10 @@
         }
     },
     "usernamePassword": "使用者名稱和密碼",
+    "cookieCredential": "Cookie",
+    "accountActions": "帳號操作",
+    "sessionInfo": "工作階段與權杖資訊",
+    "lastSuccess": "上次成功簽到",
     "username": "使用者名稱或電子郵件",
     "password": "密碼",
     "loginCredentialsHint": "使用者名稱和密碼均加密儲存，帳號查詢不會回傳原文。",
