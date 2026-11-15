@@ -25,6 +25,13 @@ func Init() {
 			}
 		}
 	})
+	Register("checkin_cleanup", time.Hour, true, func() {
+		if checkin.Default != nil {
+			if err := checkin.Default.AutoCleanup(context.Background()); err != nil {
+				log.Warn("checkin cleanup deferred or incomplete")
+			}
+		}
+	})
 	priceUpdateIntervalHours, err := op.SettingGetInt(model.SettingKeyModelInfoUpdateInterval)
 	if err != nil {
 		log.Errorf("failed to get model info update interval: %v", err)

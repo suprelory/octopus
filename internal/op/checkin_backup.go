@@ -39,6 +39,31 @@ func exportCheckin(ctx context.Context, conn *gorm.DB) (*model.CheckinDump, erro
 	return dump, nil
 }
 
+func normalizeCheckinBackupSettings(rows []model.Setting) ([]model.Setting, error) {
+	result := make([]model.Setting, 0, len(rows))
+	for _, row := range rows {
+		if row.Key == CheckinCleanupSettingKey {
+			continue
+		}
+		if row.Key == CheckinSettingKey {
+			config := model.DefaultCheckinSettings()
+			if json.Unmarshal([]byte(row.Value), &config) != nil || config.Validate() != nil {
+				return nil, errors.New("invalid checkin settings in backup")
+			}
+			// Restored diagnostic records stay available until the operator enables
+			// retention again. Missing fields in older backups retain their defaults.
+			config.AutoCleanup = false
+			if config.RetentionDays == 0 {
+				config.RetentionDays = 90
+			}
+			value, _ := json.Marshal(config)
+			row.Value = string(value)
+		}
+		result = append(result, row)
+	}
+	return result, nil
+}
+
 func validateCheckinDump(dump *model.CheckinDump) error {
 	if dump == nil {
 		return nil
@@ -181,6 +206,21 @@ func validateCheckinDump(dump *model.CheckinDump) error {
 func importCheckin(tx *gorm.DB, dump *model.CheckinDump, result *model.DBImportResult) error {
 	if dump == nil {
 		return nil
+	}
+	// Older dumps may omit settings entirely. Disable an existing retention
+	// policy as well, so it cannot immediately remove newly restored details.
+	var setting model.Setting
+	err := tx.Where(&model.Setting{Key: CheckinSettingKey}).First(&setting).Error
+	if err == nil {
+		settings, err := normalizeCheckinBackupSettings([]model.Setting{setting})
+		if err != nil {
+			return err
+		}
+		if _, err := createUpsertSettings(tx, settings); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
 	}
 	insert := func(name string, rows any) error {
 		r := tx.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(rows, 100)

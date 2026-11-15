@@ -18,6 +18,7 @@ import {
 } from '@/api/checkin';
 import { CheckinDialog, CheckinError, CheckinField, CheckinSelect, CheckinStatus } from './common';
 import { TurnstileSettingsForm } from './TurnstileSettings';
+import { RetentionSettings } from './Cleanup';
 
 export type CheckinFilter = { siteID: string; accountID: string };
 
@@ -298,6 +299,13 @@ export function RunDetails({ run: initialRun, onClose }: { run: CheckinRun; onCl
                     </a>
                 )}
                 <CheckinError error={confirm.error || query.error} />
+                {run.details_cleaned_at && (
+                    <p className="rounded-xl border bg-muted/30 p-3 text-sm text-muted-foreground">
+                        {t('cleanup.detailsCleaned', {
+                            time: new Date(run.details_cleaned_at).toLocaleString(),
+                        })}
+                    </p>
+                )}
                 <ol className="space-y-3">
                     {query.data?.map((attempt) => (
                         <li key={attempt.id} className="rounded-xl border p-3 text-sm">
@@ -321,54 +329,7 @@ export function RunDetails({ run: initialRun, onClose }: { run: CheckinRun; onCl
     );
 }
 
-export function JobsPanel({ onJob }: { onJob: (id: string) => void }) {
-    const t = useTranslations('checkin');
-    const query = useCheckinQuery<CheckinJob[]>('/jobs');
-    return (
-        <div className="space-y-3">
-            <CheckinError error={query.error} />
-            {query.data?.map((job) => (
-                <button
-                    key={job.id}
-                    type="button"
-                    onClick={() => onJob(job.id)}
-                    className="block w-full space-y-3 rounded-3xl border bg-card p-5 text-left hover:bg-muted/40"
-                >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-sm font-medium">
-                            {t.has(`sources.${job.source}`)
-                                ? t(`sources.${job.source}`)
-                                : job.source}{' '}
-                            · {new Date(job.created_at).toLocaleString()}
-                        </span>
-                        <CheckinStatus value={job.status} />
-                    </div>
-                    <progress
-                        className="h-2 w-full accent-[var(--primary)]"
-                        value={job.completed}
-                        max={job.total || 1}
-                        aria-label={t('progress')}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                        {t('jobSummary', {
-                            completed: job.completed,
-                            total: job.total,
-                            success: job.success + job.already,
-                            failed: job.failed,
-                            pending: job.pending,
-                            skipped: job.skipped,
-                        })}
-                    </p>
-                </button>
-            ))}
-            {!query.data?.length && (
-                <p className="p-8 text-center text-sm text-muted-foreground">
-                    {t(query.isPending ? 'loading' : 'noJobs')}
-                </p>
-            )}
-        </div>
-    );
-}
+export { JobsPanel } from './JobsPanel';
 
 export function JobDetails({ id, onClose }: { id: string; onClose: () => void }) {
     const t = useTranslations('checkin');
@@ -421,7 +382,14 @@ export function JobDetails({ id, onClose }: { id: string; onClose: () => void })
 
 function SettingsForm({ settings, onClose }: { settings: CheckinSettings; onClose: () => void }) {
     const t = useTranslations('checkin');
-    const [value, setValue] = useState(settings);
+    const [value, setValue] = useState({
+        concurrency: settings.concurrency,
+        site_interval_seconds: settings.site_interval_seconds,
+        http_timeout_seconds: settings.http_timeout_seconds,
+        confirm_attempts: settings.confirm_attempts,
+        confirm_interval_seconds: settings.confirm_interval_seconds,
+        confirm_timeout_minutes: settings.confirm_timeout_minutes,
+    });
     const save = useCheckinMutation();
     function submit(event: FormEvent) {
         event.preventDefault();
@@ -430,7 +398,16 @@ function SettingsForm({ settings, onClose }: { settings: CheckinSettings; onClos
     return (
         <form onSubmit={submit} className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
-                {(Object.keys(value) as (keyof CheckinSettings)[]).map((key) => (
+                {(
+                    [
+                        'concurrency',
+                        'site_interval_seconds',
+                        'http_timeout_seconds',
+                        'confirm_attempts',
+                        'confirm_interval_seconds',
+                        'confirm_timeout_minutes',
+                    ] as const
+                ).map((key) => (
                     <CheckinField key={key} label={t(`settingsFields.${key}`)}>
                         <Input
                             required
@@ -457,12 +434,12 @@ function SettingsForm({ settings, onClose }: { settings: CheckinSettings; onClos
 
 export function SettingsPanel({ onClose }: { onClose: () => void }) {
     const t = useTranslations('checkin');
-    const [tab, setTab] = useState<'execution' | 'turnstile'>('execution');
+    const [tab, setTab] = useState<'execution' | 'turnstile' | 'retention'>('execution');
     const query = useCheckinQuery<CheckinSettings>('/settings');
     return (
         <CheckinDialog title={t('settings')} onClose={onClose}>
             <div className="mb-5 flex flex-wrap gap-2">
-                {(['execution', 'turnstile'] as const).map((key) => (
+                {(['execution', 'turnstile', 'retention'] as const).map((key) => (
                     <Button
                         key={key}
                         size="sm"
@@ -470,7 +447,13 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
                         aria-pressed={tab === key}
                         onClick={() => setTab(key)}
                     >
-                        {t(key === 'execution' ? 'turnstile.execution' : 'turnstile.title')}
+                        {t(
+                            key === 'execution'
+                                ? 'turnstile.execution'
+                                : key === 'retention'
+                                  ? 'cleanup.title'
+                                  : 'turnstile.title',
+                        )}
                     </Button>
                 ))}
             </div>
@@ -480,7 +463,11 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
                 <>
                     <CheckinError error={query.error} />
                     {query.data ? (
-                        <SettingsForm settings={query.data} onClose={onClose} />
+                        tab === 'retention' ? (
+                            <RetentionSettings settings={query.data} onClose={onClose} />
+                        ) : (
+                            <SettingsForm settings={query.data} onClose={onClose} />
+                        )
                     ) : (
                         <p>{t('loading')}</p>
                     )}

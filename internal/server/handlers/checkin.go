@@ -42,6 +42,9 @@ func init() {
 	add("/jobs", http.MethodPost, checkinCreateJob)
 	add("/jobs/:id", http.MethodGet, checkinJob)
 	add("/jobs/:id/cancel", http.MethodPost, checkinCancelJob)
+	add("/jobs/cleanup/preview", http.MethodPost, checkinPreviewCleanup)
+	add("/jobs/cleanup", http.MethodPost, checkinCleanupJobs)
+	add("/jobs/cleanup/status", http.MethodGet, checkinCleanupStatus)
 	add("/runs", http.MethodGet, checkinRuns)
 	add("/runs/:id", http.MethodGet, checkinRun)
 	add("/runs/:id/attempts", http.MethodGet, checkinAttempts)
@@ -214,7 +217,17 @@ func checkinCreateJob(c *gin.Context) {
 	})
 }
 func checkinJobs(c *gin.Context) {
-	withCheckin(c, 200, func(s *checkin.Service) (any, error) { return s.Store.Jobs(c.Request.Context()) })
+	withCheckin(c, 200, func(s *checkin.Service) (any, error) {
+		limit := 50
+		if raw := c.Query("limit"); raw != "" {
+			var err error
+			limit, err = strconv.Atoi(raw)
+			if err != nil {
+				return nil, model.InvalidCheckin("invalid page size")
+			}
+		}
+		return s.Store.JobPage(c.Request.Context(), op.CheckinJobFilter{Status: c.Query("status"), Source: c.Query("source"), From: c.Query("from"), Until: c.Query("until"), Before: c.Query("before"), Limit: limit})
+	})
 }
 func checkinJob(c *gin.Context) {
 	withCheckin(c, 200, func(s *checkin.Service) (any, error) {
@@ -298,11 +311,11 @@ func checkinSettings(c *gin.Context) {
 }
 func checkinSaveSettings(c *gin.Context) {
 	withCheckin(c, 200, func(s *checkin.Service) (any, error) {
-		var settings model.CheckinSettings
-		if err := checkinJSON(c, &settings); err != nil {
+		var input json.RawMessage
+		if err := checkinJSON(c, &input); err != nil {
 			return nil, err
 		}
-		err := s.Store.SaveSettings(c.Request.Context(), settings)
+		settings, err := s.Store.PatchSettings(c.Request.Context(), input)
 		if err == nil {
 			s.Notify("settings")
 		}

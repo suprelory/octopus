@@ -249,7 +249,11 @@ func reconcileCheckinJob(tx *gorm.DB, jobID string) error {
 			job.Status = "completed_with_errors"
 		}
 	}
-	return tx.Model(&model.CheckinJob{}).Where("id = ?", job.ID).Select("Status", "Completed", "Success", "Already", "Failed", "Pending", "Skipped", "UpdatedAt").Updates(&job).Error
+	if job.Completed >= job.Total && job.FinishedAt == nil {
+		now := time.Now().UTC()
+		job.FinishedAt = &now
+	}
+	return tx.Model(&model.CheckinJob{}).Where("id = ?", job.ID).Select("Status", "Completed", "Success", "Already", "Failed", "Pending", "Skipped", "UpdatedAt", "FinishedAt").Updates(&job).Error
 }
 
 func (s *CheckinStore) HasQueuedAccount(ctx context.Context, accountID string) (bool, error) {

@@ -1,4 +1,53 @@
 {
+    "cleanup": {
+        "title": "记录保留",
+        "source": "任务来源",
+        "allSources": "全部来源",
+        "pageSize": "每页任务数",
+        "selectPage": "选择本页已结束任务",
+        "selectJob": "选择 {time} 的任务",
+        "selectedButton": "清理所选（{count}）",
+        "olderButton": "清理历史任务",
+        "selectedTitle": "清理所选任务",
+        "olderTitle": "清理历史任务",
+        "selectedCount": "已选择 {count} 个任务",
+        "days": "保留最近天数（1–3650）",
+        "preset": "{days} 天",
+        "enabled": "自动清理历史任务",
+        "autoHint": "默认关闭，默认保留 90 天。每小时检查，距上次清理（包括手动清理）至少 24 小时后执行。导入备份后会关闭自动清理。",
+        "scopeHint": "删除执行任务、对应的账号执行项及请求步骤，保留每日签到结果、收益、账号、余额和通知记录。",
+        "ageHint": "按任务完成时间计算；旧任务使用最后更新时间。范围包含所有页面的任务，不受列表筛选条件影响。",
+        "preview": "预览清理范围",
+        "cutoff": "完成时间早于 {time}",
+        "counts": "任务 {jobs} 个 · 账号执行项 {items} 条 · 请求步骤 {attempts} 条",
+        "matched": "已检查 {count} 个任务",
+        "protectedHint": "排队中、运行中、待确认、需人工处理以及关联账号仍被占用的任务会跳过。",
+        "confirmHint": "确认后将永久删除这些执行明细。执行时会再次检查任务状态，实际数量可能与预览不同。",
+        "confirm": "确认清理",
+        "cleaning": "正在清理…",
+        "lastCleanup": "最近一次清理",
+        "never": "尚未执行过清理",
+        "retryHint": "部分任务可能尚未处理，可以重新预览后继续清理；已完成的删除会保留。执行中断时无法提供准确的删除数量。",
+        "detailsCleaned": "部分或全部执行明细已于 {time} 清理，每日签到结果和已记录的收益仍保留。",
+        "skips": {
+            "active": "任务或关联执行尚未结束：{count} 个",
+            "unconfirmed": "待确认或需人工处理：{count} 个",
+            "leased": "账号或任务仍被占用：{count} 个",
+            "changed": "状态已变化或数据不一致：{count} 个",
+            "missing": "任务已被清理：{count} 个"
+        },
+        "results": {
+            "running": "正在清理",
+            "completed": "清理完成",
+            "partial": "部分清理完成",
+            "failed": "清理失败",
+            "interrupted": "清理已中断"
+        },
+        "sources": {
+            "manual": "手动清理",
+            "automatic": "自动清理"
+        }
+    },
     "turnstile": {
         "title": "Turnstile",
         "execution": "执行设置",

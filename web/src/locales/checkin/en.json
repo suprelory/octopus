@@ -1,4 +1,53 @@
 {
+    "cleanup": {
+        "title": "Record retention",
+        "source": "Source",
+        "allSources": "All sources",
+        "pageSize": "Tasks per page",
+        "selectPage": "Select completed tasks on this page",
+        "selectJob": "Select task from {time}",
+        "selectedButton": "Clean selected ({count})",
+        "olderButton": "Clean older tasks",
+        "selectedTitle": "Clean selected tasks",
+        "olderTitle": "Clean older tasks",
+        "selectedCount": "Selected tasks: {count}",
+        "days": "Keep the most recent number of days (1–3650)",
+        "preset": "{days} days",
+        "enabled": "Automatically clean old tasks",
+        "autoHint": "Off by default; keeps 90 days when enabled. Checked hourly, with at least 24 hours between cleanups, including manual cleanups. Restoring a backup disables automatic cleanup.",
+        "scopeHint": "Removes execution tasks, their account items and request steps. Daily check-in results, rewards, accounts, balances and notification history are kept.",
+        "ageHint": "Uses task completion time, or the last update for older tasks. This includes tasks from every page and ignores the list filters.",
+        "preview": "Preview cleanup",
+        "cutoff": "Completed before {time}",
+        "counts": "Tasks: {jobs} · Account items: {items} · Request steps: {attempts}",
+        "matched": "Tasks examined: {count}",
+        "protectedHint": "Queued or running tasks, unconfirmed results, results needing attention, and accounts still in use are skipped.",
+        "confirmHint": "These execution details will be permanently removed. Eligibility is checked again when you confirm, so the final counts may differ.",
+        "confirm": "Confirm cleanup",
+        "cleaning": "Cleaning…",
+        "lastCleanup": "Most recent cleanup",
+        "never": "No cleanup has run yet.",
+        "retryHint": "Some tasks may remain. Preview again to continue; completed deletions are retained. If execution was interrupted, the deleted count is unavailable.",
+        "detailsCleaned": "Some or all execution details were cleaned on {time}. The daily result and recorded reward are retained.",
+        "skips": {
+            "active": "Active tasks or linked executions: {count}",
+            "unconfirmed": "Unconfirmed or needs attention: {count}",
+            "leased": "Accounts or tasks still in use: {count}",
+            "changed": "Changed or inconsistent tasks: {count}",
+            "missing": "Tasks already removed: {count}"
+        },
+        "results": {
+            "running": "Cleanup in progress",
+            "completed": "Cleanup completed",
+            "partial": "Cleanup partially completed",
+            "failed": "Cleanup failed",
+            "interrupted": "Cleanup interrupted"
+        },
+        "sources": {
+            "manual": "Manual cleanup",
+            "automatic": "Automatic cleanup"
+        }
+    },
     "turnstile": {
         "title": "Turnstile",
         "execution": "Execution",

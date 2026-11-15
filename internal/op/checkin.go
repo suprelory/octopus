@@ -1,6 +1,7 @@
 package op
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -252,12 +253,42 @@ func (s *CheckinStore) Settings(ctx context.Context) (model.CheckinSettings, err
 	if err := json.Unmarshal([]byte(row.Value), &result); err != nil {
 		return result, err
 	}
+	if result.RetentionDays == 0 && !result.AutoCleanup {
+		result.RetentionDays = 90
+	}
 	return result, result.Validate()
 }
 
 func (s *CheckinStore) SaveSettings(ctx context.Context, settings model.CheckinSettings) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	return s.saveSettings(ctx, settings)
+}
+
+// Merge a settings tab's fields while holding the same lock as other settings
+// writes. Editing execution limits must not overwrite a newer retention policy.
+func (s *CheckinStore) PatchSettings(ctx context.Context, patch json.RawMessage) (model.CheckinSettings, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	settings, err := s.Settings(ctx)
+	if err != nil {
+		return settings, err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(patch))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&settings); err != nil {
+		return settings, model.InvalidCheckin("invalid JSON or unknown request fields")
+	}
+	if settings.RetentionDays == 0 && !settings.AutoCleanup {
+		settings.RetentionDays = 90
+	}
+	return settings, s.saveSettings(ctx, settings)
+}
+
+func (s *CheckinStore) saveSettings(ctx context.Context, settings model.CheckinSettings) error {
+	if settings.RetentionDays == 0 && !settings.AutoCleanup {
+		settings.RetentionDays = 90
+	}
 	if err := settings.Validate(); err != nil {
 		return err
 	}
@@ -355,6 +386,8 @@ func (s *CheckinStore) Enqueue(ctx context.Context, scope model.CheckinScope, so
 	job := model.CheckinJob{ID: uuid.NewString(), IdempotencyKey: key, ScopeHash: hash, Scope: scope, Source: source, Status: "queued", Total: len(items)}
 	if len(items) == 0 {
 		job.Status = "completed"
+		now := time.Now().UTC()
+		job.FinishedAt = &now
 	}
 	err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var existing model.CheckinJob
@@ -409,6 +442,8 @@ func (s *CheckinStore) Jobs(ctx context.Context) ([]model.CheckinJob, error) {
 }
 
 func (s *CheckinStore) Job(ctx context.Context, id string) (model.CheckinJob, []model.CheckinJobItem, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	var job model.CheckinJob
 	items := []model.CheckinJobItem{}
 	if err := s.DB.WithContext(ctx).First(&job, "id = ?", id).Error; err != nil {

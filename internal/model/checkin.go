@@ -146,7 +146,7 @@ type CheckinAccount struct {
 }
 
 // One run is the durable ledger for one account and one business date. Attempts
-// are append-only; polling and retries can never create another reward ledger.
+// can be retained separately; polling and retries never create another ledger.
 type CheckinRun struct {
 	ID               string          `json:"id" gorm:"type:varchar(36);primaryKey"`
 	SiteID           string          `json:"site_id" gorm:"type:varchar(36);index"`
@@ -170,6 +170,7 @@ type CheckinRun struct {
 	RewardMicros     *int64          `json:"reward_micros,omitempty,string"`
 	RewardUnit       string          `json:"reward_unit"`
 	RewardState      string          `json:"reward_state"`
+	DetailsCleanedAt *time.Time      `json:"details_cleaned_at,omitempty"`
 	CreatedAt        time.Time       `json:"created_at"`
 	UpdatedAt        time.Time       `json:"updated_at"`
 }
@@ -218,15 +219,16 @@ type CheckinJob struct {
 	Skipped        int          `json:"skipped"`
 	CreatedAt      time.Time    `json:"created_at" gorm:"index"`
 	UpdatedAt      time.Time    `json:"updated_at"`
+	FinishedAt     *time.Time   `json:"finished_at,omitempty" gorm:"index"`
 }
 
 type CheckinJobItem struct {
 	ID          string          `json:"id" gorm:"type:varchar(36);primaryKey"`
 	JobID       string          `json:"job_id" gorm:"type:varchar(36);uniqueIndex:idx_checkin_job_account,priority:1;index"`
-	AccountID   string          `json:"account_id" gorm:"type:varchar(36);uniqueIndex:idx_checkin_job_account,priority:2"`
+	AccountID   string          `json:"account_id" gorm:"type:varchar(36);uniqueIndex:idx_checkin_job_account,priority:2;index:idx_checkin_item_account_date,priority:1"`
 	SiteID      string          `json:"site_id" gorm:"type:varchar(36);index"`
-	CheckinDate string          `json:"checkin_date" gorm:"size:10;uniqueIndex:idx_checkin_job_account,priority:3"`
-	RunID       string          `json:"run_id" gorm:"type:varchar(36)"`
+	CheckinDate string          `json:"checkin_date" gorm:"size:10;uniqueIndex:idx_checkin_job_account,priority:3;index:idx_checkin_item_account_date,priority:2"`
+	RunID       string          `json:"run_id" gorm:"type:varchar(36);index"`
 	SiteName    string          `json:"site_name"`
 	AccountName string          `json:"account_name"`
 	Job         *CheckinJob     `json:"-" gorm:"foreignKey:JobID;constraint:OnDelete:RESTRICT"`
@@ -241,16 +243,18 @@ type CheckinJobItem struct {
 }
 
 type CheckinSettings struct {
-	Concurrency            int `json:"concurrency"`
-	SiteIntervalSeconds    int `json:"site_interval_seconds"`
-	HTTPTimeoutSeconds     int `json:"http_timeout_seconds"`
-	ConfirmAttempts        int `json:"confirm_attempts"`
-	ConfirmIntervalSeconds int `json:"confirm_interval_seconds"`
-	ConfirmTimeoutMinutes  int `json:"confirm_timeout_minutes"`
+	AutoCleanup            bool `json:"auto_cleanup"`
+	RetentionDays          int  `json:"retention_days"`
+	Concurrency            int  `json:"concurrency"`
+	SiteIntervalSeconds    int  `json:"site_interval_seconds"`
+	HTTPTimeoutSeconds     int  `json:"http_timeout_seconds"`
+	ConfirmAttempts        int  `json:"confirm_attempts"`
+	ConfirmIntervalSeconds int  `json:"confirm_interval_seconds"`
+	ConfirmTimeoutMinutes  int  `json:"confirm_timeout_minutes"`
 }
 
 func DefaultCheckinSettings() CheckinSettings {
-	return CheckinSettings{Concurrency: 4, SiteIntervalSeconds: 2, HTTPTimeoutSeconds: 30, ConfirmAttempts: 3, ConfirmIntervalSeconds: 2, ConfirmTimeoutMinutes: 60}
+	return CheckinSettings{Concurrency: 4, SiteIntervalSeconds: 2, HTTPTimeoutSeconds: 30, ConfirmAttempts: 3, ConfirmIntervalSeconds: 2, ConfirmTimeoutMinutes: 60, RetentionDays: 90}
 }
 
 // Normal API serialization never includes ciphertext. Export uses an explicit

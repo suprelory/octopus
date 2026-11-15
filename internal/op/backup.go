@@ -2,7 +2,6 @@ package op
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -68,7 +67,7 @@ func DBExportAll(ctx context.Context) (*model.DBDump, error) {
 	if err := conn.Find(&d.APIKeys).Error; err != nil {
 		return nil, fmt.Errorf("export api_keys: %w", err)
 	}
-	if err := conn.Find(&d.Settings).Error; err != nil {
+	if err := conn.Where(clause.Neq{Column: clause.Column{Name: "key"}, Value: CheckinCleanupSettingKey}).Find(&d.Settings).Error; err != nil {
 		return nil, fmt.Errorf("export settings: %w", err)
 	}
 
@@ -104,13 +103,9 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 	if err := validateProxyDump(dump.ProxyConfigurations); err != nil {
 		return nil, err
 	}
-	for _, setting := range dump.Settings {
-		if setting.Key == CheckinSettingKey {
-			var config model.CheckinSettings
-			if json.Unmarshal([]byte(setting.Value), &config) != nil || config.Validate() != nil {
-				return nil, fmt.Errorf("invalid checkin settings in backup")
-			}
-		}
+	settings, err := normalizeCheckinBackupSettings(dump.Settings)
+	if err != nil {
+		return nil, err
 	}
 
 	// 导入也是写入边界, 渠道配置须与接口提交走同一套规范化: 手改过的备份文件同样可能带空白,
@@ -125,7 +120,7 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 
 	conn := db.GetDB().WithContext(ctx)
 	res := &model.DBImportResult{RowsAffected: map[string]int64{}}
-	err := conn.Transaction(func(tx *gorm.DB) error {
+	err = conn.Transaction(func(tx *gorm.DB) error {
 		if err := importProxies(tx.Session(&gorm.Session{Logger: logger.Discard}), dump, res); err != nil {
 			return err
 		}
@@ -182,7 +177,7 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		} else {
 			res.RowsAffected["api_keys"] = n
 		}
-		if n, err := createUpsertSettings(tx, dump.Settings); err != nil {
+		if n, err := createUpsertSettings(tx, settings); err != nil {
 			return fmt.Errorf("import settings: %w", err)
 		} else {
 			res.RowsAffected["settings"] = n

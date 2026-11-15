@@ -362,6 +362,9 @@ func ValidateCheckinLoginSession(session CheckinLoginSession) error {
 }
 
 func (s CheckinSettings) Validate() error {
+	if (s.RetentionDays < 1 || s.RetentionDays > 3650) && (s.RetentionDays != 0 || s.AutoCleanup) {
+		return InvalidCheckin("retention days must be between 1 and 3650")
+	}
 	if s.Concurrency < 1 || s.Concurrency > 8 || s.SiteIntervalSeconds < 0 || s.SiteIntervalSeconds > 60 || s.HTTPTimeoutSeconds < 1 || s.HTTPTimeoutSeconds > 60 || s.ConfirmAttempts < 1 || s.ConfirmAttempts > 5 || s.ConfirmIntervalSeconds < 1 || s.ConfirmIntervalSeconds > 10 || s.ConfirmTimeoutMinutes < 1 || s.ConfirmTimeoutMinutes > 1440 {
 		return InvalidCheckin("invalid checkin settings limits")
 	}

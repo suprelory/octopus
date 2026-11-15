@@ -151,6 +151,7 @@ export type CheckinRun = {
     reward_micros?: string;
     reward_unit: string;
     reward_state: string;
+    details_cleaned_at?: string;
     created_at: string;
     updated_at: string;
 };
@@ -177,6 +178,7 @@ export type CheckinJob = {
     pending: number;
     skipped: number;
     created_at: string;
+    finished_at?: string;
 };
 export type JobItem = {
     id: string;
@@ -209,6 +211,8 @@ export type CheckinStats = {
     }[];
 };
 export type CheckinSettings = {
+    auto_cleanup: boolean;
+    retention_days: number;
     concurrency: number;
     site_interval_seconds: number;
     http_timeout_seconds: number;
@@ -230,6 +234,22 @@ export type Capability = {
     balance_query: boolean;
 };
 export type RunPage = { items: CheckinRun[]; next_before: string };
+export type JobPage = { items: CheckinJob[]; next_before: string };
+export type CleanupFilter = { job_ids: string[] } | { before: string };
+export type CleanupCounts = {
+    matched: number;
+    jobs: number;
+    items: number;
+    attempts: number;
+    skipped: Partial<Record<'active' | 'unconfirmed' | 'leased' | 'changed' | 'missing', number>>;
+};
+export type CleanupReport = {
+    source: 'manual' | 'automatic';
+    status: 'running' | 'completed' | 'partial' | 'failed' | 'interrupted';
+    started_at: string;
+    finished_at?: string;
+    counts: CleanupCounts;
+};
 export const notificationKinds = [
     'webhook',
     'telegram',
@@ -350,7 +370,10 @@ export function useCheckinMutation<T = unknown>() {
             method?: 'POST' | 'PATCH' | 'PUT' | 'DELETE';
             body?: unknown;
         }) => apiRequest<T>(`${checkinPath}${path}`, { method, body }),
-        onSuccess: () => {
+        onSuccess: (data, variables) => {
+            if (variables.path === '/settings') {
+                client.setQueryData(['checkin', '/settings'], data);
+            }
             void client.invalidateQueries({ queryKey: ['checkin'] });
             void client.invalidateQueries({ queryKey: ['proxy-pool'] });
             void client.invalidateQueries({ queryKey: ['proxy-references'] });

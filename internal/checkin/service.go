@@ -32,6 +32,7 @@ type Service struct {
 	mu              sync.Mutex
 	scanMu          sync.Mutex
 	dispatchMu      sync.Mutex
+	cleanupMu       sync.Mutex
 	active          map[string]bool
 	activeSites     map[string]bool
 	nextSite        map[string]time.Time
