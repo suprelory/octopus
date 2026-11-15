@@ -99,7 +99,11 @@ func (s *CheckinStore) SaveSite(ctx context.Context, id string, revision int64, 
 		if result.RowsAffected != 1 {
 			return ErrCheckinConflict
 		}
-		return tx.Model(&model.CheckinAccount{}).Where("site_id = ?", id).Update("next_run_at", nil).Error
+		updates := map[string]any{"next_run_at": nil, "inspection": nil}
+		if previous.Config.BaseURL != config.BaseURL || previous.Config.Adapter != config.Adapter {
+			updates["balance"] = nil
+		}
+		return tx.Model(&model.CheckinAccount{}).Where("site_id = ?", id).Updates(updates).Error
 	})
 	if err != nil {
 		return row, err
@@ -154,6 +158,15 @@ func (s *CheckinStore) SaveAccount(ctx context.Context, row model.CheckinAccount
 		if err := ValidateProxyBindingTx(tx, selection, !sameProxyID(previous.ProxyConfigID, row.ProxyConfigID)); err != nil {
 			return model.InvalidCheckin(err.Error())
 		}
+		// Preserve the latest observation if a metadata edit started before a
+		// completed inspection. Credential replacement must discard old balances.
+		row.Balance, row.Inspection = previous.Balance, previous.Inspection
+		if replaceCredentials {
+			row.Balance = nil
+		}
+		if replaceCredentials || previous.ProxyMode != row.ProxyMode || previous.ProxyURL != row.ProxyURL || !sameProxyID(previous.ProxyConfigID, row.ProxyConfigID) {
+			row.Inspection = nil
+		}
 		return saveCheckinAccountTx(tx, &row, expectedRevision, expectedCredentials, replaceCredentials)
 	})
 	if err != nil {
@@ -171,7 +184,7 @@ func saveCheckinAccountTx(tx *gorm.DB, row *model.CheckinAccount, expectedRevisi
 		row.CredentialIdentityVersion = 1
 		return tx.Create(row).Error
 	}
-	columns := []string{"Name", "Enabled", "AutoCheckin", "ProxyMode", "ProxyURL", "ProxyConfigID", "Revision", "NextRunAt", "UpdatedAt"}
+	columns := []string{"Name", "Enabled", "AutoCheckin", "ProxyMode", "ProxyURL", "ProxyConfigID", "Revision", "NextRunAt", "UpdatedAt", "Balance", "Inspection"}
 	q := tx.Model(&model.CheckinAccount{}).Where("id = ? AND revision = ? AND deleted_at IS NULL AND (lease_until IS NULL OR lease_until <= ?)", row.ID, expectedRevision, time.Now().UTC())
 	if replaceCredentials {
 		q = q.Where("credential_version = ?", expectedCredentials)

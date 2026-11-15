@@ -3,10 +3,13 @@ package op
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
+	"github.com/google/uuid"
 )
 
 // Backups are complete check-in snapshots. Validate the graph before starting a
@@ -177,4 +180,75 @@ func sameCheckinScope(a, b model.CheckinScope) bool {
 	left, _ := json.Marshal(a)
 	right, _ := json.Marshal(b)
 	return string(left) == string(right)
+}
+
+func validateCheckinObservation(balance *model.CheckinBalanceSnapshot, inspection *model.CheckinInspection) error {
+	fail := func() error { return fmt.Errorf("invalid checkin account observation") }
+	if balance != nil {
+		if balance.UpdatedAt.IsZero() || (balance.Unit != "quota" && balance.Unit != "USD") {
+			return fail()
+		}
+		for _, amount := range []struct {
+			micros *int64
+			state  string
+		}{{balance.AmountMicros, balance.AmountState}, {balance.UsedMicros, balance.UsedState}} {
+			if !slices.Contains([]string{"known", "unknown", "invalid"}, amount.state) || (amount.state == "known") != (amount.micros != nil) {
+				return fail()
+			}
+		}
+		if balance.UsedMicros != nil && *balance.UsedMicros < 0 {
+			return fail()
+		}
+	}
+	if inspection == nil {
+		return nil
+	}
+	if inspection.Steps == nil {
+		inspection.Steps = []model.CheckinInspectionStep{}
+	}
+	if _, err := uuid.Parse(inspection.ID); err != nil {
+		return fail()
+	}
+	if inspection.Kind != "balance" && inspection.Kind != "detect" {
+		return fail()
+	}
+	if !slices.Contains([]string{"running", "success", "partial", "failed", "unsupported", "interrupted"}, inspection.Status) ||
+		!slices.Contains([]string{"valid", "invalid", "unknown"}, inspection.Authentication) ||
+		!slices.Contains([]string{"not_checked", "unknown", "supported", "unsupported", "disabled"}, inspection.CheckinSupport) ||
+		!slices.Contains([]string{"unknown", "checked_in", "not_checked_in"}, inspection.CheckinStatus) {
+		return fail()
+	}
+	if _, err := time.Parse("2006-01-02", inspection.CheckinDate); err != nil {
+		return fail()
+	}
+	if _, err := time.LoadLocation(inspection.Timezone); err != nil {
+		return fail()
+	}
+	if inspection.UserID != "" {
+		id, err := strconv.ParseInt(inspection.UserID, 10, 64)
+		if err != nil || id <= 0 || strconv.FormatInt(id, 10) != inspection.UserID {
+			return fail()
+		}
+	}
+	if inspection.Authentication == "valid" && inspection.UserID == "" {
+		return fail()
+	}
+	if inspection.StartedAt.IsZero() || (inspection.Status == "running") != (inspection.FinishedAt == nil) ||
+		(inspection.Status == "running") != (inspection.Reason == "") ||
+		(inspection.FinishedAt != nil && inspection.FinishedAt.Before(inspection.StartedAt)) ||
+		(inspection.BalanceUpdated && balance == nil) || len(inspection.Steps) > 8 {
+		return fail()
+	}
+	switch inspection.Reason {
+	case "", "account_verified", "balance_unknown", "balance_invalid", "inspection_unsupported", "inspection_interrupted", "inspection_failed", "account_response_invalid", "account_identity_mismatch", "account_unavailable", "checkin_status_unknown", "checkin_disabled", "credential_unavailable", "invalid_credentials", "invalid_proxy", "network_error", "rate_limited", "upstream_http_error", "verification_required", "unsupported_endpoint", "config_changed", "sub2api_refresh_required", "sub2api_refresh_deferred", "sub2api_refresh_uncertain", "sub2api_refresh_rejected", "sub2api_auth_rejected", "sub2api_session_revoked", "sub2api_session_binding_mismatch", "sub2api_account_unavailable", "sub2api_refresh_identity_mismatch", "sub2api_refresh_save_failed":
+	default:
+		return fail()
+	}
+	for _, step := range inspection.Steps {
+		if !slices.Contains([]string{"account", "refresh", "detect_status"}, step.Stage) || (step.Stage == "detect_status" && inspection.Kind != "detect") ||
+			!slices.Contains([]string{"response_received", "network_error"}, step.Reason) || step.HTTPStatus < 0 || step.HTTPStatus > 599 || step.DurationMS < 0 || step.CreatedAt.IsZero() {
+			return fail()
+		}
+	}
+	return nil
 }

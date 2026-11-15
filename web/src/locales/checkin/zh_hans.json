@@ -1,4 +1,41 @@
 {
+    "inspection": {
+        "balance": "余额",
+        "used": "累计用量",
+        "invalidAmount": "未知（数值无效）",
+        "lastKnown": "上次已知余额",
+        "updatedAt": "余额更新时间",
+        "refreshBalance": "刷新余额",
+        "detect": "只读检测",
+        "details": "最近结果",
+        "title": "账号检测 · {name}",
+        "hint": "验证登录状态、读取账号信息，并在有内置只读接口时查询今日签到状态。可按账号配置续期令牌，不会提交签到。",
+        "running": "正在读取账号信息…",
+        "authentication": "登录状态",
+        "verifiedUser": "已验证用户 ID",
+        "checkinSupport": "内置签到功能",
+        "checkinStatus": "签到状态",
+        "checkedAt": "最近检测时间",
+        "steps": "请求阶段",
+        "noRequests": "本次没有发送上游请求。",
+        "unsupported": "此平台暂未接入余额查询与只读账号检测。",
+        "kinds": {
+            "balance": "余额查询",
+            "detect": "只读账号检测"
+        },
+        "auth": {
+            "valid": "有效",
+            "invalid": "失效或不可用",
+            "unknown": "未知"
+        },
+        "support": {
+            "not_checked": "此配置无内置检测接口",
+            "unknown": "未知",
+            "supported": "已开启",
+            "unsupported": "接口不可用",
+            "disabled": "站点已关闭"
+        }
+    },
     "usernamePassword": "用户名和密码",
     "username": "用户名或邮箱",
     "password": "密码",
@@ -181,6 +218,7 @@
         "confirm_timeout_minutes": "确认期限分钟数（1–1440）"
     },
     "states": {
+        "partial": "部分完成",
         "idle": "未执行",
         "unknown": "未知",
         "supported": "已验证",
@@ -199,7 +237,7 @@
         "completed": "已完成",
         "completed_with_errors": "完成，存在失败",
         "canceled": "已取消",
-        "interrupted": "恢复时已中止"
+        "interrupted": "已中断"
     },
     "sources": {
         "manual": "手动签到",
@@ -208,6 +246,8 @@
         "confirmation_auto": "自动确认"
     },
     "stages": {
+        "account": "读取账号与余额",
+        "detect_status": "读取签到状态",
         "authenticate": "准备登录会话",
         "refresh": "刷新登录令牌",
         "precheck": "提交前检查",
@@ -215,6 +255,17 @@
         "confirm": "结果确认"
     },
     "reasons": {
+        "account_verified": "账号已验证，已读取账号信息。",
+        "balance_unknown": "账号有效，但响应未提供余额。",
+        "balance_invalid": "账号有效，但余额或用量字段无法安全解析。",
+        "inspection_unsupported": "此平台暂未接入账号检测。",
+        "inspection_interrupted": "账号查询已中断，请重新查询以获取当前结果。",
+        "inspection_failed": "账号查询未能完成或保存，请重试。",
+        "account_response_invalid": "响应未按预期格式返回可验证的账号信息。",
+        "account_identity_mismatch": "站点返回的账号 ID 不一致，请核对已保存的凭据与用户 ID。",
+        "account_unavailable": "上游账号已停用或不可用。",
+        "checkin_status_unknown": "已读取账号信息，但无法确认签到状态。",
+        "checkin_disabled": "站点已关闭内置签到功能。",
         "unsupported_platform": "当前平台没有可用的签到适配器。",
         "router_user_id_required": "站点未返回有效的账号身份，请填写您自己的数字用户 ID。",
         "router_identity_mismatch": "站点返回了不同的用户 ID，请核对账号凭据和用户 ID 后再继续。",

@@ -213,7 +213,8 @@ func (s *Service) persistPendingSession(ctx context.Context, item model.CheckinJ
 
 // Called only by a leased account worker. Queries may recover once; a submit
 // request is never retried by this helper, regardless of its HTTP method.
-func (s *Service) ensureSub2APISession(ctx context.Context, client *http.Client, site model.CheckinSite, item model.CheckinJobItem, account *model.CheckinAccount, credentials *model.CheckinCredentials, force bool) (bool, error) {
+func (r *adapterRuntime) ensureSub2APISession(ctx context.Context, force bool) (bool, error) {
+	s, client, site, item, account, credentials := r.s, r.client, r.site, r.item, r.account, r.credentials
 	normalizeSub2APICredentials(credentials)
 	fallback := func(err *sub2APIAuthError) (bool, error) {
 		if !force && err.fallback && credentials.ExpiresAt != nil && credentials.ExpiresAt.After(s.Now().Add(5*time.Second)) {
@@ -306,13 +307,7 @@ func (s *Service) ensureSub2APISession(ctx context.Context, client *http.Client,
 			_, authErr = fallback(failure)
 		}
 	}
-	reason, message := "response_received", "Upstream response received"
-	if response.Err != nil {
-		reason, message = "network_error", "Request failed, timed out, or exceeded the response limit"
-	}
-	logCtx, logCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer logCancel()
-	if err := s.Store.AddAttempt(logCtx, model.CheckinAttempt{RunID: item.RunID, JobID: item.JobID, Stage: "refresh", HTTPStatus: response.StatusCode, Reason: reason, Message: message, DurationMS: duration.Milliseconds(), CreatedAt: s.Now()}); err != nil {
+	if err := r.audit(ctx, "refresh", response, duration); err != nil {
 		return valid, err
 	}
 	return valid, authErr

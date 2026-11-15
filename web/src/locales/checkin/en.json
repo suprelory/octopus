@@ -1,4 +1,41 @@
 {
+    "inspection": {
+        "balance": "Balance",
+        "used": "Total used",
+        "invalidAmount": "Unknown (invalid value)",
+        "lastKnown": "Last known balance",
+        "updatedAt": "Balance updated",
+        "refreshBalance": "Refresh balance",
+        "detect": "Check account (read only)",
+        "details": "Latest result",
+        "title": "Account check · {name}",
+        "hint": "Verifies your login, reads account information, and checks today's status when a built-in read-only endpoint is available. Configured token renewal may run; no check-in is submitted.",
+        "running": "Reading account information…",
+        "authentication": "Login status",
+        "verifiedUser": "Verified user ID",
+        "checkinSupport": "Built-in check-in",
+        "checkinStatus": "Check-in status",
+        "checkedAt": "Last check",
+        "steps": "Request stages",
+        "noRequests": "No upstream request was sent.",
+        "unsupported": "Balance queries and read-only account checks are not available for this platform yet.",
+        "kinds": {
+            "balance": "Balance query",
+            "detect": "Read-only account check"
+        },
+        "auth": {
+            "valid": "Valid",
+            "invalid": "Invalid or unavailable",
+            "unknown": "Unknown"
+        },
+        "support": {
+            "not_checked": "No built-in probe for this configuration",
+            "unknown": "Unknown",
+            "supported": "Enabled",
+            "unsupported": "Endpoint unavailable",
+            "disabled": "Disabled by the website"
+        }
+    },
     "usernamePassword": "Username and password",
     "username": "Username or email",
     "password": "Password",
@@ -181,6 +218,7 @@
         "confirm_timeout_minutes": "Confirmation deadline in minutes (1–1440)"
     },
     "states": {
+        "partial": "Partial result",
         "idle": "Not run",
         "unknown": "Unknown",
         "supported": "Verified",
@@ -199,7 +237,7 @@
         "completed": "Completed",
         "completed_with_errors": "Completed with errors",
         "canceled": "Canceled",
-        "interrupted": "Interrupted during restore"
+        "interrupted": "Interrupted"
     },
     "sources": {
         "manual": "Manual check-in",
@@ -208,6 +246,8 @@
         "confirmation_auto": "Automatic confirmation"
     },
     "stages": {
+        "account": "Read account and balance",
+        "detect_status": "Read check-in status",
         "authenticate": "Prepare login session",
         "refresh": "Refresh login token",
         "precheck": "Precheck",
@@ -215,6 +255,17 @@
         "confirm": "Status confirmation"
     },
     "reasons": {
+        "account_verified": "The account was verified and its information was read.",
+        "balance_unknown": "The account is valid, but the response did not include a balance.",
+        "balance_invalid": "The account is valid, but a balance or usage value could not be read safely.",
+        "inspection_unsupported": "This platform does not support account inspection yet.",
+        "inspection_interrupted": "The account query was interrupted. Run it again to get a current result.",
+        "inspection_failed": "The account query could not be completed or saved. Try again.",
+        "account_response_invalid": "The response did not contain a verified account in the expected format.",
+        "account_identity_mismatch": "The website returned a different account ID. Check the saved credentials and user ID.",
+        "account_unavailable": "The upstream account is disabled or unavailable.",
+        "checkin_status_unknown": "Account information was read, but the check-in status could not be confirmed.",
+        "checkin_disabled": "The website has disabled its built-in check-in feature.",
         "unsupported_platform": "This platform has no check-in adapter.",
         "router_user_id_required": "The website did not identify this account. Provide your own numeric website user ID.",
         "router_identity_mismatch": "The website returned a different user ID. Check the credentials and account ID before continuing.",

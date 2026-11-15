@@ -15,7 +15,7 @@ import (
 )
 
 func exportCheckin(ctx context.Context, conn *gorm.DB) (*model.CheckinDump, error) {
-	dump := &model.CheckinDump{Version: 4}
+	dump := &model.CheckinDump{Version: 5}
 	var accounts []model.CheckinAccount
 	for _, target := range []any{&dump.Sites, &accounts, &dump.Runs, &dump.Attempts, &dump.Jobs, &dump.Items} {
 		if err := conn.WithContext(ctx).Find(target).Error; err != nil {
@@ -32,7 +32,7 @@ func validateCheckinDump(dump *model.CheckinDump) error {
 	if dump == nil {
 		return nil
 	}
-	if dump.Version < 1 || dump.Version > 4 {
+	if dump.Version < 1 || dump.Version > 5 {
 		return errors.New("unsupported checkin backup version")
 	}
 	if len(dump.Sites) > 10000 || len(dump.Accounts) > 100000 || len(dump.Runs) > 1000000 || len(dump.Attempts) > 2000000 || len(dump.Jobs) > 1000000 || len(dump.Items) > 1000000 {
@@ -71,6 +71,9 @@ func validateCheckinDump(dump *model.CheckinDump) error {
 			return errors.New("invalid checkin credential identity version")
 		}
 		account.CredentialIdentityVersion = account.IdentityVersion
+		if err := validateCheckinObservation(account.Balance, account.Inspection); err != nil {
+			return err
+		}
 		switch account.RefreshError {
 		case "", "sub2api_refresh_deferred", "sub2api_refresh_uncertain", "sub2api_refresh_rejected", "sub2api_auth_rejected", "sub2api_session_revoked", "sub2api_session_binding_mismatch", "sub2api_account_unavailable", "sub2api_refresh_identity_mismatch":
 		default:
@@ -173,6 +176,10 @@ func importCheckin(tx *gorm.DB, dump *model.CheckinDump, result *model.DBImportR
 		}
 	}
 	newAccounts := map[string]bool{}
+	backupSites := make(map[string]model.CheckinSiteConfig, len(dump.Sites))
+	for _, site := range dump.Sites {
+		backupSites[site.ID] = site.Config
+	}
 	for _, backup := range dump.Accounts {
 		account := backup.CheckinAccount
 		var existing model.CheckinAccount
@@ -189,6 +196,17 @@ func importCheckin(tx *gorm.DB, dump *model.CheckinDump, result *model.DBImportR
 		account.CredentialCipher = backup.Cipher
 		account.AutoCheckin, account.NextRunAt = false, nil
 		account.LeaseOwner, account.LeaseUntil = "", nil
+		interruptCheckinInspection(&account, time.Now().UTC())
+		if account.Balance != nil || account.Inspection != nil {
+			var targetSite model.CheckinSite
+			if err := tx.First(&targetSite, "id = ?", account.SiteID).Error; err != nil {
+				return err
+			}
+			original := backupSites[account.SiteID]
+			if targetSite.Config.BaseURL != original.BaseURL || targetSite.Config.Adapter != original.Adapter {
+				account.Balance, account.Inspection = nil, nil
+			}
+		}
 		if account.DeletedAt != nil {
 			account.CredentialCipher = ""
 			account.HasRefreshToken, account.RefreshPending, account.RefreshError = false, false, ""

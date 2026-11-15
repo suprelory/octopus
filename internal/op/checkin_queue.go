@@ -19,6 +19,9 @@ func (s *CheckinStore) Recover(ctx context.Context, now time.Time) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := recoverCheckinInspections(tx, now); err != nil {
+			return err
+		}
 		if err := tx.Model(&model.CheckinJobItem{}).Where("state = ? AND lease_until <= ?", "running", now).Updates(map[string]any{"state": "queued", "lease_owner": "", "lease_until": nil}).Error; err != nil {
 			return err
 		}

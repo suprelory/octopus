@@ -40,6 +40,30 @@ export type CheckinSite = {
     verified_at?: string;
 };
 export type CredentialType = 'cookie' | 'bearer' | 'password';
+export type CheckinBalance = {
+    amount_micros?: string;
+    used_micros?: string;
+    amount_state: 'known' | 'unknown' | 'invalid';
+    used_state: 'known' | 'unknown' | 'invalid';
+    unit: string;
+    updated_at: string;
+};
+export type CheckinInspection = {
+    id: string;
+    kind: 'balance' | 'detect';
+    status: 'running' | 'success' | 'partial' | 'failed' | 'unsupported' | 'interrupted';
+    reason: string;
+    authentication: 'valid' | 'invalid' | 'unknown';
+    user_id?: string;
+    balance_updated: boolean;
+    checkin_support: 'not_checked' | 'unknown' | 'supported' | 'unsupported' | 'disabled';
+    checkin_status: 'unknown' | 'checked_in' | 'not_checked_in';
+    checkin_date: string;
+    timezone: string;
+    started_at: string;
+    finished_at?: string;
+    steps: Omit<CheckinAttempt, 'id' | 'message'>[];
+};
 export type CheckinAccount = {
     id: string;
     site_id: string;
@@ -59,6 +83,8 @@ export type CheckinAccount = {
     refresh_retry_at?: string;
     has_session?: boolean;
     session_saved_at?: string;
+    balance?: CheckinBalance;
+    inspection?: CheckinInspection;
     revision: number;
     next_run_at?: string;
     last_run_id: string;
@@ -176,6 +202,8 @@ export type Capability = {
     custom_request: boolean;
     custom_status: boolean;
     token_refresh: boolean;
+    account_detection: boolean;
+    balance_query: boolean;
 };
 export type RunPage = { items: CheckinRun[]; next_before: string };
 export const checkinPath = '/api/v1/checkin';
@@ -236,6 +264,8 @@ export function useCheckinEvents() {
 
 export function rewardText(micros?: string) {
     if (micros === undefined) return '—';
-    const digits = micros.padStart(7, '0');
-    return `${digits.slice(0, -6)}.${digits.slice(-6)}`.replace(/\.?0+$/, '') || '0';
+    const negative = micros.startsWith('-');
+    const digits = (negative ? micros.slice(1) : micros).padStart(7, '0');
+    const value = `${digits.slice(0, -6)}.${digits.slice(-6)}`.replace(/\.?0+$/, '') || '0';
+    return negative && value !== '0' ? `-${value}` : value;
 }

@@ -5,27 +5,29 @@ import "slices"
 // Platform metadata is shared by validation and the management UI. Protocol
 // implementations live in internal/checkin; credentials remain account-owned.
 type CheckinPlatform struct {
-	ID              string   `json:"id"`
-	Name            string   `json:"name"`
-	Path            string   `json:"path"`
-	CredentialTypes []string `json:"credential_types"`
-	Execution       string   `json:"execution"`
-	StatusQuery     string   `json:"status_query"`
-	CustomRequest   bool     `json:"custom_request"`
-	CustomStatus    bool     `json:"custom_status"`
-	TokenRefresh    bool     `json:"token_refresh"`
+	ID               string   `json:"id"`
+	Name             string   `json:"name"`
+	Path             string   `json:"path"`
+	CredentialTypes  []string `json:"credential_types"`
+	Execution        string   `json:"execution"`
+	StatusQuery      string   `json:"status_query"`
+	CustomRequest    bool     `json:"custom_request"`
+	CustomStatus     bool     `json:"custom_status"`
+	TokenRefresh     bool     `json:"token_refresh"`
+	AccountDetection bool     `json:"account_detection"`
+	BalanceQuery     bool     `json:"balance_query"`
 }
 
 func CheckinPlatforms() []CheckinPlatform {
 	return []CheckinPlatform{
-		{"new-api", "New API", "/api/user/checkin", []string{"cookie", "bearer"}, "request", "native", true, true, false},
-		{"one-api", "One API", "/api/user/checkin", []string{"cookie", "bearer"}, "request", "configured", true, true, false},
-		{"one-hub", "OneHub", "/api/user/checkin", []string{"cookie", "bearer"}, "request", "configured", true, true, false},
-		{"done-hub", "DoneHub", "/api/user/checkin", []string{"cookie", "bearer"}, "request", "configured", true, true, false},
-		{"sub2api", "Sub2API", "", []string{"bearer", "cookie"}, "request", "configured", true, true, true},
-		{"anyrouter", "AnyRouter", "/api/user/sign_in", []string{"cookie", "bearer", "password"}, "request", "configured", false, true, false},
-		{"agentrouter", "AgentRouter", "/api/user/login", []string{"password"}, "login", "logs", false, false, false},
-		{"http", "Custom HTTP", "", []string{"cookie", "bearer"}, "request", "configured", true, true, false},
+		{ID: "new-api", Name: "New API", Path: "/api/user/checkin", CredentialTypes: []string{"cookie", "bearer"}, Execution: "request", StatusQuery: "native", CustomRequest: true, CustomStatus: true, AccountDetection: true, BalanceQuery: true},
+		{ID: "one-api", Name: "One API", Path: "/api/user/checkin", CredentialTypes: []string{"cookie", "bearer"}, Execution: "request", StatusQuery: "configured", CustomRequest: true, CustomStatus: true},
+		{ID: "one-hub", Name: "OneHub", Path: "/api/user/checkin", CredentialTypes: []string{"cookie", "bearer"}, Execution: "request", StatusQuery: "configured", CustomRequest: true, CustomStatus: true},
+		{ID: "done-hub", Name: "DoneHub", Path: "/api/user/checkin", CredentialTypes: []string{"cookie", "bearer"}, Execution: "request", StatusQuery: "configured", CustomRequest: true, CustomStatus: true},
+		{ID: "sub2api", Name: "Sub2API", CredentialTypes: []string{"bearer", "cookie"}, Execution: "request", StatusQuery: "configured", CustomRequest: true, CustomStatus: true, TokenRefresh: true, AccountDetection: true, BalanceQuery: true},
+		{ID: "anyrouter", Name: "AnyRouter", Path: "/api/user/sign_in", CredentialTypes: []string{"cookie", "bearer", "password"}, Execution: "request", StatusQuery: "configured", CustomStatus: true},
+		{ID: "agentrouter", Name: "AgentRouter", Path: "/api/user/login", CredentialTypes: []string{"password"}, Execution: "login", StatusQuery: "logs"},
+		{ID: "http", Name: "Custom HTTP", CredentialTypes: []string{"cookie", "bearer"}, Execution: "request", StatusQuery: "configured", CustomRequest: true, CustomStatus: true},
 	}
 }
 

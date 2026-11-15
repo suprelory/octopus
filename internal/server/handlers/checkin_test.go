@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -58,6 +59,73 @@ func testCheckinEngine(t *testing.T) *gin.Engine {
 		_ = sqlDB.Close()
 	})
 	return checkinRoutes
+}
+
+func TestCheckinInspectionAPIIsPrivateAndDoesNotAcceptCustomRequests(t *testing.T) {
+	engine := testCheckinEngine(t)
+	var requests atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.Method != "GET" || r.URL.Path != "/api/user/self" || r.Header.Get("Authorization") != "Bearer private-inspection-token" {
+			t.Error("API inspection invoked an unexpected upstream action")
+		}
+		_, _ = w.Write([]byte(`{"success":true,"data":{"id":42,"quota":0,"used_quota":9007199255,"email":"private-profile@example.invalid"}}`))
+	}))
+	defer upstream.Close()
+	settings := model.DefaultCheckinSettings()
+	settings.SiteIntervalSeconds = 0
+	if err := checkin.Default.Store.SaveSettings(context.Background(), settings); err != nil {
+		t.Fatal(err)
+	}
+	site, err := checkin.Default.Store.SaveSite(context.Background(), "", 0, model.CheckinSiteConfig{Name: "Read-only API", BaseURL: upstream.URL, Adapter: "new-api", Enabled: true, StatusMode: "disabled"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := "Account"
+	account, err := checkin.Default.SaveAccount(context.Background(), site.ID, "", checkin.AccountWrite{Name: &name, Credentials: &model.CheckinCredentials{Type: "bearer", AccessToken: "private-inspection-token"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := auth.GenerateJWTToken(60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := func(method, path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		request := httptest.NewRequest(method, path, strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		request.AddCookie(&http.Cookie{Name: "auth", Value: token})
+		response := httptest.NewRecorder()
+		engine.ServeHTTP(response, request)
+		return response
+	}
+	for _, action := range []string{"balance", "detect"} {
+		path := "/api/v1/checkin/accounts/" + account.ID + "/" + action
+		before := requests.Load()
+		if response := call("POST", path, `{"path":"/api/user/login","method":"POST"}`); response.Code != 400 || requests.Load() != before {
+			t.Fatal("inspection accepted an injected request")
+		}
+		if response := call("GET", path, ""); response.Code != 404 || requests.Load() != before {
+			t.Fatal("a GET navigation triggered token renewal/inspection")
+		}
+		response := call("POST", path, "{}")
+		if response.Code != 200 || requests.Load() != before+1 || !strings.Contains(response.Body.String(), `"amount_micros":"0"`) || !strings.Contains(response.Body.String(), `"used_micros":"9007199255000000"`) || strings.Contains(response.Body.String(), "private-") || strings.Contains(response.Body.String(), "credential_cipher") {
+			t.Fatal("inspection response violated its public amount/privacy contract", response.Code)
+		}
+	}
+	if response := call("POST", "/api/v1/checkin/accounts/not-an-id/balance", "{}"); response.Code != 400 {
+		t.Fatal("invalid account ID accepted")
+	}
+	if response := call("PATCH", "/api/v1/checkin/accounts/"+account.ID, `{"revision":1,"balance":{"amount_micros":"999"}}`); response.Code != 400 {
+		t.Fatal("account write accepted caller-supplied balance")
+	}
+	disabled := false
+	if _, err := checkin.Default.SaveAccount(context.Background(), site.ID, account.ID, checkin.AccountWrite{Revision: account.Revision, Enabled: &disabled}); err != nil {
+		t.Fatal(err)
+	}
+	if response := call("POST", "/api/v1/checkin/accounts/"+account.ID+"/detect", "{}"); response.Code != 400 || requests.Load() != 2 {
+		t.Fatal("disabled account still performed a network request")
+	}
 }
 
 func TestCheckinRoutesRequireAdminCookieAndKeepCredentialsPrivate(t *testing.T) {

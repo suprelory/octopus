@@ -175,8 +175,6 @@ func (s *Service) Subscribe() (chan Event, func()) {
 }
 
 func (s *Service) take(ctx context.Context) (model.CheckinJobItem, model.CheckinSettings, bool) {
-	s.dispatchMu.Lock()
-	defer s.dispatchMu.Unlock()
 	s.gate.RLock()
 	ok := false
 	defer func() {
@@ -184,6 +182,10 @@ func (s *Service) take(ctx context.Context) (model.CheckinJobItem, model.Checkin
 			s.gate.RUnlock()
 		}
 	}()
+	// Management inspections already hold Access's read gate before dispatching.
+	// Keep this order so an exclusive backup cannot deadlock both operations.
+	s.dispatchMu.Lock()
+	defer s.dispatchMu.Unlock()
 	s.mu.Lock()
 	unavailable := s.closed || s.paused
 	s.mu.Unlock()

@@ -36,6 +36,8 @@ func init() {
 	add("/accounts/:id/credentials", http.MethodPut, checkinSaveAccount)
 	add("/accounts/:id", http.MethodDelete, checkinDeleteAccount)
 	add("/accounts/:id/checkin", http.MethodPost, checkinSingle)
+	add("/accounts/:id/balance", http.MethodPost, checkinBalance)
+	add("/accounts/:id/detect", http.MethodPost, checkinDetectAccount)
 	add("/jobs", http.MethodGet, checkinJobs)
 	add("/jobs", http.MethodPost, checkinCreateJob)
 	add("/jobs/:id", http.MethodGet, checkinJob)
@@ -176,6 +178,20 @@ func checkinDeleteAccount(c *gin.Context) {
 func checkinSingle(c *gin.Context) {
 	withCheckin(c, 202, func(s *checkin.Service) (any, error) {
 		return s.Enqueue(c.Request.Context(), model.CheckinScope{Kind: "accounts", IDs: []string{c.Param("id")}}, "manual", c.GetHeader("Idempotency-Key"))
+	})
+}
+func checkinBalance(c *gin.Context)       { checkinInspectAccount(c, "balance") }
+func checkinDetectAccount(c *gin.Context) { checkinInspectAccount(c, "detect") }
+func checkinInspectAccount(c *gin.Context, kind string) {
+	withCheckin(c, 200, func(s *checkin.Service) (any, error) {
+		// Reject configurable paths, rules or credentials on this read-only action.
+		if c.Request.ContentLength != 0 {
+			var input struct{}
+			if err := checkinJSON(c, &input); err != nil {
+				return nil, err
+			}
+		}
+		return s.InspectAccount(c.Request.Context(), c.Param("id"), kind)
 	})
 }
 func checkinCreateJob(c *gin.Context) {

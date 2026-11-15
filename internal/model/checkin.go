@@ -139,6 +139,9 @@ type CheckinAccount struct {
 	CreatedAt                 time.Time           `json:"created_at"`
 	UpdatedAt                 time.Time           `json:"updated_at"`
 	DeletedAt                 *time.Time          `json:"deleted_at,omitempty" gorm:"index"`
+
+	Balance    *CheckinBalanceSnapshot `json:"balance,omitempty" gorm:"type:text;serializer:json"`
+	Inspection *CheckinInspection      `json:"inspection,omitempty" gorm:"type:text;serializer:json"`
 }
 
 // One run is the durable ledger for one account and one business date. Attempts

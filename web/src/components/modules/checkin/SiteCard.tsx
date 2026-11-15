@@ -4,12 +4,14 @@ import { useTranslations } from 'use-intl';
 import { Button } from '@/components/ui/button';
 import {
     type CheckinAccount,
+    type Capability,
     type CheckinJob,
     type CheckinSite,
     useCheckinMutation,
     useCheckinQuery,
 } from '@/api/checkin';
 import { CheckinError, CheckinStatus, CheckinToggle } from './common';
+import { AccountInspection } from './AccountInspection';
 
 type Props = {
     site: CheckinSite;
@@ -35,6 +37,8 @@ export function SiteCard({
     const t = useTranslations('checkin');
     const [expanded, setExpanded] = useState(false);
     const accounts = useCheckinQuery<CheckinAccount[]>(`/sites/${site.id}/accounts`, expanded);
+    const capabilities = useCheckinQuery<Capability[]>('/capabilities', expanded);
+    const capability = capabilities.data?.find((item) => item.id === site.config.adapter);
     const mutate = useCheckinMutation();
     const run = useCheckinMutation<CheckinJob>();
     return (
@@ -142,6 +146,7 @@ export function SiteCard({
             {expanded && (
                 <div className="border-t bg-muted/20 px-5">
                     <CheckinError error={accounts.error} />
+                    <CheckinError error={capabilities.error} />
                     {accounts.data?.map((account) => (
                         <div key={account.id} className="space-y-2 border-b py-4 last:border-b-0">
                             <div className="flex flex-wrap items-center gap-2">
@@ -209,6 +214,7 @@ export function SiteCard({
                                         )}
                                     </div>
                                 )}
+                            <AccountInspection account={account} site={site} capability={capability} />
                             <div className="flex flex-wrap items-center gap-2">
                                 <CheckinToggle
                                     label={t('autoCheckin')}
@@ -221,7 +227,7 @@ export function SiteCard({
                                         })
                                     }
                                 />
-                                <div className="ml-auto flex gap-1">
+                                <div className="ml-auto flex flex-wrap gap-1">
                                     <Button
                                         size="sm"
                                         variant="outline"

@@ -47,6 +47,7 @@ type adapterRuntime struct {
 	account     *model.CheckinAccount
 	credentials *model.CheckinCredentials
 	run         *model.CheckinRun
+	inspection  *model.CheckinInspection
 	source      string
 }
 
@@ -56,7 +57,15 @@ func (r *adapterRuntime) request(ctx context.Context, stage string, config model
 
 func (r *adapterRuntime) requestBody(ctx context.Context, stage string, config model.CheckinRequest, auth model.CheckinCredentials, expand bool) (HTTPResult, error) {
 	started := time.Now()
-	result := doRequestHTTP(ctx, r.client, r.site.Config, config, auth, r.run.CheckinDate, expand)
+	date := r.item.CheckinDate
+	if r.run != nil {
+		date = r.run.CheckinDate
+	}
+	result := doRequestHTTP(ctx, r.client, r.site.Config, config, auth, date, expand)
+	return result, r.audit(ctx, stage, result, time.Since(started))
+}
+
+func (r *adapterRuntime) audit(ctx context.Context, stage string, result HTTPResult, duration time.Duration) error {
 	reason, message := "response_received", "Upstream response received"
 	if result.Err != nil {
 		reason, message = "network_error", "Request failed, timed out, or exceeded the response limit"
@@ -64,8 +73,11 @@ func (r *adapterRuntime) requestBody(ctx context.Context, stage string, config m
 	// Never persist bodies, headers, URLs or credential-derived text.
 	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	err := r.s.Store.AddAttempt(saveCtx, model.CheckinAttempt{RunID: r.run.ID, JobID: r.item.JobID, Stage: stage, HTTPStatus: result.StatusCode, Reason: reason, Message: message, DurationMS: time.Since(started).Milliseconds(), CreatedAt: r.s.Now()})
-	return result, err
+	if r.inspection != nil {
+		r.inspection.Steps = append(r.inspection.Steps, model.CheckinInspectionStep{Stage: stage, HTTPStatus: result.StatusCode, Reason: reason, DurationMS: duration.Milliseconds(), CreatedAt: r.s.Now()})
+		return r.s.Store.SaveInspection(saveCtx, r.item, *r.account, r.inspection, nil, false, r.s.Now())
+	}
+	return r.s.Store.AddAttempt(saveCtx, model.CheckinAttempt{RunID: r.run.ID, JobID: r.item.JobID, Stage: stage, HTTPStatus: result.StatusCode, Reason: reason, Message: message, DurationMS: duration.Milliseconds(), CreatedAt: r.s.Now()})
 }
 
 type adapterError struct{ status, reason string }
@@ -154,24 +166,34 @@ func (a *sub2APIAdapter) refresh(ctx context.Context, force bool) error {
 	if a.r.credentials.Type != "bearer" {
 		return nil
 	}
-	refreshed, err := a.r.s.ensureSub2APISession(ctx, a.r.client, a.r.site, a.r.item, a.r.account, a.r.credentials, force)
+	refreshed, err := a.r.ensureSub2APISession(ctx, force)
 	a.refreshed = a.refreshed || refreshed
 	return err
 }
 func (a *sub2APIAdapter) Prepare(ctx context.Context, _ bool) error { return a.refresh(ctx, false) }
 func (a *sub2APIAdapter) Query(ctx context.Context, stage string) (statusResult, error) {
-	result, err := a.requestAdapter.Query(ctx, stage)
+	rule := a.r.site.Config.Status
+	if rule == nil || !a.queryDateValid() {
+		return statusResult{State: "unknown"}, nil
+	}
+	response, err := a.readRequest(ctx, stage, rule.Request)
+	return a.status(response), err
+}
+
+// Only read operations may be replayed after one successful token rotation.
+func (a *sub2APIAdapter) readRequest(ctx context.Context, stage string, request model.CheckinRequest) (HTTPResult, error) {
+	result, err := a.r.request(ctx, stage, request, *a.r.credentials)
 	if err != nil || a.r.credentials.Type != "bearer" {
 		return result, err
 	}
-	if sub2APIRecoverable(result.HTTP) && !a.refreshed {
+	if sub2APIRecoverable(result) && !a.refreshed {
 		if err := a.refresh(ctx, true); err != nil {
 			return result, err
 		}
-		result, err = a.requestAdapter.Query(ctx, stage)
+		result, err = a.r.request(ctx, stage, request, *a.r.credentials)
 	}
-	if err == nil && result.HTTP.Err == nil && (result.HTTP.StatusCode == 401 || result.HTTP.StatusCode == 403) {
-		err = sub2APIRejected(result.HTTP)
+	if err == nil && result.Err == nil && (result.StatusCode == 401 || result.StatusCode == 403) {
+		err = sub2APIRejected(result)
 	}
 	return result, err
 }

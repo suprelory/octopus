@@ -1,4 +1,41 @@
 {
+    "inspection": {
+        "balance": "餘額",
+        "used": "累計用量",
+        "invalidAmount": "未知（數值無效）",
+        "lastKnown": "上次已知餘額",
+        "updatedAt": "餘額更新時間",
+        "refreshBalance": "重新整理餘額",
+        "detect": "唯讀檢測",
+        "details": "最近結果",
+        "title": "帳號檢測 · {name}",
+        "hint": "驗證登入狀態、讀取帳號資訊，並在有內建唯讀介面時查詢今日簽到狀態。可依帳號設定續期權杖，不會提交簽到。",
+        "running": "正在讀取帳號資訊…",
+        "authentication": "登入狀態",
+        "verifiedUser": "已驗證使用者 ID",
+        "checkinSupport": "內建簽到功能",
+        "checkinStatus": "簽到狀態",
+        "checkedAt": "最近檢測時間",
+        "steps": "請求階段",
+        "noRequests": "本次沒有傳送上游請求。",
+        "unsupported": "此平台尚未接入餘額查詢與唯讀帳號檢測。",
+        "kinds": {
+            "balance": "餘額查詢",
+            "detect": "唯讀帳號檢測"
+        },
+        "auth": {
+            "valid": "有效",
+            "invalid": "失效或無法使用",
+            "unknown": "未知"
+        },
+        "support": {
+            "not_checked": "此設定無內建檢測介面",
+            "unknown": "未知",
+            "supported": "已開啟",
+            "unsupported": "介面無法使用",
+            "disabled": "站點已關閉"
+        }
+    },
     "usernamePassword": "使用者名稱和密碼",
     "username": "使用者名稱或電子郵件",
     "password": "密碼",
@@ -181,6 +218,7 @@
         "confirm_timeout_minutes": "確認期限分鐘數（1–1440）"
     },
     "states": {
+        "partial": "部分完成",
         "idle": "未執行",
         "unknown": "未知",
         "supported": "已驗證",
@@ -199,7 +237,7 @@
         "completed": "已完成",
         "completed_with_errors": "完成，存在失敗",
         "canceled": "已取消",
-        "interrupted": "還原時已中止"
+        "interrupted": "已中斷"
     },
     "sources": {
         "manual": "手動簽到",
@@ -208,6 +246,8 @@
         "confirmation_auto": "自動確認"
     },
     "stages": {
+        "account": "讀取帳號與餘額",
+        "detect_status": "讀取簽到狀態",
         "authenticate": "準備登入工作階段",
         "refresh": "刷新登入權杖",
         "precheck": "提交前檢查",
@@ -215,6 +255,17 @@
         "confirm": "結果確認"
     },
     "reasons": {
+        "account_verified": "帳號已驗證，已讀取帳號資訊。",
+        "balance_unknown": "帳號有效，但回應未提供餘額。",
+        "balance_invalid": "帳號有效，但餘額或用量欄位無法安全解析。",
+        "inspection_unsupported": "此平台尚未接入帳號檢測。",
+        "inspection_interrupted": "帳號查詢已中斷，請重新查詢以取得目前結果。",
+        "inspection_failed": "帳號查詢未能完成或儲存，請重試。",
+        "account_response_invalid": "回應未依預期格式傳回可驗證的帳號資訊。",
+        "account_identity_mismatch": "站點傳回的帳號 ID 不一致，請核對已儲存的憑據與使用者 ID。",
+        "account_unavailable": "上游帳號已停用或無法使用。",
+        "checkin_status_unknown": "已讀取帳號資訊，但無法確認簽到狀態。",
+        "checkin_disabled": "站點已關閉內建簽到功能。",
         "unsupported_platform": "目前平台沒有可用的簽到適配器。",
         "router_user_id_required": "站點未回傳有效的帳號身分，請填寫您自己的數字使用者 ID。",
         "router_identity_mismatch": "站點回傳了不同的使用者 ID，請核對帳號憑證和使用者 ID 後再繼續。",

@@ -23,6 +23,51 @@ func bindCheckinProxy(t *testing.T, h *harness, site model.CheckinSite, node mod
 	return updated
 }
 
+func TestInspectionKeepsProxySnapshotThroughTokenRefresh(t *testing.T) {
+	h := newHarness(t)
+	var originalRequests, changedRequests atomic.Int32
+	var node model.ProxyConfiguration
+	changed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		changedRequests.Add(1)
+		jsonReply(w, `{"code":0,"data":{"id":42,"balance":2}}`)
+	}))
+	defer changed.Close()
+	original := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		originalRequests.Add(1)
+		if r.URL.Host != "inspection.invalid" || r.UserAgent() != "Checkin-Adapter-Test/1.0" {
+			t.Error("inspection lost its target or User-Agent")
+		}
+		if r.URL.Path == "/prefix/api/v1/auth/refresh" {
+			if _, err := op.ProxySave(context.Background(), h.s.Store.DB, node.ID, model.ProxyWrite{Name: node.Name, URL: changed.URL, Enabled: true, Revision: node.Revision}); err != nil {
+				t.Error(err)
+			}
+			sub2APITokens(w)
+			return
+		}
+		if r.URL.Path != "/prefix/api/v1/auth/me" || r.Method != "GET" || r.Header.Get("Authorization") != "Bearer new-access" {
+			t.Error("inspection did not reuse the refreshed session")
+		}
+		jsonReply(w, `{"code":0,"data":{"id":42,"balance":1}}`)
+	}))
+	defer original.Close()
+	var err error
+	node, err = op.ProxySave(context.Background(), h.s.Store.DB, 0, model.ProxyWrite{Name: "Inspection route", URL: original.URL, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expired := h.now.Add(-time.Minute)
+	site, account := h.platformAccount("http://inspection.invalid/prefix", "sub2api", model.CheckinCredentials{Type: "bearer", AccessToken: "old-access", RefreshToken: "old-refresh", ExpiresAt: &expired})
+	bindCheckinProxy(t, h, site, node)
+	result := inspectAccount(t, h, account, "detect")
+	if result.Inspection.Status != "success" || originalRequests.Load() != 2 || changedRequests.Load() != 0 {
+		t.Fatal("inspection changed proxies between refresh and account query")
+	}
+	inspectAccount(t, h, account, "balance")
+	if originalRequests.Load() != 2 || changedRequests.Load() != 1 {
+		t.Fatal("next inspection did not resolve the updated proxy")
+	}
+}
+
 func TestCheckinProxySnapshotSurvivesNodeEditDuringSubmission(t *testing.T) {
 	h := newHarness(t)
 	var oldRequests, newRequests, submits atomic.Int32

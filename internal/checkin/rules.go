@@ -133,7 +133,15 @@ func evaluateSiteStatus(config model.CheckinSiteConfig, httpStatus int, body []b
 }
 
 func decimalMicros(value, multiplier string) (*int64, error) {
-	if len(value) > 128 || !decimalPattern.MatchString(value) || !decimalPattern.MatchString(multiplier) {
+	return scaledDecimalMicros(value, multiplier, false)
+}
+
+func scaledDecimalMicros(value, multiplier string, signed bool) (*int64, error) {
+	pattern := decimalPattern
+	if signed {
+		pattern = scalarNumberPattern
+	}
+	if len(value) > 128 || len(multiplier) > 128 || !pattern.MatchString(value) || !decimalPattern.MatchString(multiplier) {
 		return nil, errors.New("reward must be a finite nonnegative decimal")
 	}
 	a, ok := new(big.Rat).SetString(value)
@@ -147,8 +155,8 @@ func decimalMicros(value, multiplier string) (*int64, error) {
 	a.Mul(a, b).Mul(a, big.NewRat(1_000_000, 1))
 	quotient, remainder := new(big.Int), new(big.Int)
 	quotient.QuoRem(a.Num(), a.Denom(), remainder)
-	if remainder.Mul(remainder, big.NewInt(2)).Cmp(a.Denom()) >= 0 {
-		quotient.Add(quotient, big.NewInt(1))
+	if remainder.Abs(remainder).Mul(remainder, big.NewInt(2)).Cmp(a.Denom()) >= 0 {
+		quotient.Add(quotient, big.NewInt(int64(a.Sign())))
 	}
 	if !quotient.IsInt64() {
 		return nil, errors.New("reward exceeds supported range")

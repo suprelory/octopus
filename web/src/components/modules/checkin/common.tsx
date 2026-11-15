@@ -154,6 +154,7 @@ export function CheckinStatus({ value }: { value: string }) {
                     state === 'unsupported') &&
                     'border-destructive/30 bg-destructive/10 text-destructive',
                 (state === 'pending' ||
+                    state === 'partial' ||
                     state === 'manual_required' ||
                     state === 'running' ||
                     state === 'queued') &&

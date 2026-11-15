@@ -328,7 +328,7 @@ func TestDatabaseBackupVersionsRemainCompatible(t *testing.T) {
 		t.Fatal("unknown backup version accepted")
 	}
 	dump, err := DBExportAll(ctx)
-	if err != nil || dump.Version != 7 || dump.Checkin == nil || dump.Checkin.Version != 4 {
+	if err != nil || dump.Version != 7 || dump.Checkin == nil || dump.Checkin.Version != 5 {
 		t.Fatalf("new export missing versioned checkin data: %+v %v", dump, err)
 	}
 }
@@ -350,6 +350,9 @@ func TestSub2APISessionBackupPreservesIdentityAndUncertainRefresh(t *testing.T) 
 	}
 	account.CredentialType, account.CredentialVersion, account.IdentityVersion = "bearer", 7, 2
 	account.RefreshPending, account.RefreshError = true, "sub2api_refresh_uncertain"
+	balance := int64(-12345679)
+	account.Balance = &model.CheckinBalanceSnapshot{AmountMicros: &balance, AmountState: "known", UsedState: "unknown", Unit: "USD", UpdatedAt: time.Now().UTC()}
+	account.Inspection = &model.CheckinInspection{ID: uuid.NewString(), Kind: "balance", Status: "running", Authentication: "unknown", CheckinSupport: "not_checked", CheckinStatus: "unknown", CheckinDate: dump.Runs[0].CheckinDate, Timezone: "UTC", StartedAt: time.Now().UTC(), Steps: []model.CheckinInspectionStep{{Stage: "refresh", HTTPStatus: 200, Reason: "response_received", CreatedAt: time.Now().UTC()}}}
 	dump.Attempts[0].Stage = "refresh"
 	raw, _ := json.Marshal(dump)
 	if bytes.Contains(raw, []byte("backup-access")) || bytes.Contains(raw, []byte("backup-refresh")) {
@@ -371,20 +374,94 @@ func TestSub2APISessionBackupPreservesIdentityAndUncertainRefresh(t *testing.T) 
 	if restored.CredentialCipher != account.Cipher {
 		t.Fatal("backup did not preserve the encrypted pair")
 	}
+	if restored.Balance == nil || restored.Balance.AmountMicros == nil || *restored.Balance.AmountMicros != balance || restored.Balance.UsedMicros != nil || restored.Inspection == nil || restored.Inspection.Status != "interrupted" || restored.Inspection.BalanceUpdated || restored.Inspection.FinishedAt == nil {
+		t.Fatal("backup lost balance precision/unknown usage or resumed an unfinished inspection")
+	}
+	exported, err := exportCheckin(context.Background(), target)
+	if err != nil || validateCheckinDump(exported) != nil {
+		t.Fatal("restored observations cannot be exported again", err)
+	}
 	decoded.Accounts[0].IdentityVersion = 8
 	if validateCheckinDump(&decoded) == nil {
 		t.Fatal("invalid identity version accepted")
 	}
 }
+func TestLegacyCheckinBackupsStillImportWithoutObservations(t *testing.T) {
+	for version := 1; version <= 4; version++ {
+		_, dump := checkinBackupFixture(t)
+		dump.Version = version
+		dump.Accounts[0].IdentityVersion = 0
+		target := checkinTestDB(t)
+		restoreCheckinFixture(t, target, dump)
+		account, err := NewCheckinStore(target).Account(context.Background(), dump.Accounts[0].ID)
+		if err != nil || account.IdentityVersion() != account.CredentialVersion || account.HasRefreshToken || account.Balance != nil || account.Inspection != nil {
+			t.Fatal("legacy credential identity or unknown observation was not preserved")
+		}
+	}
+}
 
-func TestCheckinVersionOneBackupStillImports(t *testing.T) {
+func TestCheckinObservationBackupRejectsInconsistentOrUnredactedData(t *testing.T) {
 	_, dump := checkinBackupFixture(t)
-	dump.Version = 1
-	dump.Accounts[0].IdentityVersion = 0
+	now, zero := time.Now().UTC(), int64(0)
+	dump.Accounts[0].Balance = &model.CheckinBalanceSnapshot{AmountMicros: &zero, AmountState: "known", UsedState: "unknown", Unit: "quota", UpdatedAt: now}
+	dump.Accounts[0].Inspection = &model.CheckinInspection{ID: uuid.NewString(), Kind: "balance", Status: "success", Reason: "account_verified", Authentication: "valid", UserID: "42", BalanceUpdated: true, CheckinSupport: "not_checked", CheckinStatus: "unknown", CheckinDate: dump.Runs[0].CheckinDate, Timezone: "UTC", StartedAt: now, FinishedAt: &now, Steps: []model.CheckinInspectionStep{{Stage: "account", HTTPStatus: 200, Reason: "response_received", CreatedAt: now}}}
+	if err := validateCheckinDump(dump); err != nil {
+		t.Fatal("valid zero/unknown observation was rejected", err)
+	}
+	raw, _ := json.Marshal(dump)
+	if !bytes.Contains(raw, []byte(`"amount_micros":"0"`)) {
+		t.Fatal("backup lost the string micro-unit contract")
+	}
+	for _, modify := range []func(*model.CheckinAccountBackup){
+		func(a *model.CheckinAccountBackup) { a.Balance.AmountState = "unknown" },
+		func(a *model.CheckinAccountBackup) { a.Balance.Unit = "guessed-currency" },
+		func(a *model.CheckinAccountBackup) { a.Inspection.Steps[0].Stage = "submit" },
+		func(a *model.CheckinAccountBackup) { a.Inspection.Reason = "upstream-private-token" },
+		func(a *model.CheckinAccountBackup) { a.Inspection.Steps[0].Reason = "upstream-private-token" },
+		func(a *model.CheckinAccountBackup) { a.Inspection.FinishedAt = nil },
+	} {
+		var invalid model.CheckinDump
+		if err := json.Unmarshal(raw, &invalid); err != nil {
+			t.Fatal(err)
+		}
+		modify(&invalid.Accounts[0])
+		if err := validateCheckinDump(&invalid); err == nil {
+			t.Fatal("invalid or unredacted observation was accepted")
+		}
+	}
 	target := checkinTestDB(t)
+	existingSite := dump.Sites[0]
+	existingSite.Config.BaseURL = "https://different-tenant.example.invalid"
+	if err := target.Create(&existingSite).Error; err != nil {
+		t.Fatal(err)
+	}
 	restoreCheckinFixture(t, target, dump)
 	account, err := NewCheckinStore(target).Account(context.Background(), dump.Accounts[0].ID)
-	if err != nil || account.IdentityVersion() != account.CredentialVersion || account.HasRefreshToken {
-		t.Fatal("legacy credential identity was not preserved")
+	if err != nil || account.Balance != nil || account.Inspection != nil {
+		t.Fatal("import attributed an old site's balance to a different upstream tenant", err)
+	}
+}
+
+func TestCheckinObservationSchemaUpgradePreservesPendingSubmission(t *testing.T) {
+	store, dump := checkinBackupFixture(t)
+	// Recreate the pre-observation schema, including its existing account/ledger.
+	for _, column := range []string{"balance", "inspection"} {
+		// Native SQLite DROP COLUMN leaves the existing foreign-key graph intact.
+		if err := store.DB.Exec("ALTER TABLE checkin_accounts DROP COLUMN " + column).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 2; i++ {
+		if err := store.DB.AutoMigrate(&model.CheckinAccount{}); err != nil {
+			t.Fatal(err)
+		}
+		account, err := store.Account(context.Background(), dump.Accounts[0].ID)
+		if err != nil || account.CredentialCipher != dump.Accounts[0].Cipher || account.Balance != nil || account.Inspection != nil {
+			t.Fatal("schema upgrade changed credentials or invented observations", err)
+		}
+		run, err := store.Run(context.Background(), dump.Runs[0].ID)
+		if err != nil || run.SubmitIntentAt == nil || !run.SubmitIntentAt.Equal(*dump.Runs[0].SubmitIntentAt) {
+			t.Fatal("schema upgrade lost the pending submission marker", err)
+		}
 	}
 }
