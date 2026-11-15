@@ -53,6 +53,7 @@ type CheckinSiteConfig struct {
 	Success       *CheckinMatch      `json:"success,omitempty"`
 	Already       *CheckinMatch      `json:"already,omitempty"`
 	Status        *CheckinStatusRule `json:"status,omitempty"`
+	StatusMode    string             `json:"status_mode,omitempty"`
 	Reward        CheckinRewardRule  `json:"reward"`
 }
 
@@ -69,12 +70,33 @@ type CheckinSite struct {
 }
 
 type CheckinCredentials struct {
-	Type         string     `json:"type"`
-	Cookie       string     `json:"cookie,omitempty"`
-	AccessToken  string     `json:"access_token,omitempty"`
-	UserID       string     `json:"user_id,omitempty"`
-	RefreshToken string     `json:"refresh_token,omitempty"`
-	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
+	Type         string               `json:"type"`
+	Cookie       string               `json:"cookie,omitempty"`
+	AccessToken  string               `json:"access_token,omitempty"`
+	UserID       string               `json:"user_id,omitempty"`
+	RefreshToken string               `json:"refresh_token,omitempty"`
+	ExpiresAt    *time.Time           `json:"expires_at,omitempty"`
+	Username     string               `json:"username,omitempty"`
+	Password     string               `json:"password,omitempty"`
+	Session      *CheckinLoginSession `json:"session,omitempty"`
+}
+
+// Derived login material is encrypted with the original credentials. Keeping
+// cookie scope and expiry avoids widening cookies when a worker restarts.
+type CheckinSessionCookie struct {
+	Name    string    `json:"name"`
+	Value   string    `json:"value"`
+	Domain  string    `json:"domain,omitempty"`
+	Path    string    `json:"path"`
+	Secure  bool      `json:"secure,omitempty"`
+	Expires time.Time `json:"expires,omitempty"`
+}
+
+type CheckinLoginSession struct {
+	BaseURL     string                 `json:"base_url"`
+	Auth        string                 `json:"auth"`
+	AccessToken string                 `json:"access_token,omitempty"`
+	Cookies     []CheckinSessionCookie `json:"cookies"`
 }
 
 type CheckinAccount struct {
@@ -97,6 +119,8 @@ type CheckinAccount struct {
 	RefreshPending            bool         `json:"refresh_pending,omitempty"`
 	RefreshError              string       `json:"refresh_error,omitempty" gorm:"size:64"`
 	RefreshRetryAt            *time.Time   `json:"refresh_retry_at,omitempty"`
+	HasSession                bool         `json:"has_session"`
+	SessionSavedAt            *time.Time   `json:"session_saved_at,omitempty"`
 	Revision                  int64        `json:"revision"`
 	NextRunAt                 *time.Time   `json:"next_run_at,omitempty" gorm:"index"`
 	LastRunID                 string       `json:"last_run_id" gorm:"type:varchar(36)"`

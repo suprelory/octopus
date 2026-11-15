@@ -20,6 +20,8 @@ type HTTPResult struct {
 	StatusCode int
 	Body       []byte
 	Err        error
+	Cookies    []*http.Cookie
+	URL        *url.URL
 }
 type SubmitResult struct {
 	Status, Reason string
@@ -55,21 +57,20 @@ func newHTTPClient(proxyURL string, timeout time.Duration) (*http.Client, error)
 }
 
 func requestHTTP(ctx context.Context, client *http.Client, site model.CheckinSiteConfig, config model.CheckinRequest, credentials model.CheckinCredentials, date string) HTTPResult {
-	base, err := url.Parse(site.BaseURL)
+	return doRequestHTTP(ctx, client, site, config, credentials, date, true)
+}
+
+func doRequestHTTP(ctx context.Context, client *http.Client, site model.CheckinSiteConfig, config model.CheckinRequest, credentials model.CheckinCredentials, date string, expand bool) HTTPResult {
+	base, err := checkinRequestURL(site.BaseURL, config.Path, date)
 	if err != nil {
 		return HTTPResult{Err: errors.New("invalid site URL")}
 	}
-	path, err := url.ParseRequestURI(strings.ReplaceAll(config.Path, "{{checkin_date}}", date))
-	if err != nil {
-		return HTTPResult{Err: errors.New("invalid request path")}
-	}
-	base.Path = strings.TrimRight(base.Path, "/") + path.Path
-	base.RawPath = ""
-	base.RawQuery = path.RawQuery
 	body := config.Body
-	for key, value := range map[string]string{"{{checkin_date}}": date, "{{user_id}}": credentials.UserID} {
-		encoded, _ := json.Marshal(value)
-		body = strings.ReplaceAll(body, key, string(encoded[1:len(encoded)-1]))
+	if expand {
+		for key, value := range map[string]string{"{{checkin_date}}": date, "{{user_id}}": credentials.UserID} {
+			encoded, _ := json.Marshal(value)
+			body = strings.ReplaceAll(body, key, string(encoded[1:len(encoded)-1]))
+		}
 	}
 	if body != "" && !json.Valid([]byte(body)) {
 		return HTTPResult{Err: errors.New("invalid expanded JSON body")}
@@ -105,9 +106,23 @@ func requestHTTP(ctx context.Context, client *http.Client, site model.CheckinSit
 	defer response.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(response.Body, (1<<20)+1))
 	if err != nil || len(raw) > 1<<20 {
-		return HTTPResult{StatusCode: response.StatusCode, Err: errors.New("checkin response could not be read within its limit")}
+		return HTTPResult{StatusCode: response.StatusCode, Cookies: response.Cookies(), URL: base, Err: errors.New("checkin response could not be read within its limit")}
 	}
-	return HTTPResult{StatusCode: response.StatusCode, Body: raw}
+	return HTTPResult{StatusCode: response.StatusCode, Body: raw, Cookies: response.Cookies(), URL: base}
+}
+
+func checkinRequestURL(baseURL, requestPath, date string) (*url.URL, error) {
+	base, err := url.Parse(baseURL)
+	if err != nil {
+		return nil, err
+	}
+	path, err := url.ParseRequestURI(strings.ReplaceAll(requestPath, "{{checkin_date}}", date))
+	if err != nil {
+		return nil, err
+	}
+	base.Path = strings.TrimRight(base.Path, "/") + path.Path
+	base.RawPath, base.RawQuery = "", path.RawQuery
+	return base, nil
 }
 
 func interpretSubmit(config model.CheckinSiteConfig, status int, body []byte) SubmitResult {
@@ -156,21 +171,6 @@ func interpretSubmit(config model.CheckinSiteConfig, status int, body []byte) Su
 	return SubmitResult{Status: "manual_required", Reason: "unconfirmed_response"}
 }
 
-type Capability struct {
-	ID              string   `json:"id"`
-	Name            string   `json:"name"`
-	Path            string   `json:"path"`
-	CredentialTypes []string `json:"credential_types"`
-}
+type Capability = model.CheckinPlatform
 
-func Capabilities() []Capability {
-	result := []Capability{}
-	for _, platform := range []struct{ id, name string }{{"new-api", "New API"}, {"one-api", "One API"}, {"one-hub", "OneHub"}, {"done-hub", "DoneHub"}, {"sub2api", "Sub2API"}, {"http", "Custom HTTP"}} {
-		path := "/api/user/checkin"
-		if platform.id == "http" || platform.id == "sub2api" {
-			path = ""
-		}
-		result = append(result, Capability{ID: platform.id, Name: platform.name, Path: path, CredentialTypes: []string{"cookie", "bearer"}})
-	}
-	return result
-}
+func Capabilities() []Capability { return model.CheckinPlatforms() }

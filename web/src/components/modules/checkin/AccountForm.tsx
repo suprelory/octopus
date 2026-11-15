@@ -4,9 +4,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
     type AccountWrite,
+    type Capability,
+    type CredentialType,
     type CheckinAccount,
     type CheckinSite,
     useCheckinMutation,
+    useCheckinQuery,
 } from '@/api/checkin';
 import {
     CheckinDialog,
@@ -30,11 +33,15 @@ export function AccountForm({
     const [name, setName] = useState(account?.name ?? '');
     const [enabled, setEnabled] = useState(account?.enabled ?? true);
     const [automatic, setAutomatic] = useState(account?.auto_checkin ?? false);
-    const sub2api = site.config.adapter === 'sub2api';
-    const [type, setType] = useState<'cookie' | 'bearer'>(
-        account?.credential_type ?? (sub2api ? 'bearer' : 'cookie'),
-    );
+    const capabilities = useCheckinQuery<Capability[]>('/capabilities');
+    const platform = capabilities.data?.find((item) => item.id === site.config.adapter);
+    const availableTypes = platform?.credential_types ?? [];
+    const sub2api = platform?.token_refresh ?? false;
+    const [chosenType, setType] = useState<CredentialType | ''>(account?.credential_type ?? '');
+    const type = chosenType || availableTypes[0] || 'cookie';
     const [credential, setCredential] = useState('');
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
     const [refreshToken, setRefreshToken] = useState('');
     const [expiresAt, setExpiresAt] = useState('');
     const [userID, setUserID] = useState(account?.user_id ?? '');
@@ -47,11 +54,14 @@ export function AccountForm({
         event.preventDefault();
         setError(null);
         try {
+            const replacing = type === 'password' ? !!(username || password) : !!credential;
+            if (type === 'password' && (!account || replacing) && (!username.trim() || !password))
+                throw new Error(t('replacePasswordHint'));
             if (!credential && (refreshToken || expiresAt))
                 throw new Error(t('replaceSessionHint'));
             if (
                 account &&
-                !credential &&
+                !replacing &&
                 (type !== account.credential_type || userID !== (account.user_id ?? ''))
             )
                 throw new Error(t('replaceCredentialHint'));
@@ -64,15 +74,21 @@ export function AccountForm({
                 revision: account?.revision ?? 0,
                 credential_version: account?.credential_version ?? 0,
             };
-            if (!account || credential)
+            if (!account || replacing)
                 body.credentials = {
                     type,
                     user_id: userID,
-                    ...(type === 'cookie' ? { cookie: credential } : { access_token: credential }),
+                    ...(type === 'password'
+                        ? { username, password }
+                        : type === 'cookie'
+                          ? { cookie: credential }
+                          : { access_token: credential }),
                     ...(sub2api && type === 'bearer'
                         ? {
                               refresh_token: refreshToken,
-                              ...(expiresAt ? { expires_at: new Date(expiresAt).toISOString() } : {}),
+                              ...(expiresAt
+                                  ? { expires_at: new Date(expiresAt).toISOString() }
+                                  : {}),
                           }
                         : {}),
                 };
@@ -129,40 +145,81 @@ export function AccountForm({
                     <CheckinSelect
                         value={type}
                         onChange={(event) => {
-                            setType(event.target.value as 'cookie' | 'bearer');
+                            setType(event.target.value as CredentialType);
                             setCredential('');
+                            setUsername('');
+                            setPassword('');
                             setRefreshToken('');
                             setExpiresAt('');
                         }}
                     >
-                        <option value="cookie">Cookie</option>
-                        <option value="bearer">{t('accessToken')}</option>
+                        {availableTypes.map((value) => (
+                            <option key={value} value={value}>
+                                {value === 'cookie'
+                                    ? 'Cookie'
+                                    : t(value === 'password' ? 'usernamePassword' : 'accessToken')}
+                            </option>
+                        ))}
                     </CheckinSelect>
                 </CheckinField>
-                <CheckinField
-                    label={type === 'cookie' ? 'Cookie' : t('accessToken')}
-                    hint={t(account ? 'credentialSaved' : 'credentialHint')}
-                >
-                    {type === 'cookie' ? (
-                        <CheckinTextarea
-                            required={!account}
-                            autoComplete="off"
-                            spellCheck={false}
-                            value={credential}
-                            onChange={(event) => setCredential(event.target.value)}
-                            placeholder={account ? '••••••••' : 'session=...'}
-                        />
-                    ) : (
-                        <Input
-                            type="password"
-                            required={!account}
-                            autoComplete="new-password"
-                            value={credential}
-                            onChange={(event) => setCredential(event.target.value)}
-                            placeholder={account ? '••••••••' : ''}
-                        />
-                    )}
-                </CheckinField>
+                {type === 'password' ? (
+                    <>
+                        <CheckinField
+                            label={t('username')}
+                            hint={t(account ? 'loginCredentialsSaved' : 'loginCredentialsHint')}
+                        >
+                            <Input
+                                required={!account || !!password}
+                                autoComplete="off"
+                                value={username}
+                                onChange={(event) => setUsername(event.target.value)}
+                                placeholder={account ? '••••••••' : ''}
+                            />
+                        </CheckinField>
+                        <CheckinField label={t('password')}>
+                            <Input
+                                type="password"
+                                required={!account || !!username}
+                                autoComplete="new-password"
+                                value={password}
+                                onChange={(event) => setPassword(event.target.value)}
+                                placeholder={account ? '••••••••' : ''}
+                            />
+                        </CheckinField>
+                        <p className="text-xs text-muted-foreground">
+                            {t(
+                                platform?.execution === 'login'
+                                    ? 'agentrouterAccountHint'
+                                    : 'anyrouterAccountHint',
+                            )}
+                        </p>
+                    </>
+                ) : (
+                    <CheckinField
+                        label={type === 'cookie' ? 'Cookie' : t('accessToken')}
+                        hint={t(account ? 'credentialSaved' : 'credentialHint')}
+                    >
+                        {type === 'cookie' ? (
+                            <CheckinTextarea
+                                required={!account}
+                                autoComplete="off"
+                                spellCheck={false}
+                                value={credential}
+                                onChange={(event) => setCredential(event.target.value)}
+                                placeholder={account ? '••••••••' : 'session=...'}
+                            />
+                        ) : (
+                            <Input
+                                type="password"
+                                required={!account}
+                                autoComplete="new-password"
+                                value={credential}
+                                onChange={(event) => setCredential(event.target.value)}
+                                placeholder={account ? '••••••••' : ''}
+                            />
+                        )}
+                    </CheckinField>
+                )}
                 {sub2api && type === 'bearer' && (
                     <>
                         <CheckinField label={t('refreshToken')} hint={t('refreshTokenHint')}>
@@ -181,10 +238,19 @@ export function AccountForm({
                                 onChange={(event) => setExpiresAt(event.target.value)}
                             />
                         </CheckinField>
-                        <p className="text-xs text-muted-foreground">{t('sessionCredentialHint')}</p>
+                        <p className="text-xs text-muted-foreground">
+                            {t('sessionCredentialHint')}
+                        </p>
                     </>
                 )}
-                <CheckinField label={t('userID')} hint={t('userIDHint')}>
+                <CheckinField
+                    label={t('userID')}
+                    hint={t(
+                        site.config.adapter === 'anyrouter' || site.config.adapter === 'agentrouter'
+                            ? 'routerUserIDHint'
+                            : 'userIDHint',
+                    )}
+                >
                     <Input value={userID} onChange={(event) => setUserID(event.target.value)} />
                 </CheckinField>
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -211,11 +277,12 @@ export function AccountForm({
                     )}
                 </div>
                 <CheckinError error={error} />
+                <CheckinError error={capabilities.error} />
                 <div className="flex justify-end gap-2 border-t pt-4">
                     <Button type="button" variant="outline" onClick={onClose}>
                         {t('cancel')}
                     </Button>
-                    <Button type="submit" disabled={save.isPending}>
+                    <Button type="submit" disabled={save.isPending || !availableTypes.length}>
                         {t('save')}
                     </Button>
                 </div>

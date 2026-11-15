@@ -263,7 +263,7 @@ func (s *Service) ensureSub2APISession(ctx context.Context, client *http.Client,
 	defer cancel()
 	body, _ := json.Marshal(map[string]string{"refresh_token": credentials.RefreshToken})
 	started := time.Now()
-	response := requestHTTP(refreshCtx, client, site.Config, model.CheckinRequest{Method: "POST", Path: "/api/v1/auth/refresh", Body: string(body)}, model.CheckinCredentials{}, "")
+	response := doRequestHTTP(refreshCtx, client, site.Config, model.CheckinRequest{Method: "POST", Path: "/api/v1/auth/refresh", Body: string(body)}, model.CheckinCredentials{}, "", false)
 	duration := time.Since(started)
 	next, valid := sub2APIRefreshCredentials(response, *credentials, s.Now())
 	identityChanged := valid && !sameSub2APISession(credentials.AccessToken, next.AccessToken)

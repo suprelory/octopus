@@ -110,9 +110,8 @@ func NormalizeCheckinSite(c *CheckinSiteConfig) error {
 	if err := ValidateCheckinURL(c.BaseURL, false); err != nil {
 		return err
 	}
-	switch c.Adapter {
-	case "http", "new-api", "one-api", "one-hub", "done-hub", "sub2api":
-	default:
+	platform, ok := CheckinPlatformByID(c.Adapter)
+	if !ok {
 		return InvalidCheckin("unsupported checkin adapter")
 	}
 	if c.Timezone == "" {
@@ -156,6 +155,8 @@ func NormalizeCheckinSite(c *CheckinSiteConfig) error {
 		if c.Success == nil {
 			c.Success = &CheckinMatch{Path: "code", Value: json.RawMessage("0")}
 		}
+	}
+	if platform.TokenRefresh || !platform.CustomRequest {
 		requests := []CheckinRequest{c.Submit}
 		if c.Status != nil {
 			requests = append(requests, c.Status.Request)
@@ -163,13 +164,24 @@ func NormalizeCheckinSite(c *CheckinSiteConfig) error {
 		for _, request := range requests {
 			for _, header := range request.Headers {
 				if strings.EqualFold(strings.TrimSpace(header.Name), "User-Agent") {
-					return InvalidCheckin("configure the shared User-Agent for Sub2API instead of a request header")
+					return InvalidCheckin("configure the shared User-Agent instead of a request header")
 				}
 			}
 		}
 	}
-	if c.Submit.Path == "" && c.Adapter != "http" && c.Adapter != "sub2api" {
-		c.Submit.Path = "/api/user/checkin"
+	if c.Submit.Path == "" {
+		c.Submit.Path = platform.Path
+	}
+	if !platform.CustomRequest {
+		if c.Submit.Method != "POST" || c.Submit.Path != platform.Path || (c.Submit.Body != "" && c.Submit.Body != "{}") || len(c.Submit.Headers) != 0 || c.Success != nil || c.Already != nil {
+			return InvalidCheckin("this platform uses its built-in submission and response rules")
+		}
+	}
+	if c.StatusMode != "" && (c.StatusMode != "disabled" || c.Adapter != "new-api" || c.Status != nil) {
+		return InvalidCheckin("invalid status query mode")
+	}
+	if c.Status != nil && !platform.CustomStatus {
+		return InvalidCheckin("this platform uses built-in read-only status queries")
 	}
 	if c.Submit.Headers == nil {
 		c.Submit.Headers = []CheckinHeader{}
@@ -211,21 +223,30 @@ func NormalizeCheckinSite(c *CheckinSiteConfig) error {
 	}
 	if c.Reward.Source == "" {
 		c.Reward.Source = "submit"
+		if c.Adapter == "new-api" && CheckinNativeStatus(*c) {
+			c.Reward.Source = "status"
+		}
 	}
 	if c.Reward.Source != "submit" && c.Reward.Source != "status" {
 		return InvalidCheckin("reward source must be submit or status")
 	}
-	if c.Reward.Source == "status" && c.Status == nil {
+	if c.Reward.Source == "status" && c.Status == nil && !CheckinNativeStatus(*c) {
 		return InvalidCheckin("status rewards require a status query")
 	}
 	if c.Reward.Path == "" {
 		c.Reward.Path = "data.reward"
+		if c.Adapter == "new-api" {
+			c.Reward.Path = "data.quota_awarded"
+		}
 	}
 	if err := ValidateCheckinMatch(CheckinMatch{Path: c.Reward.Path, Value: json.RawMessage(`0`)}); err != nil {
 		return err
 	}
 	if c.Reward.Unit == "" {
 		c.Reward.Unit = "points"
+		if c.Adapter == "new-api" {
+			c.Reward.Unit = "quota"
+		}
 	}
 	if len(c.Reward.Unit) > 32 || strings.ContainsAny(c.Reward.Unit, "\r\n\x00") {
 		return InvalidCheckin("invalid reward unit")
@@ -267,11 +288,22 @@ func containsCheckinSecretField(value any) bool {
 }
 
 func ValidateCheckinCredentials(c CheckinCredentials) error {
-	if strings.ContainsAny(c.Cookie+c.AccessToken+c.UserID+c.RefreshToken, "\r\n\x00") || len(c.Cookie) > 16384 || len(c.AccessToken) > 16384 || len(c.RefreshToken) > 16384 || len(c.UserID) > 64 {
+	if strings.ContainsAny(c.Cookie+c.AccessToken+c.UserID+c.RefreshToken+c.Username+c.Password, "\r\n\x00") || len(c.Cookie) > 16384 || len(c.AccessToken) > 16384 || len(c.RefreshToken) > 16384 || len(c.UserID) > 64 || len(c.Username) > 320 || len(c.Password) > 4096 {
 		return InvalidCheckin("invalid credential length or control characters")
+	}
+	if c.Session != nil {
+		if err := ValidateCheckinLoginSession(*c.Session); err != nil {
+			return err
+		}
 	}
 	if c.ExpiresAt != nil && (c.ExpiresAt.Year() < 1970 || c.ExpiresAt.Year() > 9999) {
 		return InvalidCheckin("invalid token expiry")
+	}
+	if c.Type == "password" && strings.TrimSpace(c.Username) != "" && c.Password != "" && c.Cookie == "" && c.AccessToken == "" && c.RefreshToken == "" && c.ExpiresAt == nil {
+		return nil
+	}
+	if c.Username != "" || c.Password != "" {
+		return InvalidCheckin("username and password require password credentials")
 	}
 	if c.Type == "cookie" && strings.TrimSpace(c.Cookie) != "" && c.AccessToken == "" && c.RefreshToken == "" && c.ExpiresAt == nil {
 		return nil
@@ -279,7 +311,25 @@ func ValidateCheckinCredentials(c CheckinCredentials) error {
 	if c.Type == "bearer" && strings.TrimSpace(c.AccessToken) != "" && c.Cookie == "" {
 		return nil
 	}
-	return InvalidCheckin("provide either a Cookie or a website Access Token")
+	return InvalidCheckin("provide a Cookie, website Access Token, or username and password supported by this platform")
+}
+
+func ValidateCheckinLoginSession(session CheckinLoginSession) error {
+	if err := ValidateCheckinURL(session.BaseURL, false); err != nil {
+		return err
+	}
+	if (session.Auth != "cookie" && session.Auth != "bearer") || len(session.AccessToken) > 16384 || strings.ContainsAny(session.AccessToken, "\r\n\x00") || len(session.Cookies) > 64 {
+		return InvalidCheckin("invalid saved login session")
+	}
+	size := 0
+	for _, cookie := range session.Cookies {
+		value := http.Cookie{Name: cookie.Name, Value: cookie.Value, Domain: cookie.Domain, Path: cookie.Path, Secure: cookie.Secure, Expires: cookie.Expires}
+		size += len(cookie.Name) + len(cookie.Value) + len(cookie.Domain) + len(cookie.Path)
+		if value.Valid() != nil || !strings.HasPrefix(cookie.Path, "/") || size > 32768 {
+			return InvalidCheckin("invalid saved session cookie")
+		}
+	}
+	return nil
 }
 
 func (s CheckinSettings) Validate() error {

@@ -54,3 +54,17 @@ func (s *CheckinStore) FailSessionRefresh(ctx context.Context, item model.Checki
 	return checkSessionWrite(sessionAccount(s.DB.WithContext(ctx), item, account, now).
 		Updates(map[string]any{"refresh_pending": pending, "refresh_error": reason, "refresh_retry_at": retryAt}))
 }
+
+// Login/cookie renewal keeps the account's logical identity and requires the
+// same lease and credential version that obtained the session.
+func (s *CheckinStore) SaveLoginSession(ctx context.Context, item model.CheckinJobItem, before model.CheckinAccount, cipher, userID string, hasSession bool, now time.Time) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return checkinIntentTransaction(s.DB.WithContext(ctx), func(tx *gorm.DB) error {
+		return checkSessionWrite(sessionAccount(tx, item, before, now).Updates(map[string]any{
+			"credential_cipher": cipher, "credential_user_id": userID,
+			"credential_version": before.CredentialVersion + 1, "credential_identity_version": before.IdentityVersion(),
+			"has_session": hasSession, "session_saved_at": now,
+		}))
+	})
+}

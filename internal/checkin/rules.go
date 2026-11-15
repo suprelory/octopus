@@ -123,6 +123,12 @@ func evaluateSiteStatus(config model.CheckinSiteConfig, httpStatus int, body []b
 			return "unknown"
 		}
 	}
+	if config.Adapter == "anyrouter" {
+		data, err := decodeObject(body)
+		if err != nil || !routerSuccess(data) || routerChallenge(HTTPResult{Body: body}, data) {
+			return "unknown"
+		}
+	}
 	return evaluateStatus(*config.Status, httpStatus, body, date)
 }
 
@@ -198,10 +204,30 @@ func TestRules(config model.CheckinSiteConfig, status int, body []byte, date str
 		return RulePreview{}, model.InvalidCheckin("provide a JSON response sample up to 1 MiB")
 	}
 	state := interpretSubmit(config, status, body).Status
+	rewardBody := body
+	response := HTTPResult{StatusCode: status, Body: body}
+	if config.Adapter == "anyrouter" {
+		state = routerSubmitResult(response).Status
+	}
 	if config.Status != nil {
 		state = evaluateSiteStatus(config, status, body, date)
+	} else if config.Adapter == "new-api" && model.CheckinNativeStatus(config) {
+		data, _ := decodeObject(body)
+		if _, exists := field(data, "data.stats"); exists {
+			result := newAPIStatus(response, date, date)
+			state, rewardBody = result.State, result.RewardBody
+		}
 	}
-	amount, rewardState := extractReward(config.Reward, body)
+	if config.Adapter == "agentrouter" {
+		data, _ := decodeObject(body)
+		state = "unknown"
+		day, hasDate := field(data, "data.checkin_date")
+		if routerSuccessResponse(response) && routerResponseUserID(data) != "" && matches(data, model.CheckinMatch{Path: "success", Value: json.RawMessage("true")}) && matches(data, model.CheckinMatch{Path: "data.checked_in", Value: json.RawMessage("true")}) && (!hasDate || day == date) {
+			state = "checked_in"
+		}
+		return RulePreview{State: state, RewardState: "unknown"}, nil
+	}
+	amount, rewardState := extractReward(config.Reward, rewardBody)
 	result := RulePreview{State: state, RewardState: rewardState}
 	if amount != nil {
 		text := formatMicros(big.NewInt(*amount))

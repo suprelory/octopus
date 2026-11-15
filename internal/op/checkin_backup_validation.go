@@ -160,7 +160,7 @@ func validateCheckinGraph(d *model.CheckinDump) error {
 			return fail()
 		}
 		switch attempt.Stage {
-		case "precheck", "submit", "confirm", "refresh":
+		case "precheck", "submit", "confirm", "refresh", "authenticate":
 		default:
 			return fail()
 		}

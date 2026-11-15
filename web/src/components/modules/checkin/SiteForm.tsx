@@ -34,7 +34,7 @@ function defaultConfig(): SiteConfig {
         proxy_url: '',
         manual_url: '',
         submit: { method: 'POST', path: '/api/user/checkin', body: '{}', headers: [] },
-        reward: { source: 'submit', path: 'data.reward', unit: 'points', multiplier: '1' },
+        reward: { source: 'status', path: 'data.quota_awarded', unit: 'quota', multiplier: '1' },
     };
 }
 
@@ -154,7 +154,7 @@ export function SiteForm({ site, onClose }: { site?: CheckinSite; onClose: () =>
     const [uncheckedValue, setUncheckedValue] = useState(
         JSON.stringify(site?.config.status?.unchecked.value ?? false),
     );
-    const [sample, setSample] = useState('{"success":true,"data":{"reward":0}}');
+    const [sample, setSample] = useState('{"success":true,"data":{"quota_awarded":0}}');
     const [sampleDate, setSampleDate] = useState(() => new Date().toISOString().slice(0, 10));
     const [sampleStatus, setSampleStatus] = useState(200);
     const [error, setError] = useState<unknown>(null);
@@ -166,6 +166,13 @@ export function SiteForm({ site, onClose }: { site?: CheckinSite; onClose: () =>
     const save = useCheckinMutation();
     const test = useCheckinMutation<NonNullable<typeof preview>>();
     const capabilities = useCheckinQuery<Capability[]>('/capabilities');
+    const platform = capabilities.data?.find((item) => item.id === config.adapter);
+    const nativeStatusAvailable =
+        platform?.status_query === 'native' &&
+        config.submit.method === 'POST' &&
+        config.submit.path === platform.path;
+    const nativeStatus =
+        nativeStatusAvailable && !config.status && config.status_mode !== 'disabled';
 
     function buildConfig(): SiteConfig {
         return {
@@ -248,19 +255,46 @@ export function SiteForm({ site, onClose }: { site?: CheckinSite; onClose: () =>
                                     const adapter = capabilities.data?.find(
                                         (item) => item.id === event.target.value,
                                     );
-                                    if (event.target.value === 'sub2api' && !successPath) {
-                                        setSuccessPath('code');
-                                        setSuccessValue('0');
-                                    }
+                                    const id = event.target.value;
+                                    setSuccessPath(id === 'sub2api' ? 'code' : '');
+                                    setSuccessValue(id === 'sub2api' ? '0' : 'true');
+                                    setAlreadyPath('');
+                                    setAlreadyValue('true');
+                                    setCheckedValue('true');
+                                    setUncheckedValue('false');
+                                    setSubmitHeaders('[]');
+                                    setStatusHeaders('[]');
+                                    setPreview(null);
+                                    setSample(
+                                        id === 'agentrouter'
+                                            ? '{"success":true,"data":{"id":1,"checked_in":true}}'
+                                            : id === 'new-api'
+                                              ? '{"success":true,"data":{"quota_awarded":0}}'
+                                              : id === 'sub2api'
+                                                ? '{"code":0,"data":{"reward":0}}'
+                                                : '{"success":true,"data":{"reward":0}}',
+                                    );
                                     setConfig({
                                         ...config,
-                                        adapter: event.target.value,
+                                        adapter: id,
                                         submit: {
-                                            ...config.submit,
+                                            method: 'POST',
+                                            path: adapter?.path || '',
+                                            body: '{}',
+                                            headers: [],
+                                        },
+                                        status: undefined,
+                                        status_mode: undefined,
+                                        success: undefined,
+                                        already: undefined,
+                                        reward: {
+                                            source: id === 'new-api' ? 'status' : 'submit',
                                             path:
-                                                event.target.value === 'sub2api'
-                                                    ? ''
-                                                    : adapter?.path || '/api/checkin',
+                                                id === 'new-api'
+                                                    ? 'data.quota_awarded'
+                                                    : 'data.reward',
+                                            unit: id === 'new-api' ? 'quota' : 'points',
+                                            multiplier: '1',
                                         },
                                     });
                                 }}
@@ -288,21 +322,24 @@ export function SiteForm({ site, onClose }: { site?: CheckinSite; onClose: () =>
                             placeholder="https://example.com"
                         />
                     </CheckinField>
-                    {config.adapter === 'sub2api' && (
-                        <>
-                            <p className="text-xs text-muted-foreground">{t('sub2apiHint')}</p>
-                            <CheckinField label="User-Agent" hint={t('sub2apiUserAgentHint')}>
-                                <Input
-                                    value={config.user_agent ?? ''}
-                                    maxLength={512}
-                                    onChange={(event) =>
-                                        setConfig({ ...config, user_agent: event.target.value })
-                                    }
-                                    placeholder="Octopus-Checkin/1.0"
-                                />
-                            </CheckinField>
-                        </>
+                    {t.has(`platformHints.${config.adapter}`) && (
+                        <p className="text-xs text-muted-foreground">
+                            {t(`platformHints.${config.adapter}`)}
+                        </p>
                     )}
+                    {config.adapter === 'sub2api' && (
+                        <p className="text-xs text-muted-foreground">{t('sub2apiHint')}</p>
+                    )}
+                    <CheckinField label="User-Agent" hint={t('requestUserAgentHint')}>
+                        <Input
+                            value={config.user_agent ?? ''}
+                            maxLength={512}
+                            onChange={(event) =>
+                                setConfig({ ...config, user_agent: event.target.value })
+                            }
+                            placeholder="Octopus-Checkin/1.0"
+                        />
+                    </CheckinField>
                     <CheckinToggle
                         label={t('siteEnabled')}
                         checked={config.enabled}
@@ -357,217 +394,292 @@ export function SiteForm({ site, onClose }: { site?: CheckinSite; onClose: () =>
                             </CheckinField>
                         </div>
                     </fieldset>
-                    <fieldset className="space-y-3 rounded-2xl border p-4">
-                        <legend className="px-1 text-sm font-semibold">{t('submitRequest')}</legend>
-                        <RequestFields
-                            value={config.submit}
-                            onChange={(submit) => setConfig({ ...config, submit })}
-                            headerText={submitHeaders}
-                            onHeaders={setSubmitHeaders}
-                        />
-                    </fieldset>
-                    <details className="rounded-2xl border p-4">
-                        <summary className="cursor-pointer text-sm font-semibold">
-                            {t('responseRules')}
-                        </summary>
-                        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                            <CheckinField
-                                label={t('successPath')}
-                                hint={t(config.adapter === 'sub2api' ? 'sub2apiSuccessHint' : 'successHint')}
-                            >
-                                <Input
-                                    value={successPath}
-                                    onChange={(event) => setSuccessPath(event.target.value)}
-                                    placeholder="success"
-                                />
-                            </CheckinField>
-                            <CheckinField label={t('expectedValue')}>
-                                <Input
-                                    value={successValue}
-                                    onChange={(event) => setSuccessValue(event.target.value)}
-                                />
-                            </CheckinField>
-                            <CheckinField label={t('alreadyPath')}>
-                                <Input
-                                    value={alreadyPath}
-                                    onChange={(event) => setAlreadyPath(event.target.value)}
-                                />
-                            </CheckinField>
-                            <CheckinField label={t('expectedValue')}>
-                                <Input
-                                    value={alreadyValue}
-                                    onChange={(event) => setAlreadyValue(event.target.value)}
-                                />
-                            </CheckinField>
-                        </div>
-                    </details>
-                    <div className="space-y-3">
-                        <CheckinToggle
-                            label={t('useStatus')}
-                            checked={!!config.status}
-                            onChange={(enabled) =>
-                                setConfig({
-                                    ...config,
-                                    status: enabled ? defaultStatus() : undefined,
-                                    reward: {
-                                        ...config.reward,
-                                        source: enabled ? config.reward.source : 'submit',
-                                    },
-                                })
-                            }
-                        />
-                        <p className="text-xs text-muted-foreground">{t('statusHint')}</p>
-                        {config.status && (
-                            <fieldset className="space-y-4 rounded-2xl border p-4">
+                    {platform?.custom_request !== false && (
+                        <>
+                            <fieldset className="space-y-3 rounded-2xl border p-4">
                                 <legend className="px-1 text-sm font-semibold">
-                                    {t('statusRequest')}
+                                    {t('submitRequest')}
                                 </legend>
                                 <RequestFields
-                                    value={config.status.request}
-                                    onChange={(request) =>
+                                    value={config.submit}
+                                    onChange={(submit) =>
                                         setConfig({
                                             ...config,
-                                            status: { ...config.status!, request },
+                                            submit,
+                                            reward:
+                                                !config.status &&
+                                                (submit.path !== platform?.path ||
+                                                    submit.method !== 'POST')
+                                                    ? { ...config.reward, source: 'submit' }
+                                                    : config.reward,
                                         })
                                     }
-                                    headerText={statusHeaders}
-                                    onHeaders={setStatusHeaders}
+                                    headerText={submitHeaders}
+                                    onHeaders={setSubmitHeaders}
                                 />
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                    <CheckinField label={t('checkedPath')}>
+                            </fieldset>
+                            <details className="rounded-2xl border p-4">
+                                <summary className="cursor-pointer text-sm font-semibold">
+                                    {t('responseRules')}
+                                </summary>
+                                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                                    <CheckinField
+                                        label={t('successPath')}
+                                        hint={t(
+                                            config.adapter === 'sub2api'
+                                                ? 'sub2apiSuccessHint'
+                                                : 'successHint',
+                                        )}
+                                    >
                                         <Input
-                                            required
-                                            value={config.status.checked.path}
+                                            value={successPath}
+                                            onChange={(event) => setSuccessPath(event.target.value)}
+                                            placeholder="success"
+                                        />
+                                    </CheckinField>
+                                    <CheckinField label={t('expectedValue')}>
+                                        <Input
+                                            value={successValue}
                                             onChange={(event) =>
-                                                setConfig({
-                                                    ...config,
-                                                    status: {
-                                                        ...config.status!,
-                                                        checked: {
-                                                            ...config.status!.checked,
-                                                            path: event.target.value,
-                                                        },
-                                                    },
-                                                })
+                                                setSuccessValue(event.target.value)
                                             }
                                         />
                                     </CheckinField>
-                                    <CheckinField label={t('checkedValue')}>
+                                    <CheckinField label={t('alreadyPath')}>
                                         <Input
-                                            required
-                                            value={checkedValue}
-                                            onChange={(event) =>
-                                                setCheckedValue(event.target.value)
-                                            }
+                                            value={alreadyPath}
+                                            onChange={(event) => setAlreadyPath(event.target.value)}
                                         />
                                     </CheckinField>
-                                    <CheckinField label={t('uncheckedPath')}>
+                                    <CheckinField label={t('expectedValue')}>
                                         <Input
-                                            required
-                                            value={config.status.unchecked.path}
+                                            value={alreadyValue}
                                             onChange={(event) =>
-                                                setConfig({
-                                                    ...config,
-                                                    status: {
-                                                        ...config.status!,
-                                                        unchecked: {
-                                                            ...config.status!.unchecked,
-                                                            path: event.target.value,
-                                                        },
-                                                    },
-                                                })
-                                            }
-                                        />
-                                    </CheckinField>
-                                    <CheckinField label={t('uncheckedValue')}>
-                                        <Input
-                                            required
-                                            value={uncheckedValue}
-                                            onChange={(event) =>
-                                                setUncheckedValue(event.target.value)
+                                                setAlreadyValue(event.target.value)
                                             }
                                         />
                                     </CheckinField>
                                 </div>
-                                <CheckinField label={t('datePath')} hint={t('datePathHint')}>
-                                    <Input
-                                        value={config.status.date_path}
+                            </details>
+                        </>
+                    )}
+                    {platform?.custom_status !== false && (
+                        <div className="space-y-3">
+                            {nativeStatusAvailable ? (
+                                <CheckinField label={t('statusMode')} hint={t('nativeStatusHint')}>
+                                    <CheckinSelect
+                                        value={
+                                            config.status
+                                                ? 'custom'
+                                                : config.status_mode === 'disabled'
+                                                  ? 'disabled'
+                                                  : 'native'
+                                        }
+                                        onChange={(event) => {
+                                            const mode = event.target.value;
+                                            setConfig({
+                                                ...config,
+                                                status:
+                                                    mode === 'custom' ? defaultStatus() : undefined,
+                                                status_mode:
+                                                    mode === 'disabled' ? 'disabled' : undefined,
+                                                reward: {
+                                                    ...config.reward,
+                                                    source:
+                                                        mode === 'disabled'
+                                                            ? 'submit'
+                                                            : config.reward.source,
+                                                },
+                                            });
+                                        }}
+                                    >
+                                        <option value="native">{t('nativeStatus')}</option>
+                                        <option value="custom">{t('customStatus')}</option>
+                                        <option value="disabled">{t('noStatus')}</option>
+                                    </CheckinSelect>
+                                </CheckinField>
+                            ) : (
+                                <CheckinToggle
+                                    label={t('useStatus')}
+                                    checked={!!config.status}
+                                    onChange={(enabled) =>
+                                        setConfig({
+                                            ...config,
+                                            status: enabled ? defaultStatus() : undefined,
+                                            status_mode: undefined,
+                                            reward: {
+                                                ...config.reward,
+                                                source: enabled ? config.reward.source : 'submit',
+                                            },
+                                        })
+                                    }
+                                />
+                            )}
+                            <p className="text-xs text-muted-foreground">{t('statusHint')}</p>
+                            {config.status && (
+                                <fieldset className="space-y-4 rounded-2xl border p-4">
+                                    <legend className="px-1 text-sm font-semibold">
+                                        {t('statusRequest')}
+                                    </legend>
+                                    <RequestFields
+                                        value={config.status.request}
+                                        onChange={(request) =>
+                                            setConfig({
+                                                ...config,
+                                                status: { ...config.status!, request },
+                                            })
+                                        }
+                                        headerText={statusHeaders}
+                                        onHeaders={setStatusHeaders}
+                                    />
+                                    <div className="grid gap-3 sm:grid-cols-2">
+                                        <CheckinField label={t('checkedPath')}>
+                                            <Input
+                                                required
+                                                value={config.status.checked.path}
+                                                onChange={(event) =>
+                                                    setConfig({
+                                                        ...config,
+                                                        status: {
+                                                            ...config.status!,
+                                                            checked: {
+                                                                ...config.status!.checked,
+                                                                path: event.target.value,
+                                                            },
+                                                        },
+                                                    })
+                                                }
+                                            />
+                                        </CheckinField>
+                                        <CheckinField label={t('checkedValue')}>
+                                            <Input
+                                                required
+                                                value={checkedValue}
+                                                onChange={(event) =>
+                                                    setCheckedValue(event.target.value)
+                                                }
+                                            />
+                                        </CheckinField>
+                                        <CheckinField label={t('uncheckedPath')}>
+                                            <Input
+                                                required
+                                                value={config.status.unchecked.path}
+                                                onChange={(event) =>
+                                                    setConfig({
+                                                        ...config,
+                                                        status: {
+                                                            ...config.status!,
+                                                            unchecked: {
+                                                                ...config.status!.unchecked,
+                                                                path: event.target.value,
+                                                            },
+                                                        },
+                                                    })
+                                                }
+                                            />
+                                        </CheckinField>
+                                        <CheckinField label={t('uncheckedValue')}>
+                                            <Input
+                                                required
+                                                value={uncheckedValue}
+                                                onChange={(event) =>
+                                                    setUncheckedValue(event.target.value)
+                                                }
+                                            />
+                                        </CheckinField>
+                                    </div>
+                                    <CheckinField label={t('datePath')} hint={t('datePathHint')}>
+                                        <Input
+                                            value={config.status.date_path}
+                                            onChange={(event) =>
+                                                setConfig({
+                                                    ...config,
+                                                    status: {
+                                                        ...config.status!,
+                                                        date_path: event.target.value,
+                                                    },
+                                                })
+                                            }
+                                        />
+                                    </CheckinField>
+                                </fieldset>
+                            )}
+                        </div>
+                    )}
+                    {platform?.execution !== 'login' && (
+                        <fieldset className="space-y-3 rounded-2xl border p-4">
+                            <legend className="px-1 text-sm font-semibold">
+                                {t('rewardRule')}
+                            </legend>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                                <CheckinField label={t('rewardSource')}>
+                                    <CheckinSelect
+                                        value={config.reward.source}
                                         onChange={(event) =>
                                             setConfig({
                                                 ...config,
-                                                status: {
-                                                    ...config.status!,
-                                                    date_path: event.target.value,
+                                                reward: {
+                                                    ...config.reward,
+                                                    source: event.target.value as
+                                                        | 'submit'
+                                                        | 'status',
+                                                },
+                                            })
+                                        }
+                                    >
+                                        <option value="submit">{t('submitResponse')}</option>
+                                        {(config.status || nativeStatus) && (
+                                            <option value="status">{t('statusResponse')}</option>
+                                        )}
+                                    </CheckinSelect>
+                                </CheckinField>
+                                <CheckinField label={t('rewardPath')}>
+                                    <Input
+                                        value={config.reward.path}
+                                        onChange={(event) =>
+                                            setConfig({
+                                                ...config,
+                                                reward: {
+                                                    ...config.reward,
+                                                    path: event.target.value,
                                                 },
                                             })
                                         }
                                     />
                                 </CheckinField>
-                            </fieldset>
-                        )}
-                    </div>
-                    <fieldset className="space-y-3 rounded-2xl border p-4">
-                        <legend className="px-1 text-sm font-semibold">{t('rewardRule')}</legend>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                            <CheckinField label={t('rewardSource')}>
-                                <CheckinSelect
-                                    value={config.reward.source}
-                                    onChange={(event) =>
-                                        setConfig({
-                                            ...config,
-                                            reward: {
-                                                ...config.reward,
-                                                source: event.target.value as 'submit' | 'status',
-                                            },
-                                        })
-                                    }
-                                >
-                                    <option value="submit">{t('submitResponse')}</option>
-                                    {config.status && (
-                                        <option value="status">{t('statusResponse')}</option>
-                                    )}
-                                </CheckinSelect>
-                            </CheckinField>
-                            <CheckinField label={t('rewardPath')}>
-                                <Input
-                                    value={config.reward.path}
-                                    onChange={(event) =>
-                                        setConfig({
-                                            ...config,
-                                            reward: { ...config.reward, path: event.target.value },
-                                        })
-                                    }
-                                />
-                            </CheckinField>
-                            <CheckinField label={t('rewardUnit')} hint={t('unitHint')}>
-                                <Input
-                                    required
-                                    value={config.reward.unit}
-                                    onChange={(event) =>
-                                        setConfig({
-                                            ...config,
-                                            reward: { ...config.reward, unit: event.target.value },
-                                        })
-                                    }
-                                />
-                            </CheckinField>
-                            <CheckinField label={t('multiplier')}>
-                                <Input
-                                    required
-                                    value={config.reward.multiplier}
-                                    onChange={(event) =>
-                                        setConfig({
-                                            ...config,
-                                            reward: {
-                                                ...config.reward,
-                                                multiplier: event.target.value,
-                                            },
-                                        })
-                                    }
-                                />
-                            </CheckinField>
-                        </div>
-                    </fieldset>
+                                <CheckinField label={t('rewardUnit')} hint={t('unitHint')}>
+                                    <Input
+                                        required
+                                        value={config.reward.unit}
+                                        onChange={(event) =>
+                                            setConfig({
+                                                ...config,
+                                                reward: {
+                                                    ...config.reward,
+                                                    unit: event.target.value,
+                                                },
+                                            })
+                                        }
+                                    />
+                                </CheckinField>
+                                <CheckinField label={t('multiplier')}>
+                                    <Input
+                                        required
+                                        value={config.reward.multiplier}
+                                        onChange={(event) =>
+                                            setConfig({
+                                                ...config,
+                                                reward: {
+                                                    ...config.reward,
+                                                    multiplier: event.target.value,
+                                                },
+                                            })
+                                        }
+                                    />
+                                </CheckinField>
+                            </div>
+                        </fieldset>
+                    )}
                     <details className="rounded-2xl border p-4">
                         <summary className="cursor-pointer text-sm font-semibold">
                             {t('advanced')}
@@ -649,11 +761,12 @@ export function SiteForm({ site, onClose }: { site?: CheckinSite; onClose: () =>
                     </details>
                 </fieldset>
                 <CheckinError error={error} />
+                <CheckinError error={capabilities.error} />
                 <div className="flex justify-end gap-2 border-t pt-4">
                     <Button type="button" variant="outline" onClick={onClose}>
                         {t('cancel')}
                     </Button>
-                    <Button type="submit" disabled={save.isPending}>
+                    <Button type="submit" disabled={save.isPending || capabilities.isPending}>
                         {save.isPending && <LoaderCircle className="size-4 animate-spin" />}
                         {t('save')}
                     </Button>

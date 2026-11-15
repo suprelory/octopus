@@ -98,7 +98,7 @@ func (s *Service) execute(ctx context.Context, item model.CheckinJobItem, settin
 		return complete(&run, run.Status, next)
 	}
 	authFailure := func(err error) error {
-		if status, reason, ok := sub2APIErrorState(err); ok {
+		if status, reason, ok := adapterErrorState(err); ok {
 			return finish(status, reason)
 		}
 		return err
@@ -127,7 +127,7 @@ func (s *Service) execute(ctx context.Context, item model.CheckinJobItem, settin
 		return finish("manual_required", "credential_unavailable")
 	}
 	var credentials model.CheckinCredentials
-	if json.Unmarshal(plain, &credentials) != nil || model.ValidateCheckinCredentials(credentials) != nil {
+	if json.Unmarshal(plain, &credentials) != nil || model.ValidateCheckinCredentials(credentials) != nil || !model.CheckinCredentialSupported(site.Config.Adapter, credentials.Type) {
 		return finish("manual_required", "invalid_credentials")
 	}
 	proxy := site.Config.ProxyURL
@@ -142,81 +142,41 @@ func (s *Service) execute(ctx context.Context, item model.CheckinJobItem, settin
 		return finish("failed", "invalid_proxy")
 	}
 	defer client.CloseIdleConnections()
-	sub2api := site.Config.Adapter == "sub2api" && credentials.Type == "bearer"
-	refreshed := false
-	if sub2api {
-		refreshed, err = s.ensureSub2APISession(ctx, client, site, item, &account, &credentials, false)
-		if err != nil {
-			return authFailure(err)
-		}
+	adapter, err := newPlatformAdapter(&adapterRuntime{s: s, client: client, site: site, item: item, account: &account, credentials: &credentials, run: &run, source: job.Source})
+	if err != nil {
+		return authFailure(err)
 	}
-	request := func(requestCtx context.Context, stage string, config model.CheckinRequest) (HTTPResult, error) {
-		started := time.Now()
-		result := requestHTTP(requestCtx, client, site.Config, config, credentials, run.CheckinDate)
-		reason, message := "response_received", "Upstream response received"
-		if result.Err != nil {
-			reason, message = "network_error", "Request failed, timed out, or exceeded the response limit"
-		}
-		// Never persist upstream bodies, headers, URLs or credential-derived text.
-		saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		err := s.Store.AddAttempt(saveCtx, model.CheckinAttempt{RunID: run.ID, JobID: item.JobID, Stage: stage, HTTPStatus: result.StatusCode, Reason: reason, Message: message, DurationMS: time.Since(started).Milliseconds(), CreatedAt: s.Now()})
-		return result, err
-	}
+	policy := adapter.Policy()
 	var submitBody []byte
 	var submittedResult *SubmitResult
-	statusQuery := func(queryCtx context.Context, stage string) (HTTPResult, string, error) {
-		if site.Config.Status == nil {
-			return HTTPResult{}, "unknown", nil
-		}
-		if businessDate(site.Config, s.Now()) != run.CheckinDate && site.Config.Status.DatePath == "" {
-			return HTTPResult{}, "unknown", nil
-		}
-		response, err := request(queryCtx, stage, site.Config.Status.Request)
-		if err != nil {
-			return response, "unknown", err
-		}
-		if sub2api && sub2APIRecoverable(response) && !refreshed {
-			refreshed, err = s.ensureSub2APISession(queryCtx, client, site, item, &account, &credentials, true)
-			if err != nil {
-				return response, "unknown", err
-			}
-			response, err = request(queryCtx, stage, site.Config.Status.Request)
-			if err != nil {
-				return response, "unknown", err
-			}
-		}
-		if sub2api && response.Err == nil && (response.StatusCode == 401 || response.StatusCode == 403) {
-			return response, "unknown", sub2APIRejected(response)
-		}
-		if response.Err != nil {
-			return response, "unknown", nil
-		}
-		return response, evaluateSiteStatus(site.Config, response.StatusCode, response.Body, run.CheckinDate), nil
-	}
 	shouldSubmit := !item.ConfirmOnly && (run.SubmitIntentAt == nil || run.SafeToRetry)
+	if shouldSubmit && businessDate(site.Config, s.Now()) != run.CheckinDate {
+		return finish("skipped", "date_expired")
+	}
+	if err := adapter.Prepare(ctx, !shouldSubmit); err != nil {
+		return authFailure(err)
+	}
 	if shouldSubmit {
-		if businessDate(site.Config, s.Now()) != run.CheckinDate {
-			return finish("skipped", "date_expired")
-		}
-		if site.Config.Status != nil {
-			response, state, err := statusQuery(ctx, "precheck")
+		if policy.Available {
+			result, err := adapter.Query(ctx, "precheck")
 			if err != nil {
 				return authFailure(err)
 			}
-			if state == "checked_in" {
+			if result.State == "checked_in" {
 				return finish("already_checked_in", "already_checked_in")
 			}
-			if response.StatusCode == 401 || response.StatusCode == 403 {
-				return finish("manual_required", "invalid_credentials")
+			if policy.RequiredBeforeSubmit {
+				if result.HTTP.StatusCode == 401 || result.HTTP.StatusCode == 403 {
+					return finish("manual_required", "invalid_credentials")
+				}
+				if result.HTTP.StatusCode == 404 || result.HTTP.StatusCode == 405 {
+					return finish("failed", "unsupported_endpoint")
+				}
+				if result.State != "not_checked_in" {
+					return finish("pending", "precheck_unknown")
+				}
 			}
-			if response.StatusCode == 404 || response.StatusCode == 405 {
-				return finish("failed", "unsupported_endpoint")
-			}
-			if state != "not_checked_in" {
-				return finish("pending", "precheck_unknown")
-			}
-			run.BeforeUnchecked = true
+			run.BeforeUnchecked = result.State == "not_checked_in"
 		}
 		if ctx.Err() != nil {
 			return finish("pending", "interrupted_before_submit")
@@ -227,37 +187,17 @@ func (s *Service) execute(ctx context.Context, item model.CheckinJobItem, settin
 		if err := s.Store.MarkSubmitted(ctx, item, &run, s.Now()); err != nil {
 			return err
 		}
-		response, err := request(ctx, "submit", site.Config.Submit)
+		submitted, err := adapter.Submit(ctx)
 		if err != nil {
-			return err
+			return authFailure(err)
 		}
-		submitBody = response.Body
-		result := SubmitResult{Status: "manual_required", Reason: "network_error"}
-		if response.Err == nil {
-			result = interpretSubmit(site.Config, response.StatusCode, response.Body)
-		}
-		if sub2api && response.Err == nil && (response.StatusCode == 401 || response.StatusCode == 403) {
-			// Authentication recovery never clears the durable submit marker,
-			// even when the configured submission method is GET.
-			result.SafeToRetry = false
-			if !sub2APIRecoverable(response) {
-				return authFailure(sub2APIRejected(response))
-			}
-			if !refreshed {
-				refreshed, err = s.ensureSub2APISession(ctx, client, site, item, &account, &credentials, true)
-				if err != nil {
-					return authFailure(err)
-				}
-			}
-			if site.Config.Status == nil {
-				return finish("manual_required", "sub2api_submission_unconfirmed")
-			}
-		}
+		submitBody = submitted.HTTP.Body
+		result := submitted.Result
 		submittedResult = &result
-		if site.Config.Status == nil {
+		if !policy.Available || submitted.Final {
 			run.SafeToRetry = result.SafeToRetry
 			if result.Status == "success" {
-				run.RewardMicros, run.RewardState = extractReward(site.Config.Reward, submitBody)
+				run.RewardMicros, run.RewardState = adapter.Reward(submitBody, nil)
 				run.RewardUnit = site.Config.Reward.Unit
 			}
 			if result.Reason == "invalid_credentials" {
@@ -269,10 +209,10 @@ func (s *Service) execute(ctx context.Context, item model.CheckinJobItem, settin
 			run.BeforeUnchecked = false
 		}
 	}
-	if site.Config.Status == nil {
+	if !policy.Available {
 		return finish("manual_required", "status_query_required")
 	}
-	if businessDate(site.Config, s.Now()) != run.CheckinDate && site.Config.Status.DatePath == "" {
+	if businessDate(site.Config, s.Now()) != run.CheckinDate && !policy.DateAware {
 		return finish("manual_required", "date_evidence_required")
 	}
 	queryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -281,23 +221,23 @@ func (s *Service) execute(ctx context.Context, item model.CheckinJobItem, settin
 		if attempt > 0 && !waitContext(queryCtx, time.Duration(settings.ConfirmIntervalSeconds)*time.Second) {
 			break
 		}
-		response, state, err := statusQuery(queryCtx, "confirm")
+		result, err := adapter.Query(queryCtx, "confirm")
 		if err != nil {
 			return authFailure(err)
 		}
-		if state == "checked_in" {
-			if run.SubmitIntentAt != nil && run.BeforeUnchecked {
-				body := submitBody
-				if site.Config.Reward.Source == "status" {
-					body = response.Body
-				}
-				run.RewardMicros, run.RewardState = extractReward(site.Config.Reward, body)
+		if result.State == "checked_in" {
+			newCheckin := run.SubmitIntentAt != nil && run.BeforeUnchecked
+			if result.CheckedAt != nil && run.SubmitIntentAt != nil {
+				newCheckin = result.CheckedAt.Unix() >= run.SubmitIntentAt.Unix()
+			}
+			if newCheckin {
+				run.RewardMicros, run.RewardState = adapter.Reward(submitBody, result.RewardBody)
 				run.RewardUnit = site.Config.Reward.Unit
 				return finish("success", "checked_in")
 			}
 			return finish("already_checked_in", "already_checked_in")
 		}
-		if response.StatusCode == 401 || response.StatusCode == 403 {
+		if result.HTTP.StatusCode == 401 || result.HTTP.StatusCode == 403 {
 			return finish("manual_required", "invalid_credentials")
 		}
 		if queryCtx.Err() != nil {

@@ -72,3 +72,28 @@ func TestSub2APIRequiresAnExplicitEndpointAndSharedUserAgent(t *testing.T) {
 		t.Fatal("unbounded refresh token accepted")
 	}
 }
+
+func TestRouterPlatformValidationKeepsMutationAndSecretsOnTheRightBoundary(t *testing.T) {
+	for _, platform := range []string{"anyrouter", "agentrouter"} {
+		config := CheckinSiteConfig{Name: platform, BaseURL: "https://example.invalid", Adapter: platform}
+		if err := NormalizeCheckinSite(&config); err != nil {
+			t.Fatal(err)
+		}
+		config.Submit.Path = "/api/user/checkin"
+		if NormalizeCheckinSite(&config) == nil {
+			t.Fatal("built-in platform accepted a different mutation")
+		}
+	}
+	for _, credentials := range []CheckinCredentials{
+		{Type: "password", Username: "u"}, {Type: "password", Password: "p"},
+		{Type: "password", Username: "u", Password: "p", Cookie: "session=x"},
+		{Type: "bearer", AccessToken: "t", Username: "u", Password: "p"},
+	} {
+		if ValidateCheckinCredentials(credentials) == nil {
+			t.Fatal("incomplete or mixed login credentials accepted")
+		}
+	}
+	if ValidateCheckinCredentials(CheckinCredentials{Type: "password", Username: "user@example.com", Password: "p"}) != nil {
+		t.Fatal("valid login credentials rejected")
+	}
+}

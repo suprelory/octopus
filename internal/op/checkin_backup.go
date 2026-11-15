@@ -15,7 +15,7 @@ import (
 )
 
 func exportCheckin(ctx context.Context, conn *gorm.DB) (*model.CheckinDump, error) {
-	dump := &model.CheckinDump{Version: 2}
+	dump := &model.CheckinDump{Version: 3}
 	var accounts []model.CheckinAccount
 	for _, target := range []any{&dump.Sites, &accounts, &dump.Runs, &dump.Attempts, &dump.Jobs, &dump.Items} {
 		if err := conn.WithContext(ctx).Find(target).Error; err != nil {
@@ -32,7 +32,7 @@ func validateCheckinDump(dump *model.CheckinDump) error {
 	if dump == nil {
 		return nil
 	}
-	if dump.Version != 1 && dump.Version != 2 {
+	if dump.Version < 1 || dump.Version > 3 {
 		return errors.New("unsupported checkin backup version")
 	}
 	if len(dump.Sites) > 10000 || len(dump.Accounts) > 100000 || len(dump.Runs) > 1000000 || len(dump.Attempts) > 2000000 || len(dump.Jobs) > 1000000 || len(dump.Items) > 1000000 {
@@ -102,9 +102,14 @@ func validateCheckinDump(dump *model.CheckinDump) error {
 			if json.Unmarshal(plain, &credentials) != nil || model.ValidateCheckinCredentials(credentials) != nil || credentials.Type != account.CredentialType {
 				return errors.New("invalid encrypted checkin backup credentials")
 			}
+			platform := sites[account.SiteID].Config.Adapter
+			if !model.CheckinCredentialSupported(platform, credentials.Type) || (credentials.Session != nil && platform != "anyrouter" && platform != "agentrouter") {
+				return errors.New("checkin credentials are incompatible with their platform")
+			}
 			account.CredentialUserID = credentials.UserID
 			account.HasRefreshToken = credentials.RefreshToken != ""
 			account.TokenExpiresAt = credentials.ExpiresAt
+			account.HasSession = credentials.Session != nil && (credentials.Session.AccessToken != "" || len(credentials.Session.Cookies) > 0)
 			if (account.HasRefreshToken || account.RefreshPending || account.RefreshError != "") && sites[account.SiteID].Config.Adapter != "sub2api" {
 				return errors.New("session credentials require a Sub2API site")
 			}
@@ -192,6 +197,7 @@ func importCheckin(tx *gorm.DB, dump *model.CheckinDump, result *model.DBImportR
 			account.CredentialCipher = ""
 			account.HasRefreshToken, account.RefreshPending, account.RefreshError = false, false, ""
 			account.TokenExpiresAt, account.TokenRefreshedAt, account.RefreshRetryAt = nil, nil, nil
+			account.HasSession, account.SessionSavedAt = false, nil
 		}
 		if err := insert("checkin_accounts", &account); err != nil {
 			return err

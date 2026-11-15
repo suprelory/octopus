@@ -5,9 +5,11 @@
 ## 已实现的范围
 
 - 独立站点与多账号管理，站点/账号启停、账号自动签到开关。
-- 网站 Cookie 或网站 Access Token（Bearer）凭据，可配置 New-Api-User 用户 ID。
-- 自定义 HTTP 请求，以及 New API、One API、OneHub、DoneHub 的公共请求预设。
+- 网站 Cookie、网站 Access Token（Bearer）和平台支持的用户名/密码凭据，可配置或发现 New-Api-User 用户 ID。
+- 独立的平台适配层，统一描述凭据、执行方式、原生状态查询和可编辑能力。
+- New API 原生签到与月度记录确认；One API、OneHub、DoneHub 和自定义 HTTP 的可编辑请求规则。
 - Sub2API 类型、自定义签到接口和独立账号的 Access Token / Refresh Token 自动续期。
+- AnyRouter 的认证、受控接口回退和会话复用；AgentRouter 的登录即签到与只读日志确认。
 - 单账号、所选站点、全量手动签到，以及按站点时区和时间窗口自动签到。
 - 可选的提交前状态检查、提交后确认、跨日结果查询。
 - 持久化后台任务、取消等待项、断线进度恢复、SSE 更新和轮询兜底。
@@ -15,25 +17,25 @@
 - 加密凭据备份、旧版数据库备份兼容、恢复后的任务隔离。
 - 简体中文、繁体中文、英文管理界面。
 
-当前不包含用户名/密码自动登录、AnyRouter/AgentRouter 专属适配、余额差估算、JavaScript/WASM 提取器、通知和验证码处理。自动续期目前仅用于 Sub2API 的 Bearer 账号。
+当前不包含余额差估算、JavaScript/WASM 提取器、通知和验证码处理。Refresh Token 自动续期用于 Sub2API 的 Bearer 账号；账号密码登录用于 AnyRouter 和 AgentRouter。
 
 ## 使用方式
 
 1. 在导航栏打开“签到”，新增站点，填写实际签到服务的地址、平台、时区和执行窗口。
-2. 校对签到请求。平台预设使用 POST /api/user/checkin；这只是请求预设，各平台分支不一定实现此接口。
-3. 新增账号，填写此站点自己的 Cookie 或网站登录 Access Token。网站 API Key 与登录令牌用途不同，请使用上游签到接口实际接受的凭据。
+2. 按平台校对请求和状态确认方式。New API 默认使用内置月度记录；AnyRouter 和 AgentRouter 的协议由适配器管理；其他平台的实际接口需按部署校对。
+3. 新增账号，填写表单列出的凭据类型。网站 API Key 与网站登录令牌用途不同，请使用上游管理接口实际接受的凭据。AgentRouter 必须提供用户名或邮箱及密码。
 4. 按需开启自动签到。默认仅启用站点和账号，自动签到默认关闭。
 5. 使用“签到”“批量签到”或“全量签到”执行，打开任务查看进度，通过记录查看结果与请求阶段。
 
 手动签到选择启用站点中的启用账号，不要求账号开启自动签到。自动提交要求账号开启自动签到，并处于站点的执行窗口内。停用站点或账号会停止后续网络操作；已经开始的请求按本轮超时收尾。
 
-编辑站点或账号需要其当前 revision；替换凭据还需要 credential_version。正在执行中的账号及其站点不能修改或删除，冲突返回 HTTP 409。账号编辑时留空凭据表示保留原值；修改凭据类型或用户 ID 时需要重新填写凭据。
+编辑站点或账号需要其当前 revision；替换凭据还需要 credential_version。正在执行中的账号及其站点不能修改或删除，冲突返回 HTTP 409。账号编辑时留空凭据表示保留原值；修改凭据类型或用户 ID 时需要重新填写凭据。用户名和密码必须一起替换，替换会清除缓存会话。平台切换会拒绝不兼容的已有账号凭据。
 
 删除会清除账号凭据、关闭自动签到，并保留站点/账号的删除标记和历史快照。收益与历史记录仍可查询。
 
 ## 请求与判定规则
 
-站点地址可以包含路径前缀，请求路径追加在该前缀后。请求支持 GET 或 POST；路径必须位于当前站点，拒绝跨站地址和相对路径跳转。不自动跟随重定向，也不因连接复用而重放签到请求。代理 URL 不接受用户名、密码、查询参数或片段；自定义请求头拒绝 Cookie、Authorization、API Key 等身份字段；JSON 请求体拒绝常见凭据字段。只在账号凭据中配置网站 Cookie 或 Bearer Token，避免配置查询和备份携带明文秘密。
+站点地址可以包含路径前缀，请求路径追加在该前缀后。请求支持 GET 或 POST；路径必须位于当前站点，拒绝跨站地址和相对路径跳转。不自动跟随重定向，也不因连接复用而重放签到请求。代理 URL 不接受用户名、密码、查询参数或片段；自定义请求头拒绝 Cookie、Authorization、API Key 等身份字段；JSON 请求体拒绝常见凭据字段。只在账号凭据中配置网站 Cookie、Bearer Token 或登录密码，避免配置查询和备份携带明文秘密。
 
 请求体为 JSON，最大 64 KiB。请求头最多 32 个，Cookie、Authorization、New-Api-User 等身份头通过账号注入。请求配置支持：
 
@@ -100,19 +102,19 @@ SQLite 的提交意图事务临时使用 FULL 同步并占用独立连接，提�
 
 ## 收益
 
-默认提取 data.reward，默认单位 points、倍率 1。零奖励有效；缺失和非法奖励分别统计，不转成零。金额使用整数微单位存储，最多 6 位小数，按十进制四舍五入，超出 int64 范围时标记无效。API 中微单位使用字符串，避免浏览器浮点数损失精度。
+通用规则默认提取 data.reward，默认单位 points、倍率 1。New API 新配置默认提取 data.quota_awarded、单位 quota，原生状态查询会选取目标日期的记录。AgentRouter 不从余额或登录响应推断收益，成功时奖励仍可为未知。零奖励有效；缺失和非法奖励分别统计，不转成零。金额使用整数微单位存储，最多 6 位小数，按十进制四舍五入，超出 int64 范围时标记无效。API 中微单位使用字符串，避免浏览器浮点数损失精度。
 
 仅“本次签到成功”的有效奖励进入统计。“已经签到”、未确认或失败记录不累计收益。使用状态确认时，必须有本轮前置未签到证据、提交标记和后置已签到证据，才计为新增签到。
 
 USD、CNY、EUR、GBP、JPY、HKD 分别按同币种跨站汇总；其他单位按站点隔离。今日、近 7 天、近 30 天以每条记录的站点业务日期计算，窗口包含今天。修改站点当前时区不会改写历史记录的时区。
 
-New API 若返回 data.quota_awarded，可自行设置奖励路径及单位；例如确认站点采用 500000 quota/USD 时，设置单位 USD、倍率 0.000002。系统不会自行推断额度与货币之间的换算。
+New API 可自行修改奖励路径及单位；例如确认站点采用 500000 quota/USD 时，设置单位 USD、倍率 0.000002。系统不会自行推断额度与货币之间的换算。已有明确配置的奖励路径和单位保留原值。
 
 采用提交响应作为奖励来源时，跨轮恢复无法重新读取原响应，可能出现“签到成功、奖励未知”。需要恢复后提取奖励的站点，优先配置状态响应为奖励来源。原始响应正文不保存在数据库中。
 
 ## 凭据、代理与备份
 
-Cookie/Access Token/Refresh Token 使用 AES-256-GCM 加密；账号 ID 作为附加认证数据，密文不能挪到其他账号使用。正常账号接口不返回明文或密文，只返回是否配置刷新令牌、到期时间及续期状态。请求阶段记录和 SSE 只保存固定原因及进度，不记录响应正文、请求头或凭据。
+Cookie、Access Token、Refresh Token、用户名、密码和派生登录会话使用 AES-256-GCM 加密；账号 ID 作为附加认证数据，密文不能挪到其他账号使用。正常账号接口不返回明文或密文，只返回用户 ID、是否缓存会话、保存时间以及令牌续期元数据。请求阶段记录和 SSE 只保存固定原因及进度，不记录响应正文、请求头或凭据。
 
 主密钥按以下优先级读取：
 
@@ -124,7 +126,7 @@ Cookie/Access Token/Refresh Token 使用 AES-256-GCM 加密；账号 ID 作为�
 
 每个站点可配置 HTTP(S)/SOCKS5 代理，账号可继承站点、直连或使用自定义代理。签到不继承全局渠道代理、环境代理或其他站点的凭据。
 
-全库备份版本为 6，仍接受版本 5 和历史未标记版本。签到数据位于 checkin 字段，当前子版本为 2，仍接受子版本 1；包含全部六张表及删除标记。子版本 2 增加会话元数据、稳定的凭据身份版本和刷新请求阶段。恢复时：
+全库备份版本为 6，仍接受版本 5 和历史未标记版本。签到数据位于 checkin 字段，当前子版本为 3，仍接受子版本 1、2；包含全部六张表及删除标记。子版本 2 增加令牌续期元数据和稳定的凭据身份版本；子版本 3 增加平台能力、加密登录会话和 authenticate 请求阶段。恢复时：
 
 - 校验密钥、字段、重复 ID、每日唯一性和完整引用关系。
 - 保留现有配置与凭据，不用旧备份覆盖本地修改。
@@ -153,13 +155,38 @@ Refresh Token 通常只能使用一次。429 会保留凭据并退避一分钟�
 
 编辑账号时，凭据字段全部留空表示保留；填写 Access Token 会替换整组凭据，此时 Refresh Token 留空表示关闭续期，新 Access Token 不沿用旧的到期时间。更新 Refresh Token 或显式到期时间也需要同时提供 Access Token。旧表单不能覆盖已经轮换的凭据，版本冲突返回 409。账号列表展示续期配置、到期时间、最近续期时间和固定的失败原因；记录中增加 refresh 请求阶段。
 
+## 平台协议与会话
+
+| 平台 | 凭据 | 提交方式 | 状态确认 |
+| --- | --- | --- | --- |
+| New API | Cookie / Bearer | 默认 POST /api/user/checkin，可编辑 | 原生月度记录，或自定义规则 |
+| One API / OneHub / DoneHub | Cookie / Bearer | 可编辑请求预设 | 自定义规则 |
+| Sub2API | Bearer / Cookie | 必须配置实际签到接口 | 自定义规则；Bearer 可续期 |
+| AnyRouter | Cookie / Bearer / 用户名密码 | 适配器管理 sign_in / checkin | 可选自定义规则 |
+| AgentRouter | 用户名密码 | POST /api/user/login | checked_in 或目标签到日志 |
+| Custom HTTP | Cookie / Bearer | 自定义请求 | 可选自定义规则 |
+
+New API 协议参考提供的 `D:\Projects\new-api` 中 `controller/checkin.go`、`model/checkin.go` 和鉴权路由。标准提交路径且未配置自定义状态规则时，读取 GET /api/user/checkin?month=YYYY-MM，要求 success=true、data.enabled=true 和有效的 data.stats.records。按 checkin_date 匹配目标记录，不能把 checked_in_today 用于前一天；当前日无目标记录且 checked_in_today=false 才允许提交。跨月确认查询原记录月份。可用 status_mode="disabled" 关闭原生查询，或配置自定义 status；自定义提交路径不自动套用原生查询。当前参考源码支持管理 Access Token，不同旧分支的 Cookie 和 New-Api-User 需求应按实际部署配置。
+
+AnyRouter 协议参考 `octopus-plus/internal/sitesync/anyrouter_*.go`。Cookie 优先 POST /api/user/sign_in，Bearer 优先 POST /api/user/checkin。只有明确的路由不存在或认证拒绝才切换接口/认证；超时、断连、429、5xx、验证码页、未知响应和相互矛盾的状态都停止回退。对 Cookie 的认证切换先用只读 /api/user/self 验证，候选仅来自本账号自己的令牌。成功规则接受 success=true、ret=1、code=0；多个字段存在时必须全部一致且类型正确。明确的今日已签到不增加收益。
+
+AnyRouter 登录或 /api/user/self 返回的数字用户 ID 会保存并用于 New-Api-User。输入的 ID 与上游返回 ID 不一致时停止，不枚举其他用户 ID。如果站点在查询自身前就要求该请求头，请手动填写本人 ID。账号密码方式优先复用会话，明确失效后可在提交前登录一次；确认阶段只使用已有会话。Cookie 按 Domain、Path、Secure 和过期时间管理，响应删除的 Cookie 不会由旧凭据重新填入，派生会话仅复用于原站点地址。
+
+AgentRouter 协议参考 `octopus-plus/internal/sitesync/agentrouter.go`。登录就是签到，因此执行器先持久化 submit_intent，再发送一次登录请求，不调用 sign_in/checkin。登录成功或余额增加均不足以确认签到：必须有同业务日的布尔 checked_in=true，或 GET /api/log/self/ 返回的 type=4、内容为签到成功、时间位于目标业务日且不晚于当前时间的日志。日志查询使用原记录的时区和日期；已有的更早日志记为已签到，空日志不证明未签到。有效 checked_in 证据不要求上游一定返回会话，但没有可用会话时后续无法查询日志，需在网站核对结果。
+
+登录后保存的 Cookie/Token 和用户 ID 与密码一起加密。自动保存增加 credential_version，保持凭据身份版本，且受账号租约和版本检查保护。保存失败时当前进程仅缓存加密结果，之后先重试数据库保存。AgentRouter 的提交标记覆盖登录；无论超时、写库失败或重启，恢复和“查询结果”都不会再次登录。如果响应丢失且无历史可用会话，记录转为需人工核查。
+
 ## 实现结构
 
 | 路径 | 职责 |
 | --- | --- |
 | internal/model/checkin*.go | 独立实体、请求结构、校验、设置 |
 | internal/op/checkin*.go | 数据访问、队列、租约、每日记录、备份、事务 |
-| internal/checkin/ | HTTP 执行、规则解析、调度、恢复、收益、事件 |
+| internal/checkin/adapter.go | 平台注册、认证/提交/查询/收益接口、请求审计 |
+| internal/checkin/newapi.go、anyrouter.go、agentrouter.go、sub2api.go | 平台协议与认证处理 |
+| internal/checkin/router_session.go | 独立账号会话、Cookie 作用域、加密保存与重试 |
+| internal/checkin/executor.go | 统一的持久化提交边界与恢复状态机 |
+| internal/checkin/ 其他文件 | HTTP、安全规则、调度、收益、事件 |
 | internal/utils/checkinsecret/ | 主密钥和凭据加解密 |
 | internal/server/handlers/checkin.go | 管理员接口与 SSE |
 | web/src/api/checkin.ts | 查询、变更、实时更新 |
@@ -188,7 +215,7 @@ Refresh Token 通常只能使用一次。429 会保留凭据并退避一分钟�
 | GET | /runs/:id/attempts | 最近 100 条请求阶段记录 |
 | POST | /runs/:id/confirm | 仅查询结果 |
 | GET | /stats | 记录计数与收益 |
-| GET | /capabilities | 请求预设 |
+| GET | /capabilities | 平台凭据、执行方式、状态查询和可编辑能力 |
 | GET / PATCH | /settings | 执行参数 |
 | POST | /rules/test | 离线样例测试 |
 | GET | /events | SSE 进度失效通知 |

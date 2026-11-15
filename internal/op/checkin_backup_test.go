@@ -156,6 +156,56 @@ func TestCheckinBackupRoundTripDisablesAutomationAndNeverReplays(t *testing.T) {
 	}
 }
 
+func TestRouterBackupPreservesEncryptedLoginAndDisablesReplay(t *testing.T) {
+	_, dump := checkinBackupFixture(t)
+	dump.Sites[0].Config.Adapter = "anyrouter"
+	dump.Sites[0].Config.Submit = model.CheckinRequest{Method: "POST", Path: "/api/user/sign_in"}
+	dump.Attempts[0].Stage = "authenticate"
+	account := &dump.Accounts[0]
+	account.CredentialType = "password"
+	now := time.Now().UTC()
+	account.SessionSavedAt = &now
+	credentials := model.CheckinCredentials{Type: "password", Username: "private-router-user", Password: "private-router-password", UserID: "42", Session: &model.CheckinLoginSession{BaseURL: dump.Sites[0].Config.BaseURL, Auth: "cookie", Cookies: []model.CheckinSessionCookie{{Name: "session", Value: "private-router-cookie", Path: "/", Secure: true, Expires: now.Add(time.Hour)}}}}
+	vault, err := checkinsecret.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, _ := json.Marshal(credentials)
+	account.Cipher, err = vault.Seal(account.ID, plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(dump)
+	if strings.Contains(string(raw), "private-router") {
+		t.Fatal("router backup exposed plaintext credentials")
+	}
+	target := checkinTestDB(t)
+	restoreCheckinFixture(t, target, dump)
+	restored, err := NewCheckinStore(target).Account(context.Background(), account.ID)
+	if err != nil || restored.AutoCheckin || !restored.HasSession || restored.SessionSavedAt == nil || restored.CredentialCipher != account.Cipher {
+		t.Fatal("router backup lost credentials or resumed automation", err)
+	}
+	opened, err := vault.Unseal(restored.ID, restored.CredentialCipher)
+	if err != nil || string(opened) != string(plain) {
+		t.Fatal("router session did not round trip")
+	}
+	dump.Sites[0].Config.Adapter = "new-api"
+	dump.Sites[0].Config.Submit = model.CheckinRequest{Method: "POST", Path: "/api/user/checkin"}
+	if validateCheckinDump(dump) == nil {
+		t.Fatal("backup accepted password credentials on incompatible platform")
+	}
+}
+
+func TestCheckinBackupStillAcceptsBothEarlierSubversions(t *testing.T) {
+	_, dump := checkinBackupFixture(t)
+	for _, version := range []int{1, 2} {
+		dump.Version = version
+		if err := validateCheckinDump(dump); err != nil {
+			t.Fatalf("version %d rejected: %v", version, err)
+		}
+	}
+}
+
 func TestCheckinBackupRejectsWrongKeyAndBrokenGraph(t *testing.T) {
 	_, dump := checkinBackupFixture(t)
 	t.Setenv("OCTOPUS_CHECKIN_MASTER_KEY", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{8}, 32)))
@@ -278,7 +328,7 @@ func TestDatabaseBackupVersionFiveAndSixRemainCompatible(t *testing.T) {
 		t.Fatal("unknown backup version accepted")
 	}
 	dump, err := DBExportAll(ctx)
-	if err != nil || dump.Version != 6 || dump.Checkin == nil || dump.Checkin.Version != 2 {
+	if err != nil || dump.Version != 6 || dump.Checkin == nil || dump.Checkin.Version != 3 {
 		t.Fatalf("new export missing versioned checkin data: %+v %v", dump, err)
 	}
 }

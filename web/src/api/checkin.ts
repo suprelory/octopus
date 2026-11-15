@@ -25,6 +25,7 @@ export type SiteConfig = {
     success?: Match;
     already?: Match;
     status?: { request: CheckinRequest; checked: Match; unchecked: Match; date_path: string };
+    status_mode?: 'disabled';
     reward: { source: 'submit' | 'status'; path: string; unit: string; multiplier: string };
 };
 export type CheckinSite = {
@@ -35,6 +36,7 @@ export type CheckinSite = {
     support_revision: number;
     verified_at?: string;
 };
+export type CredentialType = 'cookie' | 'bearer' | 'password';
 export type CheckinAccount = {
     id: string;
     site_id: string;
@@ -43,7 +45,7 @@ export type CheckinAccount = {
     auto_checkin: boolean;
     proxy_mode: 'inherit' | 'direct' | 'custom';
     proxy_url: string;
-    credential_type: 'cookie' | 'bearer';
+    credential_type: CredentialType;
     credential_version: number;
     has_refresh_token: boolean;
     token_expires_at?: string;
@@ -51,6 +53,8 @@ export type CheckinAccount = {
     refresh_pending?: boolean;
     refresh_error?: string;
     refresh_retry_at?: string;
+    has_session?: boolean;
+    session_saved_at?: string;
     revision: number;
     next_run_at?: string;
     last_run_id: string;
@@ -65,12 +69,14 @@ export type AccountWrite = Partial<
     revision: number;
     credential_version: number;
     credentials?: {
-        type: 'cookie' | 'bearer';
+        type: CredentialType;
         cookie?: string;
         access_token?: string;
         refresh_token?: string;
         expires_at?: string;
         user_id: string;
+        username?: string;
+        password?: string;
     };
 };
 export type CheckinRun = {
@@ -156,7 +162,17 @@ export type CheckinSettings = {
     confirm_interval_seconds: number;
     confirm_timeout_minutes: number;
 };
-export type Capability = { id: string; name: string; path: string; credential_types: string[] };
+export type Capability = {
+    id: string;
+    name: string;
+    path: string;
+    credential_types: CredentialType[];
+    execution: 'request' | 'login';
+    status_query: 'native' | 'logs' | 'configured';
+    custom_request: boolean;
+    custom_status: boolean;
+    token_refresh: boolean;
+};
 export type RunPage = { items: CheckinRun[]; next_before: string };
 export const checkinPath = '/api/v1/checkin';
 

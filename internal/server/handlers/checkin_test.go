@@ -164,7 +164,7 @@ func TestCheckinRoutesRequireAdminCookieAndKeepCredentialsPrivate(t *testing.T) 
 	if response := call("GET", "/test-checkin-error", nil, ""); response.Code != 500 || strings.Contains(response.Body.String(), "secret-credential") {
 		t.Fatal("internal error leaked")
 	}
-	preview := call("POST", "/api/v1/checkin/rules/test", map[string]any{"config": site.Config, "response": map[string]any{"success": true, "data": map[string]any{"reward": 0}}, "date": "2030-11-14", "http_status": 200}, "")
+	preview := call("POST", "/api/v1/checkin/rules/test", map[string]any{"config": site.Config, "response": map[string]any{"success": true, "data": map[string]any{"quota_awarded": 0}}, "date": "2030-11-14", "http_status": 200}, "")
 	if preview.Code != 200 || !strings.Contains(preview.Body.String(), `"reward":"0"`) {
 		t.Fatal("offline rule preview failed", preview.Body.String())
 	}
@@ -239,4 +239,71 @@ func TestSub2APICredentialsAPIKeepsTokensPrivateAndClearsOldExpiry(t *testing.T)
 	if call("POST", "/api/v1/checkin/sites/"+site.ID+"/accounts", map[string]any{"name": "wrong platform", "credentials": model.CheckinCredentials{Type: "bearer", AccessToken: "private-access", RefreshToken: "private-refresh"}}, nil) != 400 {
 		t.Fatal("another platform accepted Sub2API refresh credentials")
 	}
+}
+
+func TestRouterCapabilitiesAndEncryptedPasswordAccountAPI(t *testing.T) {
+	engine := testCheckinEngine(t)
+	token, _, _ := auth.GenerateJWTToken(60)
+	call := func(method, path string, body any, output any) int {
+		t.Helper()
+		data, _ := json.Marshal(body)
+		request := httptest.NewRequest(method, path, bytes.NewReader(data))
+		request.Header.Set("Content-Type", "application/json")
+		request.AddCookie(&http.Cookie{Name: "auth", Value: token})
+		response := httptest.NewRecorder()
+		engine.ServeHTTP(response, request)
+		if strings.Contains(response.Body.String(), "private-router") || strings.Contains(response.Body.String(), "credential_cipher") {
+			t.Fatal("router API leaked encrypted credential content")
+		}
+		if output != nil && response.Code == 200 {
+			var envelope struct{ Data json.RawMessage }
+			if json.Unmarshal(response.Body.Bytes(), &envelope) != nil || json.Unmarshal(envelope.Data, output) != nil {
+				t.Fatal("invalid API response")
+			}
+		}
+		return response.Code
+	}
+	var capabilities []checkin.Capability
+	if call("GET", "/api/v1/checkin/capabilities", nil, &capabilities) != 200 {
+		t.Fatal("capability request failed")
+	}
+	var agent *checkin.Capability
+	for i := range capabilities {
+		if capabilities[i].ID == "agentrouter" {
+			agent = &capabilities[i]
+		}
+	}
+	if agent == nil || agent.Execution != "login" || agent.StatusQuery != "logs" || agent.CustomRequest || agent.CustomStatus || len(agent.CredentialTypes) != 1 || agent.CredentialTypes[0] != "password" {
+		t.Fatal("incorrect AgentRouter capabilities")
+	}
+	var site model.CheckinSite
+	config := model.CheckinSiteConfig{Name: "AgentRouter", BaseURL: "https://example.invalid", Adapter: "agentrouter", Enabled: true}
+	if call("POST", "/api/v1/checkin/sites", map[string]any{"config": config}, &site) != 200 {
+		t.Fatal("AgentRouter site rejected")
+	}
+	accountPath := "/api/v1/checkin/sites/" + site.ID + "/accounts"
+	if call("POST", accountPath, map[string]any{"name": "Invalid", "credentials": model.CheckinCredentials{Type: "cookie", Cookie: "private-router-cookie"}}, nil) != 400 {
+		t.Fatal("AgentRouter accepted a cookie-only account")
+	}
+	var account model.CheckinAccount
+	credentials := model.CheckinCredentials{Type: "password", Username: "private-router-user", Password: "private-router-password"}
+	if call("POST", accountPath, map[string]any{"name": "Dedicated login", "credentials": credentials}, &account) != 200 || account.CredentialType != "password" {
+		t.Fatal("password account rejected")
+	}
+	if call("PATCH", "/api/v1/checkin/accounts/"+account.ID, map[string]any{"revision": account.Revision, "name": "Renamed"}, &account) != 200 {
+		t.Fatal("metadata edit erased credentials")
+	}
+	stored, err := checkin.Default.Store.Account(context.Background(), account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := checkin.Default.Vault.Unseal(stored.ID, stored.CredentialCipher)
+	if err != nil || !strings.Contains(string(plain), "private-router-password") {
+		t.Fatal("password was not stored in the vault")
+	}
+	credentials.Session = &model.CheckinLoginSession{BaseURL: site.Config.BaseURL, Auth: "bearer", AccessToken: "private-router-session"}
+	if call("PATCH", "/api/v1/checkin/accounts/"+account.ID, map[string]any{"revision": account.Revision, "credential_version": account.CredentialVersion, "credentials": credentials}, nil) != 400 {
+		t.Fatal("API accepted a forged derived session")
+	}
+	call("GET", accountPath, nil, nil)
 }

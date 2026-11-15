@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
@@ -46,6 +47,7 @@ type Service struct {
 	watchers        map[chan Event]bool
 	sessionMu       sync.Mutex
 	pendingSessions map[string]pendingCheckinSession
+	pendingLogins   map[string]pendingLoginSession
 }
 
 func New(store *op.CheckinStore, vault *checkinsecret.Vault) *Service {
@@ -301,6 +303,20 @@ func (s *Service) SaveAccount(ctx context.Context, siteID, id string, input Acco
 			return account, err
 		}
 		credentials := *input.Credentials
+		if !model.CheckinCredentialSupported(site.Config.Adapter, credentials.Type) {
+			return account, model.InvalidCheckin("credential type is not supported by this platform")
+		}
+		if credentials.Session != nil {
+			return account, model.InvalidCheckin("derived login sessions cannot be supplied through account writes")
+		}
+		credentials.Username = strings.TrimSpace(credentials.Username)
+		if site.Config.Adapter == "anyrouter" || site.Config.Adapter == "agentrouter" {
+			credentials.AccessToken = stripBearer(credentials.AccessToken)
+			if credentials.UserID != "" && routerUserID(credentials.UserID) == "" {
+				return account, model.InvalidCheckin("router user ID must be a positive integer")
+			}
+			credentials.UserID = routerUserID(credentials.UserID)
+		}
 		if site.Config.Adapter == "sub2api" && credentials.Type == "bearer" {
 			normalizeSub2APICredentials(&credentials)
 		} else if credentials.RefreshToken != "" {
@@ -321,11 +337,13 @@ func (s *Service) SaveAccount(ctx context.Context, siteID, id string, input Acco
 		account.TokenExpiresAt = credentials.ExpiresAt
 		account.TokenRefreshedAt, account.RefreshRetryAt = nil, nil
 		account.RefreshPending, account.RefreshError = false, ""
+		account.HasSession, account.SessionSavedAt = false, nil
 	}
 	saved, err := s.Store.SaveAccount(ctx, account, input.Revision, input.CredentialVersion, input.Credentials != nil)
 	if err == nil && input.Credentials != nil {
 		s.sessionMu.Lock()
 		delete(s.pendingSessions, account.ID)
+		delete(s.pendingLogins, account.ID)
 		s.sessionMu.Unlock()
 	}
 	return saved, err
@@ -370,7 +388,7 @@ func (s *Service) Confirm(ctx context.Context, runID, key string, automatic bool
 	if !account.Enabled || !site.Config.Enabled {
 		return model.CheckinJob{}, model.InvalidCheckin("site or account is disabled")
 	}
-	if site.Config.Status == nil {
+	if site.Config.Status == nil && !model.CheckinNativeStatus(site.Config) {
 		return model.CheckinJob{}, model.InvalidCheckin("configure a status query before confirming this run")
 	}
 	source := "confirmation"
