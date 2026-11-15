@@ -340,7 +340,7 @@ func importCheckin(tx *gorm.DB, dump *model.CheckinDump, result *model.DBImportR
 			return err
 		}
 		attempt.Message = "Upstream response received"
-		if attempt.Reason == "network_error" {
+		if model.IsCheckinNetworkReason(attempt.Reason) {
 			attempt.Message = "Request failed, timed out, or exceeded the response limit"
 		}
 		if model.IsTurnstileReason(attempt.Reason) {

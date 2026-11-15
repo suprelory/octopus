@@ -4,13 +4,16 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
@@ -21,6 +24,8 @@ type HTTPResult struct {
 	StatusCode          int
 	Body                []byte
 	Err                 error
+	NetworkReason       string
+	ContentType         string
 	Cookies             []*http.Cookie
 	URL                 *url.URL
 	CloudflareChallenge bool
@@ -103,6 +108,15 @@ func doRequestHTTPWithToken(ctx context.Context, client *http.Client, site model
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "Octopus-Checkin/1.0")
+	if site.Adapter == "anyrouter" {
+		req.Header.Set("Accept", "application/json, text/plain, */*")
+		req.Header.Set("User-Agent", anyRouterUserAgent)
+		req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+		if baseURL, parseErr := url.Parse(site.BaseURL); parseErr == nil {
+			req.Header.Set("Origin", baseURL.Scheme+"://"+baseURL.Host)
+			req.Header.Set("Referer", strings.TrimRight(site.BaseURL, "/")+"/console")
+		}
+	}
 	if site.UserAgent != "" {
 		req.Header.Set("User-Agent", site.UserAgent)
 	}
@@ -120,6 +134,11 @@ func doRequestHTTPWithToken(ctx context.Context, client *http.Client, site model
 	}
 	if credentials.UserID != "" {
 		req.Header.Set("New-Api-User", credentials.UserID)
+		if site.Adapter == "anyrouter" {
+			for _, name := range []string{"Veloera-User", "voapi-user", "User-id", "Rix-Api-User", "neo-api-user"} {
+				req.Header.Set(name, credentials.UserID)
+			}
+		}
 	}
 	if token != nil && token.location == "header" {
 		req.Header.Set(token.field, token.value)
@@ -144,14 +163,68 @@ func doRequestHTTPWithToken(ctx context.Context, client *http.Client, site model
 	}
 	response, err := client.Do(req)
 	if err != nil {
-		return HTTPResult{Err: errors.New("checkin request failed or timed out")}
+		return HTTPResult{Err: errors.New("checkin request failed or timed out"), NetworkReason: classifyNetworkError(err)}
 	}
 	defer response.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(response.Body, (1<<20)+1))
-	if err != nil || len(raw) > 1<<20 {
-		return HTTPResult{StatusCode: response.StatusCode, Cookies: response.Cookies(), URL: base, Err: errors.New("checkin response could not be read within its limit")}
+	if len(raw) > 1<<20 {
+		return HTTPResult{StatusCode: response.StatusCode, Cookies: response.Cookies(), URL: base, ContentType: response.Header.Get("Content-Type"), Err: errors.New("checkin response exceeded its limit"), NetworkReason: model.CheckinNetworkResponseTooLarge}
 	}
-	return HTTPResult{StatusCode: response.StatusCode, Body: raw, Cookies: response.Cookies(), URL: base, CloudflareChallenge: strings.EqualFold(response.Header.Get("Cf-Mitigated"), "challenge")}
+	if err != nil {
+		reason := classifyNetworkError(err)
+		if reason == model.CheckinNetworkError || reason == model.CheckinNetworkConnectionError {
+			reason = model.CheckinNetworkResponseReadError
+		}
+		return HTTPResult{StatusCode: response.StatusCode, Cookies: response.Cookies(), URL: base, ContentType: response.Header.Get("Content-Type"), Err: errors.New("checkin response could not be read"), NetworkReason: reason}
+	}
+	return HTTPResult{StatusCode: response.StatusCode, Body: raw, Cookies: response.Cookies(), URL: base, ContentType: response.Header.Get("Content-Type"), CloudflareChallenge: strings.EqualFold(response.Header.Get("Cf-Mitigated"), "challenge")}
+}
+
+func classifyNetworkError(err error) string {
+	if err == nil {
+		return ""
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return model.CheckinNetworkDNSError
+	}
+	lowered := strings.ToLower(err.Error())
+	var recordErr tls.RecordHeaderError
+	var verifyErr *tls.CertificateVerificationError
+	var unknownAuthority x509.UnknownAuthorityError
+	var invalidCertificate x509.CertificateInvalidError
+	var hostnameError x509.HostnameError
+	var rootsError x509.SystemRootsError
+	if errors.As(err, &recordErr) || errors.As(err, &verifyErr) || errors.As(err, &unknownAuthority) || errors.As(err, &invalidCertificate) || errors.As(err, &hostnameError) || errors.As(err, &rootsError) || strings.Contains(lowered, "tls:") {
+		return model.CheckinNetworkTLSError
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return model.CheckinNetworkTimeout
+	}
+	var networkErr net.Error
+	if errors.As(err, &networkErr) && networkErr.Timeout() {
+		return model.CheckinNetworkTimeout
+	}
+	var opErr *net.OpError
+	if (errors.As(err, &opErr) && strings.EqualFold(opErr.Op, "proxyconnect")) || strings.Contains(lowered, "proxyconnect") || strings.Contains(lowered, "proxy error") {
+		return model.CheckinNetworkProxyError
+	}
+	if errors.Is(err, syscall.ECONNREFUSED) {
+		return model.CheckinNetworkConnectionRefused
+	}
+	if strings.Contains(lowered, "actively refused") || strings.Contains(lowered, "connection refused") {
+		return model.CheckinNetworkConnectionRefused
+	}
+	if errors.Is(err, syscall.ECONNRESET) {
+		return model.CheckinNetworkConnectionReset
+	}
+	if strings.Contains(lowered, "connection reset") || strings.Contains(lowered, "forcibly closed by the remote host") {
+		return model.CheckinNetworkConnectionReset
+	}
+	if errors.Is(err, context.Canceled) {
+		return model.CheckinNetworkError
+	}
+	return model.CheckinNetworkConnectionError
 }
 
 func checkinRequestURL(baseURL, requestPath, date string) (*url.URL, error) {

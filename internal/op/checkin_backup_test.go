@@ -77,7 +77,7 @@ func checkinBackupFixture(t *testing.T) (*CheckinStore, *model.CheckinDump) {
 	if err := store.MarkSubmitted(ctx, item, &run, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AddAttempt(ctx, model.CheckinAttempt{RunID: run.ID, JobID: job.ID, Stage: "submit", Reason: "network_error", Message: "Request failed, timed out, or exceeded the response limit", CreatedAt: now}); err != nil {
+	if err := store.AddAttempt(ctx, model.CheckinAttempt{RunID: run.ID, JobID: job.ID, Stage: "submit", Reason: model.CheckinNetworkProxyError, Message: "Request failed, timed out, or exceeded the response limit", CreatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
 	dump, err := exportCheckin(ctx, store.DB)

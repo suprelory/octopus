@@ -108,14 +108,17 @@ func (r *adapterRuntime) requestBody(ctx context.Context, stage string, config m
 func (r *adapterRuntime) audit(ctx context.Context, stage string, result HTTPResult, duration time.Duration) error {
 	reason := "response_received"
 	if result.Err != nil {
-		reason = "network_error"
+		reason = result.NetworkReason
+		if !model.IsCheckinNetworkReason(reason) {
+			reason = model.CheckinNetworkError
+		}
 	}
 	return r.auditReason(ctx, stage, result, duration, reason)
 }
 
 func (r *adapterRuntime) auditReason(ctx context.Context, stage string, result HTTPResult, duration time.Duration, reason string) error {
 	message := "Upstream response received"
-	if reason == "network_error" {
+	if model.IsCheckinNetworkReason(reason) {
 		message = "Request failed, timed out, or exceeded the response limit"
 	}
 	if model.IsTurnstileReason(reason) {

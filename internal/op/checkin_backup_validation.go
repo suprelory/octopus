@@ -168,9 +168,9 @@ func validateCheckinGraph(d *model.CheckinDump) error {
 			return fail()
 		}
 		switch attempt.Reason {
-		case "response_received", "network_error":
+		case "response_received":
 		default:
-			if !model.IsTurnstileReason(attempt.Reason) {
+			if !model.IsTurnstileReason(attempt.Reason) && !model.IsCheckinNetworkReason(attempt.Reason) {
 				return fail()
 			}
 		}
@@ -250,7 +250,7 @@ func validateCheckinObservation(balance *model.CheckinBalanceSnapshot, inspectio
 	}
 	for _, step := range inspection.Steps {
 		if !slices.Contains([]string{"account", "refresh", "detect_status", "turnstile_discover", "turnstile_cloudflare_solver", "turnstile_solverq"}, step.Stage) || (step.Stage == "detect_status" && inspection.Kind != "detect") ||
-			(!slices.Contains([]string{"response_received", "network_error"}, step.Reason) && !model.IsTurnstileReason(step.Reason)) || step.HTTPStatus < 0 || step.HTTPStatus > 599 || step.DurationMS < 0 || step.CreatedAt.IsZero() {
+			(!slices.Contains([]string{"response_received"}, step.Reason) && !model.IsTurnstileReason(step.Reason) && !model.IsCheckinNetworkReason(step.Reason)) || step.HTTPStatus < 0 || step.HTTPStatus > 599 || step.DurationMS < 0 || step.CreatedAt.IsZero() {
 			return fail()
 		}
 	}

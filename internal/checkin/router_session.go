@@ -2,6 +2,7 @@ package checkin
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/cookiejar"
@@ -53,12 +54,13 @@ func (r *adapterRuntime) savePendingLogin(ctx context.Context, pending pendingLo
 }
 
 type routerSession struct {
-	r          *adapterRuntime
-	jar        *cookiejar.Jar
-	cookies    map[string]model.CheckinSessionCookie
-	auth       string
-	token      string
-	savedPlain string
+	r           *adapterRuntime
+	jar         *cookiejar.Jar
+	cookies     map[string]model.CheckinSessionCookie
+	auth        string
+	token       string
+	probeUserID string
+	savedPlain  string
 }
 
 func openRouterSession(ctx context.Context, r *adapterRuntime) (*routerSession, error) {
@@ -139,7 +141,40 @@ func (s *routerSession) bindUserID(id string) error {
 		return needsAttention("router_identity_mismatch")
 	}
 	s.r.credentials.UserID = id
+	s.probeUserID = ""
 	return nil
+}
+
+// A JWT claim is only a request hint; /self must still confirm the account ID.
+func routerTokenUserID(token string) string {
+	parts := strings.Split(stripBearer(token), ".")
+	if len(parts) != 3 {
+		return ""
+	}
+	for _, encoding := range []*base64.Encoding{base64.RawURLEncoding, base64.URLEncoding, base64.RawStdEncoding, base64.StdEncoding} {
+		payload, err := encoding.DecodeString(parts[1])
+		if err != nil {
+			continue
+		}
+		data, err := decodeObject(payload)
+		if err != nil {
+			return ""
+		}
+		for _, path := range []string{"id", "sub"} {
+			if value, ok := field(data, path); ok {
+				if id := routerUserID(value); id != "" {
+					return id
+				}
+			}
+		}
+		return ""
+	}
+	return ""
+}
+
+func routerCookieCandidate(value string) bool {
+	request := &http.Request{Header: http.Header{"Cookie": []string{value}}}
+	return usableRouterCookie(request.Cookies())
 }
 
 func (s *routerSession) seedCookie(header string) {
@@ -198,7 +233,11 @@ func usableRouterCookie(cookies []*http.Cookie) bool {
 }
 
 func (s *routerSession) credential(path string) model.CheckinCredentials {
-	auth := model.CheckinCredentials{Type: s.auth, AccessToken: s.token, UserID: s.r.credentials.UserID}
+	userID := s.r.credentials.UserID
+	if userID == "" {
+		userID = s.probeUserID
+	}
+	auth := model.CheckinCredentials{Type: s.auth, AccessToken: s.token, UserID: userID}
 	if s.auth == "cookie" {
 		u, _ := checkinRequestURL(s.r.site.Config.BaseURL, path, s.r.run.CheckinDate)
 		request := &http.Request{Header: make(http.Header)}
@@ -219,15 +258,66 @@ func (s *routerSession) hasAuth(path string) bool {
 }
 
 func (s *routerSession) request(ctx context.Context, stage string, config model.CheckinRequest, anonymous bool) (HTTPResult, error) {
-	auth := s.credential(config.Path)
-	if anonymous {
-		auth = model.CheckinCredentials{}
+	var response HTTPResult
+	var requestErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		auth := model.CheckinCredentials{}
+		if !anonymous {
+			auth = s.credential(config.Path)
+		}
+		requestConfig := config
+		if s.r.site.Config.Adapter == "anyrouter" {
+			requestConfig.Headers = append([]model.CheckinHeader(nil), config.Headers...)
+			requestURL, _ := checkinRequestURL(s.r.site.Config.BaseURL, config.Path, s.r.run.CheckinDate)
+			existingCookie := ""
+			for _, header := range requestConfig.Headers {
+				if strings.EqualFold(header.Name, "Cookie") {
+					existingCookie = header.Value
+					break
+				}
+			}
+			if requestURL != nil {
+				if cookie := s.cookieHeader(requestURL, existingCookie); cookie != "" {
+					if anonymous || auth.Type == "bearer" {
+						requestConfig.Headers = append(requestConfig.Headers, model.CheckinHeader{Name: "Cookie", Value: cookie})
+					}
+				}
+			}
+		}
+		response, requestErr = s.r.requestBody(ctx, stage, requestConfig, auth, !anonymous)
+		if response.URL != nil {
+			s.receive(response.URL, response.Cookies)
+		}
+		if requestErr != nil || s.r.site.Config.Adapter != "anyrouter" || !anyRouterIsShieldChallenge(response.ContentType, string(response.Body)) || response.StatusCode < 200 || response.StatusCode >= 300 {
+			return response, requestErr
+		}
+		if response.URL == nil || len(s.jar.Cookies(response.URL)) == 0 {
+			return response, requestErr
+		}
+		value := anyRouterSolveAcwScV2(string(response.Body))
+		if value == "" {
+			return response, requestErr
+		}
+		s.receive(response.URL, []*http.Cookie{{Name: "acw_sc__v2", Value: value, Path: "/"}})
 	}
-	response, err := s.r.requestBody(ctx, stage, config, auth, !anonymous)
-	if response.URL != nil {
-		s.receive(response.URL, response.Cookies)
+	return response, requestErr
+}
+
+func (s *routerSession) cookieHeader(u *url.URL, base string) string {
+	request := &http.Request{Header: http.Header{"Cookie": []string{base}}}
+	seen := make(map[string]bool)
+	for _, cookie := range request.Cookies() {
+		seen[cookie.Name+"\n"+cookie.Value] = true
 	}
-	return response, err
+	for _, cookie := range s.jar.Cookies(u) {
+		key := cookie.Name + "\n" + cookie.Value
+		if seen[key] {
+			continue
+		}
+		request.AddCookie(cookie)
+		seen[key] = true
+	}
+	return request.Header.Get("Cookie")
 }
 
 func (s *routerSession) persist(ctx context.Context) error {
@@ -293,14 +383,20 @@ func (s *routerSession) login(ctx context.Context, stage string) (HTTPResult, an
 	if decodeErr != nil || response.StatusCode < 200 || response.StatusCode >= 300 || !routerSuccess(data) || !matches(data, model.CheckinMatch{Path: "success", Value: json.RawMessage("true")}) {
 		return response, nil, needsAttention("router_login_unconfirmed")
 	}
-	if err := s.bindUserID(routerResponseUserID(data)); err != nil {
-		return response, nil, err
+	if s.r.site.Config.Adapter != "anyrouter" {
+		if err := s.bindUserID(routerResponseUserID(data)); err != nil {
+			return response, nil, err
+		}
 	}
 	s.auth, s.token = "cookie", ""
-	for _, path := range []string{"data.access_token", "data.token", "access_token", "token"} {
+	for _, path := range []string{"data", "data.access_token", "data.accessToken", "data.token", "access_token", "accessToken", "token"} {
 		if value, ok := field(data, path); ok {
 			if token, ok := value.(string); ok && token != "" {
-				s.token = stripBearer(token)
+				if routerCookieCandidate(token) {
+					s.seedCookie(token)
+				} else {
+					s.token = stripBearer(token)
+				}
 				break
 			}
 		}
@@ -319,6 +415,31 @@ func (s *routerSession) login(ctx context.Context, stage string) (HTTPResult, an
 	}
 	if !newCookie && s.token != "" {
 		s.auth = "bearer"
+	}
+	if s.r.site.Config.Adapter == "anyrouter" {
+		if !s.hasAuth("/api/user/self") {
+			return response, nil, needsAttention("router_session_required")
+		}
+		if userID := routerResponseUserID(data); userID != "" {
+			if err := s.bindUserID(userID); err != nil {
+				return response, nil, err
+			}
+		} else {
+			if s.r.credentials.UserID == "" {
+				s.probeUserID = routerTokenUserID(s.token)
+			}
+			self, selfErr := s.request(ctx, stage, model.CheckinRequest{Method: "GET", Path: "/api/user/self"}, false)
+			if selfErr != nil {
+				return self, nil, selfErr
+			}
+			if !routerSuccessResponse(self) {
+				return self, nil, needsAttention(routerSubmitResult(self).Reason)
+			}
+			selfData, _ := decodeObject(self.Body)
+			if err := s.bindUserID(routerResponseUserID(selfData)); err != nil {
+				return self, nil, err
+			}
+		}
 	}
 	if err := s.persist(ctx); err != nil {
 		return response, data, err
