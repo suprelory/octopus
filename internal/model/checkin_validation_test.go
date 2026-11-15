@@ -48,3 +48,27 @@ func TestCheckinConfigDoesNotPersistCredentialMaterialInSiteFields(t *testing.T)
 		t.Fatal("normalized site configuration could not be serialized", err)
 	}
 }
+
+func TestSub2APIRequiresAnExplicitEndpointAndSharedUserAgent(t *testing.T) {
+	config := CheckinSiteConfig{Name: "Sub2API", BaseURL: "https://example.invalid", Adapter: "sub2api"}
+	if NormalizeCheckinSite(&config) == nil {
+		t.Fatal("Sub2API invented a built-in check-in endpoint")
+	}
+	config.Submit.Path = "/custom-checkin"
+	if err := NormalizeCheckinSite(&config); err != nil {
+		t.Fatal(err)
+	}
+	if config.Success == nil || config.Success.Path != "code" || string(config.Success.Value) != "0" {
+		t.Fatal("Sub2API response defaults do not match its numeric code")
+	}
+	config.Submit.Headers = []CheckinHeader{{Name: "User-Agent", Value: "different-session"}}
+	if NormalizeCheckinSite(&config) == nil {
+		t.Fatal("per-request User-Agent can split a bound session")
+	}
+	if ValidateCheckinCredentials(CheckinCredentials{Type: "cookie", Cookie: "session=x", RefreshToken: "rt"}) == nil {
+		t.Fatal("Cookie account accepted a refresh token")
+	}
+	if ValidateCheckinCredentials(CheckinCredentials{Type: "bearer", AccessToken: "access", RefreshToken: strings.Repeat("r", 16385)}) == nil {
+		t.Fatal("unbounded refresh token accepted")
+	}
+}

@@ -24,26 +24,28 @@ type Event struct {
 }
 
 type Service struct {
-	Store       *op.CheckinStore
-	Vault       *checkinsecret.Vault
-	Now         func() time.Time
-	gate        sync.RWMutex
-	mu          sync.Mutex
-	scanMu      sync.Mutex
-	dispatchMu  sync.Mutex
-	active      map[string]bool
-	activeSites map[string]bool
-	nextSite    map[string]time.Time
-	closed      bool
-	paused      bool
-	wake        chan struct{}
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
-	loopDone    chan struct{}
-	started     bool
-	eventMu     sync.Mutex
-	watchers    map[chan Event]bool
+	Store           *op.CheckinStore
+	Vault           *checkinsecret.Vault
+	Now             func() time.Time
+	gate            sync.RWMutex
+	mu              sync.Mutex
+	scanMu          sync.Mutex
+	dispatchMu      sync.Mutex
+	active          map[string]bool
+	activeSites     map[string]bool
+	nextSite        map[string]time.Time
+	closed          bool
+	paused          bool
+	wake            chan struct{}
+	ctx             context.Context
+	cancel          context.CancelFunc
+	wg              sync.WaitGroup
+	loopDone        chan struct{}
+	started         bool
+	eventMu         sync.Mutex
+	watchers        map[chan Event]bool
+	sessionMu       sync.Mutex
+	pendingSessions map[string]pendingCheckinSession
 }
 
 func New(store *op.CheckinStore, vault *checkinsecret.Vault) *Service {
@@ -294,6 +296,17 @@ func (s *Service) SaveAccount(ctx context.Context, siteID, id string, input Acco
 		account.ProxyURL = *input.ProxyURL
 	}
 	if input.Credentials != nil {
+		site, err := s.Store.Site(ctx, account.SiteID)
+		if err != nil {
+			return account, err
+		}
+		credentials := *input.Credentials
+		if site.Config.Adapter == "sub2api" && credentials.Type == "bearer" {
+			normalizeSub2APICredentials(&credentials)
+		} else if credentials.RefreshToken != "" {
+			return account, model.InvalidCheckin("refresh tokens require a Sub2API Bearer account")
+		}
+		input.Credentials = &credentials
 		if err := model.ValidateCheckinCredentials(*input.Credentials); err != nil {
 			return account, err
 		}
@@ -304,8 +317,18 @@ func (s *Service) SaveAccount(ctx context.Context, siteID, id string, input Acco
 		}
 		account.CredentialCipher, account.CredentialType = encrypted, input.Credentials.Type
 		account.CredentialUserID = input.Credentials.UserID
+		account.HasRefreshToken = credentials.RefreshToken != ""
+		account.TokenExpiresAt = credentials.ExpiresAt
+		account.TokenRefreshedAt, account.RefreshRetryAt = nil, nil
+		account.RefreshPending, account.RefreshError = false, ""
 	}
-	return s.Store.SaveAccount(ctx, account, input.Revision, input.CredentialVersion, input.Credentials != nil)
+	saved, err := s.Store.SaveAccount(ctx, account, input.Revision, input.CredentialVersion, input.Credentials != nil)
+	if err == nil && input.Credentials != nil {
+		s.sessionMu.Lock()
+		delete(s.pendingSessions, account.ID)
+		s.sessionMu.Unlock()
+	}
+	return saved, err
 }
 
 func (s *Service) Enqueue(ctx context.Context, scope model.CheckinScope, source, key string) (model.CheckinJob, error) {
@@ -363,7 +386,7 @@ func (s *Service) Confirm(ctx context.Context, runID, key string, automatic bool
 
 func fingerprint(site model.CheckinSite, account model.CheckinAccount) string {
 	// The opaque ciphertext is never included in logs or returned to clients.
-	data, _ := json.Marshal([]any{site.Config, account.ID, account.CredentialVersion, account.ProxyMode, account.ProxyURL})
+	data, _ := json.Marshal([]any{site.Config, account.ID, account.IdentityVersion(), account.ProxyMode, account.ProxyURL})
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:])
 }

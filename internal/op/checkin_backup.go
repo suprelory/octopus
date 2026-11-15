@@ -15,7 +15,7 @@ import (
 )
 
 func exportCheckin(ctx context.Context, conn *gorm.DB) (*model.CheckinDump, error) {
-	dump := &model.CheckinDump{Version: 1}
+	dump := &model.CheckinDump{Version: 2}
 	var accounts []model.CheckinAccount
 	for _, target := range []any{&dump.Sites, &accounts, &dump.Runs, &dump.Attempts, &dump.Jobs, &dump.Items} {
 		if err := conn.WithContext(ctx).Find(target).Error; err != nil {
@@ -23,7 +23,7 @@ func exportCheckin(ctx context.Context, conn *gorm.DB) (*model.CheckinDump, erro
 		}
 	}
 	for _, account := range accounts {
-		dump.Accounts = append(dump.Accounts, model.CheckinAccountBackup{CheckinAccount: account, Cipher: account.CredentialCipher})
+		dump.Accounts = append(dump.Accounts, model.CheckinAccountBackup{CheckinAccount: account, Cipher: account.CredentialCipher, IdentityVersion: account.IdentityVersion()})
 	}
 	return dump, nil
 }
@@ -32,7 +32,7 @@ func validateCheckinDump(dump *model.CheckinDump) error {
 	if dump == nil {
 		return nil
 	}
-	if dump.Version != 1 {
+	if dump.Version != 1 && dump.Version != 2 {
 		return errors.New("unsupported checkin backup version")
 	}
 	if len(dump.Sites) > 10000 || len(dump.Accounts) > 100000 || len(dump.Runs) > 1000000 || len(dump.Attempts) > 2000000 || len(dump.Jobs) > 1000000 || len(dump.Items) > 1000000 {
@@ -45,6 +45,7 @@ func validateCheckinDump(dump *model.CheckinDump) error {
 		return nil
 	}
 	var vault *checkinsecret.Vault
+	sites := map[string]model.CheckinSite{}
 	for i := range dump.Sites {
 		if err := validID(dump.Sites[i].ID); err != nil {
 			return err
@@ -52,6 +53,7 @@ func validateCheckinDump(dump *model.CheckinDump) error {
 		if err := model.NormalizeCheckinSite(&dump.Sites[i].Config); err != nil {
 			return fmt.Errorf("invalid checkin site: %w", err)
 		}
+		sites[dump.Sites[i].ID] = dump.Sites[i]
 	}
 	for i := range dump.Accounts {
 		account := &dump.Accounts[i]
@@ -63,6 +65,18 @@ func validateCheckinDump(dump *model.CheckinDump) error {
 		}
 		if account.Name == "" || len(account.Name) > 128 || account.CredentialVersion < 1 || account.Revision < 1 {
 			return errors.New("invalid checkin account metadata")
+		}
+		if account.IdentityVersion < 0 || account.IdentityVersion > account.CredentialVersion {
+			return errors.New("invalid checkin credential identity version")
+		}
+		account.CredentialIdentityVersion = account.IdentityVersion
+		switch account.RefreshError {
+		case "", "sub2api_refresh_deferred", "sub2api_refresh_uncertain", "sub2api_refresh_rejected", "sub2api_auth_rejected", "sub2api_session_revoked", "sub2api_session_binding_mismatch", "sub2api_account_unavailable", "sub2api_refresh_identity_mismatch":
+		default:
+			return errors.New("invalid checkin session status")
+		}
+		if account.RefreshRetryAt != nil && (account.RefreshPending || account.RefreshError != "sub2api_refresh_deferred") {
+			return errors.New("invalid checkin refresh retry")
 		}
 		if account.ProxyMode != "inherit" && account.ProxyMode != "direct" && account.ProxyMode != "custom" {
 			return errors.New("invalid checkin account proxy mode")
@@ -89,6 +103,14 @@ func validateCheckinDump(dump *model.CheckinDump) error {
 				return errors.New("invalid encrypted checkin backup credentials")
 			}
 			account.CredentialUserID = credentials.UserID
+			account.HasRefreshToken = credentials.RefreshToken != ""
+			account.TokenExpiresAt = credentials.ExpiresAt
+			if (account.HasRefreshToken || account.RefreshPending || account.RefreshError != "") && sites[account.SiteID].Config.Adapter != "sub2api" {
+				return errors.New("session credentials require a Sub2API site")
+			}
+			if !account.HasRefreshToken && (account.RefreshPending || account.RefreshError != "") {
+				return errors.New("refresh state requires a refresh token")
+			}
 		}
 	}
 	for _, run := range dump.Runs {
@@ -168,6 +190,8 @@ func importCheckin(tx *gorm.DB, dump *model.CheckinDump, result *model.DBImportR
 		account.LeaseOwner, account.LeaseUntil = "", nil
 		if account.DeletedAt != nil {
 			account.CredentialCipher = ""
+			account.HasRefreshToken, account.RefreshPending, account.RefreshError = false, false, ""
+			account.TokenExpiresAt, account.TokenRefreshedAt, account.RefreshRetryAt = nil, nil, nil
 		}
 		if err := insert("checkin_accounts", &account); err != nil {
 			return err

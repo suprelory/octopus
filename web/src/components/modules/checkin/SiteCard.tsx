@@ -163,6 +163,24 @@ export function SiteCard({
                                     ? `${t('nextRun')}: ${new Date(account.next_run_at).toLocaleString()}`
                                     : t(account.auto_checkin ? 'waitingSchedule' : 'manualOnly')}
                             </p>
+                            {site.config.adapter === 'sub2api' && account.credential_type === 'bearer' && (
+                                <div className="space-y-1 text-xs text-muted-foreground">
+                                    <p>{t(account.has_refresh_token ? 'sessionRefreshEnabled' : 'sessionRefreshDisabled')}</p>
+                                    {account.token_expires_at && (
+                                        <p>{t('tokenExpiry')}: {new Date(account.token_expires_at).toLocaleString()}</p>
+                                    )}
+                                    {account.token_refreshed_at && (
+                                        <p>{t('tokenRefreshedAt')}: {new Date(account.token_refreshed_at).toLocaleString()}</p>
+                                    )}
+                                    {(account.refresh_error || account.refresh_pending) && (
+                                        <p className="text-amber-600 dark:text-amber-400">
+                                            {account.refresh_error && t.has(`reasons.${account.refresh_error}`)
+                                                ? t(`reasons.${account.refresh_error}`)
+                                                : t('sessionRefreshPending')}
+                                        </p>
+                                    )}
+                                </div>
+                            )}
                             <div className="flex flex-wrap items-center gap-2">
                                 <CheckinToggle
                                     label={t('autoCheckin')}

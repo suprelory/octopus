@@ -30,8 +30,13 @@ export function AccountForm({
     const [name, setName] = useState(account?.name ?? '');
     const [enabled, setEnabled] = useState(account?.enabled ?? true);
     const [automatic, setAutomatic] = useState(account?.auto_checkin ?? false);
-    const [type, setType] = useState<'cookie' | 'bearer'>(account?.credential_type ?? 'cookie');
+    const sub2api = site.config.adapter === 'sub2api';
+    const [type, setType] = useState<'cookie' | 'bearer'>(
+        account?.credential_type ?? (sub2api ? 'bearer' : 'cookie'),
+    );
     const [credential, setCredential] = useState('');
+    const [refreshToken, setRefreshToken] = useState('');
+    const [expiresAt, setExpiresAt] = useState('');
     const [userID, setUserID] = useState(account?.user_id ?? '');
     const [proxyMode, setProxyMode] = useState(account?.proxy_mode ?? 'inherit');
     const [proxyURL, setProxyURL] = useState(account?.proxy_url ?? '');
@@ -42,6 +47,8 @@ export function AccountForm({
         event.preventDefault();
         setError(null);
         try {
+            if (!credential && (refreshToken || expiresAt))
+                throw new Error(t('replaceSessionHint'));
             if (
                 account &&
                 !credential &&
@@ -62,6 +69,12 @@ export function AccountForm({
                     type,
                     user_id: userID,
                     ...(type === 'cookie' ? { cookie: credential } : { access_token: credential }),
+                    ...(sub2api && type === 'bearer'
+                        ? {
+                              refresh_token: refreshToken,
+                              ...(expiresAt ? { expires_at: new Date(expiresAt).toISOString() } : {}),
+                          }
+                        : {}),
                 };
             await save.mutateAsync({
                 path: account ? `/accounts/${account.id}` : `/sites/${site.id}/accounts`,
@@ -118,6 +131,8 @@ export function AccountForm({
                         onChange={(event) => {
                             setType(event.target.value as 'cookie' | 'bearer');
                             setCredential('');
+                            setRefreshToken('');
+                            setExpiresAt('');
                         }}
                     >
                         <option value="cookie">Cookie</option>
@@ -148,6 +163,27 @@ export function AccountForm({
                         />
                     )}
                 </CheckinField>
+                {sub2api && type === 'bearer' && (
+                    <>
+                        <CheckinField label={t('refreshToken')} hint={t('refreshTokenHint')}>
+                            <Input
+                                type="password"
+                                autoComplete="new-password"
+                                value={refreshToken}
+                                onChange={(event) => setRefreshToken(event.target.value)}
+                                placeholder={account?.has_refresh_token ? '••••••••' : ''}
+                            />
+                        </CheckinField>
+                        <CheckinField label={t('tokenExpiry')} hint={t('tokenExpiryHint')}>
+                            <Input
+                                type="datetime-local"
+                                value={expiresAt}
+                                onChange={(event) => setExpiresAt(event.target.value)}
+                            />
+                        </CheckinField>
+                        <p className="text-xs text-muted-foreground">{t('sessionCredentialHint')}</p>
+                    </>
+                )}
                 <CheckinField label={t('userID')} hint={t('userIDHint')}>
                     <Input value={userID} onChange={(event) => setUserID(event.target.value)} />
                 </CheckinField>

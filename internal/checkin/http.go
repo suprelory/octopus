@@ -80,6 +80,9 @@ func requestHTTP(ctx context.Context, client *http.Client, site model.CheckinSit
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "Octopus-Checkin/1.0")
+	if site.UserAgent != "" {
+		req.Header.Set("User-Agent", site.UserAgent)
+	}
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -89,7 +92,7 @@ func requestHTTP(ctx context.Context, client *http.Client, site model.CheckinSit
 	}
 	if credentials.Type == "cookie" {
 		req.Header.Set("Cookie", credentials.Cookie)
-	} else {
+	} else if credentials.Type == "bearer" {
 		req.Header.Set("Authorization", "Bearer "+credentials.AccessToken)
 	}
 	if credentials.UserID != "" {
@@ -162,9 +165,9 @@ type Capability struct {
 
 func Capabilities() []Capability {
 	result := []Capability{}
-	for _, platform := range []struct{ id, name string }{{"new-api", "New API"}, {"one-api", "One API"}, {"one-hub", "OneHub"}, {"done-hub", "DoneHub"}, {"http", "Custom HTTP"}} {
+	for _, platform := range []struct{ id, name string }{{"new-api", "New API"}, {"one-api", "One API"}, {"one-hub", "OneHub"}, {"done-hub", "DoneHub"}, {"sub2api", "Sub2API"}, {"http", "Custom HTTP"}} {
 		path := "/api/user/checkin"
-		if platform.id == "http" {
+		if platform.id == "http" || platform.id == "sub2api" {
 			path = ""
 		}
 		result = append(result, Capability{ID: platform.id, Name: platform.name, Path: path, CredentialTypes: []string{"cookie", "bearer"}})

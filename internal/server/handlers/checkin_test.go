@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/bestruirui/octopus/internal/checkin"
 	"github.com/bestruirui/octopus/internal/model"
@@ -185,5 +186,57 @@ func TestCheckinJSONRejectsTextAndUnknownCredentialFields(t *testing.T) {
 		if response.Code != 400 || strings.Contains(response.Body.String(), "shared-site-secret") {
 			t.Fatal("unsafe request accepted or echoed")
 		}
+	}
+}
+
+func TestSub2APICredentialsAPIKeepsTokensPrivateAndClearsOldExpiry(t *testing.T) {
+	engine := testCheckinEngine(t)
+	token, _, _ := auth.GenerateJWTToken(60)
+	call := func(method, path string, body any, output any) int {
+		t.Helper()
+		data, _ := json.Marshal(body)
+		request := httptest.NewRequest(method, path, bytes.NewReader(data))
+		request.Header.Set("Content-Type", "application/json")
+		request.AddCookie(&http.Cookie{Name: "auth", Value: token})
+		response := httptest.NewRecorder()
+		engine.ServeHTTP(response, request)
+		if strings.Contains(response.Body.String(), "private-access") || strings.Contains(response.Body.String(), "private-refresh") || strings.Contains(response.Body.String(), "credential_cipher") {
+			t.Fatal("API exposed a session secret")
+		}
+		if output != nil && response.Code == 200 {
+			var envelope struct{ Data json.RawMessage }
+			if json.Unmarshal(response.Body.Bytes(), &envelope) != nil || json.Unmarshal(envelope.Data, output) != nil {
+				t.Fatal("invalid API response")
+			}
+		}
+		return response.Code
+	}
+	var site model.CheckinSite
+	config := model.CheckinSiteConfig{Name: "Sub2API", BaseURL: "https://example.invalid", Adapter: "sub2api", Enabled: true, Submit: model.CheckinRequest{Path: "/checkin"}}
+	if call("POST", "/api/v1/checkin/sites", map[string]any{"config": config}, &site) != 200 {
+		t.Fatal("Sub2API site rejected")
+	}
+	expiry := time.Now().UTC().Add(time.Hour)
+	var account model.CheckinAccount
+	if call("POST", "/api/v1/checkin/sites/"+site.ID+"/accounts", map[string]any{"name": "session", "credentials": model.CheckinCredentials{Type: "bearer", AccessToken: "private-access", RefreshToken: "private-refresh", ExpiresAt: &expiry}}, &account) != 200 {
+		t.Fatal("session credentials rejected")
+	}
+	if !account.HasRefreshToken || account.TokenExpiresAt == nil || account.AutoCheckin {
+		t.Fatal("session metadata or default automation is incorrect")
+	}
+	oldVersion := account.CredentialVersion
+	var replacement model.CheckinAccount
+	if call("PATCH", "/api/v1/checkin/accounts/"+account.ID, map[string]any{"revision": account.Revision, "credential_version": oldVersion, "credentials": model.CheckinCredentials{Type: "bearer", AccessToken: "replacement"}}, &replacement) != 200 {
+		t.Fatal("replacement credentials rejected")
+	}
+	if replacement.HasRefreshToken || replacement.TokenExpiresAt != nil || replacement.CredentialVersion != oldVersion+1 {
+		t.Fatal("replacement retained an old refresh token or expiry")
+	}
+	config.Adapter = "http"
+	if call("POST", "/api/v1/checkin/sites", map[string]any{"config": config}, &site) != 200 {
+		t.Fatal("custom site rejected")
+	}
+	if call("POST", "/api/v1/checkin/sites/"+site.ID+"/accounts", map[string]any{"name": "wrong platform", "credentials": model.CheckinCredentials{Type: "bearer", AccessToken: "private-access", RefreshToken: "private-refresh"}}, nil) != 400 {
+		t.Fatal("another platform accepted Sub2API refresh credentials")
 	}
 }

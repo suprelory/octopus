@@ -60,6 +60,15 @@ func (s *CheckinStore) SaveSite(ctx context.Context, id string, revision int64, 
 		if busy > 0 {
 			return ErrCheckinConflict
 		}
+		if config.Adapter != "sub2api" {
+			var sessions int64
+			if err := tx.Model(&model.CheckinAccount{}).Where("site_id = ? AND deleted_at IS NULL AND has_refresh_token = ?", id, true).Count(&sessions).Error; err != nil {
+				return err
+			}
+			if sessions > 0 {
+				return model.InvalidCheckin("replace Sub2API session credentials before changing the platform")
+			}
+		}
 		result := tx.Model(&model.CheckinSite{}).Where("id = ? AND revision = ? AND deleted_at IS NULL", id, revision).Select("Config", "Revision", "Support", "SupportRevision", "VerifiedAt", "UpdatedAt").Updates(&row)
 		if result.Error != nil {
 			return result.Error
@@ -120,6 +129,7 @@ func (s *CheckinStore) SaveAccount(ctx context.Context, row model.CheckinAccount
 			return row, model.InvalidCheckin("account credentials are required")
 		}
 		row.CredentialVersion = 1
+		row.CredentialIdentityVersion = 1
 		if err := s.DB.WithContext(ctx).Create(&row).Error; err != nil {
 			return row, err
 		}
@@ -129,8 +139,9 @@ func (s *CheckinStore) SaveAccount(ctx context.Context, row model.CheckinAccount
 	q := s.DB.WithContext(ctx).Model(&model.CheckinAccount{}).Where("id = ? AND revision = ? AND deleted_at IS NULL AND (lease_until IS NULL OR lease_until <= ?)", row.ID, expectedRevision, time.Now().UTC())
 	if replaceCredentials {
 		q = q.Where("credential_version = ?", expectedCredentials)
+		row.CredentialIdentityVersion = row.IdentityVersion() + 1
 		row.CredentialVersion = expectedCredentials + 1
-		columns = append(columns, "CredentialCipher", "CredentialType", "CredentialUserID", "CredentialVersion")
+		columns = append(columns, "CredentialCipher", "CredentialType", "CredentialUserID", "CredentialVersion", "CredentialIdentityVersion", "HasRefreshToken", "TokenExpiresAt", "TokenRefreshedAt", "RefreshPending", "RefreshError", "RefreshRetryAt")
 	}
 	row.NextRunAt = nil
 	result := q.Select(columns).Updates(&row)
@@ -161,7 +172,7 @@ func (s *CheckinStore) Delete(ctx context.Context, siteID, accountID string) err
 			return ErrCheckinConflict
 		}
 		now := time.Now().UTC()
-		if err := q.Updates(map[string]any{"deleted_at": now, "enabled": false, "auto_checkin": false, "credential_cipher": "", "next_run_at": nil}).Error; err != nil {
+		if err := q.Updates(map[string]any{"deleted_at": now, "enabled": false, "auto_checkin": false, "credential_cipher": "", "next_run_at": nil, "has_refresh_token": false, "token_expires_at": nil, "token_refreshed_at": nil, "refresh_pending": false, "refresh_error": "", "refresh_retry_at": nil}).Error; err != nil {
 			return err
 		}
 		if siteID != "" {

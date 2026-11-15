@@ -111,7 +111,7 @@ func NormalizeCheckinSite(c *CheckinSiteConfig) error {
 		return err
 	}
 	switch c.Adapter {
-	case "http", "new-api", "one-api", "one-hub", "done-hub":
+	case "http", "new-api", "one-api", "one-hub", "done-hub", "sub2api":
 	default:
 		return InvalidCheckin("unsupported checkin adapter")
 	}
@@ -149,7 +149,26 @@ func NormalizeCheckinSite(c *CheckinSiteConfig) error {
 	if c.Submit.Method == "" {
 		c.Submit.Method = "POST"
 	}
-	if c.Submit.Path == "" && c.Adapter != "http" {
+	if len(c.UserAgent) > 512 || strings.ContainsAny(c.UserAgent, "\r\n\x00") {
+		return InvalidCheckin("invalid User-Agent")
+	}
+	if c.Adapter == "sub2api" {
+		if c.Success == nil {
+			c.Success = &CheckinMatch{Path: "code", Value: json.RawMessage("0")}
+		}
+		requests := []CheckinRequest{c.Submit}
+		if c.Status != nil {
+			requests = append(requests, c.Status.Request)
+		}
+		for _, request := range requests {
+			for _, header := range request.Headers {
+				if strings.EqualFold(strings.TrimSpace(header.Name), "User-Agent") {
+					return InvalidCheckin("configure the shared User-Agent for Sub2API instead of a request header")
+				}
+			}
+		}
+	}
+	if c.Submit.Path == "" && c.Adapter != "http" && c.Adapter != "sub2api" {
 		c.Submit.Path = "/api/user/checkin"
 	}
 	if c.Submit.Headers == nil {
@@ -248,10 +267,13 @@ func containsCheckinSecretField(value any) bool {
 }
 
 func ValidateCheckinCredentials(c CheckinCredentials) error {
-	if strings.ContainsAny(c.Cookie+c.AccessToken+c.UserID, "\r\n\x00") || len(c.Cookie) > 16384 || len(c.AccessToken) > 16384 || len(c.UserID) > 64 {
+	if strings.ContainsAny(c.Cookie+c.AccessToken+c.UserID+c.RefreshToken, "\r\n\x00") || len(c.Cookie) > 16384 || len(c.AccessToken) > 16384 || len(c.RefreshToken) > 16384 || len(c.UserID) > 64 {
 		return InvalidCheckin("invalid credential length or control characters")
 	}
-	if c.Type == "cookie" && strings.TrimSpace(c.Cookie) != "" && c.AccessToken == "" {
+	if c.ExpiresAt != nil && (c.ExpiresAt.Year() < 1970 || c.ExpiresAt.Year() > 9999) {
+		return InvalidCheckin("invalid token expiry")
+	}
+	if c.Type == "cookie" && strings.TrimSpace(c.Cookie) != "" && c.AccessToken == "" && c.RefreshToken == "" && c.ExpiresAt == nil {
 		return nil
 	}
 	if c.Type == "bearer" && strings.TrimSpace(c.AccessToken) != "" && c.Cookie == "" {

@@ -20,6 +20,7 @@ export type SiteConfig = {
     jitter_minutes: number;
     proxy_url: string;
     manual_url: string;
+    user_agent?: string;
     submit: CheckinRequest;
     success?: Match;
     already?: Match;
@@ -44,6 +45,12 @@ export type CheckinAccount = {
     proxy_url: string;
     credential_type: 'cookie' | 'bearer';
     credential_version: number;
+    has_refresh_token: boolean;
+    token_expires_at?: string;
+    token_refreshed_at?: string;
+    refresh_pending?: boolean;
+    refresh_error?: string;
+    refresh_retry_at?: string;
     revision: number;
     next_run_at?: string;
     last_run_id: string;
@@ -61,6 +68,8 @@ export type AccountWrite = Partial<
         type: 'cookie' | 'bearer';
         cookie?: string;
         access_token?: string;
+        refresh_token?: string;
+        expires_at?: string;
         user_id: string;
     };
 };

@@ -248,12 +248,19 @@ export function SiteForm({ site, onClose }: { site?: CheckinSite; onClose: () =>
                                     const adapter = capabilities.data?.find(
                                         (item) => item.id === event.target.value,
                                     );
+                                    if (event.target.value === 'sub2api' && !successPath) {
+                                        setSuccessPath('code');
+                                        setSuccessValue('0');
+                                    }
                                     setConfig({
                                         ...config,
                                         adapter: event.target.value,
                                         submit: {
                                             ...config.submit,
-                                            path: adapter?.path || '/api/checkin',
+                                            path:
+                                                event.target.value === 'sub2api'
+                                                    ? ''
+                                                    : adapter?.path || '/api/checkin',
                                         },
                                     });
                                 }}
@@ -281,6 +288,21 @@ export function SiteForm({ site, onClose }: { site?: CheckinSite; onClose: () =>
                             placeholder="https://example.com"
                         />
                     </CheckinField>
+                    {config.adapter === 'sub2api' && (
+                        <>
+                            <p className="text-xs text-muted-foreground">{t('sub2apiHint')}</p>
+                            <CheckinField label="User-Agent" hint={t('sub2apiUserAgentHint')}>
+                                <Input
+                                    value={config.user_agent ?? ''}
+                                    maxLength={512}
+                                    onChange={(event) =>
+                                        setConfig({ ...config, user_agent: event.target.value })
+                                    }
+                                    placeholder="Octopus-Checkin/1.0"
+                                />
+                            </CheckinField>
+                        </>
+                    )}
                     <CheckinToggle
                         label={t('siteEnabled')}
                         checked={config.enabled}
@@ -349,7 +371,10 @@ export function SiteForm({ site, onClose }: { site?: CheckinSite; onClose: () =>
                             {t('responseRules')}
                         </summary>
                         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                            <CheckinField label={t('successPath')} hint={t('successHint')}>
+                            <CheckinField
+                                label={t('successPath')}
+                                hint={t(config.adapter === 'sub2api' ? 'sub2apiSuccessHint' : 'successHint')}
+                            >
                                 <Input
                                     value={successPath}
                                     onChange={(event) => setSuccessPath(event.target.value)}

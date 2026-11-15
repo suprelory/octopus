@@ -48,6 +48,7 @@ type CheckinSiteConfig struct {
 	JitterMinutes int                `json:"jitter_minutes"`
 	ProxyURL      string             `json:"proxy_url"`
 	ManualURL     string             `json:"manual_url"`
+	UserAgent     string             `json:"user_agent,omitempty"`
 	Submit        CheckinRequest     `json:"submit"`
 	Success       *CheckinMatch      `json:"success,omitempty"`
 	Already       *CheckinMatch      `json:"already,omitempty"`
@@ -68,36 +69,45 @@ type CheckinSite struct {
 }
 
 type CheckinCredentials struct {
-	Type        string `json:"type"`
-	Cookie      string `json:"cookie,omitempty"`
-	AccessToken string `json:"access_token,omitempty"`
-	UserID      string `json:"user_id,omitempty"`
+	Type         string     `json:"type"`
+	Cookie       string     `json:"cookie,omitempty"`
+	AccessToken  string     `json:"access_token,omitempty"`
+	UserID       string     `json:"user_id,omitempty"`
+	RefreshToken string     `json:"refresh_token,omitempty"`
+	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
 }
 
 type CheckinAccount struct {
-	ID                string       `json:"id" gorm:"type:varchar(36);primaryKey"`
-	SiteID            string       `json:"site_id" gorm:"type:varchar(36);not null;index"`
-	Site              *CheckinSite `json:"-" gorm:"foreignKey:SiteID;constraint:OnDelete:RESTRICT"`
-	Name              string       `json:"name"`
-	Enabled           bool         `json:"enabled"`
-	AutoCheckin       bool         `json:"auto_checkin"`
-	ProxyMode         string       `json:"proxy_mode"`
-	ProxyURL          string       `json:"proxy_url"`
-	CredentialType    string       `json:"credential_type"`
-	CredentialUserID  string       `json:"user_id" gorm:"size:64"`
-	CredentialCipher  string       `json:"-" gorm:"type:text"`
-	CredentialVersion int64        `json:"credential_version"`
-	Revision          int64        `json:"revision"`
-	NextRunAt         *time.Time   `json:"next_run_at,omitempty" gorm:"index"`
-	LastRunID         string       `json:"last_run_id" gorm:"type:varchar(36)"`
-	LastStatus        string       `json:"last_status"`
-	LastSuccessDate   string       `json:"last_success_date" gorm:"size:10"`
-	FailureCount      int          `json:"failure_count"`
-	LeaseOwner        string       `json:"-" gorm:"size:36"`
-	LeaseUntil        *time.Time   `json:"-"`
-	CreatedAt         time.Time    `json:"created_at"`
-	UpdatedAt         time.Time    `json:"updated_at"`
-	DeletedAt         *time.Time   `json:"deleted_at,omitempty" gorm:"index"`
+	ID                        string       `json:"id" gorm:"type:varchar(36);primaryKey"`
+	SiteID                    string       `json:"site_id" gorm:"type:varchar(36);not null;index"`
+	Site                      *CheckinSite `json:"-" gorm:"foreignKey:SiteID;constraint:OnDelete:RESTRICT"`
+	Name                      string       `json:"name"`
+	Enabled                   bool         `json:"enabled"`
+	AutoCheckin               bool         `json:"auto_checkin"`
+	ProxyMode                 string       `json:"proxy_mode"`
+	ProxyURL                  string       `json:"proxy_url"`
+	CredentialType            string       `json:"credential_type"`
+	CredentialUserID          string       `json:"user_id" gorm:"size:64"`
+	CredentialCipher          string       `json:"-" gorm:"type:text"`
+	CredentialVersion         int64        `json:"credential_version"`
+	CredentialIdentityVersion int64        `json:"-"`
+	HasRefreshToken           bool         `json:"has_refresh_token"`
+	TokenExpiresAt            *time.Time   `json:"token_expires_at,omitempty"`
+	TokenRefreshedAt          *time.Time   `json:"token_refreshed_at,omitempty"`
+	RefreshPending            bool         `json:"refresh_pending,omitempty"`
+	RefreshError              string       `json:"refresh_error,omitempty" gorm:"size:64"`
+	RefreshRetryAt            *time.Time   `json:"refresh_retry_at,omitempty"`
+	Revision                  int64        `json:"revision"`
+	NextRunAt                 *time.Time   `json:"next_run_at,omitempty" gorm:"index"`
+	LastRunID                 string       `json:"last_run_id" gorm:"type:varchar(36)"`
+	LastStatus                string       `json:"last_status"`
+	LastSuccessDate           string       `json:"last_success_date" gorm:"size:10"`
+	FailureCount              int          `json:"failure_count"`
+	LeaseOwner                string       `json:"-" gorm:"size:36"`
+	LeaseUntil                *time.Time   `json:"-"`
+	CreatedAt                 time.Time    `json:"created_at"`
+	UpdatedAt                 time.Time    `json:"updated_at"`
+	DeletedAt                 *time.Time   `json:"deleted_at,omitempty" gorm:"index"`
 }
 
 // One run is the durable ledger for one account and one business date. Attempts
@@ -139,6 +149,15 @@ type CheckinAttempt struct {
 	Message    string      `json:"message"`
 	DurationMS int64       `json:"duration_ms"`
 	CreatedAt  time.Time   `json:"created_at" gorm:"index"`
+}
+
+// Automatic token rotation keeps the same identity. Old accounts use their
+// existing credential version until the first rotation or manual replacement.
+func (a CheckinAccount) IdentityVersion() int64 {
+	if a.CredentialIdentityVersion > 0 {
+		return a.CredentialIdentityVersion
+	}
+	return a.CredentialVersion
 }
 
 type CheckinScope struct {
@@ -202,7 +221,8 @@ func DefaultCheckinSettings() CheckinSettings {
 // envelope; its key is intentionally stored separately from the database dump.
 type CheckinAccountBackup struct {
 	CheckinAccount
-	Cipher string `json:"credential_cipher"`
+	Cipher          string `json:"credential_cipher"`
+	IdentityVersion int64  `json:"credential_identity_version,omitempty"`
 }
 
 type CheckinDump struct {

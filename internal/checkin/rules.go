@@ -110,6 +110,22 @@ func evaluateStatus(config model.CheckinStatusRule, httpStatus int, body []byte,
 	return "not_checked_in"
 }
 
+func evaluateSiteStatus(config model.CheckinSiteConfig, httpStatus int, body []byte, date string) string {
+	if config.Status == nil {
+		return "unknown"
+	}
+	if config.Adapter == "sub2api" {
+		data, err := decodeObject(body)
+		if err != nil {
+			return "unknown"
+		}
+		if _, exists := field(data, "code"); exists && !matches(data, model.CheckinMatch{Path: "code", Value: json.RawMessage("0")}) {
+			return "unknown"
+		}
+	}
+	return evaluateStatus(*config.Status, httpStatus, body, date)
+}
+
 func decimalMicros(value, multiplier string) (*int64, error) {
 	if len(value) > 128 || !decimalPattern.MatchString(value) || !decimalPattern.MatchString(multiplier) {
 		return nil, errors.New("reward must be a finite nonnegative decimal")
@@ -183,7 +199,7 @@ func TestRules(config model.CheckinSiteConfig, status int, body []byte, date str
 	}
 	state := interpretSubmit(config, status, body).Status
 	if config.Status != nil {
-		state = evaluateStatus(*config.Status, status, body, date)
+		state = evaluateSiteStatus(config, status, body, date)
 	}
 	amount, rewardState := extractReward(config.Reward, body)
 	result := RulePreview{State: state, RewardState: rewardState}

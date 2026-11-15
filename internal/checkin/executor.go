@@ -97,6 +97,12 @@ func (s *Service) execute(ctx context.Context, item model.CheckinJobItem, settin
 		}
 		return complete(&run, run.Status, next)
 	}
+	authFailure := func(err error) error {
+		if status, reason, ok := sub2APIErrorState(err); ok {
+			return finish(status, reason)
+		}
+		return err
+	}
 	currentFingerprint := fingerprint(site, account)
 	if run.Fingerprint != currentFingerprint {
 		if run.SubmitIntentAt == nil || run.SafeToRetry {
@@ -136,6 +142,14 @@ func (s *Service) execute(ctx context.Context, item model.CheckinJobItem, settin
 		return finish("failed", "invalid_proxy")
 	}
 	defer client.CloseIdleConnections()
+	sub2api := site.Config.Adapter == "sub2api" && credentials.Type == "bearer"
+	refreshed := false
+	if sub2api {
+		refreshed, err = s.ensureSub2APISession(ctx, client, site, item, &account, &credentials, false)
+		if err != nil {
+			return authFailure(err)
+		}
+	}
 	request := func(requestCtx context.Context, stage string, config model.CheckinRequest) (HTTPResult, error) {
 		started := time.Now()
 		result := requestHTTP(requestCtx, client, site.Config, config, credentials, run.CheckinDate)
@@ -162,10 +176,23 @@ func (s *Service) execute(ctx context.Context, item model.CheckinJobItem, settin
 		if err != nil {
 			return response, "unknown", err
 		}
+		if sub2api && sub2APIRecoverable(response) && !refreshed {
+			refreshed, err = s.ensureSub2APISession(queryCtx, client, site, item, &account, &credentials, true)
+			if err != nil {
+				return response, "unknown", err
+			}
+			response, err = request(queryCtx, stage, site.Config.Status.Request)
+			if err != nil {
+				return response, "unknown", err
+			}
+		}
+		if sub2api && response.Err == nil && (response.StatusCode == 401 || response.StatusCode == 403) {
+			return response, "unknown", sub2APIRejected(response)
+		}
 		if response.Err != nil {
 			return response, "unknown", nil
 		}
-		return response, evaluateStatus(*site.Config.Status, response.StatusCode, response.Body, run.CheckinDate), nil
+		return response, evaluateSiteStatus(site.Config, response.StatusCode, response.Body, run.CheckinDate), nil
 	}
 	shouldSubmit := !item.ConfirmOnly && (run.SubmitIntentAt == nil || run.SafeToRetry)
 	if shouldSubmit {
@@ -175,7 +202,7 @@ func (s *Service) execute(ctx context.Context, item model.CheckinJobItem, settin
 		if site.Config.Status != nil {
 			response, state, err := statusQuery(ctx, "precheck")
 			if err != nil {
-				return err
+				return authFailure(err)
 			}
 			if state == "checked_in" {
 				return finish("already_checked_in", "already_checked_in")
@@ -209,6 +236,23 @@ func (s *Service) execute(ctx context.Context, item model.CheckinJobItem, settin
 		if response.Err == nil {
 			result = interpretSubmit(site.Config, response.StatusCode, response.Body)
 		}
+		if sub2api && response.Err == nil && (response.StatusCode == 401 || response.StatusCode == 403) {
+			// Authentication recovery never clears the durable submit marker,
+			// even when the configured submission method is GET.
+			result.SafeToRetry = false
+			if !sub2APIRecoverable(response) {
+				return authFailure(sub2APIRejected(response))
+			}
+			if !refreshed {
+				refreshed, err = s.ensureSub2APISession(ctx, client, site, item, &account, &credentials, true)
+				if err != nil {
+					return authFailure(err)
+				}
+			}
+			if site.Config.Status == nil {
+				return finish("manual_required", "sub2api_submission_unconfirmed")
+			}
+		}
 		submittedResult = &result
 		if site.Config.Status == nil {
 			run.SafeToRetry = result.SafeToRetry
@@ -239,7 +283,7 @@ func (s *Service) execute(ctx context.Context, item model.CheckinJobItem, settin
 		}
 		response, state, err := statusQuery(queryCtx, "confirm")
 		if err != nil {
-			return err
+			return authFailure(err)
 		}
 		if state == "checked_in" {
 			if run.SubmitIntentAt != nil && run.BeforeUnchecked {

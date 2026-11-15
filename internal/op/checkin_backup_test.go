@@ -278,7 +278,63 @@ func TestDatabaseBackupVersionFiveAndSixRemainCompatible(t *testing.T) {
 		t.Fatal("unknown backup version accepted")
 	}
 	dump, err := DBExportAll(ctx)
-	if err != nil || dump.Version != 6 || dump.Checkin == nil || dump.Checkin.Version != 1 {
+	if err != nil || dump.Version != 6 || dump.Checkin == nil || dump.Checkin.Version != 2 {
 		t.Fatalf("new export missing versioned checkin data: %+v %v", dump, err)
+	}
+}
+
+func TestSub2APISessionBackupPreservesIdentityAndUncertainRefresh(t *testing.T) {
+	_, dump := checkinBackupFixture(t)
+	dump.Sites[0].Config.Adapter = "sub2api"
+	vault, err := checkinsecret.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiry := time.Now().UTC().Add(time.Hour)
+	credentials := model.CheckinCredentials{Type: "bearer", AccessToken: "backup-access", RefreshToken: "backup-refresh", ExpiresAt: &expiry}
+	plain, _ := json.Marshal(credentials)
+	account := &dump.Accounts[0]
+	account.Cipher, err = vault.Seal(account.ID, plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	account.CredentialType, account.CredentialVersion, account.IdentityVersion = "bearer", 7, 2
+	account.RefreshPending, account.RefreshError = true, "sub2api_refresh_uncertain"
+	dump.Attempts[0].Stage = "refresh"
+	raw, _ := json.Marshal(dump)
+	if bytes.Contains(raw, []byte("backup-access")) || bytes.Contains(raw, []byte("backup-refresh")) {
+		t.Fatal("session backup exposes tokens")
+	}
+	var decoded model.CheckinDump
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	target := checkinTestDB(t)
+	restoreCheckinFixture(t, target, &decoded)
+	restored, err := NewCheckinStore(target).Account(context.Background(), account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.AutoCheckin || restored.IdentityVersion() != 2 || restored.CredentialVersion != 7 || !restored.RefreshPending || !restored.HasRefreshToken || restored.TokenExpiresAt == nil || !restored.TokenExpiresAt.Equal(expiry) {
+		t.Fatal("backup lost session identity, uncertainty or expiry")
+	}
+	if restored.CredentialCipher != account.Cipher {
+		t.Fatal("backup did not preserve the encrypted pair")
+	}
+	decoded.Accounts[0].IdentityVersion = 8
+	if validateCheckinDump(&decoded) == nil {
+		t.Fatal("invalid identity version accepted")
+	}
+}
+
+func TestCheckinVersionOneBackupStillImports(t *testing.T) {
+	_, dump := checkinBackupFixture(t)
+	dump.Version = 1
+	dump.Accounts[0].IdentityVersion = 0
+	target := checkinTestDB(t)
+	restoreCheckinFixture(t, target, dump)
+	account, err := NewCheckinStore(target).Account(context.Background(), dump.Accounts[0].ID)
+	if err != nil || account.IdentityVersion() != account.CredentialVersion || account.HasRefreshToken {
+		t.Fatal("legacy credential identity was not preserved")
 	}
 }
