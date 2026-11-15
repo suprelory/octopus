@@ -308,6 +308,13 @@ func ProxyReferences(ctx context.Context, conn *gorm.DB, id int) ([]model.ProxyR
 	for _, row := range accounts {
 		refs = append(refs, model.ProxyReference{Kind: "checkin_account", ID: row.ID, Name: row.Name, SiteID: row.SiteID, SiteName: siteNames[row.SiteID], Inherited: row.ProxyMode == "inherit" || row.ProxyMode == ""})
 	}
+	var notifications []model.CheckinNotificationTarget
+	if err := conn.WithContext(ctx).Where("deleted_at IS NULL AND proxy_config_id = ?", id).Find(&notifications).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range notifications {
+		refs = append(refs, model.ProxyReference{Kind: "checkin_notification", ID: row.ID, Name: row.Config.Name})
+	}
 	return refs, nil
 }
 
@@ -317,7 +324,7 @@ func ProxyList(ctx context.Context, conn *gorm.DB) ([]model.ProxyConfiguration, 
 		return nil, err
 	}
 	counts := map[int]int{}
-	for _, table := range []string{"channels", "checkin_sites", "checkin_accounts"} {
+	for _, table := range []string{"channels", "checkin_sites", "checkin_accounts", "checkin_notification_targets"} {
 		var grouped []struct {
 			ID    int
 			Total int

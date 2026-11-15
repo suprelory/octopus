@@ -17,9 +17,10 @@
 - 加密凭据备份、旧版数据库备份兼容、恢复后的任务隔离。
 - 共享代理池、站点与账号固定绑定、系统代理及账号继承展示。
 - New API / Sub2API 余额查询、只读账号检测、最近检测结果与请求阶段。
+- 自定义多平台通知、消息模板、事件/站点筛选、低余额阈值、冷却、测试发送与持久化投递记录。
 - 简体中文、繁体中文、英文管理界面。
 
-当前不包含余额差估算、JavaScript/WASM 提取器、通知和验证码处理。Refresh Token 自动续期用于 Sub2API 的 Bearer 账号；账号密码登录用于 AnyRouter 和 AgentRouter。
+当前不包含余额差估算、JavaScript/WASM 提取器和验证码处理。Refresh Token 自动续期用于 Sub2API 的 Bearer 账号；账号密码登录用于 AnyRouter 和 AgentRouter。
 
 ## 使用方式
 
@@ -29,6 +30,7 @@
 4. 按需开启自动签到。默认仅启用站点和账号，自动签到默认关闭。
 5. New API / Sub2API 账号可先使用“刷新余额”或“只读检测”，通过“最近结果”查看登录状态和请求阶段。
 6. 使用“签到”“批量签到”或“全量签到”执行，打开任务查看进度，通过记录查看结果与请求阶段。
+7. 打开签到工具栏的“通知”，添加通知目标、保存连接信息并测试发送，再按需开启自动通知。新目标默认关闭自动通知，显式测试发送不受此开关限制。
 
 手动签到选择启用站点中的启用账号，不要求账号开启自动签到。自动提交要求账号开启自动签到，并处于站点的执行窗口内。停用站点或账号会停止后续网络操作；已经开始的请求按本轮超时收尾。
 
@@ -134,6 +136,54 @@ New API 可自行修改奖励路径及单位；例如确认站点采用 500000 q
 
 只读操作与签到、令牌续期共用账号租约，运行期间不能编辑同账号或其站点。Sub2API 按现有规则提前续期，或在明确可恢复的 401 后刷新并重查一次；单轮最多一次成功轮换。网络或保存失败仍保留刷新意图和加密令牌重试结果。AgentRouter 登录不会被调用，检测不会更新每日签到状态、收益、提交标记、调度或站点自动签到支持结论。进程中断后的检测在租约到期时标记为已中断，不自动重放请求。
 
+## 自定义多平台通知
+
+协议与交互参考 `metapi-go/service/notify`、`octopus-plus/internal/notify` 和其签到通知实现，通知目标独立于渠道及订阅业务。最多保存 20 个未删除目标，同一平台可以配置多个目标。
+
+| 平台 | 连接配置 | 成功判定 |
+| --- | --- | --- |
+| Webhook | 完整 HTTP(S) 地址，可选自定义请求头和 JSON 消息体 | HTTP 2xx，支持 204 |
+| Telegram | Bot Token、Chat ID，可选自托管 API 基础地址 | JSON `ok: true` |
+| Bark | 含设备 Key 的完整推送地址 | JSON 数字 `code: 200` |
+| Server酱 Turbo | SendKey，使用 `sctapi.ftqq.com` | JSON 数字 `code: 0` |
+| 邮件 SMTP | 主机、端口、TLS 模式、发件人、收件人及可选认证 | SMTP DATA 被接受 |
+| 飞书 | 完整机器人 Webhook，可选签名密钥 | JSON 数字 `code: 0` |
+| 钉钉 | 完整机器人 Webhook，可选签名密钥 | JSON 数字 `errcode: 0` |
+| 企业微信 | 完整机器人 Webhook | JSON 数字 `errcode: 0` |
+| ntfy | 主题、基础地址、优先级及可选访问令牌 | JSON 消息 ID、主题及 message 事件 |
+
+飞书使用秒级时间戳签名，钉钉使用毫秒级时间戳签名。所有 HTTP 发送禁用重定向并限制超时和响应大小；平台响应缺少成功标记、类型不符或返回 HTML 时，不标记成功。SMTP 支持 STARTTLS、隐式 TLS，以及不带认证的明文本地中继；提供账号密码时必须使用 TLS，验证服务端证书，最多 20 个收件人。DATA 已被接受后，QUIT 失败不会触发重发。
+
+每个目标分别选择以下事件：
+
+- 签到成功（success）、今日已签到（already_checked_in）、签到失败（failed）。
+- 待确认或需要关注（attention）：pending / manual_required，包括自动确认超时。重复查询相同记录、相同状态不会重复通知。
+- 低余额（low_balance）：仅在本次余额查询或只读检测保存了新的有效余额后比较。余额必须严格小于阈值，并且单位同为 USD 或 quota；不转换单位，不使用历史缓存，不将未知或无效余额当作零。零和负余额可正常参与比较，金额及阈值均使用整数微单位。
+
+“包含手动签到、确认和余额查询”按本轮任务来源判断。当前余额查询只由手动操作发起，需要勾选此项才能收到低余额通知；通知本身不会额外查询余额或登录账号。站点范围须显式选择全部或指定站点，指定范围不能为空。
+
+冷却按目标连接版本、账号、事件分别计算，取最近一次排队或投递状态更新时间；范围为 0–604800 秒，0 表示关闭。测试发送不消耗业务冷却。更换连接或代理绑定后使用新的冷却范围；更换消息模板不会清除冷却。
+
+标题和正文使用纯文本模板，支持简体中文、繁体中文、英文默认模板。留空使用默认模板，可先用示例数据预览而不向通知平台发送请求。支持以下单次替换变量，不执行表达式，也不提供账号或通知连接凭据：
+
+~~~text
+{{event}} {{status}} {{site}} {{account}} {{site_id}} {{account_id}}
+{{date}} {{timezone}} {{source}} {{reward}} {{reward_unit}}
+{{balance}} {{balance_unit}} {{balance_time}} {{time}}
+~~~
+
+未知金额显示为 `?`。标题模板最多 512 字节，正文模板最多 8192 字节；展开后标题最多 2048 字节、正文最多 32768 字节，超限会在投递记录中显示模板错误。Telegram 等有更短限制的平台按 Unicode 边界截断消息并加省略号。
+
+Webhook 默认发送 title、message、event、site、account、time 字段。自定义消息体须为 JSON 对象，可在字符串值中使用上述变量及 `{{title}}`、`{{message}}`；先替换字符串值再编码为 JSON，账号名称中的引号或换行不会改变消息结构。Webhook 的 event 变量使用稳定事件代码。自定义请求头允许 Authorization 等通知端身份头，禁止 Host、Content-Length、Content-Type 及连接控制头；这与签到站点的请求头配置相互独立。
+
+连接地址、Token、签名密钥、自定义头部、Webhook 消息体及 SMTP 配置整体使用现有签到密钥加密，附加认证数据为 `notification:目标 UUID`。正常接口只返回“连接已保存”，不回传连接明文或密文。编辑时省略 connection 表示保留；更换平台须提供完整的新连接配置。模板和用于展示的事件快照单独存储，不写入原始上游响应或原始网络错误。
+
+签到/检测结果先保存，再尽力写入通知队列；通知入队或发送失败不会回滚签到结果、触发签到重试或占有账号租约。结果提交与通知入队之间不是同一个事务，进程在此间中断时可能漏通知。成功入队的消息会持久化，投递状态为 queued / sending / sent / failed / uncertain / skipped，sent 表示通知服务已接受，不代表收件人已阅读。
+
+发送队列最多 1000 条活动消息，独立并发为 2，同一目标串行；每次发送最多 20 秒，目标发送租约为 45 秒。HTTP 429 遵循 Retry-After（限制在 1 秒至 1 小时），每条消息的自动投递总次数最多 3 次。网络超时、5xx、不明确响应或 sending 状态进程中断均记为 uncertain，不自动重发。投递记录提供显式重试，使用当前目标配置；结果不明时应先核对接收端，重试可能重复送达。手动重试不重置已消耗的自动重试额度。
+
+修改、停用或删除目标会取消该目标尚未发送的旧队列消息；发送中的目标不能修改或删除，返回 409。删除会清除连接密文，但保留投递历史。HTTP 通知可选择直连、应用系统代理或共享代理池节点；SMTP 仅直连，代理不可用时不会自动退回直连。
+
 ## 凭据、代理与备份
 
 Cookie、Access Token、Refresh Token、用户名、密码和派生登录会话使用 AES-256-GCM 加密；账号 ID 作为附加认证数据，密文不能挪到其他账号使用。正常账号接口不返回明文或密文，只返回用户 ID、是否缓存会话、保存时间以及令牌续期元数据。请求阶段记录和 SSE 只保存固定原因及进度，不记录响应正文、请求头或凭据。
@@ -148,10 +198,10 @@ Cookie、Access Token、Refresh Token、用户名、密码和派生登录会话�
 
 站点支持直连、系统代理、自定义 HTTP(S)/SOCKS5/SOCKS5H 地址及代理池节点；账号还可继承站点。系统代理仅在明确选择时读取应用设置中的 `proxy_url`，签到不自动继承渠道或环境代理。每轮认证、刷新、提交和确认固定使用同一代理快照；节点停用或解析失败时不会改为直连。地址或认证变化会改变已提交记录的有效代理指纹，进入原有人工确认流程，保留提交意图与令牌轮换状态。代理池认证使用独立的 `data/proxy.key`，完整配置和备份方式见 [PROXY.md](PROXY.md)。
 
-全库备份版本为 7，仍接受版本 6、5 和历史未标记版本。签到数据位于 checkin 字段，当前子版本为 5，仍接受子版本 1–4；包含全部六张表及删除标记。子版本 2 增加令牌续期元数据和稳定的凭据身份版本；子版本 3 增加平台能力、加密登录会话和 authenticate 请求阶段；子版本 4 增加代理池引用与运行时代理指纹；子版本 5 增加账号余额快照和最近只读检测。启动时自动为旧账号表添加可空观测字段，旧账号保持未查询状态。恢复时：
+全库备份版本为 7，仍接受版本 6、5 和历史未标记版本。签到数据位于 checkin 字段，当前子版本为 6，仍接受子版本 1–5；包含全部八张表及删除标记。子版本 2 增加令牌续期元数据和稳定的凭据身份版本；子版本 3 增加平台能力、加密登录会话和 authenticate 请求阶段；子版本 4 增加代理池引用与运行时代理指纹；子版本 5 增加账号余额快照和最近只读检测；子版本 6 增加加密通知目标与投递记录。启动时自动添加新表及可空观测字段，旧账号保持未查询状态。恢复时：
 
 - 校验密钥、字段、重复 ID、每日唯一性和完整引用关系。
-- 先导入公共代理节点，再重映射站点与账号绑定；节点数字 ID 冲突不会改变有效代理身份。
+- 先导入公共代理节点，再重映射站点、账号和通知目标绑定；节点数字 ID 冲突不会改变有效代理身份。
 - 保留现有配置与凭据，不用旧备份覆盖本地修改。
 - 新导入账号关闭自动签到，清除租约和调度时间。
 - 未完成记录转为需人工处理，保留提交标记。
@@ -159,9 +209,10 @@ Cookie、Access Token、Refresh Token、用户名、密码和派生登录会话�
 - 保留未完成的令牌轮换标记，避免恢复后重复使用可能已被消费的 Refresh Token。
 - 保留余额原值、未知状态及获取时间；运行中的检测转为已中断，不重放查询或续期。
 - 新账号导入已有站点时，若该站点的现有地址或平台与备份不同，清除来自旧站点的观测快照。
+- 新通知目标强制关闭自动通知，保留已加密连接；queued / sending 消息转为 skipped，不重放投递。已有本地通知配置与密文保持原值。
 - 每日记录冲突时复用现有记录并重映射历史引用，重复导入不重复累计收益。
 
-导出/导入期间暂停签到模块的写操作并等待活动请求收尾；导入后在恢复调度前刷新设置缓存。当前支持单个应用实例运行签到调度；不提供多个实例共享数据库的完整高可用协调。
+导出/导入期间暂停签到模块的写操作并等待活动签到、检测和通知发送收尾；导入后在恢复调度前刷新设置缓存。当前支持单个应用实例运行签到调度；不提供多个实例共享数据库的完整高可用协调。
 
 ## Sub2API 自动续期
 
@@ -211,15 +262,17 @@ AgentRouter 协议参考 `octopus-plus/internal/sitesync/agentrouter.go`。登�
 | internal/checkin/newapi.go、anyrouter.go、agentrouter.go、sub2api.go | 平台协议与认证处理 |
 | internal/checkin/router_session.go | 独立账号会话、Cookie 作用域、加密保存与重试 |
 | internal/checkin/inspection.go、internal/op/checkin_inspection.go | 余额与只读账号检测、共享租约、独立快照与恢复 |
+| internal/checkin/notification.go、internal/op/checkin_notification*.go | 通知事件、加密目标、持久化投递队列、租约与备份 |
+| internal/notify/ | 通知配置校验、模板、9 种平台协议与脱敏结果 |
 | internal/checkin/executor.go | 统一的持久化提交边界与恢复状态机 |
 | internal/checkin/ 其他文件 | HTTP、安全规则、调度、收益、事件 |
 | internal/utils/checkinsecret/ | 主密钥和凭据加解密 |
-| internal/server/handlers/checkin.go | 管理员接口与 SSE |
+| internal/server/handlers/checkin*.go | 管理员接口与 SSE |
 | web/src/api/checkin.ts | 查询、变更、实时更新 |
 | web/src/components/modules/checkin/ | 站点、账号、任务、记录、收益界面 |
 | web/src/locales/checkin/ | 三种语言文案 |
 
-六张表为 checkin_sites、checkin_accounts、checkin_runs、checkin_attempts、checkin_jobs、checkin_job_items。账号属于签到站点；任务项关联账号和每日记录；不存在渠道或订阅业务外键。
+八张表为 checkin_sites、checkin_accounts、checkin_runs、checkin_attempts、checkin_jobs、checkin_job_items、checkin_notification_targets、checkin_notification_deliveries。账号属于签到站点；任务项关联账号和每日记录；投递记录属于通知目标。不存在渠道或订阅业务外键。
 
 ## 接口
 
@@ -246,6 +299,12 @@ AgentRouter 协议参考 `octopus-plus/internal/sitesync/agentrouter.go`。登�
 | GET | /capabilities | 平台凭据、执行方式、状态查询、只读检测/余额查询及可编辑能力 |
 | GET / PATCH | /settings | 执行参数 |
 | POST | /rules/test | 离线样例测试 |
+| GET / POST | /notifications | 通知目标列表、创建 |
+| PATCH / DELETE | /notifications/:id | 带 revision 编辑、删除目标 |
+| POST | /notifications/:id/test | 带 revision 排队发送示例消息，返回 202 |
+| POST | /notification-preview | 使用 language、title_template、body_template 离线预览 |
+| GET | /notification-deliveries | 以 target_id、before、limit 筛选及分页，默认 50 条 |
+| POST | /notification-deliveries/:id/retry | 带 attempts、target_revision 手动重新排队，返回 202 |
 | GET | /events | SSE 进度失效通知 |
 
 创建任务返回 202，不等待签到完成。请求支持 Idempotency-Key；同一键不同范围返回 409，同一手动范围的活动任务会复用。范围示例：
@@ -264,9 +323,12 @@ kind 支持 all、sites、accounts。all 不允许携带 IDs；无效 ID 或空�
 
 使用临时 SQLite 数据库和 httptest 本地服务覆盖独立运行、加密、并发入口、提交持久性、恢复、状态规则、精度、时区、取消、编辑冲突、备份和管理员权限。不会在测试中调用真实签到站点。
 
+通知协议使用模拟 HTTP transport、本地 HTTP / SMTP 服务验证签名、JSON 转义、Unicode 限制、明确成功标记、SMTP TLS 要求与 DATA 接受边界。集成测试覆盖事件去重、冷却、失败隔离、低余额新鲜度/单位、并发重试、租约恢复、代理引用和备份不重放。无需配置真实推送凭据。
+
 ~~~text
 go test ./...
-go test -race ./internal/checkin ./internal/op ./internal/server/handlers ./internal/utils/checkinsecret
+go test -race ./...
+go vet ./...
 cd web
 pnpm build
 pnpm exec eslint src/api/checkin.ts src/components/modules/checkin src/provider/locale.tsx src/components/app.tsx src/components/app-shell.tsx src/lib/page-preload.ts src/stores/app.ts

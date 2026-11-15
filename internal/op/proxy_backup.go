@@ -95,6 +95,16 @@ func importProxies(tx *gorm.DB, dump *model.DBDump, result *model.DBImportResult
 		}
 	}
 	if dump.Checkin != nil {
+		for i := range dump.Checkin.NotificationTargets {
+			row := &dump.Checkin.NotificationTargets[i]
+			if row.DeletedAt != nil {
+				row.Config.ProxyMode, row.Config.ProxyConfigID = "direct", nil
+			}
+			if err := remap(row.Config.ProxyMode, &row.Config.ProxyConfigID); err != nil {
+				return err
+			}
+			row.ProxyConfigID = row.Config.ProxyConfigID
+		}
 		for i := range dump.Checkin.Sites {
 			row := &dump.Checkin.Sites[i]
 			if row.DeletedAt != nil {

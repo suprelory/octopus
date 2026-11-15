@@ -61,6 +61,8 @@ func InitDB(dbType, dsn string, debug bool) error {
 		&model.CheckinAttempt{},
 		&model.CheckinJob{},
 		&model.CheckinJobItem{},
+		&model.CheckinNotificationTarget{},
+		&model.CheckinNotificationDelivery{},
 		&model.Channel{},
 		&model.ChannelKey{},
 		&model.ChannelModel{},

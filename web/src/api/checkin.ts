@@ -94,7 +94,10 @@ export type CheckinAccount = {
     user_id?: string;
 };
 export type AccountWrite = Partial<
-    Pick<CheckinAccount, 'name' | 'enabled' | 'auto_checkin' | 'proxy_mode' | 'proxy_url' | 'proxy_config_id'>
+    Pick<
+        CheckinAccount,
+        'name' | 'enabled' | 'auto_checkin' | 'proxy_mode' | 'proxy_url' | 'proxy_config_id'
+    >
 > & {
     revision: number;
     credential_version: number;
@@ -206,6 +209,103 @@ export type Capability = {
     balance_query: boolean;
 };
 export type RunPage = { items: CheckinRun[]; next_before: string };
+export const notificationKinds = [
+    'webhook',
+    'telegram',
+    'bark',
+    'serverchan',
+    'smtp',
+    'feishu',
+    'dingtalk',
+    'wecom',
+    'ntfy',
+] as const;
+export type NotificationKind = (typeof notificationKinds)[number];
+export const notificationEvents = [
+    'success',
+    'already_checked_in',
+    'failed',
+    'attention',
+    'low_balance',
+] as const;
+export type NotificationEventKind = (typeof notificationEvents)[number];
+export type NotificationConfig = {
+    name: string;
+    kind: NotificationKind;
+    enabled: boolean;
+    events: NotificationEventKind[];
+    include_manual: boolean;
+    scope: 'all' | 'sites';
+    site_ids: string[];
+    cooldown_seconds: number;
+    threshold_micros?: string;
+    threshold_unit: string;
+    language: string;
+    title_template: string;
+    body_template: string;
+    proxy_mode: ProxyMode;
+    proxy_config_id?: number | null;
+};
+export type NotificationTarget = {
+    id: string;
+    config: NotificationConfig;
+    has_connection: boolean;
+    connection_version: number;
+    revision: number;
+};
+export type NotificationConnection = {
+    url?: string;
+    token?: string;
+    chat_id?: string;
+    send_key?: string;
+    secret?: string;
+    base_url?: string;
+    topic?: string;
+    priority?: number;
+    headers?: { name: string; value: string }[];
+    payload?: string;
+    smtp?: {
+        host: string;
+        port: number;
+        tls: 'starttls' | 'tls' | 'none';
+        username: string;
+        password: string;
+        from: string;
+        to: string[];
+    };
+};
+export type NotificationDelivery = {
+    id: string;
+    target_id: string;
+    target_name: string;
+    target_kind: NotificationKind;
+    target_revision: number;
+    event: {
+        kind: NotificationEventKind | 'test';
+        identity: string;
+        site_name: string;
+        account_name: string;
+        checkin_date: string;
+        status: string;
+        source: string;
+    };
+    title: string;
+    message: string;
+    status: 'queued' | 'sending' | 'sent' | 'failed' | 'uncertain' | 'skipped';
+    reason: string;
+    attempts: number;
+    http_status: number;
+    next_attempt_at?: string;
+    created_at: string;
+    updated_at: string;
+};
+
+export function notificationThreshold(value: string): string | undefined {
+    if (!/^\d+(\.\d{1,6})?$/.test(value.trim())) return undefined;
+    const [whole, fraction = ''] = value.trim().split('.');
+    const amount = BigInt(whole) * 1_000_000n + BigInt(fraction.padEnd(6, '0'));
+    return amount <= 9_223_372_036_854_775_807n ? amount.toString() : undefined;
+}
 export const checkinPath = '/api/v1/checkin';
 
 export function useCheckinQuery<T>(path: string, enabled = true) {

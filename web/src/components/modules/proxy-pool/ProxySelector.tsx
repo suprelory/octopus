@@ -5,9 +5,9 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ProxyPoolDialog } from './ProxyPoolDialog';
 
-export function ProxySelector({ value, onChange, allowInherit = false, parent }: {
+export function ProxySelector({ value, onChange, allowInherit = false, allowCustom = true, parent }: {
     value: ProxySelection; onChange: (value: ProxySelection) => void;
-    allowInherit?: boolean; parent?: ProxySelection;
+    allowInherit?: boolean; allowCustom?: boolean; parent?: ProxySelection;
 }) {
     const t = useTranslations('proxyPool');
     const id = useId();
@@ -29,7 +29,7 @@ export function ProxySelector({ value, onChange, allowInherit = false, parent }:
             <div className="grid gap-2 sm:grid-cols-2">
                 <select id={id} className="h-9 rounded-md border bg-background px-3 text-sm" value={mode}
                     onChange={(event) => onChange({ ...value, proxy_mode: event.target.value as ProxyMode, proxy_config_id: null })}>
-                    {(allowInherit ? ['inherit', 'direct', 'system', 'pool', 'custom'] : ['direct', 'system', 'pool', 'custom']).map((choice) => <option key={choice} value={choice}>{t(`modes.${choice}`)}</option>)}
+                    {(allowInherit ? ['inherit', 'direct', 'system', 'pool', 'custom'] : ['direct', 'system', 'pool', 'custom']).filter((choice) => allowCustom || choice !== 'custom').map((choice) => <option key={choice} value={choice}>{t(`modes.${choice}`)}</option>)}
                 </select>
                 {mode === 'pool' && <select required aria-label={t('node')} className="h-9 rounded-md border bg-background px-3 text-sm" value={value.proxy_config_id ?? ''}
                     onChange={(event) => onChange({ ...value, proxy_config_id: event.target.value ? Number(event.target.value) : null })}>

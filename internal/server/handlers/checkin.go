@@ -52,6 +52,14 @@ func init() {
 	add("/settings", http.MethodPatch, checkinSaveSettings)
 	add("/rules/test", http.MethodPost, checkinRules)
 	add("/events", http.MethodGet, checkinEvents)
+	add("/notifications", http.MethodGet, checkinNotifications)
+	add("/notifications", http.MethodPost, checkinSaveNotification)
+	add("/notifications/:id", http.MethodPatch, checkinSaveNotification)
+	add("/notifications/:id", http.MethodDelete, checkinDeleteNotification)
+	add("/notifications/:id/test", http.MethodPost, checkinTestNotification)
+	add("/notification-preview", http.MethodPost, checkinPreviewNotification)
+	add("/notification-deliveries", http.MethodGet, checkinNotificationDeliveries)
+	add("/notification-deliveries/:id/retry", http.MethodPost, checkinRetryNotification)
 }
 
 func checkinJSON(c *gin.Context, value any) error {

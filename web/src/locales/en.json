@@ -53,7 +53,8 @@
         "kinds": {
             "channel": "Channel",
             "checkin_site": "Check-in site",
-            "checkin_account": "Check-in account"
+            "checkin_account": "Check-in account",
+            "checkin_notification": "Check-in notification"
         }
     },
     "login": {

@@ -34,7 +34,7 @@ func newHarness(t *testing.T) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := conn.AutoMigrate(&model.CheckinSite{}, &model.CheckinAccount{}, &model.CheckinRun{}, &model.CheckinAttempt{}, &model.CheckinJob{}, &model.CheckinJobItem{}, &model.Setting{}); err != nil {
+	if err := conn.AutoMigrate(&model.CheckinSite{}, &model.CheckinAccount{}, &model.CheckinRun{}, &model.CheckinAttempt{}, &model.CheckinJob{}, &model.CheckinJobItem{}, &model.CheckinNotificationTarget{}, &model.CheckinNotificationDelivery{}, &model.Setting{}); err != nil {
 		t.Fatal(err)
 	}
 	sqlDB, _ := conn.DB()

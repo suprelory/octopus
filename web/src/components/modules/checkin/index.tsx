@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CalendarCheck, Plus, Play, Settings2, RefreshCw } from 'lucide-react';
+import { CalendarCheck, Plus, Play, Settings2, RefreshCw, Bell } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,7 @@ import {
 } from '@/api/checkin';
 import { SiteForm } from './SiteForm';
 import { AccountForm } from './AccountForm';
+import { NotificationsPanel } from './NotificationsPanel';
 import { SiteCard } from './SiteCard';
 import { CheckinDialog, CheckinError } from './common';
 import {
@@ -36,6 +37,7 @@ type Modal =
     | { kind: 'run'; run: CheckinRun }
     | { kind: 'job'; id: string }
     | { kind: 'settings' }
+    | { kind: 'notifications' }
     | null;
 
 function DeleteDialog({
@@ -149,6 +151,14 @@ export function Checkin() {
                             }}
                         >
                             <RefreshCw className="size-4" />
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setModal({ kind: 'notifications' })}
+                        >
+                            <Bell className="size-4" />
+                            {t('notifications.title')}
                         </Button>
                         <Button
                             variant="ghost"
@@ -282,6 +292,9 @@ export function Checkin() {
             {modal?.kind === 'run' && <RunDetails run={modal.run} onClose={close} />}
             {modal?.kind === 'job' && <JobDetails id={modal.id} onClose={close} />}
             {modal?.kind === 'settings' && <SettingsPanel onClose={close} />}
+            {modal?.kind === 'notifications' && (
+                <NotificationsPanel sites={sites.data ?? []} onClose={close} />
+            )}
         </div>
     );
 }

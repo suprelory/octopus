@@ -25,7 +25,7 @@ func checkinTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := conn.AutoMigrate(&model.CheckinSite{}, &model.CheckinAccount{}, &model.CheckinRun{}, &model.CheckinAttempt{}, &model.CheckinJob{}, &model.CheckinJobItem{}, &model.Setting{}); err != nil {
+	if err := conn.AutoMigrate(&model.CheckinSite{}, &model.CheckinAccount{}, &model.CheckinRun{}, &model.CheckinAttempt{}, &model.CheckinJob{}, &model.CheckinJobItem{}, &model.CheckinNotificationTarget{}, &model.CheckinNotificationDelivery{}, &model.Setting{}); err != nil {
 		t.Fatal(err)
 	}
 	sqlDB, _ := conn.DB()
@@ -328,7 +328,7 @@ func TestDatabaseBackupVersionsRemainCompatible(t *testing.T) {
 		t.Fatal("unknown backup version accepted")
 	}
 	dump, err := DBExportAll(ctx)
-	if err != nil || dump.Version != 7 || dump.Checkin == nil || dump.Checkin.Version != 5 {
+	if err != nil || dump.Version != 7 || dump.Checkin == nil || dump.Checkin.Version != 6 {
 		t.Fatalf("new export missing versioned checkin data: %+v %v", dump, err)
 	}
 }

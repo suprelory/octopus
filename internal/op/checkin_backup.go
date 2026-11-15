@@ -15,15 +15,19 @@ import (
 )
 
 func exportCheckin(ctx context.Context, conn *gorm.DB) (*model.CheckinDump, error) {
-	dump := &model.CheckinDump{Version: 5}
+	dump := &model.CheckinDump{Version: 6}
 	var accounts []model.CheckinAccount
-	for _, target := range []any{&dump.Sites, &accounts, &dump.Runs, &dump.Attempts, &dump.Jobs, &dump.Items} {
+	var notifications []model.CheckinNotificationTarget
+	for _, target := range []any{&dump.Sites, &accounts, &dump.Runs, &dump.Attempts, &dump.Jobs, &dump.Items, &notifications, &dump.NotificationDeliveries} {
 		if err := conn.WithContext(ctx).Find(target).Error; err != nil {
 			return nil, err
 		}
 	}
 	for _, account := range accounts {
 		dump.Accounts = append(dump.Accounts, model.CheckinAccountBackup{CheckinAccount: account, Cipher: account.CredentialCipher, IdentityVersion: account.IdentityVersion()})
+	}
+	for _, target := range notifications {
+		dump.NotificationTargets = append(dump.NotificationTargets, model.CheckinNotificationBackup{CheckinNotificationTarget: target, Cipher: target.ConnectionCipher})
 	}
 	return dump, nil
 }
@@ -32,7 +36,7 @@ func validateCheckinDump(dump *model.CheckinDump) error {
 	if dump == nil {
 		return nil
 	}
-	if dump.Version < 1 || dump.Version > 5 {
+	if dump.Version < 1 || dump.Version > 6 {
 		return errors.New("unsupported checkin backup version")
 	}
 	if len(dump.Sites) > 10000 || len(dump.Accounts) > 100000 || len(dump.Runs) > 1000000 || len(dump.Attempts) > 2000000 || len(dump.Jobs) > 1000000 || len(dump.Items) > 1000000 {
@@ -158,7 +162,10 @@ func validateCheckinDump(dump *model.CheckinDump) error {
 			}
 		}
 	}
-	return validateCheckinGraph(dump)
+	if err := validateCheckinGraph(dump); err != nil {
+		return err
+	}
+	return validateNotificationDump(dump)
 }
 
 func importCheckin(tx *gorm.DB, dump *model.CheckinDump, result *model.DBImportResult) error {
@@ -335,5 +342,5 @@ func importCheckin(tx *gorm.DB, dump *model.CheckinDump, result *model.DBImportR
 			return err
 		}
 	}
-	return nil
+	return importNotifications(tx, dump, runIDs, result)
 }

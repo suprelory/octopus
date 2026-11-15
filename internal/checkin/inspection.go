@@ -66,6 +66,7 @@ func (s *Service) InspectAccount(parent context.Context, accountID, kind string)
 		account.Balance = balance
 	}
 	account.LeaseOwner, account.LeaseUntil = "", nil
+	s.notifyBalance(saveCtx, site, account)
 	return account, operationErr
 }
 

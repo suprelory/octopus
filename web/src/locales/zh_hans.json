@@ -53,7 +53,8 @@
         "kinds": {
             "channel": "渠道",
             "checkin_site": "签到站点",
-            "checkin_account": "签到账号"
+            "checkin_account": "签到账号",
+            "checkin_notification": "签到通知"
         }
     },
     "login": {

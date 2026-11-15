@@ -8,7 +8,7 @@ export type ProxyNode = {
     revision: number; route_revision: number; has_auth: boolean; reference_count: number;
 };
 export type ProxyWrite = Pick<ProxyNode, 'name' | 'url' | 'enabled' | 'remark' | 'revision'> & { clear_auth?: boolean };
-export type ProxyReference = { kind: 'channel' | 'checkin_site' | 'checkin_account'; id: string; name: string; site_id?: string; site_name?: string; inherited: boolean };
+export type ProxyReference = { kind: 'channel' | 'checkin_site' | 'checkin_account' | 'checkin_notification'; id: string; name: string; site_id?: string; site_name?: string; inherited: boolean };
 export type ProxyTestResult = { connected: boolean; http_status: number; duration_ms: number; message: string };
 const path = '/api/v1/proxy-pool';
 

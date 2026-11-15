@@ -268,4 +268,7 @@ type CheckinDump struct {
 	Attempts []CheckinAttempt       `json:"attempts"`
 	Jobs     []CheckinJob           `json:"jobs"`
 	Items    []CheckinJobItem       `json:"items"`
+
+	NotificationTargets    []CheckinNotificationBackup   `json:"notification_targets,omitempty"`
+	NotificationDeliveries []CheckinNotificationDelivery `json:"notification_deliveries,omitempty"`
 }

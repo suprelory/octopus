@@ -171,6 +171,20 @@ func TestProxyBackupRemapsCollidingIDsAndRetainsSecrets(t *testing.T) {
 	if _, err := store.SaveAccount(ctx, account, 0, 0, true); err != nil {
 		t.Fatal(err)
 	}
+	notification := backupNotification(t, store, model.CheckinNotificationConfig{Name: "Proxy notifications", Kind: "webhook", Enabled: true, Events: []string{"failed"}, Scope: "all", ProxyMode: "pool", ProxyConfigID: &node.ID})
+	refs, err := ProxyReferences(ctx, source, node.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundNotification := false
+	for _, ref := range refs {
+		if ref.Kind == "checkin_notification" && ref.ID == notification.ID {
+			foundNotification = true
+		}
+	}
+	if !foundNotification {
+		t.Fatal("notification proxy reference missing")
+	}
 	dump, err := DBExportAll(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -212,6 +226,10 @@ func TestProxyBackupRemapsCollidingIDsAndRetainsSecrets(t *testing.T) {
 	}
 	restoredSite, _ := NewCheckinStore(target).Site(ctx, site.ID)
 	restoredAccount, _ := NewCheckinStore(target).Account(ctx, account.ID)
+	restoredNotification, _ := NewCheckinStore(target).NotificationTarget(ctx, notification.ID)
+	if !sameProxyID(restoredNotification.ProxyConfigID, restored.ProxyConfigID) || !sameProxyID(restoredNotification.Config.ProxyConfigID, restored.ProxyConfigID) || restoredNotification.Config.Enabled {
+		t.Fatal("notification proxy mapping or disabled automation lost")
+	}
 	if !sameProxyID(restoredSite.ProxyConfigID, restored.ProxyConfigID) || !sameProxyID(restoredSite.Config.ProxyConfigID, restored.ProxyConfigID) || !sameProxyID(restoredAccount.ProxyConfigID, restored.ProxyConfigID) || restoredAccount.AutoCheckin {
 		t.Fatal("checkin binding or disabled automation lost")
 	}

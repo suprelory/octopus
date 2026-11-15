@@ -48,6 +48,9 @@ type Service struct {
 	sessionMu       sync.Mutex
 	pendingSessions map[string]pendingCheckinSession
 	pendingLogins   map[string]pendingLoginSession
+
+	notificationDispatch sync.Mutex
+	activeNotifications  int
 }
 
 func New(store *op.CheckinStore, vault *checkinsecret.Vault) *Service {
@@ -118,6 +121,14 @@ func (s *Service) Start() {
 				}
 				s.wg.Add(1)
 				go func() { defer s.wg.Done(); s.work(s.ctx, item, settings) }()
+			}
+			for {
+				row, target, ok := s.takeNotification(s.ctx)
+				if !ok {
+					break
+				}
+				s.wg.Add(1)
+				go func() { defer s.wg.Done(); s.sendNotification(s.ctx, row, target) }()
 			}
 		}
 	}()
@@ -428,8 +439,12 @@ func (s *Service) Scan(ctx context.Context) error {
 	defer s.scanMu.Unlock()
 	return s.Access(func() error {
 		now := s.Now()
-		if err := s.Store.ExpireConfirmations(ctx, now); err != nil {
+		expired, err := s.Store.ExpireConfirmations(ctx, now)
+		if err != nil {
 			return err
+		}
+		for _, run := range expired {
+			s.notifyRun(ctx, run, "confirmation_auto")
 		}
 		var pending []model.CheckinRun
 		if err := s.Store.DB.WithContext(ctx).Where("status = ? AND submit_intent_at IS NOT NULL AND next_confirm_at <= ?", "pending", now).Limit(1000).Find(&pending).Error; err != nil {

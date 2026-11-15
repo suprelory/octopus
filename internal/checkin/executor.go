@@ -21,11 +21,18 @@ func waitContext(ctx context.Context, duration time.Duration) bool {
 }
 
 func (s *Service) execute(ctx context.Context, item model.CheckinJobItem, settings model.CheckinSettings) error {
+	var job model.CheckinJob
 	complete := func(run *model.CheckinRun, outcome string, next *time.Time) error {
 		// A canceled browser/worker must not discard a response already received.
 		saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
-		return s.Store.Complete(saveCtx, item, run, outcome, next)
+		if err := s.Store.Complete(saveCtx, item, run, outcome, next); err != nil {
+			return err
+		}
+		if run != nil {
+			s.notifyRun(saveCtx, *run, job.Source)
+		}
+		return nil
 	}
 	account, err := s.Store.Account(ctx, item.AccountID)
 	if err != nil {
@@ -35,7 +42,6 @@ func (s *Service) execute(ctx context.Context, item model.CheckinJobItem, settin
 	if err != nil || !site.Config.Enabled || !account.Enabled {
 		return complete(nil, "skipped", nil)
 	}
-	var job model.CheckinJob
 	if err := s.Store.DB.WithContext(ctx).First(&job, "id = ?", item.JobID).Error; err != nil {
 		return err
 	}
