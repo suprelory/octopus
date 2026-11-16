@@ -19,6 +19,7 @@ type SiteModelRouteMetadata struct {
 	RouteGuessed            bool               `json:"route_guessed,omitempty"`
 	RouteType               SiteModelRouteType `json:"route_type,omitempty"`
 	EnableGroups            []string           `json:"enable_groups,omitempty"`
+	VerifiedTokenGroup      string             `json:"verified_token_group,omitempty"`
 	SupportedEndpointTypes  []string           `json:"supported_endpoint_types,omitempty"`
 	HeuristicEndpointTypes  []string           `json:"heuristic_endpoint_types,omitempty"`
 	NormalizedEndpointTypes []string           `json:"normalized_endpoint_types,omitempty"`

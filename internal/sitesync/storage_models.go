@@ -21,6 +21,14 @@ func preparePersistedSyncModels(accountID int, incoming []model.SiteModel, exist
 		} else {
 			applyPersistedRouteState(&item, nil, now)
 		}
+		// Route overrides and cached route metadata do not override the current
+		// key's authoritative membership, including Auto and inherited groups.
+		if item.TokenGroupVerified {
+			if metadata, ok := model.ParseSiteModelRouteMetadata(item.RouteRawPayload); ok {
+				metadata.VerifiedTokenGroup = item.GroupKey
+				item.RouteRawPayload = metadata.Marshal()
+			}
+		}
 		prepared = append(prepared, item)
 	}
 	return compactPersistedSiteModels(prepared)

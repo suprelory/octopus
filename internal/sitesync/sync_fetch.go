@@ -23,6 +23,9 @@ type siteModelFetchResult struct {
 }
 
 func fetchManagementTokens(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string) ([]model.SiteToken, error) {
+	if siteRecord.Platform == model.SitePlatformNewAPI {
+		return fetchNewAPITokens(ctx, siteRecord, account, accessToken)
+	}
 	payload, err := requestJSONWithManagedAccessToken(ctx, siteRecord, "GET", buildSiteURL(siteRecord.BaseURL, "/api/token/?p=0&size=100"), nil, accessToken, account)
 	if err != nil {
 		return nil, err
@@ -83,6 +86,9 @@ func fetchManagementGroups(ctx context.Context, siteRecord *model.Site, account 
 }
 
 func fetchModelsForSiteToken(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, token model.SiteToken) ([]string, error) {
+	if siteRecord != nil && siteRecord.Platform == model.SitePlatformNewAPI {
+		return fetchNewAPIModelsForToken(ctx, siteRecord, account, token)
+	}
 	if siteRecord != nil && siteRecord.Platform == model.SitePlatformSub2API {
 		return fetchSub2APIModelsForSiteToken(ctx, siteRecord, account, token)
 	}
@@ -157,11 +163,21 @@ func fetchManagementModels(
 	sessionFallbackFetcher func(token model.SiteToken) (siteModelFetchResult, error),
 ) (siteModelFetchResult, error) {
 	models, err := fetchModelsForSiteToken(ctx, siteRecord, account, token)
-	if len(models) > 0 {
-		return siteModelFetchResult{names: models, source: siteModelSourceSync, authoritative: true, message: fmt.Sprintf("同步到 %d 个模型", len(models))}, nil
+	if err == nil {
+		message := "上游当前没有可用模型"
+		if len(models) > 0 {
+			message = fmt.Sprintf("同步到 %d 个模型", len(models))
+		}
+		return siteModelFetchResult{names: models, source: siteModelSourceSync, authoritative: true, message: message}, nil
 	}
 	if siteRecord.Platform != model.SitePlatformNewAPI {
 		return siteModelFetchResult{source: siteModelSourceSync, authoritative: err == nil, message: "上游当前没有返回可用模型"}, err
+	}
+	// A user-level catalog cannot establish a key's authentication, IP access,
+	// quota or model permissions. Only legacy sites without a models endpoint
+	// may use this fallback, and only for unrestricted explicit-group keys.
+	if !isNewAPIModelEndpointMissing(err) || token.ModelLimitsEnabled || token.GroupKey == "auto" {
+		return siteModelFetchResult{message: "无法确认该 Key 的可用模型，已保留历史模型"}, err
 	}
 
 	if sessionFallbackFetcher == nil {
@@ -179,7 +195,7 @@ func fetchManagementModels(
 		if strings.TrimSpace(fallbackResult.message) == "" {
 			fallbackResult.message = "本次未能确认该分组模型，已保留历史模型"
 		}
-		return fallbackResult, fmt.Errorf("%s；模型接口请求失败：%w", fallbackResult.message, err)
+		return fallbackResult, newSiteBusinessError(fmt.Sprintf("%s；模型接口请求失败：%s", fallbackResult.message, sanitizeSiteStatusMessage(err)))
 	}
 	if fallbackErr != nil {
 		return fallbackResult, fallbackErr

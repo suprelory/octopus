@@ -145,7 +145,7 @@ func siteGroupHasReadyTokenTx(tx *gorm.DB, accountID int, groupKey string) (bool
 		return false, err
 	}
 	for _, token := range tokens {
-		if token.Enabled && model.IsReadySiteToken(token) && !model.IsMaskedSiteTokenValue(token.Token) {
+		if token.Enabled && model.IsReadySiteToken(token) && !model.IsMaskedSiteTokenValue(token.Token) && model.IsSiteTokenUpstreamAvailable(token) {
 			return true, nil
 		}
 	}

@@ -63,6 +63,7 @@ export type SiteSourceKeyFormItem = {
     is_new?: boolean;
     name: string;
     value_status?: 'ready' | 'masked_pending';
+    upstream_status?: number;
     last_sync_at?: number | null;
 };
 
@@ -292,6 +293,7 @@ export function buildSourceKeyFormItems(group: SiteChannelGroup): SiteSourceKeyF
         token_masked: key.token_masked,
         name: key.name ?? '',
         value_status: key.value_status,
+        upstream_status: key.upstream_status,
         last_sync_at: key.last_sync_at ?? null,
     }));
 }

@@ -207,9 +207,9 @@ func syncManagementPlatform(ctx context.Context, siteRecord *model.Site, account
 	siteModels = expandExplicitGroupModelsToGroups(siteModels, groups, tokens)
 	groupResults := finalizeSiteGroupSyncResults(account, groups, tokens, siteModels, tokenGroupResults)
 	status := buildSyncSnapshotStatus(groupResults)
-	balance, balanceUsed, todayIncome := fetchSiteAccountBalance(ctx, siteRecord, account, accessToken, firstManagedPlatformUserID(account))
 	message := buildSyncSnapshotMessage(groupResults)
-	snapshot := &syncSnapshot{accessToken: accessToken, groups: groups, tokens: tokens, models: siteModels, groupResults: groupResults, status: status, balance: balance, balanceUsed: balanceUsed, todayIncome: todayIncome, message: message}
+	snapshot := &syncSnapshot{accessToken: accessToken, groups: groups, tokens: tokens, models: siteModels, groupResults: groupResults, status: status, message: message}
+	snapshot.applyBalance(fetchSiteAccountBalanceResult(ctx, siteRecord, account, accessToken, firstManagedPlatformUserID(account), true))
 	if status == model.SiteExecutionStatusFailed {
 		return snapshot, buildSyncSnapshotFailure(groupResults)
 	}
@@ -279,8 +279,8 @@ func syncSub2APIWithAccessToken(ctx context.Context, siteRecord *model.Site, acc
 	siteModels = expandExplicitGroupModelsToGroups(siteModels, groups, tokens)
 	groupResults := finalizeSiteGroupSyncResults(account, groups, tokens, siteModels, tokenGroupResults)
 	status := buildSyncSnapshotStatus(groupResults)
-	balance, balanceUsed, todayIncome := fetchSiteAccountBalance(ctx, siteRecord, account, accessToken, 0)
-	snapshot := &syncSnapshot{accessToken: accessToken, groups: groups, tokens: tokens, models: siteModels, groupResults: groupResults, status: status, balance: balance, balanceUsed: balanceUsed, todayIncome: todayIncome, message: buildSyncSnapshotMessage(groupResults)}
+	snapshot := &syncSnapshot{accessToken: accessToken, groups: groups, tokens: tokens, models: siteModels, groupResults: groupResults, status: status, message: buildSyncSnapshotMessage(groupResults)}
+	snapshot.applyBalance(fetchSiteAccountBalanceResult(ctx, siteRecord, account, accessToken, 0, true))
 	if status == model.SiteExecutionStatusFailed {
 		return snapshot, buildSyncSnapshotFailure(groupResults)
 	}
@@ -308,6 +308,9 @@ func syncWithDirectToken(ctx context.Context, siteRecord *model.Site, account *m
 		firstManagedPlatformUserID(account),
 		siteModels,
 	)
+	if siteRecord.Platform == model.SitePlatformNewAPI && err == nil {
+		siteModels = confirmNewAPITokenModelGroups(siteModels)
+	}
 	baseGroupResult := siteGroupSyncResult{
 		GroupKey:      model.SiteDefaultGroupKey,
 		GroupName:     model.SiteDefaultGroupName,

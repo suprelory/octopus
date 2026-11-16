@@ -144,7 +144,7 @@ func finalizeSiteGroupSyncResults(
 
 	for _, token := range tokens {
 		groupKey := model.NormalizeSiteGroupKey(token.GroupKey)
-		hasKeyMap[groupKey] = true
+		hasKeyMap[groupKey] = hasKeyMap[groupKey] || isUsableSiteToken(token)
 		currentKeys[groupKey] = struct{}{}
 	}
 	for _, group := range groups {
@@ -163,7 +163,7 @@ func finalizeSiteGroupSyncResults(
 	for _, item := range tokenResults {
 		item.GroupKey = model.NormalizeSiteGroupKey(item.GroupKey)
 		item.GroupName = resolveGroupName(item.GroupKey, item.GroupName, groupNames)
-		item.HasKey = true
+		item.HasKey = hasKeyMap[item.GroupKey]
 		if item.ModelCount == 0 {
 			item.ModelCount = modelCounts[item.GroupKey]
 		}
@@ -185,7 +185,7 @@ func finalizeSiteGroupSyncResults(
 			HasKey:     hasKeyMap[groupKey],
 			ModelCount: count,
 		}
-		if count > 0 {
+		if count > 0 && hasKeyMap[groupKey] {
 			result.Status = siteGroupSyncStatusSynced
 			result.Authoritative = true
 			result.Message = fmt.Sprintf("通过显式分组元数据同步到 %d 个模型", count)

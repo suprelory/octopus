@@ -217,8 +217,10 @@ type SiteModel struct {
 	RouteSource     SiteModelRouteSource `json:"route_source" gorm:"type:varchar(32);not null;default:'sync_inferred'"`
 	ManualOverride  bool                 `json:"manual_override" gorm:"default:false"`
 	RouteRawPayload string               `json:"route_raw_payload"`
-	RouteUpdatedAt  *time.Time           `json:"route_updated_at"`
-	Disabled        bool                 `json:"disabled" gorm:"default:false;index"`
+	// Carries token-scoped model membership through route preservation during sync.
+	TokenGroupVerified bool       `json:"-" gorm:"-"`
+	RouteUpdatedAt     *time.Time `json:"route_updated_at"`
+	Disabled           bool       `json:"disabled" gorm:"default:false;index"`
 }
 
 type SiteChannelBinding struct {

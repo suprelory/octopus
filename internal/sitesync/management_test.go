@@ -235,8 +235,8 @@ func TestSyncManagementPlatformFallsBackToUserModelsWhenTokenModelsUnavailable(t
 			_, _ = w.Write([]byte(`<!doctype html><html><body>site home</body></html>`))
 		case r.URL.Path == "/v1/models":
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":{"message":"unauthorized"}}`))
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":{"message":"models endpoint unavailable"}}`))
 		case r.URL.Path == "/api/user/models":
 			w.Header().Set("Content-Type", "application/json")
 			observedUserModelsHeader = r.Header.Get("New-API-User")
@@ -305,11 +305,9 @@ func TestSyncManagementPlatformDoesNotFallbackWithoutExplicitGroupMatch(t *testi
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"data":[{"id":"default","name":"default"}]}`))
 		case r.URL.Path == "/models":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"data":[]}`))
+			http.NotFound(w, r)
 		case r.URL.Path == "/v1/models":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"data":[]}`))
+			http.NotFound(w, r)
 		case r.URL.Path == "/api/user/models":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"data":["gpt-4o-mini"]}`))
@@ -389,7 +387,7 @@ func TestSyncManagementPlatformKeepsGroupGuidanceAndUpstreamError(t *testing.T) 
 	if err == nil {
 		t.Fatalf("expected syncManagementPlatform to fail when explicit group metadata is missing")
 	}
-	if !strings.Contains(err.Error(), `decode response failed: New API`) || !strings.Contains(err.Error(), "显式分组元数据") {
+	if !strings.Contains(err.Error(), `http 404`) || !strings.Contains(err.Error(), "显式分组元数据") {
 		t.Fatalf("expected group guidance and the upstream error, got %v", err)
 	}
 	if !strings.Contains(err.Error(), `站点账号同步失败：所有分组都未能确认模型`) {
@@ -455,8 +453,8 @@ func TestSyncManagementPlatformFallsBackUsingAvailableModelExplicitGroups(t *tes
 			_, _ = w.Write([]byte(`<!doctype html><html><body>site home</body></html>`))
 		case r.URL.Path == "/v1/models":
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":{"message":"unauthorized"}}`))
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":{"message":"models endpoint unavailable"}}`))
 		case r.URL.Path == "/api/user/models":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"data":["gpt-4o-mini","gpt-4.1"]}`))
@@ -497,7 +495,7 @@ func TestSyncManagementPlatformFallsBackUsingAvailableModelExplicitGroups(t *tes
 	}
 }
 
-func TestSyncManagementPlatformMarksAllGroupsEmptyWhenSessionModelsAreEmpty(t *testing.T) {
+func TestSyncManagementPlatformMarksAllGroupsEmptyWhenTokenModelsAreEmpty(t *testing.T) {
 	platformUserID := 7788
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -522,7 +520,7 @@ func TestSyncManagementPlatformMarksAllGroupsEmptyWhenSessionModelsAreEmpty(t *t
 			_, _ = w.Write([]byte(`{"data":[]}`))
 		case r.URL.Path == "/api/user/self":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"success":true,"data":{"id":7788,"username":"managed-user"}}`))
+			_, _ = w.Write([]byte(`{"success":true,"data":{"id":7788,"username":"managed-user","quota":0,"used_quota":0,"today_income":0}}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -547,7 +545,7 @@ func TestSyncManagementPlatformMarksAllGroupsEmptyWhenSessionModelsAreEmpty(t *t
 		t.Fatalf("expected success snapshot status, got %q", snapshot.status)
 	}
 	if len(snapshot.models) != 0 {
-		t.Fatalf("expected no models when session model list is empty, got %+v", snapshot.models)
+		t.Fatalf("expected no models when token model list is empty, got %+v", snapshot.models)
 	}
 	for _, item := range snapshot.groupResults {
 		if item.Status != siteGroupSyncStatusEmpty {
@@ -583,8 +581,8 @@ func TestSyncManagementPlatformFallsBackPerFailedGroupWithoutOverwritingExactMod
 			case "Bearer sk-managed-key-default":
 				_, _ = w.Write([]byte(`{"data":[{"id":"gpt-4o-mini"}]}`))
 			case "Bearer sk-managed-key-vip":
-				w.WriteHeader(http.StatusUnauthorized)
-				_, _ = w.Write([]byte(`{"error":{"message":"unauthorized"}}`))
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"error":{"message":"models endpoint unavailable"}}`))
 			default:
 				w.WriteHeader(http.StatusUnauthorized)
 				_, _ = w.Write([]byte(`{"error":{"message":"unauthorized"}}`))
@@ -757,11 +755,9 @@ func TestSyncManagementPlatformCachesFallbackUserModelsAcrossFailedGroups(t *tes
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"data":[{"id":"default","name":"default"},{"id":"vip","name":"VIP"}]}`))
 		case r.URL.Path == "/models":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"data":[]}`))
+			http.NotFound(w, r)
 		case r.URL.Path == "/v1/models":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"data":[]}`))
+			http.NotFound(w, r)
 		case r.URL.Path == "/api/user/models":
 			userModelCalls++
 			w.Header().Set("Content-Type", "application/json")

@@ -129,6 +129,9 @@ func siteModelBelongsToProjectedGroup(item model.SiteModel, groupKey string) boo
 		return true
 	}
 	targetGroupKey := model.NormalizeSiteGroupKey(groupKey)
+	if metadata.VerifiedTokenGroup != "" && metadata.VerifiedTokenGroup == targetGroupKey {
+		return true
+	}
 	for _, explicitGroupKey := range metadata.EnableGroups {
 		if model.NormalizeSiteGroupKey(explicitGroupKey) == targetGroupKey {
 			return true

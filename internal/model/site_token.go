@@ -13,17 +13,20 @@ const (
 )
 
 type SiteToken struct {
-	ID            int                  `json:"id" gorm:"primaryKey"`
-	SiteAccountID int                  `json:"site_account_id" gorm:"index;not null"`
-	Name          string               `json:"name"`
-	Token         string               `json:"token" gorm:"not null"`
-	ValueStatus   SiteTokenValueStatus `json:"value_status" gorm:"type:varchar(32);not null;default:'ready'"`
-	GroupKey      string               `json:"group_key" gorm:"size:128;index"`
-	GroupName     string               `json:"group_name"`
-	Enabled       bool                 `json:"enabled" gorm:"default:true"`
-	Source        string               `json:"source"`
-	IsDefault     bool                 `json:"is_default" gorm:"default:false"`
-	LastSyncAt    *time.Time           `json:"last_sync_at"`
+	ID                 int                  `json:"id" gorm:"primaryKey"`
+	SiteAccountID      int                  `json:"site_account_id" gorm:"index;not null"`
+	UpstreamID         int                  `json:"upstream_id,omitempty"`
+	UpstreamStatus     int                  `json:"upstream_status,omitempty"`
+	ModelLimitsEnabled bool                 `json:"-" gorm:"-"`
+	Name               string               `json:"name"`
+	Token              string               `json:"token" gorm:"not null"`
+	ValueStatus        SiteTokenValueStatus `json:"value_status" gorm:"type:varchar(32);not null;default:'ready'"`
+	GroupKey           string               `json:"group_key" gorm:"size:128;index"`
+	GroupName          string               `json:"group_name"`
+	Enabled            bool                 `json:"enabled"`
+	Source             string               `json:"source"`
+	IsDefault          bool                 `json:"is_default" gorm:"default:false"`
+	LastSyncAt         *time.Time           `json:"last_sync_at"`
 }
 
 func NormalizeSiteSyncTokenValue(value string) string {
@@ -127,4 +130,10 @@ func NormalizeSiteTokenValueStatus(value SiteTokenValueStatus, token string) Sit
 
 func IsReadySiteToken(token SiteToken) bool {
 	return NormalizeSiteTokenValueStatus(token.ValueStatus, token.Token) == SiteTokenValueStatusReady
+}
+
+// Zero denotes a platform or imported token without upstream status metadata.
+// Enabled remains the local switch; an upstream suspension must not overwrite it.
+func IsSiteTokenUpstreamAvailable(token SiteToken) bool {
+	return token.UpstreamStatus == 0 || token.UpstreamStatus == 1
 }

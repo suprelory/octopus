@@ -157,7 +157,7 @@ func buildSiteChannelGroups(ctx context.Context, site model.Site, account model.
 		if model.NormalizeSiteTokenValueStatus(token.ValueStatus, token.Token) == model.SiteTokenValueStatusMaskedPending {
 			group.MaskedPendingKeyCount++
 		}
-		if token.Enabled && model.IsReadySiteToken(token) && !model.IsMaskedSiteTokenValue(token.Token) {
+		if token.Enabled && model.IsReadySiteToken(token) && !model.IsMaskedSiteTokenValue(token.Token) && model.IsSiteTokenUpstreamAvailable(token) {
 			group.EnabledKeyCount++
 		}
 		var lastSyncAt *int64
@@ -166,15 +166,16 @@ func buildSiteChannelGroups(ctx context.Context, site model.Site, account model.
 			lastSyncAt = &unix
 		}
 		group.SourceKeys = append(group.SourceKeys, model.SiteSourceKey{
-			ID:          token.ID,
-			Enabled:     token.Enabled,
-			Token:       token.Token,
-			TokenMasked: maskProjectedChannelKey(token.Token),
-			Name:        token.Name,
-			GroupKey:    key,
-			GroupName:   model.NormalizeSiteGroupName(key, token.GroupName),
-			ValueStatus: model.NormalizeSiteTokenValueStatus(token.ValueStatus, token.Token),
-			LastSyncAt:  lastSyncAt,
+			ID:             token.ID,
+			Enabled:        token.Enabled,
+			UpstreamStatus: token.UpstreamStatus,
+			Token:          token.Token,
+			TokenMasked:    maskProjectedChannelKey(token.Token),
+			Name:           token.Name,
+			GroupKey:       key,
+			GroupName:      model.NormalizeSiteGroupName(key, token.GroupName),
+			ValueStatus:    model.NormalizeSiteTokenValueStatus(token.ValueStatus, token.Token),
+			LastSyncAt:     lastSyncAt,
 		})
 	}
 	for _, binding := range account.ChannelBindings {

@@ -83,7 +83,6 @@ func syncAnyRouter(ctx context.Context, siteRecord *model.Site, account *model.S
 	siteModels = expandExplicitGroupModelsToGroups(siteModels, groups, tokens)
 	groupResults := finalizeSiteGroupSyncResults(account, groups, tokens, siteModels, tokenGroupResults)
 	status := buildSyncSnapshotStatus(groupResults)
-	balance, balanceUsed, todayIncome := fetchSiteAccountBalance(ctx, siteRecord, account, accessToken, userID)
 	message := buildSyncSnapshotMessage(groupResults)
 	snapshot := &syncSnapshot{
 		accessToken:  accessToken,
@@ -92,11 +91,9 @@ func syncAnyRouter(ctx context.Context, siteRecord *model.Site, account *model.S
 		models:       siteModels,
 		groupResults: groupResults,
 		status:       status,
-		balance:      balance,
-		balanceUsed:  balanceUsed,
-		todayIncome:  todayIncome,
 		message:      message,
 	}
+	snapshot.applyBalance(fetchSiteAccountBalanceResult(ctx, siteRecord, account, accessToken, userID, true))
 	if status == model.SiteExecutionStatusFailed {
 		return snapshot, buildSyncSnapshotFailure(groupResults)
 	}

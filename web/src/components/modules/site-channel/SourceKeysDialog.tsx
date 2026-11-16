@@ -170,6 +170,9 @@ export function SourceKeysDialog({
                                                 <div className="text-xs text-muted-foreground">
                                                     {item.id ? `站点 Key #${item.id}` : '新站点 Key'}
                                                     {item.value_status === 'masked_pending' ? ' · 待补全' : ''}
+                                                    {item.upstream_status === 2 ? ' · 上游已禁用' : ''}
+                                                    {item.upstream_status === 3 ? ' · 上游已过期' : ''}
+                                                    {item.upstream_status === 4 ? ' · 上游额度已耗尽' : ''}
                                                 </div>
                                                 <Button
                                                     type="button"

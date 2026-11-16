@@ -102,6 +102,7 @@ export type SiteChannelGroup = {
 export type SiteSourceKey = {
     id: number;
     enabled: boolean;
+    upstream_status?: number;
     token: string;
     token_masked: string;
     name: string;

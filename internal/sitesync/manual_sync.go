@@ -144,16 +144,19 @@ func buildManualSyncPlan(siteRecord *model.Site, account *model.SiteAccount, req
 	}
 
 	snapshot := &syncSnapshot{
-		accessToken:  accessToken,
-		groups:       cloneSiteGroups(finalGroups),
-		tokens:       cloneSiteTokens(finalTokens),
-		models:       cloneSiteModels(affectedModels),
-		groupResults: append([]siteGroupSyncResult(nil), groupResults...),
-		status:       model.SiteExecutionStatusSuccess,
-		balance:      balance,
-		balanceUsed:  balanceUsed,
-		todayIncome:  todayIncome,
-		message:      buildManualSyncMessage(sections, groupResults),
+		accessToken:      accessToken,
+		groups:           cloneSiteGroups(finalGroups),
+		tokens:           cloneSiteTokens(finalTokens),
+		models:           cloneSiteModels(affectedModels),
+		groupResults:     append([]siteGroupSyncResult(nil), groupResults...),
+		status:           model.SiteExecutionStatusSuccess,
+		balance:          balance,
+		balanceUsed:      balanceUsed,
+		todayIncome:      todayIncome,
+		balanceKnown:     sections.balance != nil,
+		balanceUsedKnown: sections.balanceUsed != nil,
+		todayIncomeKnown: sections.todayIncome != nil,
+		message:          buildManualSyncMessage(sections, groupResults),
 	}
 
 	previewGroups, channelCount := buildManualSyncPreviewGroups(siteRecord, account, finalGroups, finalTokens, finalModels, explicitModelGroups, groupResults)

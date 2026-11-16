@@ -76,9 +76,19 @@ func refreshAccountBalanceAfterCheckin(ctx context.Context, siteRecord *model.Si
 	return result
 }
 
-func fetchSiteAccountBalance(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int) (float64, float64, float64) {
-	result := fetchSiteAccountBalanceResult(ctx, siteRecord, account, accessToken, userID, true)
-	return result.balance, result.balanceUsed, result.todayIncome
+func (snapshot *syncSnapshot) applyBalance(result siteBalanceFetchResult) {
+	if !result.ok {
+		if result.reason != "" {
+			if snapshot.status == model.SiteExecutionStatusSuccess {
+				snapshot.status = model.SiteExecutionStatusPartial
+			}
+			snapshot.message += "；余额未更新，已保留原值"
+		}
+		return
+	}
+	snapshot.balance, snapshot.balanceKnown = result.balance, true
+	snapshot.balanceUsed, snapshot.balanceUsedKnown = result.balanceUsed, result.usedKnown
+	snapshot.todayIncome, snapshot.todayIncomeKnown = result.todayIncome, result.incomeKnown
 }
 
 func fetchSiteAccountBalanceResult(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int, includeIncomeLogs bool) (result siteBalanceFetchResult) {

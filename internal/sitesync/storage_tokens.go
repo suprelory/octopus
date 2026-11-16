@@ -96,19 +96,22 @@ func mergeReadyIncomingSiteToken(incoming model.SiteToken, existingTokens []mode
 				continue
 			}
 		}
-		if !sameComparableSiteTokenValue(existing.Token, incoming.Token) {
+		sameUpstream := incoming.UpstreamID > 0 && incoming.UpstreamID == existing.UpstreamID
+		if !sameUpstream && !sameComparableSiteTokenValue(existing.Token, incoming.Token) {
 			continue
 		}
-		if model.NormalizeSiteGroupKey(existing.GroupKey) != incoming.GroupKey {
+		if !sameUpstream && model.NormalizeSiteGroupKey(existing.GroupKey) != incoming.GroupKey {
 			continue
 		}
 		incoming.ID = existing.ID
 		incomingsToken := strings.TrimSpace(incoming.Token)
 		existingToken := strings.TrimSpace(existing.Token)
-		if existingToken != "" && existingToken != incomingsToken {
+		if existingToken != "" && existingToken != incomingsToken && sameComparableSiteTokenValue(existingToken, incomingsToken) {
 			incoming.Token = existingToken
 		}
-		incoming.Enabled = existing.Enabled
+		if model.IsReadySiteToken(existing) {
+			incoming.Enabled = existing.Enabled
+		}
 		if existing.ID != 0 {
 			usedExistingIDs[existing.ID] = struct{}{}
 		}

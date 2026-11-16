@@ -54,15 +54,16 @@ type SiteChannelGroup struct {
 }
 
 type SiteSourceKey struct {
-	ID          int                  `json:"id"`
-	Enabled     bool                 `json:"enabled"`
-	Token       string               `json:"token"`
-	TokenMasked string               `json:"token_masked"`
-	Name        string               `json:"name"`
-	GroupKey    string               `json:"group_key"`
-	GroupName   string               `json:"group_name"`
-	ValueStatus SiteTokenValueStatus `json:"value_status"`
-	LastSyncAt  *int64               `json:"last_sync_at,omitempty"`
+	ID             int                  `json:"id"`
+	Enabled        bool                 `json:"enabled"`
+	UpstreamStatus int                  `json:"upstream_status,omitempty"`
+	Token          string               `json:"token"`
+	TokenMasked    string               `json:"token_masked"`
+	Name           string               `json:"name"`
+	GroupKey       string               `json:"group_key"`
+	GroupName      string               `json:"group_name"`
+	ValueStatus    SiteTokenValueStatus `json:"value_status"`
+	LastSyncAt     *int64               `json:"last_sync_at,omitempty"`
 }
 
 type SiteProjectedChannelSettings struct {

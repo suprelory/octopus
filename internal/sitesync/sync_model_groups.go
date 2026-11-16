@@ -17,6 +17,9 @@ func pickModelTokensByGroup(tokens []model.SiteToken) []model.SiteToken {
 	order := make([]string, 0, len(tokens))
 	selected := make(map[string]model.SiteToken, len(tokens))
 	for _, token := range tokens {
+		if !isUsableSiteToken(token) {
+			continue
+		}
 		groupKey := model.NormalizeSiteGroupKey(token.GroupKey)
 		token.GroupKey = groupKey
 		token.GroupName = model.NormalizeSiteGroupName(groupKey, token.GroupName)
@@ -111,6 +114,9 @@ func syncSiteModelsByGroup(
 			groupModels = applyKnownRouteDetectionsToSiteModels(groupModels, result.detections)
 		} else {
 			groupModels = applyDetectedRoutesToSiteModels(ctx, siteRecord, account, accessToken, token, platformUserID, groupModels)
+		}
+		if siteRecord.Platform == model.SitePlatformNewAPI && groupSource == siteModelSourceSync {
+			groupModels = confirmNewAPITokenModelGroups(groupModels)
 		}
 		for _, item := range groupModels {
 			key := model.NormalizeSiteGroupKey(item.GroupKey) + "\x00" + strings.TrimSpace(item.ModelName)

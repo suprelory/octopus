@@ -31,6 +31,8 @@ export type SiteRouteBaseURL = {
 export type SiteToken = {
   id: number;
   site_account_id: number;
+  upstream_id?: number;
+  upstream_status?: number;
   name: string;
   token: string;
   group_key: string;
